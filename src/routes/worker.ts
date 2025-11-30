@@ -1,10 +1,9 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
-import { APP_SHELL } from "@/constants";
+import { APP_SHELL, VERSION } from "@/constants";
 import { pool } from "@/libs/pool";
 import { loadWorkerConfig } from "@/libs/pool/config";
 import { proxy } from "@/libs/proxy";
-import { version } from "@/package.json";
 import { getAppDir } from "@/utils/get-app-dir";
 
 async function run(ctx: Context, app: string) {
@@ -40,4 +39,4 @@ async function run(ctx: Context, app: string) {
 
 export default new Hono()
   .all(":app/*", (ctx) => run(ctx, ctx.req.param("app")))
-  .get("/*", (ctx) => (APP_SHELL ? run(ctx, APP_SHELL) : new Response(`Buntime v${version}`)));
+  .get("/*", (ctx) => (APP_SHELL ? run(ctx, APP_SHELL) : new Response(`Buntime v${VERSION}`)));

@@ -145,7 +145,7 @@ bun test:watch       # Run tests in watch mode
 
 ```json
 {
-  "@/*": ["./*"]
+  "@/*": ["./src/*"]
 }
 ```
 
@@ -161,7 +161,7 @@ bun install
 
 2. **Run server:**
 ```bash
-bun index.ts
+bun server.ts
 ```
 
 3. **Test worker apps:**

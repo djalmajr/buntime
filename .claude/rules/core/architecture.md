@@ -4,28 +4,30 @@
 
 ```
 buntime/
-├── index.ts              # Entry point (Bun.serve + Hono)
-├── constants.ts          # Environment variables
-├── libs/
-│   ├── errors.ts         # Error handling utilities
-│   ├── pool/             # Worker pool management
-│   │   ├── index.ts      # WorkerPool class & singleton
-│   │   ├── instance.ts   # WorkerInstance class
-│   │   ├── wrapper.ts    # Worker thread code
-│   │   ├── config.ts     # Worker configuration
-│   │   ├── metrics.ts    # Pool metrics
-│   │   └── types.ts      # Message types
-│   └── proxy.ts          # ProxyServer class (HTTP & WebSocket)
-├── routes/
-│   ├── internal/         # /_/* routes
-│   │   ├── index.ts      # Internal routes aggregator
-│   │   └── deployments.ts
-│   └── worker.ts         # /:app/* routes
-└── utils/
-    ├── get-app-dir.ts    # App directory resolution
-    ├── get-entrypoint.ts # Entrypoint resolution
-    ├── serve-static.ts   # Static file serving
-    └── zod-helpers.ts    # Zod validation utilities
+├── server.ts             # Entry point (Bun.serve)
+├── src/
+│   ├── app.ts            # Hono app (routes aggregator)
+│   ├── constants.ts      # Environment variables
+│   ├── libs/
+│   │   ├── errors.ts     # Error handling utilities
+│   │   ├── proxy.ts      # ProxyServer class (HTTP & WebSocket)
+│   │   └── pool/         # Worker pool management
+│   │       ├── index.ts      # WorkerPool class & singleton
+│   │       ├── instance.ts   # WorkerInstance class
+│   │       ├── wrapper.ts    # Worker thread code
+│   │       ├── config.ts     # Worker configuration
+│   │       ├── metrics.ts    # Pool metrics
+│   │       └── types.ts      # Message types
+│   ├── routes/
+│   │   ├── internal/         # /_/* routes
+│   │   │   ├── index.ts      # Internal routes aggregator
+│   │   │   └── deployments.ts
+│   │   └── worker.ts         # /:app/* routes
+│   └── utils/
+│       ├── get-app-dir.ts    # App directory resolution
+│       ├── get-entrypoint.ts # Entrypoint resolution
+│       ├── serve-static.ts   # Static file serving
+│       └── zod-helpers.ts    # Zod validation utilities
 ```
 
 ## Request Flow
@@ -48,13 +50,13 @@ flowchart TD
 
 ## Entry Point
 
-### index.ts
+### server.ts
 
 ```typescript
-const app = new Hono()
-  .route("/_", internal)
-  .route("/", workers)
-  .onError(errorToResponse);
+import app from "@/app";
+import { PORT } from "@/constants";
+import { pool } from "@/libs/pool";
+import { proxy } from "@/libs/proxy";
 
 const server = Bun.serve({
   fetch: app.fetch,
@@ -111,7 +113,7 @@ stateDiagram-v2
 
 ## Key Components
 
-### libs/pool/
+### src/libs/pool/
 
 | File | Thread | Responsibility |
 |------|--------|----------------|
@@ -122,7 +124,7 @@ stateDiagram-v2
 | `metrics.ts` | Main | Pool statistics |
 | `types.ts` | Both | Worker message types |
 
-### libs/proxy.ts (ProxyServer class)
+### src/libs/proxy.ts (ProxyServer class)
 
 | Method | Description |
 |--------|-------------|
@@ -132,7 +134,7 @@ stateDiagram-v2
 | `rewritePath({ groups, pathname, rule })` | Apply path rewrite with capture groups |
 | `request(req, rule, path)` | Execute HTTP or WebSocket proxy |
 
-### utils/
+### src/utils/
 
 | File | Description |
 |------|-------------|

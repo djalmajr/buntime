@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { number } from "@/utils/zod-helpers";
-import { version } from "./package.json";
+import { version } from "../package.json";
 
 const envSchema = z.object({
   APP_SHELL: z.string().optional(),
@@ -19,5 +19,7 @@ if (error) {
 }
 
 export const { APP_SHELL, APPS_DIR, DELAY_MS, NODE_ENV, PORT, POOL_SIZE } = data;
+
+export const IS_DEV = NODE_ENV === "development";
 
 export const VERSION = version;

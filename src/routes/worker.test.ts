@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { version } from "@/package.json";
+import { VERSION } from "@/constants";
 
 const TEST_DIR = join(import.meta.dir, ".test-apps");
 
@@ -40,7 +40,7 @@ describe("Worker Routes", () => {
       const response = await workerRoutes.request("/");
 
       expect(response.status).toBe(200);
-      expect(await response.text()).toBe(`Buntime v${version}`);
+      expect(await response.text()).toBe(`Buntime v${VERSION}`);
     });
   });
 

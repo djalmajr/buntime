@@ -18,17 +18,18 @@ export class WorkerInstance {
     entrypoint: string,
     private config: WorkerConfig,
   ) {
-    const wrapper = join(import.meta.dir, "wrapper.ts");
     const ENTRYPOINT = join(appDir, entrypoint);
 
     this.id = crypto.randomUUID();
-    this.worker = new Worker(wrapper, {
+    this.worker = new Worker(join(import.meta.dir, "wrapper.ts"), {
       env: {
         ...Bun.env,
         APP_DIR: appDir,
         ENTRYPOINT,
+        WORKER_CONFIG: JSON.stringify(config),
         WORKER_ID: this.id,
       },
+      preload: [join(import.meta.dir, "preloads/setup.ts")],
       smol: config.lowMemory,
     });
 

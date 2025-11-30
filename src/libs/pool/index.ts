@@ -1,7 +1,7 @@
 import QuickLRU from "quick-lru";
 import { NODE_ENV, POOL_SIZE } from "@/constants";
 import { getEntrypoint } from "@/utils/get-entrypoint";
-import { loadWorkerConfig, type WorkerConfig } from "./config";
+import type { WorkerConfig } from "./config";
 import { WorkerInstance } from "./instance";
 import { type PoolMetrics, WorkerMetrics } from "./metrics";
 
@@ -41,16 +41,15 @@ export class WorkerPool {
     });
   }
 
-  async getOrCreate(appDir: string): Promise<WorkerInstance> {
+  async getOrCreate(appDir: string, config: WorkerConfig): Promise<WorkerInstance> {
     const startTime = performance.now();
-    const config = await loadWorkerConfig(appDir);
-    const entry = await getEntrypoint(appDir, config.entrypoint);
     const [, name, version] = appDir.match(/([^/]+)\/([^/]+)\/?$/) || [];
     const key = `${name}@${version}`;
 
     // Check cache for workers with TTL > 0
     if (config.ttlMs > 0) {
       const existing = this.cache.get(key);
+
       if (existing?.isHealthy()) {
         this.metrics.recordHit();
         existing.touch();
@@ -73,6 +72,7 @@ export class WorkerPool {
     this.metrics.recordWorkerCreated();
 
     try {
+      const entry = await getEntrypoint(appDir, config.entrypoint);
       const instance = new WorkerInstance(appDir, entry.path, config);
 
       if (config.ttlMs > 0) {

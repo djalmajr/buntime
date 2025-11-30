@@ -17,7 +17,9 @@ buntime/
 │   │       ├── wrapper.ts    # Worker thread code
 │   │       ├── config.ts     # Worker configuration
 │   │       ├── metrics.ts    # Pool metrics
-│   │       └── types.ts      # Message types
+│   │       ├── types.ts      # Message types
+│   │       └── preloads/
+│   │           └── setup.ts  # Worker preload (auto-install)
 │   ├── routes/
 │   │   ├── internal/         # /_/* routes
 │   │   │   ├── index.ts      # Internal routes aggregator
@@ -104,6 +106,7 @@ stateDiagram-v2
 | `config.ts` | Both | Load and validate worker.config.json |
 | `metrics.ts` | Main | Pool statistics |
 | `types.ts` | Both | Worker message types |
+| `preloads/setup.ts` | Worker | Preload script (auto-install dependencies) |
 
 ### src/libs/proxy.ts (ProxyServer class)
 

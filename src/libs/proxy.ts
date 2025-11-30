@@ -1,15 +1,14 @@
 import type { Server, ServerWebSocket } from "bun";
-import type { ProxyRule } from "./pool/config";
+import type { CompiledProxyRule } from "./pool/config";
 
-interface MatchRule {
+interface MatchResult {
   groups: string[];
-  pattern: string;
-  rule: ProxyRule;
+  rule: CompiledProxyRule;
 }
 
 interface WebSocketData {
   pathname: string;
-  rule: ProxyRule;
+  rule: CompiledProxyRule;
   target: WebSocket | null;
 }
 
@@ -38,23 +37,16 @@ class ProxyServer {
 
   /**
    * Match a request path against proxy rules
-   * Patterns are JavaScript regex strings (e.g., "^/api/v(\\d+)/(.*)$")
-   * Returns the pattern, rule, and captured groups from the match
+   * Rules have pre-compiled regex patterns from config
+   * Returns the rule and captured groups from the match
    */
-  matchRule(pathname: string, rules?: Record<string, ProxyRule>): MatchRule | null {
+  matchRule(pathname: string, rules?: CompiledProxyRule[]): MatchResult | null {
     if (!rules) return null;
 
-    for (const [pattern, rule] of Object.entries(rules)) {
-      try {
-        const regex = new RegExp(pattern);
-        const match = pathname.match(regex);
-
-        if (match) {
-          const groups = match.slice(1);
-          return { groups, pattern, rule };
-        }
-      } catch {
-        console.warn(`[Proxy] Invalid regex pattern: ${pattern}`);
+    for (const rule of rules) {
+      const match = pathname.match(rule.regex);
+      if (match) {
+        return { groups: match.slice(1), rule };
       }
     }
 
@@ -74,7 +66,7 @@ class ProxyServer {
    * - Pattern: "^/old/(.*)$", Rewrite: "/new/$1"
    *   Input: "/old/page" → Output: "/new/page"
    */
-  rewritePath(opts: Omit<MatchRule, "pattern"> & { pathname: string }): string {
+  rewritePath(opts: MatchResult & { pathname: string }): string {
     if (!opts.rule.rewrite) {
       return opts.pathname;
     }
@@ -92,13 +84,13 @@ class ProxyServer {
    * Automatically detects WebSocket upgrade requests
    * Returns null when WebSocket upgrade succeeds (Bun handles the connection)
    */
-  async request(req: Request, rule: ProxyRule, path: string): Promise<Response | null> {
+  async request(req: Request, rule: CompiledProxyRule, path: string): Promise<Response | null> {
     return req.headers.get("upgrade")?.toLowerCase() === "websocket"
       ? this.upgradeToWebSocket(req, rule, path)
       : this.httpProxy(req, rule, path);
   }
 
-  private upgradeToWebSocket(req: Request, rule: ProxyRule, path: string): Response | null {
+  private upgradeToWebSocket(req: Request, rule: CompiledProxyRule, path: string): Response | null {
     if (!this.server) {
       return new Response("WebSocket server not configured", { status: 500 });
     }
@@ -113,7 +105,7 @@ class ProxyServer {
     return null;
   }
 
-  private async httpProxy(req: Request, rule: ProxyRule, path: string): Promise<Response> {
+  private async httpProxy(req: Request, rule: CompiledProxyRule, path: string): Promise<Response> {
     const url = new URL(req.url);
     const targetUrl = new URL(path, rule.target);
     targetUrl.search = url.search;

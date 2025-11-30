@@ -13,12 +13,17 @@ export interface PoolMetrics {
   uptimeMs: number;
 }
 
+const BUFFER_SIZE = 100;
+
 export class WorkerMetrics {
   private evictions = 0;
   private hits = 0;
   private misses = 0;
   private requestCount = 0;
-  private requestTimes: number[] = [];
+  // Circular buffer for request times (avoids O(n) shift operations)
+  private requestTimes = new Float64Array(BUFFER_SIZE);
+  private requestTimesIndex = 0;
+  private requestTimesCount = 0;
   private startTime = Date.now();
   private totalWorkersFailed = 0;
   private totalWorkersCreated = 0;
@@ -27,10 +32,15 @@ export class WorkerMetrics {
     const now = Date.now();
     const uptimeMs = now - this.startTime;
     const requestsPerSecond = this.requestCount / (uptimeMs / 1000);
-    const avgResponseTimeMs =
-      this.requestTimes.length > 0
-        ? this.requestTimes.reduce((a, b) => a + b, 0) / this.requestTimes.length
-        : 0;
+
+    let avgResponseTimeMs = 0;
+    if (this.requestTimesCount > 0) {
+      let sum = 0;
+      for (let i = 0; i < this.requestTimesCount; i++) {
+        sum += this.requestTimes[i]!;
+      }
+      avgResponseTimeMs = sum / this.requestTimesCount;
+    }
 
     const totalCacheRequests = this.hits + this.misses;
     const hitRate = totalCacheRequests > 0 ? this.hits / totalCacheRequests : 0;
@@ -65,11 +75,11 @@ export class WorkerMetrics {
 
   recordRequest(durationMs: number) {
     this.requestCount++;
-    this.requestTimes.push(durationMs);
-
-    // Keep only last 100 requests for avg calculation
-    if (this.requestTimes.length > 100) {
-      this.requestTimes.shift();
+    // Circular buffer - O(1) instead of O(n) shift
+    this.requestTimes[this.requestTimesIndex] = durationMs;
+    this.requestTimesIndex = (this.requestTimesIndex + 1) % BUFFER_SIZE;
+    if (this.requestTimesCount < BUFFER_SIZE) {
+      this.requestTimesCount++;
     }
   }
 
@@ -86,7 +96,9 @@ export class WorkerMetrics {
     this.hits = 0;
     this.misses = 0;
     this.requestCount = 0;
-    this.requestTimes = [];
+    this.requestTimes.fill(0);
+    this.requestTimesIndex = 0;
+    this.requestTimesCount = 0;
     this.startTime = Date.now();
     this.totalWorkersFailed = 0;
     this.totalWorkersCreated = 0;

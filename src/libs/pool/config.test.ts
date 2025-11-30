@@ -57,19 +57,20 @@ describe("loadWorkerConfig", () => {
 
     it("should load proxy configuration", async () => {
       const json = writeConfig("worker.config.json", {
-        proxy: {
-          [PATTERN]: {
+        proxy: [
+          {
             changeOrigin: true,
+            pattern: PATTERN,
             rewrite: "/v1/$1",
             target: "http://localhost:3000",
           },
-        },
+        ],
       });
 
       const config = await loadWorkerConfig(APP_DIR);
 
       expect(config.proxy).toBeDefined();
-      expect(config.proxy![PATTERN]).toEqual(json.proxy[PATTERN]);
+      expect(config.proxy?.[0]?.target).toBe(json.proxy[0]!.target);
     });
   });
 
@@ -107,32 +108,32 @@ describe("loadWorkerConfig", () => {
 
     it("should resolve environment variables in proxy targets", async () => {
       writeConfig("worker.config.json", {
-        proxy: { [PATTERN]: { target: "${TEST_API_URL}" } },
+        proxy: [{ pattern: PATTERN, target: "${TEST_API_URL}" }],
       });
 
       const config = await loadWorkerConfig(APP_DIR);
 
-      expect(config.proxy?.[PATTERN]?.target).toBe(Bun.env.TEST_API_URL!);
+      expect(config.proxy?.[0]?.target).toBe(Bun.env.TEST_API_URL!);
     });
 
     it("should resolve multiple environment variables", async () => {
       writeConfig("worker.config.json", {
-        proxy: { [PATTERN]: { target: "${TEST_API_URL}:${TEST_PORT}" } },
+        proxy: [{ pattern: PATTERN, target: "${TEST_API_URL}:${TEST_PORT}" }],
       });
 
       const config = await loadWorkerConfig(APP_DIR);
 
-      expect(config.proxy?.[PATTERN]?.target).toBe(`${Bun.env.TEST_API_URL}:${Bun.env.TEST_PORT}`);
+      expect(config.proxy?.[0]?.target).toBe(`${Bun.env.TEST_API_URL}:${Bun.env.TEST_PORT}`);
     });
 
     it("should replace undefined env vars with empty string", async () => {
       writeConfig("worker.config.json", {
-        proxy: { [PATTERN]: { target: "http://localhost${UNDEFINED_VAR}/api" } },
+        proxy: [{ pattern: PATTERN, target: "http://localhost${UNDEFINED_VAR}/api" }],
       });
 
       const config = await loadWorkerConfig(APP_DIR);
 
-      expect(config.proxy?.[PATTERN]?.target).toBe("http://localhost/api");
+      expect(config.proxy?.[0]?.target).toBe("http://localhost/api");
     });
   });
 
@@ -145,7 +146,7 @@ describe("loadWorkerConfig", () => {
 
     it("should throw error for invalid proxy target type", () => {
       writeConfig("worker.config.json", {
-        proxy: { [PATTERN]: { target: 123 } },
+        proxy: [{ pattern: PATTERN, target: 123 }],
       });
 
       expect(loadWorkerConfig(APP_DIR)).rejects.toThrow("Invalid worker config");

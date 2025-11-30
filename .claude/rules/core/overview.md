@@ -64,15 +64,16 @@ Apps can be configured via `worker.config.json` in the app directory:
   "entrypoint": "public/index.html",
   "timeout": 30,
   "ttl": 60,
-  "proxy": {
-    "^/api/v(\\d+)/(.*)$": {
+  "proxy": [
+    {
+      "pattern": "^/api/v(\\d+)/(.*)$",
       "target": "${API_URL}",
       "rewrite": "/version/$1/$2",
       "changeOrigin": true,
       "secure": false,
       "headers": { "X-Custom": "value" }
     }
-  }
+  ]
 }
 ```
 
@@ -80,13 +81,14 @@ Apps can be configured via `worker.config.json` in the app directory:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
+| `autoInstall` | boolean | false | Run `bun install` before worker starts |
 | `entrypoint` | string | auto | App entrypoint (searched: index.html, index.ts, index.js, index.mjs) |
+| `idleTimeout` | number | 60 | Idle threshold before worker is marked stale |
+| `lowMemory` | boolean | false | Enable low-memory mode |
+| `maxRequests` | number | 1000 | Max requests before worker reuse |
+| `proxy` | array | - | Proxy rules for forwarding requests (order matters) |
 | `timeout` | number | 30 | Request timeout in seconds |
 | `ttl` | number | 0 | Worker time-to-live in seconds (0 = no caching) |
-| `idleTimeout` | number | 60 | Idle threshold before worker is marked stale |
-| `maxRequests` | number | 1000 | Max requests before worker reuse |
-| `lowMemory` | boolean | false | Enable low-memory mode |
-| `proxy` | object | - | Proxy rules for forwarding requests |
 
 **Entrypoint Resolution:**
 
@@ -99,20 +101,25 @@ Apps can be configured via `worker.config.json` in the app directory:
 
 ```json
 {
-  "proxy": {
-    "^/api/(.*)$": {
+  "proxy": [
+    {
+      "pattern": "^/api/users/(.*)$",
+      "target": "http://users:3000",
+      "rewrite": "/v1/$1"
+    },
+    {
+      "pattern": "^/api/(.*)$",
       "target": "http://backend:3000",
-      "rewrite": "/v1/$1",
       "changeOrigin": true,
-      "secure": false,
       "headers": { "X-Custom": "value" }
     }
-  }
+  ]
 }
 ```
 
 | Option | Type | Description |
 |--------|------|-------------|
+| `pattern` | string | JavaScript regular expression to match path |
 | `target` | string | Target URL (supports `${ENV_VAR}` syntax) |
 | `rewrite` | string | Path rewrite using regex capture groups (`$1`, `$2`, etc.) |
 | `changeOrigin` | boolean | Change Host/Origin headers to target |
@@ -120,9 +127,11 @@ Apps can be configured via `worker.config.json` in the app directory:
 | `headers` | object | Additional headers to send |
 
 **Pattern Matching:**
+- Rules are matched in array order (first match wins)
 - Patterns are JavaScript regular expressions
 - Use capture groups `()` to extract parts of the path
 - Use `$1`, `$2`, etc. in rewrite to reference captured groups
+- More specific patterns should come before generic ones
 
 **Rewrite Examples:**
 - Pattern `^/api/(.*)$`, rewrite `/v1/$1`: `/api/users` → `/v1/users`

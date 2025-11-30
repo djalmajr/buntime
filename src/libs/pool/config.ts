@@ -4,6 +4,7 @@ import { boolean, number } from "@/utils/zod-helpers";
 
 // Default values for worker configuration
 export const ConfigDefaults = {
+  autoInstall: false,
   idleTimeout: 60,
   lowMemory: false,
   maxRequests: 1000,
@@ -14,17 +15,19 @@ export const ConfigDefaults = {
 const proxyRuleSchema = z.object({
   changeOrigin: z.boolean().optional(),
   headers: z.record(z.string(), z.string()).optional(),
+  pattern: z.string(),
   rewrite: z.string().optional(),
   secure: z.boolean().optional(),
   target: z.string(),
 });
 
 const workerConfigSchema = z.object({
+  autoInstall: boolean(ConfigDefaults.autoInstall, z.boolean()),
   entrypoint: z.string().optional(),
   idleTimeout: number(ConfigDefaults.idleTimeout, z.number().nonnegative()),
   lowMemory: boolean(ConfigDefaults.lowMemory, z.boolean()),
   maxRequests: number(ConfigDefaults.maxRequests, z.number().nonnegative()),
-  proxy: z.record(z.string(), proxyRuleSchema).optional(),
+  proxy: z.array(proxyRuleSchema).optional(),
   timeout: number(ConfigDefaults.timeout, z.number().nonnegative()),
   ttl: number(ConfigDefaults.ttl, z.number().nonnegative()),
 });
@@ -33,32 +36,41 @@ export type ProxyRule = z.infer<typeof proxyRuleSchema>;
 
 export type WorkerConfigFile = z.infer<typeof workerConfigSchema>;
 
+// Proxy rule with pre-compiled regex
+export interface CompiledProxyRule extends ProxyRule {
+  regex: RegExp;
+}
+
 // Internal configuration (values in milliseconds)
 export interface WorkerConfig {
+  autoInstall: boolean;
   entrypoint?: string;
   idleTimeoutMs: number;
   lowMemory: boolean;
   maxRequests: number;
-  proxy?: Record<string, ProxyRule>;
+  proxy?: CompiledProxyRule[];
   timeoutMs: number;
   ttlMs: number;
 }
 
-function processProxyRules(
-  proxy: Record<string, ProxyRule> | undefined,
-): Record<string, ProxyRule> | undefined {
-  if (!proxy) return undefined;
+function processProxyRules(proxy: ProxyRule[] | undefined): CompiledProxyRule[] | undefined {
+  if (!proxy || proxy.length === 0) return undefined;
 
-  const result: Record<string, ProxyRule> = {};
+  const result: CompiledProxyRule[] = [];
 
-  for (const [pattern, rule] of Object.entries(proxy)) {
-    result[pattern] = {
-      ...rule,
-      target: rule.target.replace(/\$\{([^}]+)\}/g, (_, name) => Bun.env[name] || ""),
-    };
+  for (const rule of proxy) {
+    try {
+      result.push({
+        ...rule,
+        regex: new RegExp(rule.pattern),
+        target: rule.target.replace(/\$\{([^}]+)\}/g, (_, name) => Bun.env[name] || ""),
+      });
+    } catch {
+      console.warn(`[Config] Invalid regex pattern: ${rule.pattern}`);
+    }
   }
 
-  return result;
+  return result.length > 0 ? result : undefined;
 }
 
 /**
@@ -103,6 +115,7 @@ export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
   }
 
   return {
+    autoInstall: data.autoInstall,
     entrypoint: data.entrypoint,
     idleTimeoutMs: data.idleTimeout * 1000,
     lowMemory: data.lowMemory,

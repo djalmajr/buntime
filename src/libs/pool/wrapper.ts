@@ -77,12 +77,12 @@ self.onmessage = async ({ data }) => {
     headers["content-type"] ||= "text/plain; charset=utf-8";
 
     let body = await response.arrayBuffer();
-    const appName = req.headers["x-app-name"];
+    const base = req.headers["x-base"];
     const isHtml = headers["content-type"]?.includes("text/html");
 
-    if (isHtml && appName) {
+    if (isHtml && base) {
       const text = new TextDecoder().decode(body);
-      const html = text.replace("<head>", `<head><base href="/${appName}/" />`);
+      const html = text.replace("<head>", `<head><base href="${base}/" />`);
       body = new TextEncoder().encode(html).buffer;
     }
 

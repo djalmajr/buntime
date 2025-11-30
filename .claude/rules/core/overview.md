@@ -161,7 +161,7 @@ bun install
 
 2. **Run server:**
 ```bash
-bun server.ts
+bun index.ts
 ```
 
 3. **Test worker apps:**

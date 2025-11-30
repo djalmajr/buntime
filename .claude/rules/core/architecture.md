@@ -4,7 +4,7 @@
 
 ```
 buntime/
-├── server.ts             # Entry point (Bun.serve)
+├── index.ts             # Entry point (Bun.serve)
 ├── src/
 │   ├── app.ts            # Hono app (routes aggregator)
 │   ├── constants.ts      # Environment variables
@@ -46,25 +46,6 @@ flowchart TD
   J --> K{Static?}
   K -->|Yes| L[Serve Files]
   K -->|No| M[Dynamic Handler]
-```
-
-## Entry Point
-
-### server.ts
-
-```typescript
-import app from "@/app";
-import { PORT } from "@/constants";
-import { pool } from "@/libs/pool";
-import { proxy } from "@/libs/proxy";
-
-const server = Bun.serve({
-  fetch: app.fetch,
-  port: PORT,
-  websocket: proxy.websocketHandler,
-});
-
-proxy.setServer(server);
 ```
 
 ## Thread Model

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build": "NODE_ENV=production bun run build index.ts",
+    "build": "NODE_ENV=production bun build index.ts --outdir ./dist",
     "dev": "bun --watch index.ts",
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",

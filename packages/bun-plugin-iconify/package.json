@@ -1,0 +1,16 @@
+{
+  "name": "bun-plugin-iconify",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "lint": "bun run lint:format && bun run lint:types"
+  },
+  "dependencies": {
+    "@iconify/json": ">=2.0.0"
+  }
+}

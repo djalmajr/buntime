@@ -1,0 +1,16 @@
+{
+  "name": "bun-plugin-tsr",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "lint": "bun run lint:format && bun run lint:types"
+  },
+  "dependencies": {
+    "@tanstack/router-generator": ">=1.0.0"
+  }
+}

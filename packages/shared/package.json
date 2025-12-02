@@ -1,0 +1,20 @@
+{
+  "name": "@buntime/shared",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./errors": "./src/errors.ts",
+    "./types": "./src/types/plugin.ts",
+    "./utils": "./src/utils/zod-helpers.ts"
+  },
+  "scripts": {
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "lint": "bun run lint:format && bun run lint:types"
+  },
+  "peerDependencies": {
+    "hono": "^4.0.0",
+    "typescript": "^5.0.0",
+    "zod": "^4.0.0"
+  }
+}

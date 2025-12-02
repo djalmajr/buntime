@@ -1,0 +1,89 @@
+{
+  // Buntime Configuration
+  // Copy this file to `buntime.jsonc` and customize as needed.
+
+  // Plugins that cannot be disabled by apps
+  "required": ["@buntime/plugin-metrics"],
+
+  // Plugins array (Babel-style) - order matters for dependencies!
+  // Format: "plugin-name" or ["plugin-name", { config }]
+  "plugins": [
+    // Metrics plugin - provides /_/metrics/* endpoints
+    "@buntime/plugin-metrics",
+
+    // Proxy plugin - global proxy rules
+    [
+      "@buntime/plugin-proxy",
+      {
+        "rules": [
+          {
+            "pattern": "^/api/(.*)",
+            "target": "${API_URL}",
+            "rewrite": "/$1",
+            "changeOrigin": true
+          }
+        ]
+      }
+    ],
+
+    // Gateway plugin - rate limiting, caching, CORS
+    [
+      "@buntime/plugin-gateway",
+      {
+        "rateLimit": {
+          "requests": 100,
+          "window": "1m",
+          "keyBy": "ip",
+          "excludePaths": ["/health"]
+        },
+        "cache": {
+          "ttl": 300,
+          "methods": ["GET"],
+          "maxEntries": 1000
+        },
+        "cors": {
+          "origin": "*",
+          "credentials": false,
+          "methods": ["GET", "POST", "PUT", "DELETE"]
+        }
+      }
+    ],
+
+    // Authentication plugin - Keycloak OIDC
+    [
+      "@buntime/plugin-authn",
+      {
+        "provider": "keycloak",
+        "issuer": "${KEYCLOAK_URL}",
+        "realm": "${KEYCLOAK_REALM}",
+        "excludePaths": ["/health", "/public/.*"]
+      }
+    ],
+
+    // Authorization plugin - XACML-like policies (must come after authn)
+    [
+      "@buntime/plugin-authz",
+      {
+        "store": "file",
+        "path": "./policies.json",
+        "combiningAlgorithm": "deny-overrides",
+        "policies": [
+          {
+            "id": "admin-all-access",
+            "effect": "permit",
+            "subjects": [{ "role": "admin" }],
+            "resources": [{ "path": "*" }],
+            "actions": [{ "method": "*" }]
+          },
+          {
+            "id": "users-read-only",
+            "effect": "permit",
+            "subjects": [{ "role": "user" }],
+            "resources": [{ "path": "/api/*" }],
+            "actions": [{ "method": "GET" }]
+          }
+        ]
+      }
+    ]
+  ]
+}

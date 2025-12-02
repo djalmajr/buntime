@@ -1,0 +1,57 @@
+{
+  "actions": {
+    "cancel": "Cancelar",
+    "create": "Criar Redirect",
+    "delete": "Excluir",
+    "edit": "Editar",
+    "save": "Salvar"
+  },
+  "confirmDelete": {
+    "cancel": "Cancelar",
+    "confirm": "Excluir",
+    "description": "Tem certeza que deseja excluir o redirect \"{{name}}\"? Esta ação não pode ser desfeita.",
+    "title": "Excluir Redirect"
+  },
+  "drawer": {
+    "description": "Configure as opções do redirect abaixo.",
+    "editDescription": "Atualize as opções do redirect abaixo.",
+    "editTitle": "Editar Redirect",
+    "title": "Novo Redirect"
+  },
+  "form": {
+    "addHeader": "Adicionar Header",
+    "changeOrigin": "Alterar Origin",
+    "changeOriginDescription": "Alterar headers Host/Origin para o target",
+    "emptyHeaders": "Nenhum header configurado. Clique no botão abaixo para adicionar.",
+    "headerName": "Nome do header",
+    "headerValue": "Valor do header",
+    "headers": "Headers Personalizados",
+    "headersDescription": "Headers adicionais para enviar com as requisições",
+    "name": "Nome",
+    "namePlaceholder": "meu-proxy-api",
+    "pattern": "Padrão",
+    "patternDescription": "Expressão regular JavaScript para corresponder aos caminhos",
+    "patternPlaceholder": "^/api/(.*)$",
+    "rewrite": "Reescrever",
+    "rewriteDescription": "Reescrita de caminho usando grupos de captura regex ($1, $2, etc.)",
+    "rewritePlaceholder": "/v1/$1",
+    "secure": "Verificar SSL",
+    "secureDescription": "Verificar certificados SSL (recomendado para produção)",
+    "target": "URL de Destino",
+    "targetDescription": "URL de destino (suporta sintaxe ${ENV_VAR})",
+    "targetPlaceholder": "http://backend:3000"
+  },
+  "list": {
+    "actions": "Ações",
+    "empty": "Nenhum redirect configurado ainda.",
+    "emptyDescription": "Crie seu primeiro redirect para começar a rotear requisições.",
+    "name": "Nome",
+    "pattern": "Padrão",
+    "searchPlaceholder": "Buscar redirects...",
+    "target": "Destino"
+  },
+  "nav": {
+    "new": "Novo Redirect"
+  },
+  "title": "Redirects"
+}

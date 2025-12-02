@@ -1,0 +1,39 @@
+{
+  "name": "@buntime/server",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/apps/server/src/index.d.ts",
+      "default": "./src/index.ts"
+    },
+    "./plugins/loader": "./src/plugins/loader.ts",
+    "./plugins/registry": "./src/plugins/registry.ts"
+  },
+  "scripts": {
+    "build:bin": "NODE_ENV=production bun scripts/build.ts --compile",
+    "build:types": "bun tsc --project tsconfig.build.json",
+    "build": "NODE_ENV=production bun scripts/build.ts",
+    "dev": "bun --watch src/index.ts",
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "lint": "bun run lint:format && bun run lint:types",
+    "test:coverage": "bun test --coverage",
+    "test:watch": "bun test --watch",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@buntime/shared": "workspace:*",
+    "es-toolkit": "^1.42.0",
+    "hono": "^4.10.7",
+    "quick-lru": "^7.3.0",
+    "semver": "^7.7.3",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.7.1"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

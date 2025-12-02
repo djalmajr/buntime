@@ -1,0 +1,63 @@
+{
+  "actions": {
+    "cancel": "Cancel",
+    "create": "Create",
+    "delete": "Delete",
+    "download": "Download",
+    "newFolder": "New Folder",
+    "rename": "Rename",
+    "upload": "Upload"
+  },
+  "breadcrumb": {
+    "root": "Apps"
+  },
+  "confirmDelete": {
+    "cancel": "Cancel",
+    "confirm": "Delete",
+    "description": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone.",
+    "title": "Delete Item"
+  },
+  "empty": {
+    "description": "Create a new folder to get started.",
+    "descriptionWithUpload": "Drag and drop files here, or click to upload. ZIP files will be extracted automatically.",
+    "title": "This folder is empty"
+  },
+  "errors": {
+    "createFolderFailed": "Failed to create folder",
+    "deleteFailed": "Failed to delete item",
+    "renameFailed": "Failed to rename item",
+    "uploadFailed": "Failed to upload files"
+  },
+  "list": {
+    "name": "Name",
+    "size": "Size"
+  },
+  "newFolder": {
+    "description": "Enter a name for the new folder.",
+    "descriptionApp": "Enter a name for the application (kebab-case).",
+    "descriptionVersion": "Enter the version number (semantic versioning).",
+    "placeholder": "Folder name",
+    "placeholderApp": "my-app-name",
+    "placeholderVersion": "1.0.0",
+    "title": "New Folder"
+  },
+  "rename": {
+    "description": "Enter a new name for this item.",
+    "placeholder": "New name",
+    "title": "Rename"
+  },
+  "search": {
+    "noResults": "No results found",
+    "noResultsDescription": "No files or folders match \"{{term}}\"",
+    "placeholder": "Search files and folders..."
+  },
+  "title": "Deployments",
+  "upload": {
+    "dragActive": "Drop files here...",
+    "uploading": "Uploading files..."
+  },
+  "validation": {
+    "kebabCase": "Name must be kebab-case (lowercase letters, numbers, and hyphens)",
+    "semver": "Version must follow semantic versioning (e.g., 1.0.0, 1.0.0-rc.1, 1.0.0-alpha)"
+  }
+}

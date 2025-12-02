@@ -6,7 +6,7 @@
     }
   },
   "files": {
-    "includes": ["**", "!apps/admin/**/routeTree.gen.ts"]
+    "includes": ["**", "!**/routeTree.gen.ts"]
   },
   "formatter": {
     "enabled": true,

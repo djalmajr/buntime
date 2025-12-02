@@ -1,0 +1,63 @@
+{
+  "actions": {
+    "cancel": "Cancelar",
+    "create": "Criar",
+    "delete": "Excluir",
+    "download": "Baixar",
+    "newFolder": "Nova Pasta",
+    "rename": "Renomear",
+    "upload": "Upload"
+  },
+  "breadcrumb": {
+    "root": "Apps"
+  },
+  "confirmDelete": {
+    "cancel": "Cancelar",
+    "confirm": "Excluir",
+    "description": "Tem certeza que deseja excluir \"{{name}}\"? Esta ação não pode ser desfeita.",
+    "title": "Excluir Item"
+  },
+  "empty": {
+    "description": "Crie uma nova pasta para começar.",
+    "descriptionWithUpload": "Arraste e solte arquivos aqui, ou clique para fazer upload. Arquivos ZIP serão extraídos automaticamente.",
+    "title": "Esta pasta está vazia"
+  },
+  "errors": {
+    "createFolderFailed": "Falha ao criar pasta",
+    "deleteFailed": "Falha ao excluir item",
+    "renameFailed": "Falha ao renomear item",
+    "uploadFailed": "Falha ao enviar arquivos"
+  },
+  "list": {
+    "name": "Nome",
+    "size": "Tamanho"
+  },
+  "newFolder": {
+    "description": "Digite um nome para a nova pasta.",
+    "descriptionApp": "Digite um nome para a aplicação (kebab-case).",
+    "descriptionVersion": "Digite o número da versão (versionamento semântico).",
+    "placeholder": "Nome da pasta",
+    "placeholderApp": "minha-app",
+    "placeholderVersion": "1.0.0",
+    "title": "Nova Pasta"
+  },
+  "rename": {
+    "description": "Digite um novo nome para este item.",
+    "placeholder": "Novo nome",
+    "title": "Renomear"
+  },
+  "search": {
+    "noResults": "Nenhum resultado encontrado",
+    "noResultsDescription": "Nenhum arquivo ou pasta corresponde a \"{{term}}\"",
+    "placeholder": "Buscar arquivos e pastas..."
+  },
+  "title": "Deployments",
+  "upload": {
+    "dragActive": "Solte os arquivos aqui...",
+    "uploading": "Enviando arquivos..."
+  },
+  "validation": {
+    "kebabCase": "Nome deve ser kebab-case (letras minúsculas, números e hífens)",
+    "semver": "Versão deve seguir versionamento semântico (ex: 1.0.0, 1.0.0-rc.1, 1.0.0-alpha)"
+  }
+}

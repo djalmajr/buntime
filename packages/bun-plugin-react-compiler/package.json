@@ -1,0 +1,19 @@
+{
+  "name": "bun-plugin-react-compiler",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "lint": "bun run lint:format && bun run lint:types"
+  },
+  "dependencies": {
+    "@babel/core": ">=7.0.0",
+    "@babel/preset-typescript": ">=7.0.0",
+    "@types/babel__core": "^7.20.5",
+    "babel-plugin-react-compiler": ">=0.0.0"
+  }
+}

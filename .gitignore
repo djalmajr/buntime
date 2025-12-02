@@ -1,6 +1,4 @@
 .env
 
 dist/
-functions/*
-!functions/.gitkeep
 node_modules

@@ -1,0 +1,48 @@
+{
+  "dashboard": {
+    "charts": {
+      "latency": "Latência Média (ms)",
+      "requestsPerSecond": "Requisições por Segundo"
+    },
+    "connected": "Atualizações em tempo real via Server-Sent Events",
+    "disconnected": "Desconectado",
+    "errorTitle": "Erro ao Carregar Estatísticas",
+    "loading": "Carregando dashboard...",
+    "metrics": {
+      "avgLatency": "Latência Média",
+      "cacheHitRate": "Taxa de Cache",
+      "created": "criados",
+      "failed": "falhas",
+      "hits": "acertos",
+      "misses": "erros",
+      "requestsPerSecond": "Req/seg",
+      "totalRequests": "total de requisições",
+      "uptime": "Tempo ativo",
+      "workers": "Workers Ativos"
+    },
+    "workers": {
+      "age": "Idade",
+      "empty": "Nenhum worker ativo",
+      "idle": "Ocioso",
+      "key": "Chave do Worker",
+      "requestCount": "Requisições",
+      "status": "Status",
+      "statusActive": "Ativo",
+      "statusIdle": "Ocioso",
+      "statusStale": "Obsoleto",
+      "title": "Workers Ativos"
+    }
+  },
+  "nav": {
+    "appDescription": "Runtime de Pool de Workers",
+    "appName": "Buntime",
+    "dashboard": "Dashboard",
+    "deployments": "Deployments",
+    "platform": "Plataforma",
+    "redirects": "Redirects"
+  },
+  "validation": {
+    "invalidJson": "Formato JSON inválido",
+    "required": "Este campo é obrigatório"
+  }
+}

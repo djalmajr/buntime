@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { serveStatic } from "@/utils/serve-static";
+import type { WorkerConfig } from "./config";
 import type { MethodHandlers, RouteHandler, WorkerApp, WorkerResponse } from "./types";
 
 declare var self: Worker;
@@ -11,11 +12,27 @@ interface RequestWithParams extends Request {
 const Errors = {
   INVALID_APP: "Module must export default with fetch method or routes",
   INVALID_ENTRY: "ENTRYPOINT env var is missing",
+  INVALID_CONFIG: "APP_DIR or WORKER_CONFIG env var is missing",
 };
 
-const { ENTRYPOINT } = Bun.env;
+const { APP_DIR, ENTRYPOINT, WORKER_CONFIG } = Bun.env;
 
+if (!APP_DIR || !WORKER_CONFIG) throw new Error(Errors.INVALID_CONFIG);
 if (!ENTRYPOINT) throw new Error(Errors.INVALID_ENTRY);
+
+// Auto-install dependencies if configured (runs before app import)
+const config: WorkerConfig = JSON.parse(WORKER_CONFIG);
+if (config.autoInstall) {
+  const result = Bun.spawnSync(["bun", "install", "--frozen-lockfile"], {
+    cwd: APP_DIR,
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+
+  if (!result.success) {
+    throw new Error(`bun install failed in ${APP_DIR}: ${result.stderr.toString()}`);
+  }
+}
 
 const spa = ENTRYPOINT.endsWith(".html");
 const app: WorkerApp | null = spa ? null : (await import(ENTRYPOINT)).default;

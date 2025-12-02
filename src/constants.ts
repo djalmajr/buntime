@@ -20,6 +20,8 @@ if (error) {
 
 export const { APP_SHELL, APPS_DIR, DELAY_MS, NODE_ENV, PORT, POOL_SIZE } = data;
 
+export const IS_COMPILED = typeof BUNTIME_COMPILED !== "undefined" && BUNTIME_COMPILED;
+
 export const IS_DEV = NODE_ENV === "development";
 
 export const VERSION = version;

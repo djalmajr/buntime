@@ -1,7 +1,11 @@
 import { join } from "node:path";
-import { DELAY_MS } from "@/constants";
+import { DELAY_MS, IS_COMPILED } from "@/constants";
 import type { WorkerConfig } from "./config";
 import type { WorkerRequest, WorkerResponse } from "./types";
+
+const WORKER_PATH = IS_COMPILED
+  ? "./src/libs/pool/wrapper.ts"
+  : join(import.meta.dir, "wrapper.ts");
 
 export class WorkerInstance {
   private createdAt = Date.now();
@@ -21,7 +25,7 @@ export class WorkerInstance {
     const ENTRYPOINT = join(appDir, entrypoint);
 
     this.id = crypto.randomUUID();
-    this.worker = new Worker(join(import.meta.dir, "wrapper.ts"), {
+    this.worker = new Worker(WORKER_PATH, {
       env: {
         ...Bun.env,
         APP_DIR: appDir,
@@ -29,7 +33,6 @@ export class WorkerInstance {
         WORKER_CONFIG: JSON.stringify(config),
         WORKER_ID: this.id,
       },
-      preload: [join(import.meta.dir, "preloads/setup.ts")],
       smol: config.lowMemory,
     });
 

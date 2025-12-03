@@ -32,7 +32,10 @@ function getConfig(): ReactCompilerConfig {
 
 function reactCompilerPlugin(): BunPlugin {
   const { compilationMode, sourceType = "module", target } = getConfig();
-  const compilerOptions = { compilationMode, target };
+  const compilerOptions: Record<string, unknown> = {};
+
+  if (compilationMode) compilerOptions.compilationMode = compilationMode;
+  if (target) compilerOptions.target = target;
 
   const configInfo = [
     target && `target=${target}`,

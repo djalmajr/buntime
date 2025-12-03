@@ -12,6 +12,32 @@ Plugins for Bun build system used by cpanel and other apps.
 | i18next | `bun-plugin-i18next` | i18n translation loading, generates `virtual:i18n` |
 | TSR | `bun-plugin-tsr` | TanStack Router route generation |
 
+## Configuration via bunfig.toml
+
+Plugins read configuration from `bunfig.toml` using custom `[plugins.*]` sections:
+
+```toml
+[serve.static]
+plugins = [
+  "bun-plugin-tsr",
+  "bun-plugin-tailwind",
+  "bun-plugin-react-compiler",
+  "bun-plugin-iconify",
+  "bun-plugin-i18next",
+]
+
+[plugins.iconify]
+dirs = ["src"]
+
+[plugins.i18next]
+dirs = ["src"]
+
+[plugins.tsr]
+rootDirectory = "src"
+```
+
+If no configuration is provided, plugins fallback to auto-detecting `src/` directory.
+
 ## bun-plugin-iconify
 
 Scans source files for icon names and generates a virtual module with icon data.
@@ -25,18 +51,23 @@ Scans source files for icon names and generates a virtual module with icon data.
 **Usage:**
 
 ```typescript
-import { iconifyPlugin } from "bun-plugin-iconify";
+import iconify from "bun-plugin-iconify";
 
 Bun.build({
-  plugins: [iconifyPlugin({ dirs: "./src" })],
+  plugins: [iconify],
 });
 ```
 
-**Options:**
+**bunfig.toml (optional):**
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `dirs` | `string \| string[]` | Directories to scan for icon usage |
+```toml
+[plugins.iconify]
+dirs = ["src"]
+```
+
+**Behavior:**
+- Auto-detects `src/` directory if no config provided
+- Config from bunfig.toml `[plugins.iconify]` overrides auto-detection
 
 ## bun-plugin-react-compiler
 
@@ -45,27 +76,29 @@ Integrates React Compiler (babel-plugin-react-compiler) for automatic memoizatio
 **Usage:**
 
 ```typescript
-import { reactCompilerPlugin } from "bun-plugin-react-compiler";
+import reactCompiler from "bun-plugin-react-compiler";
 
 Bun.build({
-  plugins: [reactCompilerPlugin()],
+  plugins: [reactCompiler],
 });
+```
+
+**bunfig.toml (optional):**
+
+```toml
+[plugins.react-compiler]
+target = "19"
+compilationMode = "all"
+sourceType = "module"
 ```
 
 **Options:**
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `filter` | `(path: string) => boolean` | Filter which files to compile |
-| `compilerOptions` | `object` | React Compiler options |
-| `sourceType` | `"module" \| "script" \| "unambiguous"` | Babel source type |
-
-**Compiler Options:**
-
-| Option | Values | Description |
-|--------|--------|-------------|
-| `compilationMode` | `"all"`, `"annotation"`, `"infer"` | Compilation strategy |
-| `target` | `"17"`, `"18"`, `"19"` | React version target |
+| Option | Values | Default | Description |
+|--------|--------|---------|-------------|
+| `compilationMode` | `"all"`, `"annotation"`, `"infer"` | `"all"` | Compilation strategy |
+| `target` | `"17"`, `"18"`, `"19"` | - | React version target |
+| `sourceType` | `"module"`, `"script"`, `"unambiguous"` | `"module"` | Babel source type |
 
 **Skipping files:**
 - Add `"use no memo"` directive to skip a file
@@ -83,18 +116,23 @@ Scans for translation files and generates a virtual module for lazy loading.
 **Usage:**
 
 ```typescript
-import { i18nextPlugin } from "bun-plugin-i18next";
+import i18next from "bun-plugin-i18next";
 
 Bun.build({
-  plugins: [i18nextPlugin({ dirs: "./src" })],
+  plugins: [i18next],
 });
 ```
 
-**Options:**
+**bunfig.toml (optional):**
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `dirs` | `string \| string[]` | Directories to scan for translation files |
+```toml
+[plugins.i18next]
+dirs = ["src"]
+```
+
+**Behavior:**
+- Auto-detects `src/` directory if no config provided
+- Config from bunfig.toml `[plugins.i18next]` overrides auto-detection
 
 **Namespace resolution:**
 - `routes/locales/pt.json` → `common`
@@ -108,37 +146,40 @@ TanStack Router route generation plugin.
 **Usage:**
 
 ```typescript
-import { tsrPlugin } from "bun-plugin-tsr";
+// Using default export (reads from bunfig.toml, auto-detects watch mode)
+import tsr from "bun-plugin-tsr";
 
-Bun.build({
-  plugins: [tsrPlugin({ config: { rootDirectory: "./src" } })],
-});
+// In bunfig.toml plugins array - works automatically
+// In build scripts - call setup manually
+await tsr.setup!({} as any);
 ```
 
-**Options:**
+**bunfig.toml:**
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `watch` | `boolean` | Enable watch mode |
-| `config` | `TSRConfig \| TSRConfig[]` | TanStack Router config |
+```toml
+[serve.static]
+plugins = [
+  "bun-plugin-tsr",
+  # ... other plugins
+]
 
-**Config options:**
+# Optional - defaults to src/ if exists
+[plugins.tsr]
+rootDirectory = "src"
+routesDirectory = "./routes"
+generatedRouteTree = "routeTree.gen.ts"
+```
+
+**Behavior:**
+- Auto-detects `src/` directory if no config provided
+- Watch mode enabled when `NODE_ENV !== "production"`
+
+**Config options (bunfig.toml `[plugins.tsr]`):**
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `rootDirectory` | `string` | required | Root directory for routes |
+| `rootDirectory` | `string \| string[]` | `"src"` | Root directory for routes |
 | `routesDirectory` | `string` | `"./routes"` | Routes directory relative to root |
 | `generatedRouteTree` | `string` | `"routeTree.gen.ts"` | Output file name |
 | `quoteStyle` | `"single" \| "double"` | `"double"` | Quote style in generated code |
 | `routeFileIgnorePattern` | `string` | `".test."` | Pattern to ignore route files |
-
-## Peer Dependencies
-
-Each plugin declares peer dependencies that must be installed:
-
-| Plugin | Peer Dependencies |
-|--------|-------------------|
-| `bun-plugin-iconify` | `@iconify/json` |
-| `bun-plugin-react-compiler` | `@babel/core`, `@babel/preset-typescript`, `babel-plugin-react-compiler` |
-| `bun-plugin-i18next` | - |
-| `bun-plugin-tsr` | `@tanstack/router-generator` |

@@ -1,7 +1,6 @@
-preload = ["./scripts/preload.ts"]
-
 [serve.static]
 plugins = [
+  "bun-plugin-tsr",
   "bun-plugin-tailwind",
   "bun-plugin-react-compiler",
   "bun-plugin-iconify",

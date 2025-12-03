@@ -1,21 +1,25 @@
-import { readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import type { BunPlugin } from "bun";
 
 const VIRTUAL_MODULE_ID = "virtual:i18n";
+
+interface I18nextConfig {
+  dirs: string[];
+}
+
+interface PluginsBunfig {
+  plugins?: {
+    i18next?: {
+      dirs?: string | string[];
+    };
+  };
+}
 
 interface TranslationEntry {
   lang: string;
   namespace: string;
   path: string;
-}
-
-export interface I18nextPluginOptions {
-  /**
-   * Directories to scan for translation files.
-   * If not provided, no scanning will be performed.
-   */
-  dirs?: string | string[];
 }
 
 function findTranslationFiles(dir: string, baseDir: string): TranslationEntry[] {
@@ -29,7 +33,7 @@ function findTranslationFiles(dir: string, baseDir: string): TranslationEntry[] 
       const stat = statSync(fullPath);
 
       if (stat.isDirectory()) {
-        if (item === "node_modules" || item === "dist" || item.startsWith("-")) continue;
+        if (item === "node_modules" || item === "dist") continue;
         scan(fullPath);
       } else if (item.endsWith(".json") && currentDir.endsWith("/locales")) {
         // Extract namespace from path
@@ -95,21 +99,35 @@ ${mapEntries.join(",\n")}
 `;
 }
 
-export function i18nextPlugin(options: I18nextPluginOptions = {}): BunPlugin {
-  const scanDirs = options.dirs
-    ? Array.isArray(options.dirs)
-      ? options.dirs
-      : [options.dirs]
-    : [];
+function getConfig(): I18nextConfig {
+  try {
+    const bunfig = require(resolve(process.cwd(), "bunfig.toml")) as PluginsBunfig;
+    const config = bunfig?.plugins?.i18next;
+
+    if (config?.dirs) {
+      const dirs = Array.isArray(config.dirs) ? config.dirs : [config.dirs];
+      return { dirs: dirs.map((d) => resolve(process.cwd(), d)) };
+    }
+  } catch {
+    // Ignore errors
+  }
+
+  // Fallback: auto-detect src/
+  const srcDir = resolve(process.cwd(), "src");
+  return { dirs: existsSync(srcDir) ? [srcDir] : [] };
+}
+
+function i18nextPlugin(): BunPlugin {
+  const { dirs } = getConfig();
 
   const allEntries: TranslationEntry[] = [];
-  for (const dir of scanDirs) {
+  for (const dir of dirs) {
     allEntries.push(...findTranslationFiles(dir, dir));
   }
 
-  if (scanDirs.length > 0) {
+  if (dirs.length > 0) {
     console.log(
-      `[i18next] Found ${allEntries.length} translation files from ${scanDirs.length} dir(s)`,
+      `[i18next] Found ${allEntries.length} translation files from ${dirs.length} dir(s)`,
     );
   }
 
@@ -137,4 +155,4 @@ export function i18nextPlugin(options: I18nextPluginOptions = {}): BunPlugin {
   };
 }
 
-export default i18nextPlugin;
+export default i18nextPlugin();

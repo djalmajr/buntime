@@ -1,66 +1,52 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { transformSync } from "@babel/core";
 import type { BunPlugin } from "bun";
 
-export interface ReactCompilerPluginOptions {
-  /**
-   * Filter function to determine which files should be compiled.
-   * Defaults to all .tsx/.jsx files.
-   */
-  filter?: (path: string) => boolean;
-
-  /**
-   * React Compiler plugin options.
-   * @see https://react.dev/reference/react-compiler/configuration
-   */
-  compilerOptions?: {
-    /**
-     * Compilation mode strategy.
-     * - 'all': Compile all functions (default)
-     * - 'annotation': Only compile functions with "use memo" directive
-     * - 'infer': Intelligently detect which functions to compile
-     */
-    compilationMode?: "all" | "annotation" | "infer";
-
-    /**
-     * Target React version for compatibility.
-     * Use '17' or '18' for older React versions (requires react-compiler-runtime).
-     * React 19+ works without additional configuration.
-     */
-    target?: "17" | "18" | "19";
-
-    /**
-     * Enable logging for debugging.
-     */
-    logger?: {
-      logEvent?: (filename: string, event: unknown) => void;
-    };
-
-    /**
-     * Additional Babel plugin options passed to babel-plugin-react-compiler.
-     */
-    [key: string]: unknown;
-  };
-
-  /**
-   * Source type for Babel parsing.
-   * Defaults to 'module'.
-   */
+interface ReactCompilerConfig {
+  compilationMode?: "all" | "annotation" | "infer";
   sourceType?: "module" | "script" | "unambiguous";
+  target?: "17" | "18" | "19";
 }
 
-export function reactCompilerPlugin(options: ReactCompilerPluginOptions = {}): BunPlugin {
-  const { compilerOptions = {}, filter, sourceType = "module" } = options;
+interface PluginsBunfig {
+  plugins?: {
+    "react-compiler"?: ReactCompilerConfig;
+  };
+}
+
+function getConfig(): ReactCompilerConfig {
+  try {
+    const bunfig = require(resolve(process.cwd(), "bunfig.toml")) as PluginsBunfig;
+    const config = bunfig?.plugins?.["react-compiler"];
+
+    if (config) {
+      return config;
+    }
+  } catch {
+    // Ignore errors
+  }
+
+  return {};
+}
+
+function reactCompilerPlugin(): BunPlugin {
+  const { compilationMode, sourceType = "module", target } = getConfig();
+  const compilerOptions = { compilationMode, target };
+
+  const configInfo = [
+    target && `target=${target}`,
+    compilationMode && `mode=${compilationMode}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  console.log(`[react-compiler] Initialized${configInfo ? ` (${configInfo})` : ""}`);
 
   return {
     name: "react-compiler",
     setup(build) {
       build.onLoad({ filter: /\.[jt]sx$/ }, async (args) => {
-        // Apply custom filter if provided
-        if (filter && !filter(args.path)) {
-          return undefined;
-        }
-
         const code = readFileSync(args.path, "utf-8");
 
         // Skip files with "use no memo" directive
@@ -108,4 +94,4 @@ export function reactCompilerPlugin(options: ReactCompilerPluginOptions = {}): B
   };
 }
 
-export default reactCompilerPlugin;
+export default reactCompilerPlugin();

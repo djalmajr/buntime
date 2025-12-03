@@ -1,21 +1,43 @@
-import { watch as fsWatch } from "node:fs";
+import { existsSync, watch as fsWatch } from "node:fs";
 import { join, resolve } from "node:path";
-import { type Config, Generator, getConfig } from "@tanstack/router-generator";
+import { type Config, Generator, getConfig as getTSRConfig } from "@tanstack/router-generator";
 import type { BunPlugin } from "bun";
 
 type TSRConfig = Partial<Config> & { rootDirectory: string };
 
-export interface TSRPluginOptions {
-  /**
-   * Enable watch mode to regenerate routes on file changes.
-   */
-  watch?: boolean;
+interface PluginsBunfig {
+  plugins?: {
+    tsr?: Partial<Config> & {
+      rootDirectory?: string | string[];
+    };
+  };
+}
 
-  /**
-   * Configuration for TanStack Router generation.
-   * Can be a single config or an array of configs for multiple root directories.
-   */
-  config?: TSRConfig | TSRConfig[];
+function getConfig(): TSRConfig[] {
+  try {
+    const bunfig = require(resolve(process.cwd(), "bunfig.toml")) as PluginsBunfig;
+    const config = bunfig?.plugins?.tsr;
+
+    if (config?.rootDirectory) {
+      const { rootDirectory, ...rest } = config;
+      const dirs = Array.isArray(rootDirectory) ? rootDirectory : [rootDirectory];
+
+      return dirs.map((dir) => ({
+        ...rest,
+        rootDirectory: resolve(process.cwd(), dir),
+      }));
+    }
+  } catch {
+    // Ignore errors
+  }
+
+  // Fallback: auto-detect src/
+  const srcDir = resolve(process.cwd(), "src");
+  if (existsSync(srcDir)) {
+    return [{ rootDirectory: srcDir }];
+  }
+
+  return [];
 }
 
 const defaults = {
@@ -28,7 +50,7 @@ const defaults = {
 async function generateRoutes(tsrConfig: TSRConfig, watchMode: boolean): Promise<void> {
   const root = resolve(process.cwd(), tsrConfig.rootDirectory);
   const { rootDirectory: _, ...configOverrides } = tsrConfig;
-  const config = getConfig({ ...defaults, ...configOverrides }, root);
+  const config = getTSRConfig({ ...defaults, ...configOverrides }, root);
   const routesDir = resolve(root, config.routesDirectory);
   const generator = new Generator({ config, root });
 
@@ -59,27 +81,21 @@ async function generateRoutes(tsrConfig: TSRConfig, watchMode: boolean): Promise
   }
 }
 
-export function tsrPlugin(options: TSRPluginOptions = {}): BunPlugin {
-  const { watch: watchMode = false, config } = options;
+// Generate routes at import time (like other plugins pre-collect data)
+const configs = getConfig();
 
+if (configs.length > 0) {
+  const shouldWatch = process.env.NODE_ENV !== "production";
+  await Promise.all(configs.map((cfg) => generateRoutes(cfg, shouldWatch)));
+}
+
+function tsrPlugin(): BunPlugin {
   return {
     name: "tsr",
-    async setup() {
-      if (!config) {
-        console.warn("[tsr] No config provided");
-        return;
-      }
-
-      const configs = Array.isArray(config) ? config : [config];
-
-      if (configs.length === 0) {
-        console.warn("[tsr] No paths configured");
-        return;
-      }
-
-      await Promise.all(configs.map((cfg) => generateRoutes(cfg, watchMode)));
+    setup() {
+      // Routes already generated at import time
     },
   };
 }
 
-export default tsrPlugin;
+export default tsrPlugin();

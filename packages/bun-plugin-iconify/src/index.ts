@@ -1,13 +1,19 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { BunPlugin } from "bun";
 
-interface IconifyJSON {
-  height?: number;
-  icons: Record<string, { body: string; height?: number; width?: number }>;
-  info?: { height?: number; width?: number };
-  prefix: string;
-  width?: number;
+const VIRTUAL_MODULE_ID = "virtual:icons";
+
+interface IconifyConfig {
+  dirs: string[];
+}
+
+interface PluginsBunfig {
+  plugins?: {
+    iconify?: {
+      dirs?: string | string[];
+    };
+  };
 }
 
 interface IconData {
@@ -16,15 +22,13 @@ interface IconData {
   width: number;
 }
 
-export interface IconifyPluginOptions {
-  /**
-   * Directories to scan for icon usage.
-   * If not provided, no pre-scanning will be performed.
-   */
-  dirs?: string | string[];
+interface IconifyJSON {
+  height?: number;
+  icons: Record<string, { body: string; height?: number; width?: number }>;
+  info?: { height?: number; width?: number };
+  prefix: string;
+  width?: number;
 }
-
-const VIRTUAL_MODULE_ID = "virtual:icons";
 
 const collectionCache = new Map<string, IconifyJSON>();
 const collectedIcons = new Map<string, IconData>();
@@ -131,23 +135,37 @@ function transformIconUsage(code: string): string {
   });
 }
 
-export function iconifyPlugin(options: IconifyPluginOptions = {}): BunPlugin {
+function getConfig(): IconifyConfig {
+  try {
+    const bunfig = require(resolve(process.cwd(), "bunfig.toml")) as PluginsBunfig;
+    const config = bunfig?.plugins?.iconify;
+
+    if (config?.dirs) {
+      const dirs = Array.isArray(config.dirs) ? config.dirs : [config.dirs];
+      return { dirs: dirs.map((d) => resolve(process.cwd(), d)) };
+    }
+  } catch {
+    // Ignore errors
+  }
+
+  // Fallback: auto-detect src/
+  const srcDir = resolve(process.cwd(), "src");
+  return { dirs: existsSync(srcDir) ? [srcDir] : [] };
+}
+
+function iconifyPlugin(): BunPlugin {
   // Clear and pre-collect icons
   collectedIcons.clear();
 
-  const scanDirs = options.dirs
-    ? Array.isArray(options.dirs)
-      ? options.dirs
-      : [options.dirs]
-    : [];
+  const { dirs } = getConfig();
 
-  for (const dir of scanDirs) {
+  for (const dir of dirs) {
     collectIconsFromDir(dir);
   }
 
-  if (scanDirs.length > 0) {
+  if (dirs.length > 0) {
     console.log(
-      `[iconify] Pre-collected ${collectedIcons.size} icons from ${scanDirs.length} dir(s)`,
+      `[iconify] Pre-collected ${collectedIcons.size} icons from ${dirs.length} dir(s)`,
     );
   }
 
@@ -218,4 +236,4 @@ export function iconifyPlugin(options: IconifyPluginOptions = {}): BunPlugin {
   };
 }
 
-export default iconifyPlugin;
+export default iconifyPlugin();

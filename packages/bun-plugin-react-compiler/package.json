@@ -1,19 +1,40 @@
 {
-  "name": "bun-plugin-react-compiler",
+  "name": "@zomme/bun-plugin-react-compiler",
   "version": "0.1.0",
+  "description": "Bun plugin that integrates React Compiler (babel-plugin-react-compiler) for automatic memoization",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
+  "files": [
+    "LICENSE",
+    "src"
+  ],
+  "keywords": [
+    "bun",
+    "bun-plugin",
+    "react",
+    "react-compiler",
+    "memoization",
+    "babel"
+  ],
+  "author": "Djalma Junior <djalmajunior@gmail.com>",
+  "license": "MIT",
+  "engines": {
+    "bun": ">=1.0.0"
+  },
   "scripts": {
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
-    "lint": "bun run lint:format && bun run lint:types"
+    "lint": "bun run lint:format && bun run lint:types",
+    "publish:npm": "npm publish --access public"
   },
   "dependencies": {
+    "@types/babel__core": "^7.20.5"
+  },
+  "peerDependencies": {
     "@babel/core": ">=7.0.0",
     "@babel/preset-typescript": ">=7.0.0",
-    "@types/babel__core": "^7.20.5",
     "babel-plugin-react-compiler": ">=0.0.0"
   }
 }

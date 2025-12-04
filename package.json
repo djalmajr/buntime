@@ -13,6 +13,7 @@
     "lint:format": "bun run --filter '*' lint:format",
     "lint:types": "bun run --filter '*' lint:types",
     "lint": "bun run --filter '*' lint",
+    "publish:plugins": "bun run --filter '@zomme/bun-plugin-*' publish:npm",
     "test:coverage": "bun run --filter '*' test:coverage",
     "test:watch": "bun run --filter '*' test:watch",
     "test": "bun run --filter '*' test"

@@ -36,14 +36,28 @@ const collectedIcons = new Map<string, IconData>();
 function loadCollection(collection: string): IconifyJSON | null {
   if (collectionCache.has(collection)) return collectionCache.get(collection)!;
 
-  try {
-    const path = require.resolve(`@iconify/json/json/${collection}.json`);
-    const data = JSON.parse(readFileSync(path, "utf-8")) as IconifyJSON;
-    collectionCache.set(collection, data);
-    return data;
-  } catch {
-    return null;
+  // Try individual collection first (@iconify-json/{collection} ~100KB each)
+  // Then fallback to full package (@iconify/json ~200MB)
+  const paths = [
+    `@iconify-json/${collection}/icons.json`,
+    `@iconify/json/json/${collection}.json`,
+  ];
+
+  for (const modulePath of paths) {
+    try {
+      const resolvedPath = require.resolve(modulePath);
+      const data = JSON.parse(readFileSync(resolvedPath, "utf-8")) as IconifyJSON;
+      collectionCache.set(collection, data);
+      return data;
+    } catch {
+      // Try next path
+    }
   }
+
+  console.warn(
+    `[iconify] Collection "${collection}" not found. Install @iconify-json/${collection} or @iconify/json`,
+  );
+  return null;
 }
 
 function getIconData(name: string): IconData | null {

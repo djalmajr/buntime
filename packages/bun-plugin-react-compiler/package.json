@@ -1,6 +1,6 @@
 {
   "name": "@zomme/bun-plugin-react-compiler",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Bun plugin that integrates React Compiler (babel-plugin-react-compiler) for automatic memoization",
   "type": "module",
   "exports": {
@@ -27,7 +27,7 @@
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
     "lint": "bun run lint:format && bun run lint:types",
-    "publish:npm": "npm publish --access public"
+    "publish:npm": "npm publish --access public --otp="
   },
   "dependencies": {
     "@types/babel__core": "^7.20.5"

@@ -1,6 +1,6 @@
 {
   "name": "@zomme/bun-plugin-i18next",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Bun plugin that scans for translation files and generates a virtual module for lazy loading with i18next",
   "type": "module",
   "exports": {
@@ -28,6 +28,6 @@
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
     "lint": "bun run lint:format && bun run lint:types",
-    "publish:npm": "npm publish --access public"
+    "publish:npm": "npm publish --access public --otp="
   }
 }

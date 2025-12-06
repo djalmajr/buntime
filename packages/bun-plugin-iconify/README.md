@@ -60,6 +60,104 @@ dirs = ["src"]  # Directories to scan for icons
 
 ### Using Icons
 
+There are two approaches to use icons in your app:
+
+#### Option 1: IconProvider Pattern (Recommended)
+
+This approach uses React Context to provide the icon registry throughout your app. It offers better HMR support and cleaner component code.
+
+**Step 1: Create the Icon component with Context**
+
+Create an Icon component that uses React Context to access the registry. See the full implementation example below in Option 2, but wrap it with a Context provider:
+
+```tsx
+// src/components/icon.tsx
+import { createContext, type ReactNode, type SVGProps, useContext } from "react";
+
+export interface IconData {
+  body: string;
+  height: number;
+  width: number;
+}
+
+export type IconRegistry = Record<string, IconData>;
+
+const IconRegistryContext = createContext<IconRegistry | null>(null);
+
+export interface IconProviderProps {
+  children: ReactNode;
+  registry: IconRegistry;
+}
+
+export function IconProvider({ children, registry }: IconProviderProps) {
+  return <IconRegistryContext.Provider value={registry}>{children}</IconRegistryContext.Provider>;
+}
+
+export function useIconRegistry(): IconRegistry | null {
+  return useContext(IconRegistryContext);
+}
+
+export type IconProps = SVGProps<SVGSVGElement> & {
+  icon: string | IconData;
+};
+
+// Icon component uses useIconRegistry() to get the registry from context
+// Then renders an SVG using iconData.body (safe: pre-sanitized from @iconify/json)
+export function Icon({ icon, ...props }: IconProps) {
+  const registry = useIconRegistry();
+  const iconData = typeof icon === "string" ? registry?.[icon] : icon;
+  if (!iconData) return null;
+  // Render SVG with iconData.body, width, height (see Option 2 for full code)
+}
+```
+
+**Step 2: Set up the provider in your app entry with HMR support**
+
+```tsx
+// src/index.tsx
+import { registry } from "virtual:icons";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { IconProvider } from "./components/icon";
+import { App } from "./app";
+
+// Use import.meta.hot.data to persist the root across HMR updates
+const rootElement = document.getElementById("root")!;
+const root = (import.meta.hot.data.root ??= createRoot(rootElement));
+
+root.render(
+  <StrictMode>
+    <IconProvider registry={registry}>
+      <App />
+    </IconProvider>
+  </StrictMode>,
+);
+
+// Accept HMR updates to re-render with new registry
+import.meta.hot.accept();
+```
+
+**Step 3: Use icons anywhere in your app**
+
+```tsx
+import { Icon } from "./components/icon";
+
+export function App() {
+  return (
+    <div>
+      <Icon icon="lucide:search" className="size-4" />
+      <Icon icon="lucide:user" className="size-4" />
+    </div>
+  );
+}
+```
+
+#### Option 2: Direct Registry Import
+
+A simpler approach where the registry is imported directly in the Icon component. Good for smaller apps.
+
+> **Note**: Both options support HMR. The plugin automatically adds the registry import to files containing icon references, ensuring Bun tracks the dependency for hot reloading. Option 1 is recommended for larger apps as it provides a single source of truth and more predictable re-render behavior.
+
 Create an Icon component:
 
 ```tsx

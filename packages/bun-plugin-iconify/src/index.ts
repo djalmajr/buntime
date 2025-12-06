@@ -150,8 +150,8 @@ function getIconData(name: string, options: GetIconOptions = {}): IconData | nul
 }
 
 // Regex to find all icon names in strings (for collecting)
-// Matches patterns like "lucide:home" or "ant-design:home-filled"
-const ALL_ICONS_REGEX = /["']([a-z][a-z0-9-]*:[a-z][a-z0-9-]*)["']/gi;
+// Matches patterns like "lucide:home", "ant-design:home-filled", or "material-symbols-light:10mp-outline"
+const ALL_ICONS_REGEX = /["']([a-z][a-z0-9-]*:[a-z0-9][a-z0-9-]*)["']/gi;
 
 // Track collections that failed to load (to avoid repeated warnings)
 const failedCollections = new Set<string>();
@@ -234,8 +234,10 @@ function setupWatcher(dirs: string[]): void {
             const foundNew = collectIconsFromCode(content);
             if (foundNew) {
               console.log(`[iconify] New icons detected in ${filename}`);
-              writeRegistryFile();
             }
+            // Always update registry version and write to trigger HMR
+            registryVersion = Date.now();
+            writeRegistryFile();
           }
         } catch {
           // Ignore read errors
@@ -247,13 +249,17 @@ function setupWatcher(dirs: string[]): void {
   }
 }
 
+// Version counter for HMR - changes on every file update to force re-render
+let registryVersion = Date.now();
+
 function generateRegistryModule(): string {
   const entries = Array.from(collectedIcons.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([name, data]) => `  "${name}": ${JSON.stringify(data)}`)
     .join(",\n");
 
-  return `export const registry = {
+  return `// HMR version: ${registryVersion}
+export const registry = {
 ${entries}
 };
 `;

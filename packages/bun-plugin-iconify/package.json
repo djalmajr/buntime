@@ -1,6 +1,6 @@
 {
   "name": "@zomme/bun-plugin-iconify",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Bun plugin that collects icons from source code and generates a virtual module with icon data from Iconify",
   "type": "module",
   "exports": {

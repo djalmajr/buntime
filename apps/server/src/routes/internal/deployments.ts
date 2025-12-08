@@ -4,6 +4,48 @@ import { Hono } from "hono";
 import { APPS_DIR } from "~/constants";
 import { DirInfo } from "~/libs/dir-info";
 
+interface RegistryRef {
+  checkRouteConflict: (path: string) => string | undefined;
+  getMountedPaths: () => Map<string, string>;
+}
+
+// Registry is set after app initialization
+let registryRef: RegistryRef | null = null;
+
+/**
+ * Set the plugin registry reference for conflict detection
+ */
+export function setRegistry(registry: RegistryRef) {
+  registryRef = registry;
+}
+
+/**
+ * Check if an app name conflicts with a plugin route and log warning
+ */
+function checkAppConflict(appName: string): void {
+  if (!registryRef) return;
+
+  const appPath = `/${appName}`;
+  const conflictingPlugin = registryRef.checkRouteConflict(appPath);
+
+  if (conflictingPlugin) {
+    // Find the actual mount path of the conflicting plugin
+    const mountedPaths = registryRef.getMountedPaths();
+    let pluginMountPath = "";
+    for (const [path, name] of mountedPaths) {
+      if (name === conflictingPlugin) {
+        pluginMountPath = path;
+        break;
+      }
+    }
+
+    console.warn(
+      `[Warning] App "${appName}" conflicts with plugin "${conflictingPlugin}" ` +
+        `(mounted at "${pluginMountPath}"). Plugin routes take priority.`,
+    );
+  }
+}
+
 export default new Hono()
   // List directory contents
   .get("/list", async (ctx) => {
@@ -19,6 +61,11 @@ export default new Hono()
     if (!path) {
       throw new ValidationError("Path is required", "PATH_REQUIRED");
     }
+
+    // Check for plugin route conflicts (only for top-level app directories)
+    const appName = path.split("/")[0];
+    if (appName) checkAppConflict(appName);
+
     const dir = new DirInfo(APPS_DIR, path);
     await dir.create();
     return ctx.json({ success: true });
@@ -58,6 +105,10 @@ export default new Hono()
     if (!files.length) {
       throw new ValidationError("No files provided", "NO_FILES_PROVIDED");
     }
+
+    // Check for plugin route conflicts (only for top-level app directories)
+    const appName = targetPath.split("/")[0];
+    if (appName) checkAppConflict(appName);
 
     const dir = new DirInfo(APPS_DIR, targetPath);
 

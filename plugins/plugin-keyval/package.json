@@ -1,0 +1,22 @@
+{
+  "name": "@buntime/plugin-keyval",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "lint": "bun run lint:format && bun run lint:types",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@buntime/shared": "workspace:*",
+    "@libsql/client": "^0.15.0"
+  },
+  "peerDependencies": {
+    "hono": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

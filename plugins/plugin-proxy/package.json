@@ -1,0 +1,20 @@
+{
+  "name": "@buntime/plugin-proxy",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "lint": "bun run lint:format && bun run lint:types"
+  },
+  "dependencies": {
+    "@buntime/shared": "workspace:*"
+  },
+  "peerDependencies": {
+    "hono": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

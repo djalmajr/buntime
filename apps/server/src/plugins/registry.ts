@@ -1,4 +1,4 @@
-import type { AppInfo, BuntimePlugin, PluginLogger } from "@buntime/shared/types";
+import type { AppInfo, BuntimePlugin, PluginLogger, WorkerInstance } from "@buntime/shared/types";
 import type { Server, ServerWebSocket } from "bun";
 
 /**
@@ -7,6 +7,7 @@ import type { Server, ServerWebSocket } from "bun";
 export class PluginRegistry {
   private plugins: Map<string, BuntimePlugin> = new Map();
   private order: string[] = [];
+  private mountedPaths: Map<string, string> = new Map(); // path -> pluginName
 
   /**
    * Register a plugin
@@ -126,12 +127,12 @@ export class PluginRegistry {
   /**
    * Run onWorkerSpawn hooks
    */
-  runOnWorkerSpawn(worker: { id: string }, app: AppInfo): void {
+  runOnWorkerSpawn(worker: WorkerInstance, app: AppInfo): void {
     for (const plugin of this.getAllSorted()) {
       if (!plugin.onWorkerSpawn) continue;
 
       try {
-        plugin.onWorkerSpawn(worker as any, app);
+        plugin.onWorkerSpawn(worker, app);
       } catch (error) {
         console.error(`[Plugin:${plugin.name}] onWorkerSpawn error:`, error);
       }
@@ -141,12 +142,12 @@ export class PluginRegistry {
   /**
    * Run onWorkerTerminate hooks
    */
-  runOnWorkerTerminate(worker: { id: string }, app: AppInfo): void {
+  runOnWorkerTerminate(worker: WorkerInstance, app: AppInfo): void {
     for (const plugin of this.getAllSorted()) {
       if (!plugin.onWorkerTerminate) continue;
 
       try {
-        plugin.onWorkerTerminate(worker as any, app);
+        plugin.onWorkerTerminate(worker, app);
       } catch (error) {
         console.error(`[Plugin:${plugin.name}] onWorkerTerminate error:`, error);
       }
@@ -220,6 +221,57 @@ export class PluginRegistry {
       } catch (error) {
         console.error(`[Plugin:${plugin.name}] onShutdown error:`, error);
       }
+    }
+  }
+
+  /**
+   * Store mounted plugin paths for conflict detection
+   */
+  setMountedPaths(paths: Map<string, string>): void {
+    this.mountedPaths = paths;
+  }
+
+  /**
+   * Get all mounted plugin paths
+   */
+  getMountedPaths(): Map<string, string> {
+    return this.mountedPaths;
+  }
+
+  /**
+   * Check if a path conflicts with a plugin route
+   * Returns the plugin name if there's a conflict, undefined otherwise
+   */
+  checkRouteConflict(appPath: string): string | undefined {
+    // Direct match
+    if (this.mountedPaths.has(appPath)) {
+      return this.mountedPaths.get(appPath);
+    }
+
+    // Check if app path starts with any plugin path
+    for (const [pluginPath, pluginName] of this.mountedPaths) {
+      if (appPath.startsWith(pluginPath + "/") || appPath === pluginPath) {
+        return pluginName;
+      }
+      // Check if plugin path starts with app path (plugin is more specific)
+      if (pluginPath.startsWith(appPath + "/") || pluginPath === appPath) {
+        return pluginName;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Log warning if worker/app route conflicts with a plugin
+   */
+  warnIfRouteConflict(appName: string, appPath: string): void {
+    const conflictingPlugin = this.checkRouteConflict(appPath);
+    if (conflictingPlugin) {
+      console.warn(
+        `[Warning] App "${appName}" has route "${appPath}" which conflicts with plugin "${conflictingPlugin}". ` +
+          `Plugin routes take priority and will handle requests to this path.`,
+      );
     }
   }
 }

@@ -29,6 +29,18 @@ export interface BuntimeConfig {
 }
 
 /**
+ * Base configuration shared by all plugins with routes
+ */
+export interface BasePluginConfig {
+  /**
+   * Custom mount path for plugin routes
+   * @default `/_/{plugin-short-name}`
+   * @example "/kv" or "/api/metrics"
+   */
+  mountPath?: string;
+}
+
+/**
  * Context provided to plugins during initialization
  */
 export interface PluginContext {
@@ -156,12 +168,12 @@ export interface BuntimePlugin {
    * Return:
    * - Request: modified request to continue pipeline
    * - Response: short-circuit and return immediately
-   * - void/undefined: continue with original request
+   * - undefined: continue with original request
    */
   onRequest?: (
     req: Request,
     app: AppInfo,
-  ) => Promise<Request | Response | void> | Request | Response | void;
+  ) => Promise<Request | Response | undefined> | Request | Response | undefined;
 
   /**
    * Called after response is generated (before sending to client)
@@ -180,7 +192,15 @@ export interface BuntimePlugin {
   onWorkerTerminate?: (worker: WorkerInstance, app: AppInfo) => void;
 
   /**
-   * Internal routes for the plugin (mounted at /_/{plugin-name}/*)
+   * Custom mount path for plugin routes
+   * @default `/_/{plugin-short-name}`
+   * @example "/api/kv" or "/kv"
+   */
+  mountPath?: string;
+
+  /**
+   * Internal routes for the plugin
+   * Mounted at `mountPath` or `/_/{plugin-short-name}/*` by default
    */
   routes?: Hono;
 

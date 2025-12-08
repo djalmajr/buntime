@@ -1,0 +1,24 @@
+services:
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    platform: linux/amd64
+    ports:
+      - "8080:8080" # HTTP API
+      - "5000:5000" # Admin API
+    volumes:
+      - libsql-data:/var/lib/sqld
+    environment:
+      SQLD_NODE: primary
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+      SQLD_ADMIN_LISTEN_ADDR: 0.0.0.0:5000
+      # Development mode - no auth required
+      SQLD_DISABLE_AUTH: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  libsql-data:

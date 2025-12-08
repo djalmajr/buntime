@@ -1,6 +1,6 @@
 # Bun Plugins
 
-Build-time plugins for Bun. Located in `plugins/` folder.
+Build-time plugins for Bun. Located in `plugins/bun-plugin-*/` folders.
 
 ## Available Plugins
 

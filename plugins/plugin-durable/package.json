@@ -1,0 +1,23 @@
+{
+  "name": "@buntime/plugin-durable",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "lint": "bun run lint:format && bun run lint:types"
+  },
+  "dependencies": {
+    "@buntime/durable": "workspace:*",
+    "@buntime/shared": "workspace:*",
+    "@libsql/client": "^0.15.0",
+    "quick-lru": "^7.0.0"
+  },
+  "peerDependencies": {
+    "hono": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -1,10 +1,10 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import i18next from "bun-plugin-i18next";
-import iconify from "bun-plugin-iconify";
-import reactCompiler from "bun-plugin-react-compiler";
+import i18next from "@zomme/bun-plugin-i18next";
+import iconify from "@zomme/bun-plugin-iconify";
+import reactCompiler from "@zomme/bun-plugin-react-compiler";
+import tsr from "@zomme/bun-plugin-tsr";
 import tailwind from "bun-plugin-tailwind";
-import tsr from "bun-plugin-tsr";
 
 // Clean dist
 try {
@@ -25,13 +25,7 @@ const [serverResult, clientResult] = await Promise.all([
     entrypoints: ["./src/index.html"],
     minify: true,
     outdir: "./dist",
-    plugins: [
-      reactCompiler,
-      i18next,
-      iconify,
-      tailwind,
-      tsr,
-    ],
+    plugins: [reactCompiler, i18next, iconify, tailwind, tsr],
     publicPath: "./",
     splitting: true,
     target: "browser",

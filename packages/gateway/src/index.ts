@@ -155,7 +155,7 @@ const routes = new Hono()
  * // buntime.config.ts
  * export default {
  *   plugins: [
- *     ["@buntime/plugin-gateway", {
+ *     ["@buntime/gateway", {
  *       rateLimit: {
  *         requests: 100,
  *         window: "1m",
@@ -178,7 +178,7 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): Buntime
   config = pluginConfig;
 
   return {
-    name: "@buntime/plugin-gateway",
+    name: "@buntime/gateway",
     version: "1.0.0",
     priority: 15, // After authn (10), before authz (20)
 

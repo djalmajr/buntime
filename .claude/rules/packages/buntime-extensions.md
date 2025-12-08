@@ -1,27 +1,27 @@
-# Buntime Plugins
+# Buntime Extensions
 
-Runtime plugins for Buntime server. These extend the server functionality with metrics, proxy, gateway, authentication, and authorization.
+Runtime extensions for Buntime server. These extend the server functionality with metrics, proxy, gateway, authentication, and authorization.
 
-## Available Plugins
+## Available Extensions
 
-| Plugin | Package | Priority | Purpose |
+| Extension | Package | Priority | Purpose |
 |--------|---------|----------|---------|
-| Metrics | `@buntime/plugin-metrics` | 0 | Pool metrics, Prometheus format, SSE streaming |
-| Proxy | `@buntime/plugin-proxy` | 5 | HTTP/WebSocket proxy with path rewriting |
-| AuthN | `@buntime/plugin-authn` | 10 | JWT/OIDC/Keycloak authentication |
-| Gateway | `@buntime/plugin-gateway` | 15 | Rate limiting, caching, CORS |
-| AuthZ | `@buntime/plugin-authz` | 20 | XACML-like policy authorization |
+| Metrics | `@buntime/metrics` | 0 | Pool metrics, Prometheus format, SSE streaming |
+| Proxy | `@buntime/proxy` | 5 | HTTP/WebSocket proxy with path rewriting |
+| AuthN | `@buntime/authn` | 10 | JWT/OIDC/Keycloak authentication |
+| Gateway | `@buntime/gateway` | 15 | Rate limiting, caching, CORS |
+| AuthZ | `@buntime/authz` | 20 | XACML-like policy authorization |
 
-## Plugin Execution Order
+## Extension Execution Order
 
-Plugins run in priority order (lower = earlier):
+Extensions run in priority order (lower = earlier):
 1. **Metrics** (0) - Collects request metrics
 2. **Proxy** (5) - Short-circuits proxy requests
 3. **AuthN** (10) - Validates tokens, injects identity
 4. **Gateway** (15) - Rate limits, checks cache
 5. **AuthZ** (20) - Enforces access policies
 
-## @buntime/plugin-metrics
+## @buntime/metrics
 
 Provides metrics endpoints for monitoring.
 
@@ -43,14 +43,14 @@ Provides metrics endpoints for monitoring.
 ```typescript
 export default {
   plugins: [
-    ["@buntime/plugin-metrics", {
+    ["@buntime/metrics", {
       sseInterval: 2000,
     }],
   ],
 }
 ```
 
-## @buntime/plugin-proxy
+## @buntime/proxy
 
 HTTP and WebSocket proxy with regex-based routing.
 
@@ -84,7 +84,7 @@ HTTP and WebSocket proxy with regex-based routing.
 ```typescript
 export default {
   plugins: [
-    ["@buntime/plugin-proxy", {
+    ["@buntime/proxy", {
       rules: [
         {
           pattern: "^/api/v(\\d+)/(.*)",
@@ -103,7 +103,7 @@ export default {
 }
 ```
 
-## @buntime/plugin-authn
+## @buntime/authn
 
 JWT/OIDC authentication with Keycloak support.
 
@@ -152,7 +152,7 @@ interface Identity {
 ```typescript
 export default {
   plugins: [
-    ["@buntime/plugin-authn", {
+    ["@buntime/authn", {
       provider: "keycloak",
       issuer: "${KEYCLOAK_URL}",
       realm: "${KEYCLOAK_REALM}",
@@ -162,7 +162,7 @@ export default {
 }
 ```
 
-## @buntime/plugin-gateway
+## @buntime/gateway
 
 API gateway features: rate limiting, caching, CORS.
 
@@ -217,7 +217,7 @@ API gateway features: rate limiting, caching, CORS.
 ```typescript
 export default {
   plugins: [
-    ["@buntime/plugin-gateway", {
+    ["@buntime/gateway", {
       rateLimit: {
         requests: 100,
         window: "1m",
@@ -236,7 +236,7 @@ export default {
 }
 ```
 
-## @buntime/plugin-authz
+## @buntime/authz
 
 XACML-like policy-based authorization.
 
@@ -253,7 +253,7 @@ XACML-like policy-based authorization.
 - `POST /_/authz/evaluate` - Evaluate context
 - `POST /_/authz/explain` - Debug decision
 
-**Requires:** `@buntime/plugin-authn` (for identity)
+**Requires:** `@buntime/authn` (for identity)
 
 **Config:**
 
@@ -295,8 +295,8 @@ interface Policy {
 ```typescript
 export default {
   plugins: [
-    ["@buntime/plugin-authn", { ... }],
-    ["@buntime/plugin-authz", {
+    ["@buntime/authn", { ... }],
+    ["@buntime/authz", {
       store: "file",
       path: "./policies.json",
       policies: [
@@ -327,19 +327,19 @@ export default {
 export default {
   plugins: [
     // Metrics first
-    ["@buntime/plugin-metrics", {
+    ["@buntime/metrics", {
       sseInterval: 1000,
     }],
 
     // Proxy for API gateway
-    ["@buntime/plugin-proxy", {
+    ["@buntime/proxy", {
       rules: [
         { pattern: "^/api/(.*)", target: "${API_URL}", rewrite: "/$1" },
       ],
     }],
 
     // Authentication
-    ["@buntime/plugin-authn", {
+    ["@buntime/authn", {
       provider: "keycloak",
       issuer: "${KEYCLOAK_URL}",
       realm: "${KEYCLOAK_REALM}",
@@ -347,13 +347,13 @@ export default {
     }],
 
     // Gateway (rate limit, cache, CORS)
-    ["@buntime/plugin-gateway", {
+    ["@buntime/gateway", {
       rateLimit: { requests: 100, window: "1m" },
       cors: { origin: "*" },
     }],
 
     // Authorization
-    ["@buntime/plugin-authz", {
+    ["@buntime/authz", {
       policies: [
         { id: "admin", effect: "permit", subjects: [{ role: "admin" }], resources: [{ path: "*" }], actions: [{ method: "*" }] },
       ],

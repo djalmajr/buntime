@@ -318,7 +318,7 @@ export async function handleProxyRequest(req: Request): Promise<Response | null 
  * // buntime.jsonc
  * {
  *   "plugins": [
- *     ["@buntime/plugin-proxy", {
+ *     ["@buntime/proxy", {
  *       "rules": [
  *         {
  *           "pattern": "^/api/(.*)",
@@ -339,7 +339,7 @@ export async function handleProxyRequest(req: Request): Promise<Response | null 
  */
 export default function proxyPlugin(config: ProxyConfig = {}): BuntimePlugin {
   return {
-    name: "@buntime/plugin-proxy",
+    name: "@buntime/proxy",
     version: "1.0.0",
     priority: 5, // Run early to short-circuit proxy requests
 

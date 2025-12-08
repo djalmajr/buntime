@@ -173,12 +173,12 @@ function validateBuntimeConfig(config: unknown, configPath: string): BuntimeConf
     for (let i = 0; i < cfg.plugins.length; i++) {
       const entry = cfg.plugins[i];
 
-      // String format: "@buntime/plugin-name"
+      // String format: "@buntime/name"
       if (typeof entry === "string") {
         continue;
       }
 
-      // Tuple format: ["@buntime/plugin-name", { config }]
+      // Tuple format: ["@buntime/name", { config }]
       if (Array.isArray(entry)) {
         if (entry.length < 1 || entry.length > 2) {
           throw new Error(

@@ -14,8 +14,8 @@ export function createApp(registry?: PluginRegistry) {
   if (registry) {
     for (const plugin of registry.getAll()) {
       if (plugin.routes) {
-        // Extract short name from "@buntime/plugin-metrics" -> "metrics"
-        const shortName = plugin.name.replace(/^@[^/]+\/plugin-/, "");
+        // Extract short name from "@buntime/metrics" -> "metrics"
+        const shortName = plugin.name.replace(/^@[^/]+\//, "");
         app.route(`/_/${shortName}`, plugin.routes);
       }
     }

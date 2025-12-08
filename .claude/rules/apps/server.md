@@ -21,8 +21,8 @@ Buntime is a worker pool runtime for Bun applications, designed as the engine fo
 - Dependencies and priority ordering
 
 **Authentication & Authorization:**
-- AuthN via Keycloak/OIDC/JWT (@buntime/plugin-authn)
-- AuthZ with XACML-like policies (@buntime/plugin-authz)
+- AuthN via Keycloak/OIDC/JWT (@buntime/authn)
+- AuthZ with XACML-like policies (@buntime/authz)
 - PAP/PDP architecture for policy management
 
 **Real-time Monitoring:**
@@ -82,22 +82,22 @@ apps/server/
 ```jsonc
 {
   // Required plugins (cannot be disabled by apps)
-  "required": ["@buntime/plugin-metrics"],
+  "required": ["@buntime/metrics"],
 
   // Plugins array (Babel-style) - order matters!
   "plugins": [
     // String = plugin without config
-    "@buntime/plugin-metrics",
+    "@buntime/metrics",
 
     // Tuple = [name, config]
-    ["@buntime/plugin-authn", {
+    ["@buntime/authn", {
       "provider": "keycloak",
       "issuer": "${KEYCLOAK_URL}",
       "realm": "${KEYCLOAK_REALM}"
     }],
 
     // authz must come after authn (declares dependency internally)
-    ["@buntime/plugin-authz", {
+    ["@buntime/authz", {
       "store": "file",
       "path": "./policies.json"
     }]

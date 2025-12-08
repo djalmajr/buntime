@@ -1,5 +1,5 @@
 {
-  "name": "@buntime/plugin-proxy",
+  "name": "@buntime/gateway",
   "version": "1.0.0",
   "type": "module",
   "exports": {

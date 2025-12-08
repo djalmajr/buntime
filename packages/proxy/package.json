@@ -1,5 +1,5 @@
 {
-  "name": "@buntime/plugin-authz",
+  "name": "@buntime/proxy",
   "version": "1.0.0",
   "type": "module",
   "exports": {

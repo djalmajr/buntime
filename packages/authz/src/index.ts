@@ -149,15 +149,15 @@ const routes = new Hono()
  * - PDP (Policy Decision Point): Evaluates policies and returns PERMIT/DENY
  * - PAP (Policy Administration Point): CRUD for policies
  *
- * Requires @buntime/plugin-authn to be loaded first (for identity extraction).
+ * Requires @buntime/authn to be loaded first (for identity extraction).
  *
  * @example
  * ```typescript
  * // buntime.config.ts
  * export default {
  *   plugins: [
- *     ["@buntime/plugin-authn", { ... }],
- *     ["@buntime/plugin-authz", {
+ *     ["@buntime/authn", { ... }],
+ *     ["@buntime/authz", {
  *       store: "file",
  *       path: "./policies.json",
  *       policies: [
@@ -178,9 +178,9 @@ export default function authzPlugin(pluginConfig: AuthzConfig = {}): BuntimePlug
   config = pluginConfig;
 
   return {
-    name: "@buntime/plugin-authz",
+    name: "@buntime/authz",
     version: "1.0.0",
-    dependencies: ["@buntime/plugin-authn"],
+    dependencies: ["@buntime/authn"],
     priority: 20, // Run after authn
 
     async onInit(ctx: PluginContext) {

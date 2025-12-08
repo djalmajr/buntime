@@ -1,5 +1,5 @@
 {
-  "name": "@buntime/plugin-metrics",
+  "name": "@buntime/durable-objects",
   "version": "1.0.0",
   "type": "module",
   "exports": {
@@ -11,7 +11,10 @@
     "lint": "bun run lint:format && bun run lint:types"
   },
   "dependencies": {
-    "@buntime/shared": "workspace:*"
+    "@buntime/durable-objects-sdk": "workspace:*",
+    "@buntime/shared": "workspace:*",
+    "@libsql/client": "^0.15.0",
+    "quick-lru": "^7.0.0"
   },
   "peerDependencies": {
     "hono": "^4.0.0",

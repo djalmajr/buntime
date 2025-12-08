@@ -1,5 +1,5 @@
 {
-  "name": "@buntime/plugin-authn",
+  "name": "@buntime/authz",
   "version": "1.0.0",
   "type": "module",
   "exports": {

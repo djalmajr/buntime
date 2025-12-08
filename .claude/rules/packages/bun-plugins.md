@@ -1,16 +1,16 @@
 # Bun Plugins
 
-Plugins for Bun build system used by cpanel and other apps.
+Plugins for Bun build system used by cpanel and other apps. Located in `plugins/` folder.
 
 ## Available Plugins
 
 | Plugin | Package | Purpose |
 |--------|---------|---------|
-| Tailwind | `bun-plugin-tailwind` | Tailwind CSS processing |
-| Iconify | `bun-plugin-iconify` | Collects icons from code, generates `virtual:icons` |
-| React Compiler | `bun-plugin-react-compiler` | React Compiler for automatic memoization |
-| i18next | `bun-plugin-i18next` | i18n translation loading, generates `virtual:i18n` |
-| TSR | `bun-plugin-tsr` | TanStack Router route generation |
+| Tailwind | `bun-plugin-tailwind` | Tailwind CSS processing (external npm package) |
+| Iconify | `@zomme/bun-plugin-iconify` | Collects icons from code, generates `virtual:icons` |
+| React Compiler | `@zomme/bun-plugin-react-compiler` | React Compiler for automatic memoization |
+| i18next | `@zomme/bun-plugin-i18next` | i18n translation loading, generates `virtual:i18n` |
+| TSR | `@zomme/bun-plugin-tsr` | TanStack Router route generation |
 
 ## Configuration via bunfig.toml
 
@@ -19,11 +19,11 @@ Plugins read configuration from `bunfig.toml` using custom `[plugins.*]` section
 ```toml
 [serve.static]
 plugins = [
-  "bun-plugin-tsr",
-  "bun-plugin-tailwind",
-  "bun-plugin-react-compiler",
-  "bun-plugin-iconify",
-  "bun-plugin-i18next",
+  "@zomme/bun-plugin-react-compiler",
+  "@zomme/bun-plugin-tsr",
+  "@zomme/bun-plugin-iconify",
+  "@zomme/bun-plugin-i18next",
+  "bun-plugin-tailwind"
 ]
 
 [plugins.iconify]
@@ -51,7 +51,7 @@ Scans source files for icon names and generates a virtual module with icon data.
 **Usage:**
 
 ```typescript
-import iconify from "bun-plugin-iconify";
+import iconify from "@zomme/bun-plugin-iconify";
 
 Bun.build({
   plugins: [iconify],
@@ -76,7 +76,7 @@ Integrates React Compiler (babel-plugin-react-compiler) for automatic memoizatio
 **Usage:**
 
 ```typescript
-import reactCompiler from "bun-plugin-react-compiler";
+import reactCompiler from "@zomme/bun-plugin-react-compiler";
 
 Bun.build({
   plugins: [reactCompiler],
@@ -116,7 +116,7 @@ Scans for translation files and generates a virtual module for lazy loading.
 **Usage:**
 
 ```typescript
-import i18next from "bun-plugin-i18next";
+import i18next from "@zomme/bun-plugin-i18next";
 
 Bun.build({
   plugins: [i18next],
@@ -147,7 +147,7 @@ TanStack Router route generation plugin.
 
 ```typescript
 // Using default export (reads from bunfig.toml, auto-detects watch mode)
-import tsr from "bun-plugin-tsr";
+import tsr from "@zomme/bun-plugin-tsr";
 
 // In bunfig.toml plugins array - works automatically
 // In build scripts - call setup manually

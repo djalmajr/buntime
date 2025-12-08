@@ -3,8 +3,8 @@ import type { Hono, MiddlewareHandler } from "hono";
 
 /**
  * Plugin configuration (Babel-style):
- * - string: plugin name without config (e.g., "@buntime/plugin-metrics")
- * - tuple: [name, config] (e.g., ["@buntime/plugin-authn", { provider: "keycloak" }])
+ * - string: plugin name without config (e.g., "@buntime/metrics")
+ * - tuple: [name, config] (e.g., ["@buntime/authn", { provider: "keycloak" }])
  */
 export type PluginConfig = string | [name: string, config: Record<string, unknown>];
 
@@ -16,8 +16,8 @@ export interface BuntimeConfig {
    * Plugins to load (Babel-style array, order matters!)
    * @example
    * [
-   *   "@buntime/plugin-metrics",
-   *   ["@buntime/plugin-authn", { "provider": "keycloak" }]
+   *   "@buntime/metrics",
+   *   ["@buntime/authn", { "provider": "keycloak" }]
    * ]
    */
   plugins?: PluginConfig[];
@@ -107,7 +107,7 @@ export interface WorkerStats {
  * Plugin definition
  */
 export interface BuntimePlugin {
-  /** Unique plugin name (e.g., "@buntime/plugin-metrics") */
+  /** Unique plugin name (e.g., "@buntime/metrics") */
   name: string;
 
   /** Plugin version (semver) */

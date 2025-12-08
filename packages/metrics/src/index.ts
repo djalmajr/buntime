@@ -92,7 +92,7 @@ export default function metricsPlugin(pluginConfig: MetricsConfig = {}): Buntime
   config = pluginConfig;
 
   return {
-    name: "@buntime/plugin-metrics",
+    name: "@buntime/metrics",
     version: "1.0.0",
     priority: 0, // Run first
 

@@ -327,7 +327,7 @@ const routes = new Hono()
  * // buntime.config.ts
  * export default {
  *   plugins: [
- *     ["@buntime/plugin-authn", {
+ *     ["@buntime/authn", {
  *       provider: "keycloak",
  *       issuer: "${KEYCLOAK_URL}",
  *       realm: "${KEYCLOAK_REALM}",
@@ -339,7 +339,7 @@ const routes = new Hono()
  */
 export default function authnPlugin(pluginConfig: AuthnConfig = {}): BuntimePlugin {
   return {
-    name: "@buntime/plugin-authn",
+    name: "@buntime/authn",
     version: "1.0.0",
     priority: 10, // Run after proxy, before authz
 

@@ -8,7 +8,7 @@
 
 ## Packages
 
-@.claude/rules/packages/buntime-plugins.md
+@.claude/rules/packages/buntime-extensions.md
 
 @.claude/rules/packages/bun-plugins.md
 

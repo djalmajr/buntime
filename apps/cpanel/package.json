@@ -1,5 +1,5 @@
 {
-  "name": "@buntime/cpanel",
+  "name": "cpanel",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -53,11 +53,11 @@
     "@types/react": "^19.2.6",
     "@types/react-dom": "^19.2.3",
     "@types/semver": "^7.7.1",
-    "bun-plugin-i18next": "workspace:*",
-    "bun-plugin-iconify": "workspace:*",
-    "bun-plugin-react-compiler": "workspace:*",
+    "@zomme/bun-plugin-i18next": "workspace:*",
+    "@zomme/bun-plugin-iconify": "workspace:*",
+    "@zomme/bun-plugin-react-compiler": "workspace:*",
+    "@zomme/bun-plugin-tsr": "workspace:*",
     "bun-plugin-tailwind": "^0.1.2",
-    "bun-plugin-tsr": "workspace:*",
     "tailwindcss": "^4.1.17"
   }
 }

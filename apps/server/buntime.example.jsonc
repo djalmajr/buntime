@@ -3,17 +3,17 @@
   // Copy this file to `buntime.jsonc` and customize as needed.
 
   // Plugins that cannot be disabled by apps
-  "required": ["@buntime/plugin-metrics"],
+  "required": ["@buntime/metrics"],
 
   // Plugins array (Babel-style) - order matters for dependencies!
   // Format: "plugin-name" or ["plugin-name", { config }]
   "plugins": [
     // Metrics plugin - provides /_/metrics/* endpoints
-    "@buntime/plugin-metrics",
+    "@buntime/metrics",
 
     // Proxy plugin - global proxy rules
     [
-      "@buntime/plugin-proxy",
+      "@buntime/proxy",
       {
         "rules": [
           {
@@ -28,7 +28,7 @@
 
     // Gateway plugin - rate limiting, caching, CORS
     [
-      "@buntime/plugin-gateway",
+      "@buntime/gateway",
       {
         "rateLimit": {
           "requests": 100,
@@ -51,7 +51,7 @@
 
     // Authentication plugin - Keycloak OIDC
     [
-      "@buntime/plugin-authn",
+      "@buntime/authn",
       {
         "provider": "keycloak",
         "issuer": "${KEYCLOAK_URL}",
@@ -62,7 +62,7 @@
 
     // Authorization plugin - XACML-like policies (must come after authn)
     [
-      "@buntime/plugin-authz",
+      "@buntime/authz",
       {
         "store": "file",
         "path": "./policies.json",

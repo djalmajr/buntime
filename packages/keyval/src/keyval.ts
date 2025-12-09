@@ -64,7 +64,7 @@ export class KvAtomicOperation {
  *
  * @example
  * ```typescript
- * const kv = new Kv("http://localhost:3000/_/plugin-keyval");
+ * const kv = new Kv("http://localhost:8000/_/plugin-keyval");
  *
  * // Set a value
  * await kv.set(["users", 123], { name: "Alice" });

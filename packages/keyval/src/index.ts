@@ -1,4 +1,4 @@
-export { Kv, KvAtomicOperation } from "./kv";
+export { Kv, KvAtomicOperation } from "./keyval";
 export type {
   KvCheck,
   KvCommitError,

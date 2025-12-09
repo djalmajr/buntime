@@ -39,7 +39,7 @@
     "secureDescription": "Verificar certificados SSL (recomendado para produção)",
     "target": "URL de Destino",
     "targetDescription": "URL de destino (suporta sintaxe ${ENV_VAR})",
-    "targetPlaceholder": "http://backend:3000",
+    "targetPlaceholder": "http://backend:8080",
     "ws": "Proxy WebSocket",
     "wsDescription": "Proxiar conexões WebSocket (desative para problemas com Vite/HMR)"
   },

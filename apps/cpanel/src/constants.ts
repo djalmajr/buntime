@@ -4,7 +4,7 @@ import { version } from "../package.json";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "staging", "test"]).default("development"),
-  PORT: number(3000),
+  PORT: number(4000),
 });
 
 const { data, error } = envSchema.safeParse(Bun.env);

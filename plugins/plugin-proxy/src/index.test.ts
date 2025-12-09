@@ -6,7 +6,7 @@ import type { ProxyRule } from "./index";
 
 const createRule = (opts: Partial<ProxyRule> = {}): ProxyRule => ({
   pattern: opts.pattern ?? ".",
-  target: opts.target ?? "http://localhost:3000",
+  target: opts.target ?? "http://localhost:8080",
   ...opts,
 });
 
@@ -91,11 +91,11 @@ describe("matchRule", () => {
   describe("pattern priority", () => {
     it("should return first matching pattern", () => {
       const result = matchRule("/api/users/123", [
-        compileRule(createRule({ pattern: "^/api/users/(.*)$", target: "http://users:3000" })),
-        compileRule(createRule({ pattern: "^/api/(.*)$", target: "http://api:3000" })),
+        compileRule(createRule({ pattern: "^/api/users/(.*)$", target: "http://users:8080" })),
+        compileRule(createRule({ pattern: "^/api/(.*)$", target: "http://api:8080" })),
       ]);
 
-      expect(result?.rule.target).toBe("http://users:3000");
+      expect(result?.rule.target).toBe("http://users:8080");
     });
   });
 });
@@ -181,7 +181,7 @@ describe("ProxyRule", () => {
 });
 
 describe("HTTP proxy", () => {
-  const TARGET = "http://backend:3000";
+  const TARGET = "http://backend:8080";
 
   // Helper to simulate HTTP proxy behavior
   async function httpProxy(req: Request, rule: CompiledRule, path: string): Promise<Response> {
@@ -255,7 +255,7 @@ describe("HTTP proxy", () => {
       await httpProxy(request, compileRule(createRule({ target: TARGET })), "/v1/users");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "http://backend:3000/v1/users?page=1",
+        "http://backend:8080/v1/users?page=1",
         expect.any(Object),
       );
       fetchMock.mockRestore();
@@ -270,7 +270,7 @@ describe("HTTP proxy", () => {
       await httpProxy(request, compileRule(createRule({ target: TARGET })), "/v1/api");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "http://backend:3000/v1/api?foo=bar&baz=qux",
+        "http://backend:8080/v1/api?foo=bar&baz=qux",
         expect.any(Object),
       );
       fetchMock.mockRestore();
@@ -313,8 +313,8 @@ describe("HTTP proxy", () => {
       );
 
       const calledHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
-      expect(calledHeaders.get("host")).toBe("backend:3000");
-      expect(calledHeaders.get("origin")).toBe("http://backend:3000");
+      expect(calledHeaders.get("host")).toBe("backend:8080");
+      expect(calledHeaders.get("origin")).toBe("http://backend:8080");
       fetchMock.mockRestore();
     });
 

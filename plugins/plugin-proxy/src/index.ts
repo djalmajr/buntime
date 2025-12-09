@@ -27,7 +27,7 @@ export interface ProxyRule {
   /**
    * Target URL to proxy to
    * Supports ${ENV_VAR} syntax for environment variables
-   * @example "http://backend:3000" or "${API_URL}"
+   * @example "http://backend:8080" or "${API_URL}"
    */
   target: string;
 

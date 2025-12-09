@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Icon } from "~/components/icon";
 import { Button } from "~/components/ui/button";
+import { Checkbox } from "~/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,10 +20,13 @@ interface FileEntry {
 
 interface FileRowProps {
   entry: FileEntry;
+  selected?: boolean;
   onDelete: (entry: FileEntry) => void;
   onDownload: (entry: FileEntry) => void;
+  onMove?: (entry: FileEntry) => void;
   onNavigate: (path: string) => void;
   onRename: (entry: FileEntry) => void;
+  onSelect?: (entry: FileEntry, selected: boolean) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -33,7 +37,16 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / k ** i).toFixed(1))} ${sizes[i]}`;
 }
 
-export function FileRow({ entry, onDelete, onDownload, onNavigate, onRename }: FileRowProps) {
+export function FileRow({
+  entry,
+  selected,
+  onDelete,
+  onDownload,
+  onMove,
+  onNavigate,
+  onRename,
+  onSelect,
+}: FileRowProps) {
   const { t } = useTranslation("deployments");
 
   const handleClick = () => {
@@ -50,10 +63,19 @@ export function FileRow({ entry, onDelete, onDownload, onNavigate, onRename }: F
 
   return (
     <tr
-      className="border-b transition-colors hover:bg-muted/50 cursor-pointer"
+      className={`border-b transition-colors hover:bg-muted/50 ${entry.isDirectory ? "cursor-pointer" : ""}`}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
     >
+      {onSelect && (
+        <td className="w-10 p-3">
+          <Checkbox
+            checked={selected}
+            onClick={(evt) => evt.stopPropagation()}
+            onCheckedChange={(checked) => onSelect(entry, !!checked)}
+          />
+        </td>
+      )}
       <td className="p-3">
         <div className="flex items-center gap-2">
           <Icon
@@ -87,18 +109,28 @@ export function FileRow({ entry, onDelete, onDownload, onNavigate, onRename }: F
               <Icon className="size-4" icon="lucide:pencil" />
               {t("actions.rename")}
             </DropdownMenuItem>
-            {!entry.isDirectory && (
+            {onMove && (
               <DropdownMenuItem
                 className="gap-2"
                 onClick={(evt) => {
                   evt.stopPropagation();
-                  onDownload(entry);
+                  onMove(entry);
                 }}
               >
-                <Icon className="size-4" icon="lucide:download" />
-                {t("actions.download")}
+                <Icon className="size-4" icon="lucide:folder-input" />
+                {t("actions.move")}
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem
+              className="gap-2"
+              onClick={(evt) => {
+                evt.stopPropagation();
+                onDownload(entry);
+              }}
+            >
+              <Icon className="size-4" icon="lucide:download" />
+              {t("actions.download")}
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="gap-2"

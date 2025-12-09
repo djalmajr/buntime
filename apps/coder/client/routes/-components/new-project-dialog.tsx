@@ -33,8 +33,8 @@ export function NewProjectDialog({ open, onClose, onCreate }: NewProjectDialogPr
   }, [open]);
 
   const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
+    (evt: React.FormEvent) => {
+      evt.preventDefault();
       if (name.trim()) {
         onCreate(name.trim(), selectedTemplate);
         onClose();

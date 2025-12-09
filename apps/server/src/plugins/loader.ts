@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type {
   BuntimeConfig,
   BuntimePlugin,
@@ -6,7 +8,10 @@ import type {
   PluginFactory,
   PluginModule,
 } from "@buntime/shared/types";
+import { getBuiltinPlugin } from "./builtin";
 import { createPluginLogger, PluginRegistry } from "./registry";
+
+const EXTERNAL_PLUGINS_DIR = "./plugins";
 
 /**
  * Resolve a plugin module to a BuntimePlugin
@@ -79,6 +84,11 @@ export class PluginLoader {
 
   /**
    * Load a single plugin by name
+   *
+   * Resolution order:
+   * 1. Built-in plugins (always available, embedded in binary)
+   * 2. External plugins from ./plugins/ directory
+   * 3. Node modules (dev/bundle mode only)
    */
   async loadPlugin(name: string, options: Record<string, unknown> = {}): Promise<BuntimePlugin> {
     // Check if already loaded
@@ -86,18 +96,27 @@ export class PluginLoader {
       throw new Error(`Plugin "${name}" is already loaded`);
     }
 
-    // Import the plugin module
     let mod: PluginModule;
 
-    try {
-      // Try to import as package
-      mod = await import(name);
-    } catch {
-      // Try as relative path
-      try {
-        mod = await import(Bun.resolveSync(name, process.cwd()));
-      } catch (err) {
-        throw new Error(`Could not resolve plugin "${name}": ${err}`);
+    // 1. Try built-in plugins first (works in compiled binary)
+    const builtinFactory = await getBuiltinPlugin(name);
+    if (builtinFactory) {
+      mod = builtinFactory;
+    } else {
+      // 2. Try external plugins directory
+      const externalPath = await this.resolveExternalPlugin(name);
+      if (externalPath) {
+        mod = await import(externalPath);
+      } else {
+        // 3. Try node_modules (dev/bundle mode)
+        try {
+          mod = await import(name);
+        } catch {
+          throw new Error(
+            `Could not resolve plugin "${name}". ` +
+              `Not a built-in plugin and not found in ${EXTERNAL_PLUGINS_DIR}/`,
+          );
+        }
       }
     }
 
@@ -146,6 +165,36 @@ export class PluginLoader {
    */
   getRegistry(): PluginRegistry {
     return this.registry;
+  }
+
+  /**
+   * Try to resolve a plugin from the external plugins directory
+   * Looks for: ./plugins/{name}.ts, ./plugins/{name}/index.ts
+   */
+  private async resolveExternalPlugin(name: string): Promise<string | null> {
+    const cwd = process.cwd();
+    const pluginsDir = join(cwd, EXTERNAL_PLUGINS_DIR);
+
+    if (!existsSync(pluginsDir)) {
+      return null;
+    }
+
+    // Extract short name from @buntime/plugin-xxx or @buntime/xxx
+    const shortName = name.replace(/^@buntime\/plugin-/, "").replace(/^@buntime\//, "");
+
+    // Try direct file: ./plugins/{name}.ts
+    const directPath = join(pluginsDir, `${shortName}.ts`);
+    if (existsSync(directPath)) {
+      return directPath;
+    }
+
+    // Try directory: ./plugins/{name}/index.ts
+    const dirPath = join(pluginsDir, shortName, "index.ts");
+    if (existsSync(dirPath)) {
+      return dirPath;
+    }
+
+    return null;
   }
 }
 
@@ -201,21 +250,6 @@ function validateBuntimeConfig(config: unknown, configPath: string): BuntimeConf
       throw new Error(
         `[${configPath}] Invalid plugin at index ${i}: expected string or [name, config] tuple`,
       );
-    }
-  }
-
-  // Validate required section
-  if (cfg.required !== undefined) {
-    if (!Array.isArray(cfg.required)) {
-      throw new Error(`[${configPath}] Invalid "required" section: expected array`);
-    }
-
-    for (const item of cfg.required) {
-      if (typeof item !== "string") {
-        throw new Error(
-          `[${configPath}] Invalid required plugin: expected string, got ${typeof item}`,
-        );
-      }
     }
   }
 

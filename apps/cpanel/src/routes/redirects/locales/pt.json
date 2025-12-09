@@ -39,14 +39,18 @@
     "secureDescription": "Verificar certificados SSL (recomendado para produção)",
     "target": "URL de Destino",
     "targetDescription": "URL de destino (suporta sintaxe ${ENV_VAR})",
-    "targetPlaceholder": "http://backend:3000"
+    "targetPlaceholder": "http://backend:3000",
+    "ws": "Proxy WebSocket",
+    "wsDescription": "Proxiar conexões WebSocket (desative para problemas com Vite/HMR)"
   },
   "list": {
     "actions": "Ações",
     "empty": "Nenhum redirect configurado ainda.",
     "emptyDescription": "Crie seu primeiro redirect para começar a rotear requisições.",
+    "fixed": "Fixo",
     "name": "Nome",
     "pattern": "Padrão",
+    "readonlyHint": "Este redirect é somente leitura (definido na configuração)",
     "searchPlaceholder": "Buscar redirects...",
     "target": "Destino"
   },

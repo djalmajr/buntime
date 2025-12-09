@@ -4,9 +4,20 @@
     "create": "Create",
     "delete": "Delete",
     "download": "Download",
+    "move": "Move",
     "newFolder": "New Folder",
+    "refresh": "Refresh",
     "rename": "Rename",
-    "upload": "Upload"
+    "upload": "Upload",
+    "uploadFiles": "Upload Files",
+    "uploadFolder": "Upload Folder"
+  },
+  "batch": {
+    "confirmDelete": {
+      "description": "Are you sure you want to delete {{count}} items? This action cannot be undone.",
+      "title": "Delete Items"
+    },
+    "selected": "{{count}} selected"
   },
   "breadcrumb": {
     "root": "Apps"
@@ -25,12 +36,19 @@
   "errors": {
     "createFolderFailed": "Failed to create folder",
     "deleteFailed": "Failed to delete item",
+    "moveFailed": "Failed to move item",
+    "refreshFailed": "Failed to refresh",
     "renameFailed": "Failed to rename item",
     "uploadFailed": "Failed to upload files"
   },
   "list": {
     "name": "Name",
     "size": "Size"
+  },
+  "move": {
+    "description": "Enter the destination path (e.g., app-name/1.0.0)",
+    "placeholder": "Destination path",
+    "title": "Move Item"
   },
   "newFolder": {
     "description": "Enter a name for the new folder.",

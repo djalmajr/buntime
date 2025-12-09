@@ -1,6 +1,5 @@
 [serve.static]
 plugins = [
-  "@zomme/bun-plugin-react-compiler",
   "@zomme/bun-plugin-tsr",
   "@zomme/bun-plugin-iconify",
   "@zomme/bun-plugin-i18next",

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { serveStatic } from "~/utils/serve-static";
+import { serveStatic } from "@/utils/serve-static";
 import type { WorkerConfig } from "./config";
 import type { MethodHandlers, RouteHandler, WorkerApp, WorkerResponse } from "./types";
 

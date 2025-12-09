@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Icon } from "~/components/icon";
 import { Button } from "~/components/ui/button";
+import { Checkbox } from "~/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -20,8 +21,10 @@ import { api } from "~/helpers/api-client";
 import { useQueryString } from "~/hooks/use-query-state";
 import { cn } from "~/utils/cn";
 import { FileRow } from "./-components/file-row";
+import { MoveDialog } from "./-components/move-dialog";
 import { NewFolderDialog } from "./-components/new-folder-dialog";
 import { RenameDialog } from "./-components/rename-dialog";
+import { SelectionToolbar } from "./-components/selection-toolbar";
 
 interface FileEntry {
   isDirectory: boolean;
@@ -37,13 +40,24 @@ function DeploymentsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [batchMoveOpen, setBatchMoveOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<FileEntry | null>(null);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<FileEntry | null>(null);
   const [search, setSearch] = useQueryString("search");
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [path] = useQueryString("path");
+
+  // Clear selection when path changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: path triggers the effect
+  useEffect(() => {
+    setSelectedPaths(new Set());
+  }, [path]);
 
   // Set header action button
   useEffect(() => {
@@ -59,7 +73,7 @@ function DeploymentsPage() {
 
   const entries$ = useQuery({
     queryFn: async () => {
-      const res = await api._.deployments.list.$get({ query: { path } });
+      const res = await api.internal.deployments.list.$get({ query: { path } });
       const json = await res.json();
       return json.data;
     },
@@ -91,6 +105,9 @@ function DeploymentsPage() {
         formData.append("path", path);
         for (const file of files) {
           formData.append("files", file);
+          // Preserve folder structure using webkitRelativePath
+          const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+          formData.append("paths", relativePath || file.name);
         }
 
         const res = await fetch("/_/deployments/upload", {
@@ -116,7 +133,7 @@ function DeploymentsPage() {
   const handleCreateFolder = async (name: string) => {
     try {
       const folderPath = path ? `${path}/${name}` : name;
-      const res = await api._.deployments.mkdir.$post({ json: { path: folderPath } });
+      const res = await api.internal.deployments.mkdir.$post({ json: { path: folderPath } });
       if (!res.ok) throw new Error(t("errors.createFolderFailed"));
       queryClient.invalidateQueries({ queryKey: ["deployments", path] });
     } catch (error) {
@@ -127,7 +144,9 @@ function DeploymentsPage() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
-      const res = await api._.deployments.delete.$delete({ json: { path: deleteTarget.path } });
+      const res = await api.internal.deployments.delete.$delete({
+        json: { path: deleteTarget.path },
+      });
       if (!res.ok) throw new Error(t("errors.deleteFailed"));
       setDeleteTarget(null);
       queryClient.invalidateQueries({ queryKey: ["deployments", path] });
@@ -139,7 +158,7 @@ function DeploymentsPage() {
   const handleRename = async (newName: string) => {
     if (!renameTarget) return;
     try {
-      const res = await api._.deployments.rename.$post({
+      const res = await api.internal.deployments.rename.$post({
         json: { newName, path: renameTarget.path },
       });
       if (!res.ok) throw new Error(t("errors.renameFailed"));
@@ -154,30 +173,203 @@ function DeploymentsPage() {
     window.open(`/_/deployments/download?path=${encodeURIComponent(entry.path)}`, "_blank");
   };
 
+  const handleMove = async (destPath: string) => {
+    if (!moveTarget) return;
+
+    // Validate destination is at least 2 levels deep (app/version)
+    const destParts = destPath.split("/").filter(Boolean);
+    if (destParts.length < 2) {
+      toast.error(t("errors.moveFailed"));
+      return;
+    }
+
+    try {
+      const res = await api.internal.deployments.move.$post({
+        json: { destPath, path: moveTarget.path },
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { message?: string };
+        throw new Error(data.message || t("errors.moveFailed"));
+      }
+      setMoveTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["deployments", path] });
+      queryClient.invalidateQueries({ queryKey: ["deployments", destPath] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("errors.moveFailed"));
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await api.internal.deployments.refresh.$get({ query: { path } });
+      queryClient.invalidateQueries({ queryKey: ["deployments", path] });
+    } catch {
+      toast.error(t("errors.refreshFailed"));
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleSelect = (entry: FileEntry, selected: boolean) => {
+    setSelectedPaths((prev) => {
+      const next = new Set(prev);
+      if (selected) {
+        next.add(entry.path);
+      } else {
+        next.delete(entry.path);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedPaths(new Set(filteredEntries.map((e) => e.path)));
+    } else {
+      setSelectedPaths(new Set());
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedPaths.size === 0) return;
+    try {
+      const res = await api.internal.deployments["delete-batch"].$post({
+        json: { paths: Array.from(selectedPaths) },
+      });
+      if (!res.ok) throw new Error(t("errors.deleteFailed"));
+      setSelectedPaths(new Set());
+      setBatchDeleteOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["deployments", path] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("errors.deleteFailed"));
+    }
+  };
+
+  const handleBatchDownload = () => {
+    if (selectedPaths.size === 0) return;
+    const paths = Array.from(selectedPaths)
+      .map((p) => encodeURIComponent(p))
+      .join(",");
+    window.open(`/_/deployments/download-batch?paths=${paths}`, "_blank");
+  };
+
+  const handleBatchMove = async (destPath: string) => {
+    if (selectedPaths.size === 0) return;
+
+    // Validate destination is at least 2 levels deep (app/version)
+    const destParts = destPath.split("/").filter(Boolean);
+    if (destParts.length < 2) {
+      toast.error(t("errors.moveFailed"));
+      return;
+    }
+
+    try {
+      const res = await api.internal.deployments["move-batch"].$post({
+        json: { destPath, paths: Array.from(selectedPaths) },
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { message?: string };
+        throw new Error(data.message || t("errors.moveFailed"));
+      }
+      setSelectedPaths(new Set());
+      setBatchMoveOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["deployments", path] });
+      queryClient.invalidateQueries({ queryKey: ["deployments", destPath] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("errors.moveFailed"));
+    }
+  };
+
   const handleDragOver = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+    (evt: React.DragEvent) => {
+      evt.preventDefault();
+      evt.stopPropagation();
       if (canUpload) setIsDragging(true);
     },
     [canUpload],
   );
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDragLeave = useCallback((evt: React.DragEvent) => {
+    evt.preventDefault();
+    evt.stopPropagation();
     setIsDragging(false);
   }, []);
 
   const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+    async (evt: React.DragEvent) => {
+      evt.preventDefault();
+      evt.stopPropagation();
       setIsDragging(false);
 
       if (!canUpload) return;
 
-      const files = Array.from(e.dataTransfer.files);
+      const files: File[] = [];
+
+      // Helper to read all entries from a directory (may require multiple calls)
+      const readAllEntries = async (
+        reader: FileSystemDirectoryReader,
+      ): Promise<FileSystemEntry[]> => {
+        const entries: FileSystemEntry[] = [];
+        let batch: FileSystemEntry[];
+        do {
+          batch = await new Promise<FileSystemEntry[]>((resolve, reject) => {
+            reader.readEntries(resolve, reject);
+          });
+          entries.push(...batch);
+        } while (batch.length > 0);
+        return entries;
+      };
+
+      // Recursively read directory entries
+      const readEntry = async (entry: FileSystemEntry, basePath = ""): Promise<void> => {
+        if (entry.isFile) {
+          const fileEntry = entry as FileSystemFileEntry;
+          const file = await new Promise<File>((resolve, reject) => {
+            fileEntry.file(resolve, reject);
+          });
+          const fileWithPath = new File([file], file.name, { type: file.type });
+          Object.defineProperty(fileWithPath, "webkitRelativePath", {
+            value: basePath ? `${basePath}/${file.name}` : file.name,
+            writable: false,
+          });
+          files.push(fileWithPath);
+        } else if (entry.isDirectory) {
+          const dirEntry = entry as FileSystemDirectoryEntry;
+          const reader = dirEntry.createReader();
+          const entries = await readAllEntries(reader);
+          const dirPath = basePath ? `${basePath}/${entry.name}` : entry.name;
+          for (const childEntry of entries) {
+            await readEntry(childEntry, dirPath);
+          }
+        }
+      };
+
+      // Strategy: Try Entry API first for folder support, fallback to dataTransfer.files
+      const items = Array.from(evt.dataTransfer.items);
+
+      // Collect all valid entries
+      const entries: FileSystemEntry[] = [];
+      for (const item of items) {
+        const entry = item?.webkitGetAsEntry?.();
+        if (entry) entries.push(entry);
+      }
+
+      // If Entry API worked for all items, use it (better folder support)
+      if (entries.length === items.length && entries.length > 0) {
+        for (const entry of entries) {
+          await readEntry(entry);
+        }
+      } else {
+        // Entry API failed for some items - use dataTransfer.files as fallback
+        // This won't read folder contents, but at least files will work
+        for (const file of Array.from(evt.dataTransfer.files)) {
+          if (file.size > 0) {
+            files.push(file);
+          }
+        }
+      }
+
       if (files.length > 0) handleUpload(files);
     },
     [canUpload, handleUpload],
@@ -185,26 +377,82 @@ function DeploymentsPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-4">
-      {/* Search Input */}
-      <div className="relative">
-        <Icon
-          className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-          icon="lucide:search"
-        />
-        <Input
-          className="pl-9"
-          placeholder={t("search.placeholder")}
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Icon
+            className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            icon="lucide:search"
+          />
+          <Input
+            className="pl-9"
+            placeholder={t("search.placeholder")}
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        {canUpload && (
+          <>
+            <Button
+              asChild
+              disabled={isUploading}
+              size="icon"
+              title={t("actions.uploadFiles")}
+              variant="outline"
+            >
+              <label>
+                <Icon className="size-4" icon="lucide:file-up" />
+                <input
+                  className="hidden"
+                  multiple
+                  type="file"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length > 0) handleUpload(files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </Button>
+            <Button
+              asChild
+              disabled={isUploading}
+              size="icon"
+              title={t("actions.uploadFolder")}
+              variant="outline"
+            >
+              <label>
+                <Icon className="size-4" icon="lucide:folder-up" />
+                <input
+                  className="hidden"
+                  ref={(el) => el?.setAttribute("webkitdirectory", "")}
+                  type="file"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length > 0) handleUpload(files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </Button>
+          </>
+        )}
+        <Button
+          disabled={isRefreshing}
+          size="icon"
+          title={t("actions.refresh")}
+          variant="outline"
+          onClick={handleRefresh}
+        >
+          <Icon className={cn("size-4", isRefreshing && "animate-spin")} icon="lucide:refresh-cw" />
+        </Button>
       </div>
-
-      {/* File List with integrated drag-and-drop */}
-      <div
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-drop zone */}
+      <section
         className={cn(
           "rounded-lg border transition-colors",
           isDragging && canUpload && "border-primary bg-primary/5",
+          selectedPaths.size > 0 && "mb-12",
         )}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
@@ -213,6 +461,16 @@ function DeploymentsPage() {
         <table className="w-full">
           <thead>
             <tr className="border-b bg-muted/50">
+              {filteredEntries.length > 0 && (
+                <th className="w-10 p-3">
+                  <Checkbox
+                    checked={
+                      selectedPaths.size === filteredEntries.length && filteredEntries.length > 0
+                    }
+                    onCheckedChange={handleSelectAll}
+                  />
+                </th>
+              )}
               <th className="p-3 text-left text-sm font-medium">{t("list.name")}</th>
               <th className="p-3 text-left text-sm font-medium">{t("list.size")}</th>
               <th className="w-16 p-3"></th>
@@ -251,16 +509,16 @@ function DeploymentsPage() {
                   <div className="relative flex flex-col items-center gap-2">
                     {canUpload && (
                       <input
-                        accept="*/*"
                         className="absolute inset-0 cursor-pointer opacity-0"
                         multiple
+                        ref={(el) => el?.setAttribute("webkitdirectory", "")}
                         type="file"
-                        onChange={(e) => {
-                          const files = Array.from(e.target.files || []);
+                        onChange={(evt) => {
+                          const files = Array.from(evt.target.files || []);
                           if (files.length > 0) {
                             handleUpload(files);
                           }
-                          e.target.value = "";
+                          evt.target.value = "";
                         }}
                       />
                     )}
@@ -295,34 +553,37 @@ function DeploymentsPage() {
                 <FileRow
                   entry={entry}
                   key={entry.path}
+                  selected={selectedPaths.has(entry.path)}
                   onDelete={setDeleteTarget}
                   onDownload={handleDownload}
+                  onMove={canUpload ? setMoveTarget : undefined}
                   onNavigate={navigateTo}
                   onRename={setRenameTarget}
+                  onSelect={handleSelect}
                 />
               ))
             )}
           </tbody>
         </table>
-      </div>
-
-      {/* New Folder Dialog */}
+      </section>
       <NewFolderDialog
         depth={pathParts.length}
         open={newFolderOpen}
         onClose={() => setNewFolderOpen(false)}
         onCreate={handleCreateFolder}
       />
-
-      {/* Rename Dialog */}
       <RenameDialog
         currentName={renameTarget?.name ?? ""}
         open={!!renameTarget}
         onClose={() => setRenameTarget(null)}
         onRename={handleRename}
       />
-
-      {/* Delete Confirmation Dialog */}
+      <MoveDialog
+        currentPath={moveTarget?.path ?? ""}
+        open={!!moveTarget}
+        onClose={() => setMoveTarget(null)}
+        onMove={handleMove}
+      />
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
@@ -341,6 +602,43 @@ function DeploymentsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={batchDeleteOpen} onOpenChange={setBatchDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("batch.confirmDelete.title")}</DialogTitle>
+            <DialogDescription>
+              {t("batch.confirmDelete.description", { count: selectedPaths.size })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBatchDeleteOpen(false)}>
+              {t("confirmDelete.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={handleBatchDelete}>
+              {t("confirmDelete.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <MoveDialog
+        currentPath={path ? `${path}/item` : ""}
+        open={batchMoveOpen}
+        onClose={() => setBatchMoveOpen(false)}
+        onMove={handleBatchMove}
+      />
+      {selectedPaths.size > 0 && (
+        <div className="pointer-events-none fixed bottom-0 left-64 right-0 z-50 flex justify-center pb-4">
+          <div className="pointer-events-auto">
+            <SelectionToolbar
+              count={selectedPaths.size}
+              onClear={() => setSelectedPaths(new Set())}
+              onDelete={() => setBatchDeleteOpen(true)}
+              onDownload={handleBatchDownload}
+              onMove={canUpload ? () => setBatchMoveOpen(true) : undefined}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

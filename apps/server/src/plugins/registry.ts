@@ -76,7 +76,7 @@ export class PluginRegistry {
    * Run onRequest hooks in order
    * Returns modified request or response (for short-circuit)
    */
-  async runOnRequest(req: Request, app: AppInfo): Promise<Request | Response> {
+  async runOnRequest(req: Request, app?: AppInfo): Promise<Request | Response> {
     let currentReq = req;
 
     for (const plugin of this.getAllSorted()) {

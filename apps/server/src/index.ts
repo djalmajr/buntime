@@ -1,30 +1,60 @@
 import type { WebSocketHandler } from "bun";
-import { createApp } from "~/app";
-import { APPS_DIR, PORT } from "~/constants";
-import { pool } from "~/libs/pool/pool";
-import { loadBuntimeConfig, PluginLoader } from "~/plugins/loader";
-import { setRegistry } from "~/routes/internal/deployments";
+import { createApp } from "@/app";
+import { getConfig, initConfig, PORT } from "@/config";
+import { WorkerPool } from "@/libs/pool/pool";
+import { loadBuntimeConfig, PluginLoader } from "@/plugins/loader";
+import { createDeploymentRoutes } from "@/routes/internal/deployments";
+import { createInternalRoutes } from "@/routes/internal/index";
+import { createWorkerRoutes } from "@/routes/worker";
+import { createAppResolver } from "@/utils/get-app-dir";
 
-// Load configuration and plugins
-const config = await loadBuntimeConfig();
-const loader = new PluginLoader(config, pool);
+// Load configuration
+const buntimeConfig = await loadBuntimeConfig();
+const runtimeConfig = initConfig(buntimeConfig);
+
+// Create pool with config
+const pool = new WorkerPool({ maxSize: runtimeConfig.poolSize });
+
+// Create app resolver
+const getAppDir = createAppResolver(runtimeConfig.appsDir);
+
+// Load plugins
+const loader = new PluginLoader(buntimeConfig, pool);
 const registry = await loader.load();
 
-// Create app with plugins
-const app = createApp(registry);
+// Create routes with dependencies
+const deployments = createDeploymentRoutes({
+  appsDir: runtimeConfig.appsDir,
+  registry,
+});
 
-// Set registry for deployment conflict detection
-setRegistry(registry);
+const internal = createInternalRoutes({
+  deployments,
+  pool,
+});
+
+const workers = createWorkerRoutes({
+  config: runtimeConfig,
+  getAppDir,
+  pool,
+});
+
+// Create app with routes and plugins
+const app = createApp({ internal, registry, workers });
 
 // Check existing apps for conflicts with plugin routes
 async function checkExistingAppsForConflicts() {
+  const { appsDir } = getConfig();
+
   try {
-    const entries = await Array.fromAsync(new Bun.Glob("*").scan({ cwd: APPS_DIR, onlyFiles: false }));
+    const entries = await Array.fromAsync(
+      new Bun.Glob("*").scan({ cwd: appsDir, onlyFiles: false }),
+    );
     const mountedPaths = registry.getMountedPaths();
 
     for (const entry of entries) {
       // Only check top-level directories (apps)
-      const stat = await Bun.file(`${APPS_DIR}/${entry}`).exists();
+      const stat = await Bun.file(`${appsDir}/${entry}`).exists();
       if (stat) continue; // Skip files
 
       const appPath = `/${entry}`;
@@ -46,7 +76,7 @@ async function checkExistingAppsForConflicts() {
       }
     }
   } catch {
-    // Ignore errors (APPS_DIR might not exist yet)
+    // Ignore errors (appsDir might not exist yet)
   }
 }
 
@@ -74,7 +104,10 @@ process.on("SIGINT", async () => {
 });
 
 // Export for programmatic use
-export { app, config, pool, registry };
-export { type AppType, createApp } from "~/app";
-export { loadBuntimeConfig, PluginLoader } from "~/plugins/loader";
-export { PluginRegistry } from "~/plugins/registry";
+export { app, buntimeConfig as config, pool, registry };
+export { type AppType, createApp } from "@/app";
+export { loadBuntimeConfig, PluginLoader } from "@/plugins/loader";
+export { PluginRegistry } from "@/plugins/registry";
+
+// Export route types for RPC clients
+export type { InternalRoutesType } from "@/routes/internal";

@@ -39,14 +39,18 @@
     "secureDescription": "Verify SSL certificates (recommended for production)",
     "target": "Target URL",
     "targetDescription": "Target URL (supports ${ENV_VAR} syntax)",
-    "targetPlaceholder": "http://backend:3000"
+    "targetPlaceholder": "http://backend:3000",
+    "ws": "WebSocket Proxy",
+    "wsDescription": "Proxy WebSocket connections (disable for Vite/HMR issues)"
   },
   "list": {
     "actions": "Actions",
     "empty": "No redirects configured yet.",
     "emptyDescription": "Create your first redirect to start routing requests.",
+    "fixed": "Fixed",
     "name": "Name",
     "pattern": "Pattern",
+    "readonlyHint": "This redirect is read-only (defined in config)",
     "searchPlaceholder": "Search redirects...",
     "target": "Target"
   },

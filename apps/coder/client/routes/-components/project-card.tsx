@@ -52,9 +52,9 @@ export function ProjectCard({ project, onDelete }: ProjectCardProps) {
         className="absolute right-2 top-2 size-8 opacity-0 transition-opacity group-hover:opacity-100"
         size="icon"
         variant="ghost"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
+        onClick={(evt) => {
+          evt.preventDefault();
+          evt.stopPropagation();
           onDelete(project.id);
         }}
       >

@@ -5,7 +5,11 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "baseUrl": ".",
     "paths": {
-      "~/*": ["./src/*", "../server/dist/apps/server/src/*"]
-    }
-  }
+      "@/*": ["../server/src/*"],
+      "~/*": ["./src/*"]
+    },
+    "skipLibCheck": true
+  },
+  "include": ["index.ts", "index.dev.ts", "src/**/*", "../server/src/globals.d.ts"],
+  "exclude": ["node_modules", "dist"]
 }

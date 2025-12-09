@@ -1,8 +1,22 @@
-import type { BuntimePlugin, PluginContext } from "@buntime/shared/types";
+import { initSchema, Kv } from "@buntime/plugin-keyval";
+import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
 import { substituteEnvVars } from "@buntime/shared/utils";
+import { type Client, createClient } from "@libsql/client";
 import type { Server, ServerWebSocket } from "bun";
+import { Hono } from "hono";
 
 export interface ProxyRule {
+  /**
+   * Unique identifier for the rule (auto-generated for dynamic rules)
+   */
+  id?: string;
+
+  /**
+   * Human-readable name for the rule
+   * @example "API Proxy"
+   */
+  name?: string;
+
   /**
    * Regex pattern to match request path
    * Use capture groups for path rewriting
@@ -46,16 +60,37 @@ export interface ProxyRule {
    * @default true
    */
   ws?: boolean;
+
+  /**
+   * Inject <base href="..."> tag into HTML responses
+   * Useful for SPAs served under a subpath
+   * @example "/cpanel"
+   */
+  base?: string;
 }
 
-export interface ProxyConfig {
+export interface ProxyConfig extends BasePluginConfig {
   /**
-   * Global proxy rules (applied to all requests before app-specific rules)
+   * Static proxy rules (from buntime.jsonc, readonly)
    */
   rules?: ProxyRule[];
+
+  /**
+   * libSQL database URL for dynamic rules
+   * Supports ${ENV_VAR} syntax
+   * @default uses same storage as keyval plugin
+   */
+  libsqlUrl?: string;
+
+  /**
+   * libSQL auth token (for remote databases)
+   * Supports ${ENV_VAR} syntax
+   */
+  libsqlToken?: string;
 }
 
 interface CompiledRule extends ProxyRule {
+  readonly: boolean;
   regex: RegExp;
 }
 
@@ -70,31 +105,47 @@ interface WebSocketData {
   target: WebSocket | null;
 }
 
-// Module state
-let globalRules: CompiledRule[] = [];
-let logger: PluginContext["logger"];
-let bunServer: Server<WebSocketData> | null = null;
-
-function compileRules(rules: ProxyRule[]): CompiledRule[] {
-  const compiled: CompiledRule[] = [];
-
-  for (const rule of rules) {
-    try {
-      compiled.push({
-        ...rule,
-        regex: new RegExp(rule.pattern),
-        target: substituteEnvVars(rule.target),
-        ws: rule.ws !== false, // default true
-      });
-    } catch (err) {
-      logger?.warn(`Invalid regex pattern: ${rule.pattern}`, err);
-    }
-  }
-
-  return compiled;
+interface StoredRule extends ProxyRule {
+  id: string;
 }
 
-function matchRule(pathname: string, rules: CompiledRule[]): MatchResult | null {
+// Module state
+let staticRules: CompiledRule[] = [];
+let dynamicRules: CompiledRule[] = [];
+let logger: PluginContext["logger"];
+let bunServer: Server<WebSocketData> | null = null;
+let kv: Kv | null = null;
+let client: Client | null = null;
+
+const KV_PREFIX = ["proxy", "rules"];
+
+function compileRule(rule: ProxyRule, readonly: boolean): CompiledRule | null {
+  try {
+    return {
+      ...rule,
+      id: rule.id || crypto.randomUUID(),
+      readonly,
+      regex: new RegExp(rule.pattern),
+      target: substituteEnvVars(rule.target),
+      ws: rule.ws !== false,
+    };
+  } catch (err) {
+    logger?.warn(`Invalid regex pattern: ${rule.pattern}`, err);
+    return null;
+  }
+}
+
+function compileRules(rules: ProxyRule[], readonly: boolean): CompiledRule[] {
+  return rules.map((r) => compileRule(r, readonly)).filter((r): r is CompiledRule => r !== null);
+}
+
+function getAllRules(): CompiledRule[] {
+  // Static rules have priority (come first)
+  return [...staticRules, ...dynamicRules];
+}
+
+function matchRule(pathname: string): MatchResult | null {
+  const rules = getAllRules();
   for (const rule of rules) {
     const match = pathname.match(rule.regex);
     if (match) {
@@ -165,6 +216,19 @@ async function httpProxy(req: Request, rule: CompiledRule, path: string): Promis
     responseHeaders.delete("keep-alive");
     responseHeaders.delete("transfer-encoding");
 
+    // Inject <base> tag for HTML responses if configured
+    const contentType = responseHeaders.get("content-type") || "";
+    if (rule.base && contentType.includes("text/html")) {
+      const html = await response.text();
+      const baseHref = rule.base.endsWith("/") ? rule.base : `${rule.base}/`;
+      const injected = html.replace("<head>", `<head><base href="${baseHref}" />`);
+      return new Response(injected, {
+        headers: responseHeaders,
+        status: response.status,
+        statusText: response.statusText,
+      });
+    }
+
     return new Response(response.body, {
       headers: responseHeaders,
       status: response.status,
@@ -192,7 +256,6 @@ function upgradeToWebSocket(req: Request, rule: CompiledRule, path: string): Res
     return new Response("WebSocket upgrade failed", { status: 500 });
   }
 
-  // Return null to indicate upgrade was successful
   return null;
 }
 
@@ -253,35 +316,24 @@ function handleWebSocketClose(
   }
 }
 
-/**
- * WebSocket handler for Bun.serve()
- * Must be passed to Bun.serve({ websocket: proxyWebSocketHandler })
- */
 export const proxyWebSocketHandler = {
   close: handleWebSocketClose,
   message: handleWebSocketMessage,
   open: handleWebSocketOpen,
 };
 
-/**
- * Set the Bun server instance (required for WebSocket upgrades)
- * Call this after Bun.serve() returns
- */
 export function setProxyServer(server: Server<WebSocketData>): void {
   bunServer = server;
 }
 
-/**
- * Check if a request matches a proxy rule and handle it
- * Returns Response for HTTP, null for successful WS upgrade, undefined for no match
- */
 export async function handleProxyRequest(req: Request): Promise<Response | null | undefined> {
-  if (globalRules.length === 0) {
+  const rules = getAllRules();
+  if (rules.length === 0) {
     return undefined;
   }
 
   const url = new URL(req.url);
-  const match = matchRule(url.pathname, globalRules);
+  const match = matchRule(url.pathname);
 
   if (!match) {
     return undefined;
@@ -292,7 +344,7 @@ export async function handleProxyRequest(req: Request): Promise<Response | null 
 
   if (isWebSocket) {
     if (!match.rule.ws) {
-      return undefined; // WebSocket disabled for this rule
+      return undefined;
     }
     logger?.debug(`WebSocket proxy ${url.pathname} -> ${match.rule.target}${path}`);
     return upgradeToWebSocket(req, match.rule, path);
@@ -302,54 +354,221 @@ export async function handleProxyRequest(req: Request): Promise<Response | null 
   return httpProxy(req, match.rule, path);
 }
 
-/**
- * Proxy plugin for Buntime
- *
- * Provides HTTP and WebSocket proxy functionality with:
- * - Regex-based path matching
- * - Path rewriting with capture groups
- * - Environment variable substitution
- * - Custom headers support
- * - changeOrigin for CORS
- * - WebSocket proxy support
- *
- * @example
- * ```jsonc
- * // buntime.jsonc
- * {
- *   "plugins": [
- *     ["@buntime/proxy", {
- *       "rules": [
- *         {
- *           "pattern": "^/api/(.*)",
- *           "target": "${API_URL}",
- *           "rewrite": "/$1",
- *           "changeOrigin": true
- *         },
- *         {
- *           "pattern": "^/ws/(.*)",
- *           "target": "ws://realtime:8080",
- *           "rewrite": "/$1"
- *         }
- *       ]
- *     }]
- *   ]
- * }
- * ```
- */
+// ============================================================================
+// Dynamic Rules Management
+// ============================================================================
+
+async function loadDynamicRules(): Promise<void> {
+  if (!kv) return;
+
+  const rules: StoredRule[] = [];
+  for await (const entry of kv.list<StoredRule>({ prefix: KV_PREFIX })) {
+    if (entry.value) {
+      rules.push(entry.value);
+    }
+  }
+
+  dynamicRules = compileRules(rules, false);
+  logger?.debug(`Loaded ${dynamicRules.length} dynamic proxy rules`);
+}
+
+async function saveRule(rule: StoredRule): Promise<void> {
+  if (!kv) throw new Error("KeyVal not initialized");
+  await kv.set([...KV_PREFIX, rule.id], rule);
+}
+
+async function deleteRule(id: string): Promise<void> {
+  if (!kv) throw new Error("KeyVal not initialized");
+  await kv.delete([...KV_PREFIX, id]);
+}
+
+// ============================================================================
+// API Routes
+// ============================================================================
+
+function ruleToResponse(rule: CompiledRule) {
+  return {
+    changeOrigin: rule.changeOrigin,
+    headers: rule.headers,
+    id: rule.id,
+    name: rule.name,
+    pattern: rule.pattern,
+    readonly: rule.readonly,
+    rewrite: rule.rewrite,
+    secure: rule.secure,
+    target: rule.target,
+    ws: rule.ws,
+  };
+}
+
+const routes = new Hono()
+  // List all rules (static + dynamic)
+  .get("/rules", (ctx) => {
+    const rules = getAllRules().map(ruleToResponse);
+    return ctx.json(rules);
+  })
+
+  // Get a single rule by ID
+  .get("/rules/:id", (ctx) => {
+    const { id } = ctx.req.param();
+    const rule = getAllRules().find((r) => r.id === id);
+
+    if (!rule) {
+      return ctx.json({ error: "Rule not found" }, 404);
+    }
+
+    return ctx.json(ruleToResponse(rule));
+  })
+
+  // Create a new dynamic rule
+  .post("/rules", async (ctx) => {
+    if (!kv) {
+      return ctx.json({ error: "Dynamic rules not enabled (no libsqlUrl configured)" }, 400);
+    }
+
+    const body = await ctx.req.json<Omit<ProxyRule, "id">>();
+
+    if (!body.pattern || !body.target) {
+      return ctx.json({ error: "pattern and target are required" }, 400);
+    }
+
+    const rule: StoredRule = {
+      ...body,
+      id: crypto.randomUUID(),
+    };
+
+    // Validate pattern compiles
+    const compiled = compileRule(rule, false);
+    if (!compiled) {
+      return ctx.json({ error: "Invalid regex pattern" }, 400);
+    }
+
+    await saveRule(rule);
+    dynamicRules.push(compiled);
+
+    logger?.info(`Created proxy rule: ${rule.pattern} -> ${rule.target}`);
+    return ctx.json(ruleToResponse(compiled), 201);
+  })
+
+  // Update an existing dynamic rule
+  .put("/rules/:id", async (ctx) => {
+    if (!kv) {
+      return ctx.json({ error: "Dynamic rules not enabled" }, 400);
+    }
+
+    const { id } = ctx.req.param();
+    const existingIndex = dynamicRules.findIndex((r) => r.id === id);
+
+    // Check if it's a static rule
+    if (staticRules.some((r) => r.id === id)) {
+      return ctx.json({ error: "Cannot modify static rules" }, 403);
+    }
+
+    if (existingIndex === -1) {
+      return ctx.json({ error: "Rule not found" }, 404);
+    }
+
+    const body = await ctx.req.json<Partial<ProxyRule>>();
+    const existing = dynamicRules[existingIndex]!;
+
+    const updated: StoredRule = {
+      changeOrigin: body.changeOrigin ?? existing.changeOrigin,
+      headers: body.headers ?? existing.headers,
+      id,
+      name: body.name ?? existing.name,
+      pattern: body.pattern ?? existing.pattern,
+      rewrite: body.rewrite ?? existing.rewrite,
+      secure: body.secure ?? existing.secure,
+      target: body.target ?? existing.target,
+      ws: body.ws ?? existing.ws,
+    };
+
+    // Validate pattern compiles
+    const compiled = compileRule(updated, false);
+    if (!compiled) {
+      return ctx.json({ error: "Invalid regex pattern" }, 400);
+    }
+
+    await saveRule(updated);
+    dynamicRules[existingIndex] = compiled;
+
+    logger?.info(`Updated proxy rule: ${updated.pattern} -> ${updated.target}`);
+    return ctx.json(ruleToResponse(compiled));
+  })
+
+  // Delete a dynamic rule
+  .delete("/rules/:id", async (ctx) => {
+    if (!kv) {
+      return ctx.json({ error: "Dynamic rules not enabled" }, 400);
+    }
+
+    const { id } = ctx.req.param();
+
+    // Check if it's a static rule
+    if (staticRules.some((r) => r.id === id)) {
+      return ctx.json({ error: "Cannot delete static rules" }, 403);
+    }
+
+    const index = dynamicRules.findIndex((r) => r.id === id);
+    if (index === -1) {
+      return ctx.json({ error: "Rule not found" }, 404);
+    }
+
+    await deleteRule(id);
+    dynamicRules.splice(index, 1);
+
+    logger?.info(`Deleted proxy rule: ${id}`);
+    return ctx.json({ success: true });
+  });
+
+// ============================================================================
+// Plugin Export
+// ============================================================================
+
 export default function proxyPlugin(config: ProxyConfig = {}): BuntimePlugin {
   return {
     name: "@buntime/plugin-proxy",
     version: "1.0.0",
-    priority: 5, // Run early to short-circuit proxy requests
+    priority: 5,
+    mountPath: config.mountPath,
+    routes,
 
-    onInit(ctx: PluginContext) {
+    async onInit(ctx: PluginContext) {
       logger = ctx.logger;
 
+      // Compile static rules
       if (config.rules && config.rules.length > 0) {
-        globalRules = compileRules(config.rules);
-        logger.info(`Loaded ${globalRules.length} proxy rules`);
+        staticRules = compileRules(
+          config.rules.map((r, i) => ({ ...r, id: `static-${i}` })),
+          true,
+        );
+        logger.info(`Loaded ${staticRules.length} static proxy rules`);
       }
+
+      // Initialize KeyVal for dynamic rules (skip if URL is empty or not set)
+      if (config.libsqlUrl) {
+        const url = substituteEnvVars(config.libsqlUrl);
+
+        if (url) {
+          const authToken = config.libsqlToken ? substituteEnvVars(config.libsqlToken) : undefined;
+
+          client = createClient({ url, authToken });
+          await initSchema(client);
+          kv = new Kv(client);
+
+          await loadDynamicRules();
+          logger.info(`Dynamic proxy rules enabled (${dynamicRules.length} loaded)`);
+        } else {
+          logger.debug(
+            "libsqlUrl configured but empty after env substitution, skipping dynamic rules",
+          );
+        }
+      }
+    },
+
+    async onShutdown() {
+      kv?.close();
+      client?.close();
     },
 
     onServerStart(server) {
@@ -362,22 +581,19 @@ export default function proxyPlugin(config: ProxyConfig = {}): BuntimePlugin {
     async onRequest(req) {
       const result = await handleProxyRequest(req);
 
-      // undefined = no match, continue to next handler
       if (result === undefined) {
         return;
       }
 
-      // null = WebSocket upgrade succeeded
       if (result === null) {
         return new Response(null, { status: 101 });
       }
 
-      // Response = HTTP proxy response
       return result;
     },
   };
 }
 
-// Named exports
 export { proxyPlugin };
-export type { CompiledRule, MatchResult, WebSocketData };
+export type { CompiledRule, MatchResult, StoredRule, WebSocketData };
+export type ProxyRoutesType = typeof routes;

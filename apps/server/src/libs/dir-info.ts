@@ -1,5 +1,5 @@
 import { mkdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 const DIRINFO_FILE = ".dirinfo";
 
@@ -49,6 +49,8 @@ export class DirInfo {
       const proc = Bun.spawn(["rm", "-rf", this.fullPath]);
       await proc.exited;
     }
+
+    this.invalidateParentCaches();
   }
 
   async extractZip(zipBuffer: ArrayBuffer): Promise<void> {
@@ -64,7 +66,7 @@ export class DirInfo {
       await tempFile.unlink();
     }
 
-    this.invalidateCache();
+    this.invalidateCacheWithParents();
   }
 
   async files(): Promise<number> {
@@ -72,12 +74,29 @@ export class DirInfo {
     return info.files;
   }
 
+  async refresh(): Promise<void> {
+    await this.invalidateAllCaches();
+  }
+
+  private async invalidateAllCaches(): Promise<void> {
+    // Invalidate all children recursively using find + rm
+    try {
+      const proc = Bun.spawn(["find", this.fullPath, "-name", ".dirinfo", "-type", "f", "-delete"]);
+      await proc.exited;
+    } catch {
+      // Ignore errors
+    }
+
+    // Then invalidate current and parents
+    this.invalidateCacheWithParents();
+  }
+
   async list(): Promise<FileEntry[]> {
     const entries: FileEntry[] = [];
 
     try {
       const glob = new Bun.Glob("*");
-      for await (const name of glob.scan({ cwd: this.fullPath, onlyFiles: false })) {
+      for await (const name of glob.scan({ cwd: this.fullPath, dot: true, onlyFiles: false })) {
         if (name === DIRINFO_FILE) continue;
 
         const entryPath = join(this.fullPath, name);
@@ -117,6 +136,67 @@ export class DirInfo {
     });
   }
 
+  async move(destPath: string): Promise<void> {
+    // Validate source is at least 3 levels deep (inside app/version/)
+    const sourceParts = this.dirPath.split("/").filter(Boolean);
+    if (sourceParts.length < 3) {
+      throw new Error("Cannot move app or version folders");
+    }
+
+    const name = this.dirPath.includes("/")
+      ? this.dirPath.substring(this.dirPath.lastIndexOf("/") + 1)
+      : this.dirPath;
+
+    // Validate destination is within basePath (prevent path traversal)
+    const destFullPath = resolve(this.basePath, destPath);
+    if (!destFullPath.startsWith(this.basePath)) {
+      throw new Error("Destination path is outside allowed directory");
+    }
+
+    // Validate destination is at least 2 levels deep (app/version)
+    const destParts = destPath.split("/").filter(Boolean);
+    if (destParts.length < 2) {
+      throw new Error("Destination must be inside an app version");
+    }
+    try {
+      const destStats = await stat(destFullPath);
+      if (!destStats.isDirectory()) {
+        throw new Error("Destination is not a directory");
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error("Destination directory does not exist");
+      }
+      throw err;
+    }
+
+    const newFullPath = join(destFullPath, name);
+
+    // Check if target already exists
+    try {
+      await stat(newFullPath);
+      throw new Error("An item with this name already exists at destination");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw err;
+      }
+    }
+
+    const proc = Bun.spawn(["mv", this.fullPath, newFullPath]);
+    const exitCode = await proc.exited;
+
+    if (exitCode !== 0) {
+      throw new Error("Failed to move item");
+    }
+
+    // Invalidate old location
+    this.invalidateCacheWithParents();
+
+    // Invalidate new location
+    const newDir = new DirInfo(this.basePath, destPath);
+    newDir.invalidateCacheWithParents();
+  }
+
   async rename(newName: string): Promise<void> {
     const parentDir = this.dirPath.includes("/")
       ? this.dirPath.substring(0, this.dirPath.lastIndexOf("/"))
@@ -127,7 +207,7 @@ export class DirInfo {
     await proc.exited;
 
     this.dirPath = parentDir ? `${parentDir}/${newName}` : newName;
-    this.invalidateCache();
+    this.invalidateCacheWithParents();
   }
 
   async size(): Promise<number> {
@@ -142,8 +222,15 @@ export class DirInfo {
 
   async writeFile(fileName: string, content: ArrayBuffer | string): Promise<void> {
     const filePath = join(this.fullPath, fileName);
+
+    // Create subdirectories if fileName contains path separators
+    if (fileName.includes("/")) {
+      const dirPath = filePath.substring(0, filePath.lastIndexOf("/"));
+      await mkdir(dirPath, { recursive: true });
+    }
+
     await Bun.write(filePath, content);
-    this.invalidateCache();
+    this.invalidateCacheWithParents();
   }
 
   private async calculateInfo(): Promise<DirInfoCache> {
@@ -179,11 +266,28 @@ export class DirInfo {
     const infoFile = Bun.file(this.infoPath);
 
     try {
-      const [dirStats, infoExists] = await Promise.all([stat(this.fullPath), infoFile.exists()]);
+      const infoExists = await infoFile.exists();
 
       if (infoExists) {
         const infoStats = await stat(this.infoPath);
-        if (infoStats.mtime >= dirStats.mtime) {
+
+        // Check if any direct child has mtime newer than .dirinfo
+        // This catches external modifications (e.g., bun install creating node_modules)
+        let cacheValid = true;
+        const glob = new Bun.Glob("*");
+
+        for await (const name of glob.scan({ cwd: this.fullPath, onlyFiles: false })) {
+          if (name === DIRINFO_FILE) continue;
+          const entryPath = join(this.fullPath, name);
+          const entryStats = await stat(entryPath);
+
+          if (entryStats.mtime > infoStats.mtime) {
+            cacheValid = false;
+            break;
+          }
+        }
+
+        if (cacheValid) {
           this.cache = await infoFile.json();
           return this.cache!;
         }
@@ -207,5 +311,21 @@ export class DirInfo {
     Bun.file(this.infoPath)
       .unlink()
       .catch(() => {});
+  }
+
+  private invalidateCacheWithParents(): void {
+    this.invalidateCache();
+    this.invalidateParentCaches();
+  }
+
+  private invalidateParentCaches(): void {
+    if (!this.dirPath) return;
+
+    const parentPath = this.dirPath.includes("/")
+      ? this.dirPath.substring(0, this.dirPath.lastIndexOf("/"))
+      : "";
+
+    const parent = new DirInfo(this.basePath, parentPath);
+    parent.invalidateCacheWithParents();
   }
 }

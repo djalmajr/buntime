@@ -57,8 +57,7 @@ apps/cpanel/
 
 ```typescript
 routes: {
-  "/_/*": proxyTo(BUNTIME_API),  // Backend
-  "/*": client,                   // React SPA
+  "/*": client,  // React SPA
 }
 ```
 

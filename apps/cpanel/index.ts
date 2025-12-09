@@ -1,12 +1,8 @@
 import { join } from "node:path";
-import { BUNTIME_API, PORT } from "~/constants";
-import { proxyTo } from "~/helpers/proxy";
+import { PORT } from "~/constants";
 
 export default {
   port: PORT,
-  routes: {
-    "/_/*": proxyTo(BUNTIME_API!),
-  },
   fetch: async (req: Bun.BunRequest) => {
     const path = new URL(req.url).pathname;
     const name = path !== "/" ? path : "index.html";

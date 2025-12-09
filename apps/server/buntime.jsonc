@@ -1,0 +1,42 @@
+{
+  // Application settings
+  "appsDir": "${APPS_DIR}",
+  "poolSize": 100,
+  // "shell": "cpanel",  // uncomment to serve shell app by default
+
+  // Plugins
+  "plugins": [
+    "@buntime/metrics",
+    [
+      "@buntime/gateway",
+      {
+        "cors": {
+          "origin": ["http://localhost:3000"],
+          "credentials": true
+        }
+      }
+    ],
+    [
+      "@buntime/proxy",
+      {
+        "libsqlUrl": "${LIBSQL_URL}",
+        "rules": [
+          {
+            "name": "CPanel App",
+            "pattern": "^/cpanel(/.*)?$",
+            "target": "http://localhost:3000",
+            "rewrite": "$1",
+            "base": "/cpanel",
+            "ws": true
+          },
+          {
+            "name": "CPanel HMR",
+            "pattern": "^/(_bun|avatars)(/.*)?$",
+            "target": "http://localhost:3000",
+            "ws": true
+          }
+        ]
+      }
+    ]
+  ]
+}

@@ -11,7 +11,9 @@
     "lint": "bun run lint:format && bun run lint:types"
   },
   "dependencies": {
-    "@buntime/shared": "workspace:*"
+    "@buntime/plugin-keyval": "workspace:*",
+    "@buntime/shared": "workspace:*",
+    "@libsql/client": "^0.15.11"
   },
   "peerDependencies": {
     "hono": "^4.0.0",

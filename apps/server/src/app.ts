@@ -1,8 +1,7 @@
 import { errorToResponse } from "@buntime/shared/errors";
-import { Hono } from "hono";
-import type { PluginRegistry } from "~/plugins/registry";
-import internal from "~/routes/internal/index";
-import workers from "~/routes/worker";
+import type { Hono } from "hono";
+import { Hono as HonoApp } from "hono";
+import type { PluginRegistry } from "@/plugins/registry";
 
 /**
  * Get the default mount path for a plugin
@@ -12,11 +11,35 @@ function getDefaultMountPath(pluginName: string): string {
   return `/_/${shortName}`;
 }
 
+export interface AppDeps {
+  internal: Hono;
+  registry?: PluginRegistry;
+  workers: Hono;
+}
+
 /**
  * Create the main Hono app with plugin routes mounted
  */
-export function createApp(registry?: PluginRegistry) {
-  const app = new Hono().route("/_", internal);
+export function createApp({ internal, registry, workers }: AppDeps) {
+  const app = new HonoApp();
+
+  // Run plugin onRequest hooks before routing (for proxy, auth, etc.)
+  if (registry) {
+    app.use("*", async (ctx, next) => {
+      const result = await registry.runOnRequest(ctx.req.raw);
+
+      // Plugin returned a response (short-circuit)
+      if (result instanceof Response) {
+        return result;
+      }
+
+      // Plugin may have modified the request - continue routing
+      return next();
+    });
+  }
+
+  // Mount internal routes
+  app.route("/_", internal);
 
   // Track mounted plugin paths for conflict detection
   const pluginPaths = new Map<string, string>();

@@ -2,8 +2,10 @@
   // Buntime Configuration
   // Copy this file to `buntime.jsonc` and customize as needed.
 
-  // Plugins that cannot be disabled by apps
-  "required": ["@buntime/metrics"],
+  // Application settings
+  "appsDir": "${APPS_DIR}", // Required: directory where worker apps are stored
+  "poolSize": 100, // Worker pool size (default: 100)
+  // "shell": "cpanel",             // Optional: serve this app when no route matches
 
   // Plugins array (Babel-style) - order matters for dependencies!
   // Format: "plugin-name" or ["plugin-name", { config }]
@@ -11,16 +13,25 @@
     // Metrics plugin - provides /_/metrics/* endpoints
     "@buntime/metrics",
 
-    // Proxy plugin - global proxy rules
+    // Proxy plugin - static proxy rules (dynamic rules managed via API)
     [
       "@buntime/proxy",
       {
+        "libsqlUrl": "${LIBSQL_URL}", // Required for dynamic rules persistence
         "rules": [
           {
-            "pattern": "^/api/(.*)",
-            "target": "${API_URL}",
-            "rewrite": "/$1",
-            "changeOrigin": true
+            "name": "CPanel App",
+            "pattern": "^/cpanel(/.*)?$",
+            "target": "http://localhost:3000",
+            "rewrite": "$1",
+            "changeOrigin": true, // Change Host header to target
+            "ws": true // Enable WebSocket proxying
+          },
+          {
+            "name": "CPanel HMR",
+            "pattern": "^/(_bun|avatars)(/.*)?$",
+            "target": "http://localhost:3000",
+            "ws": true
           }
         ]
       }

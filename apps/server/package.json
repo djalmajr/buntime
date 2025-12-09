@@ -3,12 +3,10 @@
   "version": "1.0.0",
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./dist/apps/server/src/index.d.ts",
-      "default": "./src/index.ts"
-    },
+    ".": "./src/index.ts",
     "./plugins/loader": "./src/plugins/loader.ts",
-    "./plugins/registry": "./src/plugins/registry.ts"
+    "./plugins/registry": "./src/plugins/registry.ts",
+    "./routes/internal": "./src/routes/internal/index.ts"
   },
   "scripts": {
     "build:bin": "NODE_ENV=production bun scripts/build.ts --compile",
@@ -23,6 +21,13 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@buntime/plugin-authn": "workspace:*",
+    "@buntime/plugin-authz": "workspace:*",
+    "@buntime/plugin-durable": "workspace:*",
+    "@buntime/plugin-gateway": "workspace:*",
+    "@buntime/plugin-keyval": "workspace:*",
+    "@buntime/plugin-metrics": "workspace:*",
+    "@buntime/plugin-proxy": "workspace:*",
     "@buntime/shared": "workspace:*",
     "es-toolkit": "^1.42.0",
     "hono": "^4.10.7",

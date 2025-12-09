@@ -36,12 +36,13 @@ export interface WorkerConfig {
 }
 
 /**
- * Load worker configuration from worker.jsonc
+ * Load worker configuration from worker.jsonc or package.json#workerConfig
  */
 export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
   let config: Partial<WorkerConfigFile> | undefined;
-  const jsoncPath = join(appDir, "worker.jsonc");
 
+  // Try worker.jsonc first
+  const jsoncPath = join(appDir, "worker.jsonc");
   try {
     const file = Bun.file(jsoncPath);
     if (await file.exists()) {
@@ -55,12 +56,28 @@ export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
     }
   }
 
+  // Fallback to package.json#workerConfig
+  if (!config) {
+    const pkgPath = join(appDir, "package.json");
+    try {
+      const file = Bun.file(pkgPath);
+      if (await file.exists()) {
+        const pkg = await file.json();
+        if (pkg.workerConfig) {
+          config = pkg.workerConfig;
+        }
+      }
+    } catch {
+      // Ignore package.json errors
+    }
+  }
+
   // Validate and apply defaults
   const { data, error } = workerConfigSchema.safeParse(config || {});
 
   if (error) {
     const err = error.issues.map((v) => `${v.path.join(".")}: ${v.message}`).join(", ");
-    throw new Error(`[worker.jsonc] Invalid config in ${appDir}: ${err}`);
+    throw new Error(`[workerConfig] Invalid config in ${appDir}: ${err}`);
   }
 
   return {

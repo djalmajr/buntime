@@ -1,23 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createAppResolver } from "./get-app-dir";
 
 const TEST_DIR = join(import.meta.dir, ".test-apps");
 
-mock.module("~/constants", () => ({
-  APP_SHELL: undefined,
-  APPS_DIR: TEST_DIR,
-  DELAY_MS: 10,
-  NODE_ENV: "test",
-  POOL_SIZE: 5,
-  PORT: 8080,
-  VERSION: "0.0.0-test",
-}));
-
-const { getAppDir } = await import("./get-app-dir");
+let getAppDir: ReturnType<typeof createAppResolver>;
 
 beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });
+  getAppDir = createAppResolver(TEST_DIR);
 });
 
 afterEach(() => {

@@ -19,11 +19,12 @@ export interface RedirectData {
   changeOrigin?: boolean;
   headers?: Record<string, string>;
   id?: string;
-  name: string;
+  name?: string;
   pattern: string;
   rewrite?: string;
   secure?: boolean;
   target: string;
+  ws?: boolean;
 }
 
 interface RedirectDrawerProps {
@@ -41,6 +42,7 @@ const initFormData: RedirectData = {
   rewrite: "",
   secure: true,
   target: "",
+  ws: true,
 };
 
 export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: RedirectDrawerProps) {
@@ -54,7 +56,7 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
   const headersEntries = Object.entries(headers);
 
   // Validation
-  const isNameEmpty = !formData.name.trim();
+  const isNameEmpty = !formData.name?.trim();
   const isPatternEmpty = !formData.pattern.trim();
   const isTargetEmpty = !formData.target.trim();
 
@@ -210,13 +212,13 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
                           className="flex-1"
                           placeholder={t("form.headerName")}
                           value={key}
-                          onChange={(e) => updateHeaderKey(key, e.target.value, value)}
+                          onChange={(evt) => updateHeaderKey(key, evt.target.value, value)}
                         />
                         <Input
                           className="flex-1"
                           placeholder={t("form.headerValue")}
                           value={value}
-                          onChange={(e) => updateHeaderValue(key, e.target.value)}
+                          onChange={(evt) => updateHeaderValue(key, evt.target.value)}
                         />
                         <Button
                           size="icon"
@@ -269,6 +271,18 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
               checked={formData.secure ?? false}
               id="secure"
               onCheckedChange={(checked) => setField("secure", checked)}
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="ws">{t("form.ws")}</Label>
+              <p className="text-sm text-muted-foreground">{t("form.wsDescription")}</p>
+            </div>
+            <Switch
+              checked={formData.ws ?? true}
+              id="ws"
+              onCheckedChange={(checked) => setField("ws", checked)}
             />
           </div>
         </div>

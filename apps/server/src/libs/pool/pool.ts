@@ -1,25 +1,11 @@
 import QuickLRU from "quick-lru";
-import { NODE_ENV, POOL_SIZE } from "~/constants";
-import { getEntrypoint } from "~/utils/get-entrypoint";
+import { getEntrypoint } from "@/utils/get-entrypoint";
 import type { WorkerConfig } from "./config";
 import { WorkerInstance } from "./instance";
 import { type PoolMetrics, WorkerMetrics } from "./metrics";
 
-interface PoolConfig {
+export interface PoolConfig {
   maxSize: number;
-}
-
-const defaults: Record<string, PoolConfig> = {
-  development: { maxSize: 10 },
-  production: { maxSize: 500 },
-  staging: { maxSize: 50 },
-  test: { maxSize: 5 },
-};
-
-function getPoolConfig(): PoolConfig {
-  const config = defaults[NODE_ENV]!;
-  if (POOL_SIZE) config.maxSize = POOL_SIZE;
-  return config;
 }
 
 export class WorkerPool {
@@ -28,8 +14,8 @@ export class WorkerPool {
   private config: PoolConfig;
   private metrics: WorkerMetrics;
 
-  constructor(config?: PoolConfig) {
-    this.config = config || getPoolConfig();
+  constructor(config: PoolConfig) {
+    this.config = config;
     this.metrics = new WorkerMetrics();
     this.cache = new QuickLRU({
       maxSize: this.config.maxSize,
@@ -131,5 +117,3 @@ export class WorkerPool {
     this.cleanupTimers.set(key, timer);
   }
 }
-
-export const pool = new WorkerPool();

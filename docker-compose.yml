@@ -1,10 +1,9 @@
 services:
   libsql:
     image: ghcr.io/tursodatabase/libsql-server:latest
-    platform: linux/amd64
     ports:
-      - "8080:8080" # HTTP API
-      - "5000:5000" # Admin API
+      - "8880:8080" # HTTP API
+      - "8881:5000" # Admin API
     volumes:
       - libsql-data:/var/lib/sqld
     environment:

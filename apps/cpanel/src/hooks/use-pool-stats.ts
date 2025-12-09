@@ -2,7 +2,7 @@ import type { InferResponseType } from "hono";
 import { useEffect, useState } from "react";
 import type { api } from "~/helpers/api-client";
 
-export type PoolStats = InferResponseType<(typeof api._.stats)["$get"], 200>;
+export type PoolStats = InferResponseType<(typeof api.internal.stats)["$get"], 200>;
 
 export function usePoolStats() {
   const [error, setError] = useState<Error | null>(null);

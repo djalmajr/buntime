@@ -36,8 +36,8 @@ export function CreateItemDialog({
   }, [open]);
 
   const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
+    (evt: React.FormEvent) => {
+      evt.preventDefault();
       if (name.trim()) {
         onCreate(name.trim());
         onClose();
@@ -109,8 +109,8 @@ export function RenameItemDialog({ currentName, open, onClose, onRename }: Renam
   }, [currentName, open]);
 
   const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
+    (evt: React.FormEvent) => {
+      evt.preventDefault();
       if (name.trim() && name.trim() !== currentName) {
         onRename(name.trim());
         onClose();

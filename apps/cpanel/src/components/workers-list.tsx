@@ -15,7 +15,7 @@ interface WorkersListProps {
   stats: PoolStats;
 }
 
-type WorkerStatus = "active" | "idle" | "stale";
+type WorkerStatus = "active" | "idle";
 
 type WorkerData = PoolStats["workers"][string];
 
@@ -23,7 +23,6 @@ const getStatusVariant = (status: WorkerStatus) => {
   const variants = {
     active: "default",
     idle: "secondary",
-    stale: "destructive",
   } as const;
   return variants[status];
 };
@@ -44,9 +43,8 @@ export function WorkersList({ stats }: WorkersListProps) {
 
   const getStatusLabel = (status: WorkerStatus) => {
     const labels = {
-      active: t("dashboard.workers.statusActive"),
-      idle: t("dashboard.workers.statusIdle"),
-      stale: t("dashboard.workers.statusStale"),
+      active: t("dashboard.workers.statusActive", "Active"),
+      idle: t("dashboard.workers.statusIdle", "Idle"),
     } as const;
     return labels[status];
   };

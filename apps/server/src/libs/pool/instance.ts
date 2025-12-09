@@ -1,11 +1,9 @@
 import { join } from "node:path";
-import { DELAY_MS, IS_COMPILED } from "~/constants";
+import { DELAY_MS, IS_COMPILED } from "@/constants";
 import type { WorkerConfig } from "./config";
 import type { WorkerRequest, WorkerResponse } from "./types";
 
-const WORKER_PATH = IS_COMPILED
-  ? "./src/libs/pool/wrapper.ts"
-  : join(import.meta.dir, "wrapper.ts");
+const WORKER_PATH = IS_COMPILED ? "./libs/pool/wrapper.ts" : join(import.meta.dir, "wrapper.ts");
 
 export class WorkerInstance {
   private createdAt = Date.now();

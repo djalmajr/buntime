@@ -108,3 +108,4 @@ export default function metricsPlugin(pluginConfig: MetricsConfig = {}): Buntime
 
 // Also export as named for convenience
 export { metricsPlugin };
+export type MetricsRoutesType = typeof routes;

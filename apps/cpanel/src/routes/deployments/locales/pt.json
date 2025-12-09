@@ -4,9 +4,20 @@
     "create": "Criar",
     "delete": "Excluir",
     "download": "Baixar",
+    "move": "Mover",
     "newFolder": "Nova Pasta",
+    "refresh": "Atualizar",
     "rename": "Renomear",
-    "upload": "Upload"
+    "upload": "Upload",
+    "uploadFiles": "Enviar Arquivos",
+    "uploadFolder": "Enviar Pasta"
+  },
+  "batch": {
+    "confirmDelete": {
+      "description": "Tem certeza que deseja excluir {{count}} itens? Esta ação não pode ser desfeita.",
+      "title": "Excluir Itens"
+    },
+    "selected": "{{count}} selecionados"
   },
   "breadcrumb": {
     "root": "Apps"
@@ -25,12 +36,19 @@
   "errors": {
     "createFolderFailed": "Falha ao criar pasta",
     "deleteFailed": "Falha ao excluir item",
+    "moveFailed": "Falha ao mover item",
+    "refreshFailed": "Falha ao atualizar",
     "renameFailed": "Falha ao renomear item",
     "uploadFailed": "Falha ao enviar arquivos"
   },
   "list": {
     "name": "Nome",
     "size": "Tamanho"
+  },
+  "move": {
+    "description": "Digite o caminho de destino (ex: nome-app/1.0.0)",
+    "placeholder": "Caminho de destino",
+    "title": "Mover Item"
   },
   "newFolder": {
     "description": "Digite um nome para a nova pasta.",

@@ -61,7 +61,7 @@ function isExcluded(pathname: string): boolean {
 function buildContext(
   req: Request,
   identity: Identity | null,
-  app: { name: string },
+  app?: { name: string },
 ): EvaluationContext {
   const url = new URL(req.url);
 
@@ -73,7 +73,7 @@ function buildContext(
       claims: identity?.claims ?? {},
     },
     resource: {
-      app: app.name,
+      app: app?.name ?? "",
       path: url.pathname,
     },
     action: {

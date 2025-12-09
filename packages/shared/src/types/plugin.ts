@@ -13,6 +13,26 @@ export type PluginConfig = string | [name: string, config: Record<string, unknow
  */
 export interface BuntimeConfig {
   /**
+   * Directory containing worker apps
+   * Supports ${ENV_VAR} syntax
+   * @example "/var/buntime/apps" or "${APPS_DIR}"
+   */
+  appsDir?: string;
+
+  /**
+   * Maximum number of workers in the pool
+   * @default 100
+   */
+  poolSize?: number;
+
+  /**
+   * Default shell app to serve when no worker matches
+   * Format: "app-name@version" or "app-name" (uses latest)
+   * @example "example-spa@1" or "cpanel"
+   */
+  shell?: string;
+
+  /**
    * Plugins to load (Babel-style array, order matters!)
    * @example
    * [
@@ -21,11 +41,6 @@ export interface BuntimeConfig {
    * ]
    */
   plugins?: PluginConfig[];
-
-  /**
-   * Plugins that cannot be disabled by apps
-   */
-  required?: string[];
 }
 
 /**
@@ -172,7 +187,7 @@ export interface BuntimePlugin {
    */
   onRequest?: (
     req: Request,
-    app: AppInfo,
+    app?: AppInfo,
   ) => Promise<Request | Response | undefined> | Request | Response | undefined;
 
   /**

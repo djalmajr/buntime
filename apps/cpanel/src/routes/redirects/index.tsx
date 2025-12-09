@@ -14,83 +14,71 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { type RedirectData, RedirectDrawer } from "./-components/redirect-drawer";
-
-interface Redirect extends RedirectData {
-  id: string;
-}
-
-// Mock data - will be replaced with actual API calls
-const mockRedirects: Redirect[] = [
-  {
-    changeOrigin: true,
-    id: "1",
-    name: "api-proxy",
-    pattern: "^/api/(.*)$",
-    rewrite: "/v1/$1",
-    secure: true,
-    target: "http://backend:3000",
-  },
-  {
-    changeOrigin: true,
-    headers: { "X-Forwarded-For": "client" },
-    id: "2",
-    name: "auth-proxy",
-    pattern: "^/_api/login$",
-    rewrite: "/auth/login",
-    secure: false,
-    target: "http://auth-service:8080",
-  },
-];
+import {
+  type ProxyRule,
+  useCreateProxyRule,
+  useDeleteProxyRule,
+  useProxyRules,
+  useUpdateProxyRule,
+} from "./-hooks/use-proxy-rules";
 
 function RedirectsListPage() {
   const { t } = useTranslation("redirects");
-  const [redirects, setRedirects] = useState<Redirect[]>(mockRedirects);
-  const [deleteTarget, setDeleteTarget] = useState<Redirect | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ProxyRule | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [editingRedirect, setEditingRedirect] = useState<Redirect | null>(null);
+  const [editingRedirect, setEditingRedirect] = useState<ProxyRule | null>(null);
+
+  const rules$ = useProxyRules();
+  const create$ = useCreateProxyRule();
+  const update$ = useUpdateProxyRule();
+  const delete$ = useDeleteProxyRule();
+
+  const redirects = rules$.data ?? [];
 
   const handleAddClick = () => {
     setEditingRedirect(null);
     setDrawerOpen(true);
   };
 
-  const handleEditClick = (redirect: Redirect) => {
+  const handleEditClick = (redirect: ProxyRule) => {
     setEditingRedirect(redirect);
     setDrawerOpen(true);
   };
 
-  const handleDeleteClick = (redirect: Redirect) => {
+  const handleDeleteClick = (redirect: ProxyRule) => {
     setDeleteTarget(redirect);
   };
 
   const handleDeleteConfirm = () => {
     if (deleteTarget) {
-      setRedirects((prev) => prev.filter((r) => r.id !== deleteTarget.id));
+      delete$.mutate(deleteTarget.id);
       setDeleteTarget(null);
     }
   };
 
   const handleSave = (data: RedirectData) => {
     if (editingRedirect) {
-      // Update existing redirect
-      setRedirects((prev) =>
-        prev.map((r) => (r.id === editingRedirect.id ? { ...data, id: editingRedirect.id } : r)),
-      );
+      update$.mutate({ data, id: editingRedirect.id });
     } else {
-      // Create new redirect
-      const newRedirect: Redirect = {
-        ...data,
-        id: String(Date.now()),
-      };
-      setRedirects((prev) => [...prev, newRedirect]);
+      create$.mutate(data);
     }
   };
 
-  const columns: ColumnDef<Redirect>[] = [
+  const columns: ColumnDef<ProxyRule>[] = [
     {
       accessorKey: "name",
-      cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{row.original.name || row.original.pattern}</span>
+          {row.original.readonly && (
+            <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+              {t("list.fixed")}
+            </span>
+          )}
+        </div>
+      ),
       header: t("list.name"),
     },
     {
@@ -108,26 +96,59 @@ function RedirectsListPage() {
       header: t("list.target"),
     },
     {
-      cell: ({ row }) => (
-        <div className="flex items-center justify-end gap-1">
+      cell: ({ row }) => {
+        const isReadonly = row.original.readonly;
+
+        const editButton = (
           <Button
-            className="size-7"
+            className="size-8"
+            disabled={isReadonly}
             size="icon"
             variant="ghost"
             onClick={() => handleEditClick(row.original)}
           >
-            <Icon className="size-3.5" icon="lucide:pencil" />
+            <Icon className="size-4.5" icon="lucide:pencil" />
           </Button>
+        );
+
+        const deleteButton = (
           <Button
-            className="size-7"
+            className="size-8"
+            disabled={isReadonly}
             size="icon"
             variant="ghost"
             onClick={() => handleDeleteClick(row.original)}
           >
-            <Icon className="size-3.5" icon="lucide:trash-2" />
+            <Icon className="size-4.5" icon="lucide:trash-2" />
           </Button>
-        </div>
-      ),
+        );
+
+        if (isReadonly) {
+          return (
+            <div className="flex items-center justify-end gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-not-allowed">{editButton}</span>
+                </TooltipTrigger>
+                <TooltipContent>{t("list.readonlyHint")}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-not-allowed">{deleteButton}</span>
+                </TooltipTrigger>
+                <TooltipContent>{t("list.readonlyHint")}</TooltipContent>
+              </Tooltip>
+            </div>
+          );
+        }
+
+        return (
+          <div className="flex items-center justify-end gap-1">
+            {editButton}
+            {deleteButton}
+          </div>
+        );
+      },
       header: () => <div className="text-right">{t("list.actions")}</div>,
       id: "actions",
     },
@@ -139,7 +160,7 @@ function RedirectsListPage() {
         <DataTable
           columns={columns}
           data={redirects}
-          isLoading={false}
+          isLoading={rules$.isLoading}
           labels={{
             emptyText: t("list.empty"),
             searchPlaceholder: t("list.searchPlaceholder"),
@@ -148,13 +169,13 @@ function RedirectsListPage() {
       </CrudLayout>
 
       <RedirectDrawer
-        onOpenChange={setDrawerOpen}
-        onSave={handleSave}
         open={drawerOpen}
         redirect={editingRedirect}
+        onOpenChange={setDrawerOpen}
+        onSave={handleSave}
       />
 
-      <Dialog onOpenChange={(open) => !open && setDeleteTarget(null)} open={!!deleteTarget}>
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("confirmDelete.title")}</DialogTitle>

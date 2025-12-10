@@ -3,7 +3,7 @@ import type {
   DurableObjectStorage as IStorage,
   ListOptions,
 } from "@buntime/durable";
-import type { Client } from "@libsql/client";
+import type { Client } from "@libsql/client/http";
 
 /**
  * Initialize the database schema

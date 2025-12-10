@@ -1,5 +1,5 @@
 import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
-import { type Client, createClient } from "@libsql/client";
+import { type Client, createClient } from "@libsql/client/http";
 import { Hono } from "hono";
 import { DurableObjectRegistry } from "./registry";
 import { initDatabase } from "./storage";

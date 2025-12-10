@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { getChildLogger } from "@buntime/shared/logger";
 import type {
   BuntimeConfig,
@@ -389,11 +389,16 @@ function validateBuntimeConfig(config: unknown, configPath: string): BuntimeConf
   return cfg as BuntimeConfig;
 }
 
+export interface LoadedBuntimeConfig {
+  baseDir: string;
+  config: BuntimeConfig;
+}
+
 /**
  * Load buntime configuration from file
  * Priority: buntime.jsonc (JSONC with comments support)
  */
-export async function loadBuntimeConfig(): Promise<BuntimeConfig> {
+export async function loadBuntimeConfig(): Promise<LoadedBuntimeConfig> {
   // Primary: buntime.jsonc
   try {
     const jsoncPath = Bun.resolveSync("./buntime.jsonc", process.cwd());
@@ -402,7 +407,10 @@ export async function loadBuntimeConfig(): Promise<BuntimeConfig> {
     if (await file.exists()) {
       // Bun natively parses JSONC (strips comments and trailing commas)
       const config = await import(jsoncPath);
-      return validateBuntimeConfig(config.default ?? config, "buntime.jsonc");
+      return {
+        baseDir: dirname(jsoncPath),
+        config: validateBuntimeConfig(config.default ?? config, "buntime.jsonc"),
+      };
     }
   } catch (err) {
     if (err instanceof Error && !err.message.includes("Cannot find module")) {
@@ -410,6 +418,6 @@ export async function loadBuntimeConfig(): Promise<BuntimeConfig> {
     }
   }
 
-  // No config file found, return empty config
-  return {};
+  // No config file found, return empty config with cwd as base
+  return { baseDir: process.cwd(), config: {} };
 }

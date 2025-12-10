@@ -18,8 +18,8 @@ const logger = createLogger({
 setLogger(logger);
 
 // Load configuration
-const buntimeConfig = await loadBuntimeConfig();
-const runtimeConfig = initConfig(buntimeConfig);
+const { baseDir, config: buntimeConfig } = await loadBuntimeConfig();
+const runtimeConfig = initConfig(buntimeConfig, baseDir);
 
 // Create pool with config
 const pool = new WorkerPool({ maxSize: runtimeConfig.poolSize });
@@ -116,7 +116,7 @@ process.on("SIGINT", async () => {
 // Export for programmatic use
 export { app, buntimeConfig as config, pool, registry };
 export { type AppType, createApp } from "@/app";
-export { loadBuntimeConfig, PluginLoader } from "@/plugins/loader";
+export { type LoadedBuntimeConfig, loadBuntimeConfig, PluginLoader } from "@/plugins/loader";
 export { PluginRegistry } from "@/plugins/registry";
 
 // Export route types for RPC clients

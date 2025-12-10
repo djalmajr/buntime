@@ -4,6 +4,7 @@
  * Combines environment variables with buntime.jsonc settings.
  * Must be initialized after loading buntime.jsonc via initConfig().
  */
+import { isAbsolute, resolve } from "node:path";
 import type { BuntimeConfig } from "@buntime/shared/types";
 import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
 import { DELAY_MS, IS_COMPILED, IS_DEV, NODE_ENV, PORT, VERSION } from "./constants";
@@ -44,13 +45,22 @@ const poolDefaults: Record<string, number> = {
 let _config: RuntimeConfig | null = null;
 
 /**
+ * Resolve a path relative to a base directory
+ * If path is absolute, returns as-is. If relative, resolves against baseDir.
+ */
+function resolvePath(path: string, baseDir: string): string {
+  const expanded = substituteEnvVars(path);
+  return isAbsolute(expanded) ? expanded : resolve(baseDir, expanded);
+}
+
+/**
  * Initialize runtime configuration from buntime.jsonc + env vars
  */
-export function initConfig(buntimeConfig: BuntimeConfig): RuntimeConfig {
+export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): RuntimeConfig {
   // Get appsDir: buntime.jsonc > env var
-  const appsDir = buntimeConfig.appsDir
-    ? substituteEnvVars(buntimeConfig.appsDir)
-    : Bun.env.APPS_DIR;
+  // Relative paths are resolved against the config file directory
+  const rawAppsDir = buntimeConfig.appsDir ?? Bun.env.APPS_DIR;
+  const appsDir = rawAppsDir ? resolvePath(rawAppsDir, baseDir) : undefined;
 
   if (!appsDir) {
     throw new Error("appsDir is required: set in buntime.jsonc or APPS_DIR env var");

@@ -4,8 +4,10 @@
   "type": "module",
   "exports": {
     "./errors": "./src/errors.ts",
+    "./logger": "./src/logger/index.ts",
     "./types": "./src/types/plugin.ts",
-    "./utils": "./src/utils/zod-helpers.ts"
+    "./utils/static-handler": "./src/utils/static-handler.ts",
+    "./utils/zod-helpers": "./src/utils/zod-helpers.ts"
   },
   "scripts": {
     "lint:format": "bun biome check --write",

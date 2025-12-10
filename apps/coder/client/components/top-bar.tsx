@@ -26,7 +26,7 @@ const languages = [
 ];
 
 function LanguageSwitcher() {
-  const currentLang = languages[0];
+  const currentLang = languages[0]!;
 
   return (
     <DropdownMenu>

@@ -1,9 +1,11 @@
 import type * as React from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Icon } from "~/components/icon";
 import { NavMenus } from "~/components/navigation/nav-menus";
 import { NavUser } from "~/components/navigation/nav-user";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader } from "~/components/ui/sidebar";
+import { hasPlugin, usePlugins } from "~/hooks/use-plugins";
 
 const FolderIcon = () => <Icon className="size-4" icon="lucide:folder" />;
 const GaugeIcon = () => <Icon className="size-4" icon="lucide:gauge" />;
@@ -18,24 +20,38 @@ const userData = {
 
 export function NavMain({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { t } = useTranslation();
+  const plugins$ = usePlugins();
 
-  const navMain = [
-    {
-      icon: GaugeIcon,
-      title: t("nav.dashboard"),
-      url: "/",
-    },
-    {
+  const navMain = useMemo(() => {
+    const items = [];
+
+    // Dashboard requires plugin-metrics
+    if (hasPlugin(plugins$.data, "@buntime/plugin-metrics")) {
+      items.push({
+        icon: GaugeIcon,
+        title: t("nav.dashboard"),
+        url: "/",
+      });
+    }
+
+    // Deployments is always visible (core feature)
+    items.push({
       icon: FolderIcon,
       title: t("nav.deployments"),
       url: "/deployments",
-    },
-    {
-      icon: NetworkIcon,
-      title: t("nav.redirects"),
-      url: "/redirects",
-    },
-  ];
+    });
+
+    // Redirects requires plugin-proxy
+    if (hasPlugin(plugins$.data, "@buntime/plugin-proxy")) {
+      items.push({
+        icon: NetworkIcon,
+        title: t("nav.redirects"),
+        url: "/redirects",
+      });
+    }
+
+    return items;
+  }, [plugins$.data, t]);
 
   return (
     <Sidebar variant="inset" {...props}>

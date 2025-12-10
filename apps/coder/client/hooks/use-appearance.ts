@@ -5,7 +5,10 @@ export type AppearanceMode = "dark" | "light" | "system";
 // Simple external store for appearance state
 let currentMode: AppearanceMode = "dark";
 let resolvedMode: "dark" | "light" = "dark";
-let cachedSnapshot = { mode: currentMode, resolvedMode };
+let cachedSnapshot: { mode: AppearanceMode; resolvedMode: "dark" | "light" } = {
+  mode: currentMode,
+  resolvedMode,
+};
 const listeners = new Set<() => void>();
 
 function getAppearanceSnapshot() {

@@ -1,6 +1,6 @@
 import type { MetricsRoutesType } from "@buntime/plugin-metrics";
 import type { ProxyRoutesType } from "@buntime/plugin-proxy";
-import type { InternalRoutesType } from "@buntime/server/routes/internal";
+import type { InternalRoutesType } from "@buntime/runner/routes/internal";
 import { hc } from "hono/client";
 
 // In dev, call buntime directly. In prod (served by buntime), use relative paths.

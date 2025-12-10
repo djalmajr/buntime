@@ -1,6 +1,6 @@
 # @buntime/authn
 
-JWT/OIDC authentication extension for Buntime server.
+JWT/OIDC authentication extension for Buntime runner.
 
 ## Features
 

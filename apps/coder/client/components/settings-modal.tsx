@@ -2,10 +2,10 @@ import { useState } from "react";
 import { Icon } from "~/components/icon";
 import { ThemeCard } from "~/components/theme-card";
 import { Dialog, DialogContent, DialogTitle } from "~/components/ui/dialog";
+import { cn } from "~/helpers/cn";
+import { themeList } from "~/helpers/themes";
 import { type AppearanceMode, useAppearance } from "~/hooks/use-appearance";
 import { useEditorTheme } from "~/hooks/use-editor-theme";
-import { cn } from "~/libs/cn";
-import { themeList } from "~/libs/themes";
 
 type SettingsSection = "appearance" | "editor" | "notifications" | "preferences";
 
@@ -47,17 +47,28 @@ interface AppearanceOptionProps {
   onClick: () => void;
 }
 
-function AppearanceOption({ description, icon, isSelected, label, onClick }: AppearanceOptionProps) {
+function AppearanceOption({
+  description,
+  icon,
+  isSelected,
+  label,
+  onClick,
+}: AppearanceOptionProps) {
   return (
     <button
       className={cn(
         "flex flex-col items-center gap-3 rounded-lg border-2 p-6 transition-all hover:scale-[1.02]",
-        isSelected ? "border-primary ring-primary/20 ring-2" : "border-border hover:border-primary/50",
+        isSelected
+          ? "border-primary ring-primary/20 ring-2"
+          : "border-border hover:border-primary/50",
       )}
       type="button"
       onClick={onClick}
     >
-      <Icon className={cn("size-8", isSelected ? "text-primary" : "text-muted-foreground")} name={icon} />
+      <Icon
+        className={cn("size-8", isSelected ? "text-primary" : "text-muted-foreground")}
+        name={icon}
+      />
       <div className="text-center">
         <p className="font-medium">{label}</p>
         <p className="text-muted-foreground text-xs">{description}</p>
@@ -72,7 +83,12 @@ function AppearanceSection() {
   const options: { description: string; icon: string; label: string; value: AppearanceMode }[] = [
     { description: "Always use light colors", icon: "lucide:sun", label: "Light", value: "light" },
     { description: "Always use dark colors", icon: "lucide:moon", label: "Dark", value: "dark" },
-    { description: "Match system preference", icon: "lucide:monitor", label: "System", value: "system" },
+    {
+      description: "Match system preference",
+      icon: "lucide:monitor",
+      label: "System",
+      value: "system",
+    },
   ];
 
   return (
@@ -108,7 +124,9 @@ function EditorThemeSection() {
     <div className="flex flex-col gap-6">
       <div>
         <h2 className="text-lg font-semibold">Editor Theme</h2>
-        <p className="text-muted-foreground text-sm">Customize the syntax highlighting in the code editor</p>
+        <p className="text-muted-foreground text-sm">
+          Customize the syntax highlighting in the code editor
+        </p>
       </div>
 
       {/* Dark Themes */}

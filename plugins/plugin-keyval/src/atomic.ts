@@ -1,14 +1,61 @@
-import type { Client } from "@libsql/client";
+import type { DatabaseAdapter } from "@buntime/plugin-database";
 import { encodeKey, serializeValue } from "./encoding";
-import { generateVersionstamp } from "./schema";
-import type {
-  KvCheck,
-  KvCommitError,
-  KvCommitResult,
-  KvKey,
-  KvMutation,
-  KvSetOptions,
+import type { Kv } from "./kv";
+import type { KvMetrics } from "./metrics";
+import {
+  COMMIT_VERSIONSTAMP_SYMBOL,
+  type KvCheck,
+  type KvCommitError,
+  type KvCommitResult,
+  type KvCommitVersionstamp,
+  type KvKey,
+  type KvKeyPart,
+  type KvKeyWithVersionstamp,
+  type KvMutationType,
+  type KvSetOptions,
 } from "./types";
+
+/**
+ * Internal mutation type that supports keys with versionstamp placeholders
+ */
+interface KvMutationInternal {
+  expireIn?: number;
+  key: KvKeyWithVersionstamp;
+  type: KvMutationType;
+  value?: unknown;
+}
+
+/**
+ * Check if a value is a commitVersionstamp placeholder
+ */
+function isCommitVersionstamp(value: unknown): value is KvCommitVersionstamp {
+  return typeof value === "object" && value !== null && COMMIT_VERSIONSTAMP_SYMBOL in value;
+}
+
+/**
+ * Resolve commitVersionstamp placeholders in a key
+ */
+function resolveKey(key: KvKeyWithVersionstamp, versionstamp: string): KvKey {
+  return key.map((part) => {
+    if (isCommitVersionstamp(part)) {
+      return versionstamp;
+    }
+    return part as KvKeyPart;
+  });
+}
+
+/**
+ * Safely convert BigInt to Number, throwing if precision would be lost
+ */
+function bigIntToNumber(value: bigint, operation: string): number {
+  if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < BigInt(Number.MIN_SAFE_INTEGER)) {
+    throw new Error(
+      `BigInt value ${value} exceeds safe integer range for ${operation} operation. ` +
+        `Use values between ${Number.MIN_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`,
+    );
+  }
+  return Number(value);
+}
 
 /**
  * Atomic operation builder for KV transactions
@@ -16,14 +63,16 @@ import type {
  */
 export class AtomicOperation {
   private checks: KvCheck[] = [];
-  private mutations: KvMutation[] = [];
+  private mutations: KvMutationInternal[] = [];
 
-  constructor(private client: Client) {}
+  constructor(
+    private adapter: DatabaseAdapter,
+    private metrics: KvMetrics,
+    private kv?: Kv,
+  ) {}
 
   /**
    * Add a version check for a key
-   * The commit will fail if the key's versionstamp doesn't match
-   * Use null versionstamp to check that the key doesn't exist
    */
   check(...checks: KvCheck[]): this {
     this.checks.push(...checks);
@@ -33,7 +82,7 @@ export class AtomicOperation {
   /**
    * Set a key-value pair
    */
-  set(key: KvKey, value: unknown, options?: KvSetOptions): this {
+  set(key: KvKeyWithVersionstamp, value: unknown, options?: KvSetOptions): this {
     this.mutations.push({
       key,
       type: "set",
@@ -46,7 +95,7 @@ export class AtomicOperation {
   /**
    * Delete a key
    */
-  delete(key: KvKey): this {
+  delete(key: KvKeyWithVersionstamp): this {
     this.mutations.push({
       key,
       type: "delete",
@@ -55,70 +104,255 @@ export class AtomicOperation {
   }
 
   /**
+   * Add a value to an existing numeric value atomically
+   */
+  sum(key: KvKeyWithVersionstamp, value: bigint): this {
+    this.mutations.push({
+      key,
+      type: "sum",
+      value,
+    });
+    return this;
+  }
+
+  /**
+   * Set to the maximum of the current value and the provided value
+   */
+  max(key: KvKeyWithVersionstamp, value: bigint): this {
+    this.mutations.push({
+      key,
+      type: "max",
+      value,
+    });
+    return this;
+  }
+
+  /**
+   * Set to the minimum of the current value and the provided value
+   */
+  min(key: KvKeyWithVersionstamp, value: bigint): this {
+    this.mutations.push({
+      key,
+      type: "min",
+      value,
+    });
+    return this;
+  }
+
+  /**
+   * Append values to an existing array atomically
+   */
+  append(key: KvKeyWithVersionstamp, values: unknown[]): this {
+    this.mutations.push({
+      key,
+      type: "append",
+      value: values,
+    });
+    return this;
+  }
+
+  /**
+   * Prepend values to an existing array atomically
+   */
+  prepend(key: KvKeyWithVersionstamp, values: unknown[]): this {
+    this.mutations.push({
+      key,
+      type: "prepend",
+      value: values,
+    });
+    return this;
+  }
+
+  /**
    * Commit the atomic operation
-   * Returns { ok: true, versionstamp } on success
-   * Returns { ok: false } if any check fails
    */
   async commit(): Promise<KvCommitError | KvCommitResult> {
-    if (this.checks.length === 0 && this.mutations.length === 0) {
-      return { ok: true, versionstamp: generateVersionstamp() };
-    }
+    const start = performance.now();
+    let error = false;
 
-    // First, verify all checks
-    for (const check of this.checks) {
-      const encodedKey = encodeKey(check.key);
+    try {
+      if (this.checks.length === 0 && this.mutations.length === 0) {
+        return { ok: true, versionstamp: Bun.randomUUIDv7() };
+      }
 
-      const result = await this.client.execute({
-        sql: "SELECT versionstamp FROM kv_entries WHERE key = ? AND (expires_at IS NULL OR expires_at > unixepoch())",
-        args: [encodedKey],
+      // First, verify all checks
+      if (this.checks.length > 0) {
+        for (const check of this.checks) {
+          const encodedKey = encodeKey(check.key);
+          const row = await this.adapter.executeOne<{ versionstamp: string }>(
+            "SELECT versionstamp FROM kv_entries WHERE key = ? AND (expires_at IS NULL OR expires_at > unixepoch())",
+            [encodedKey],
+          );
+
+          const currentVersionstamp = row?.versionstamp;
+
+          if (check.versionstamp === null) {
+            if (currentVersionstamp !== undefined) {
+              return { ok: false };
+            }
+          } else {
+            if (currentVersionstamp !== check.versionstamp) {
+              return { ok: false };
+            }
+          }
+        }
+      }
+
+      // Generate new versionstamp for this commit
+      const versionstamp = Bun.randomUUIDv7();
+      const now = Math.floor(Date.now() / 1000);
+
+      // Build mutation statements
+      const statements = this.mutations.map((mutation) => {
+        const resolvedKey = resolveKey(mutation.key, versionstamp);
+        const encodedKey = encodeKey(resolvedKey);
+        const expiresAt = mutation.expireIn ? now + Math.floor(mutation.expireIn / 1000) : null;
+
+        switch (mutation.type) {
+          case "delete":
+            return {
+              sql: "DELETE FROM kv_entries WHERE key = ?",
+              args: [encodedKey],
+            };
+
+          case "set": {
+            const encodedValue = serializeValue(mutation.value);
+            return {
+              sql: `INSERT OR REPLACE INTO kv_entries (key, value, versionstamp, expires_at)
+                    VALUES (?, ?, ?, ?)`,
+              args: [encodedKey, encodedValue, versionstamp, expiresAt],
+            };
+          }
+
+          case "sum": {
+            const numValue =
+              typeof mutation.value === "bigint"
+                ? bigIntToNumber(mutation.value, "sum")
+                : mutation.value;
+            const encodedValue = serializeValue(numValue);
+            return {
+              sql: `INSERT INTO kv_entries (key, value, versionstamp, expires_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                      value = (
+                        SELECT CAST(json(COALESCE(json_extract(CAST(kv_entries.value AS TEXT), '$'), 0) + json_extract(CAST(excluded.value AS TEXT), '$')) AS BLOB)
+                      ),
+                      versionstamp = excluded.versionstamp,
+                      expires_at = excluded.expires_at`,
+              args: [encodedKey, encodedValue, versionstamp, expiresAt],
+            };
+          }
+
+          case "max": {
+            const numValue =
+              typeof mutation.value === "bigint"
+                ? bigIntToNumber(mutation.value, "max")
+                : mutation.value;
+            const encodedValue = serializeValue(numValue);
+            return {
+              sql: `INSERT INTO kv_entries (key, value, versionstamp, expires_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                      value = (
+                        SELECT CAST(json(MAX(COALESCE(json_extract(CAST(kv_entries.value AS TEXT), '$'), json_extract(CAST(excluded.value AS TEXT), '$')), json_extract(CAST(excluded.value AS TEXT), '$'))) AS BLOB)
+                      ),
+                      versionstamp = excluded.versionstamp,
+                      expires_at = excluded.expires_at`,
+              args: [encodedKey, encodedValue, versionstamp, expiresAt],
+            };
+          }
+
+          case "min": {
+            const numValue =
+              typeof mutation.value === "bigint"
+                ? bigIntToNumber(mutation.value, "min")
+                : mutation.value;
+            const encodedValue = serializeValue(numValue);
+            return {
+              sql: `INSERT INTO kv_entries (key, value, versionstamp, expires_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                      value = (
+                        SELECT CAST(json(MIN(COALESCE(json_extract(CAST(kv_entries.value AS TEXT), '$'), json_extract(CAST(excluded.value AS TEXT), '$')), json_extract(CAST(excluded.value AS TEXT), '$'))) AS BLOB)
+                      ),
+                      versionstamp = excluded.versionstamp,
+                      expires_at = excluded.expires_at`,
+              args: [encodedKey, encodedValue, versionstamp, expiresAt],
+            };
+          }
+
+          case "append": {
+            const encodedValue = serializeValue(mutation.value);
+            return {
+              sql: `INSERT INTO kv_entries (key, value, versionstamp, expires_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                      value = (
+                        SELECT CAST(json_group_array(value) AS BLOB) FROM (
+                          SELECT value FROM json_each(COALESCE(CAST(kv_entries.value AS TEXT), '[]'))
+                          UNION ALL
+                          SELECT value FROM json_each(CAST(excluded.value AS TEXT))
+                        )
+                      ),
+                      versionstamp = excluded.versionstamp,
+                      expires_at = excluded.expires_at`,
+              args: [encodedKey, encodedValue, versionstamp, expiresAt],
+            };
+          }
+
+          case "prepend": {
+            const encodedValue = serializeValue(mutation.value);
+            return {
+              sql: `INSERT INTO kv_entries (key, value, versionstamp, expires_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                      value = (
+                        SELECT CAST(json_group_array(value) AS BLOB) FROM (
+                          SELECT value FROM json_each(CAST(excluded.value AS TEXT))
+                          UNION ALL
+                          SELECT value FROM json_each(COALESCE(CAST(kv_entries.value AS TEXT), '[]'))
+                        )
+                      ),
+                      versionstamp = excluded.versionstamp,
+                      expires_at = excluded.expires_at`,
+              args: [encodedKey, encodedValue, versionstamp, expiresAt],
+            };
+          }
+
+          default: {
+            const _exhaustive: never = mutation.type;
+            throw new Error(`Unknown mutation type: ${_exhaustive}`);
+          }
+        }
       });
 
-      const currentVersionstamp = result.rows[0]?.versionstamp as string | undefined;
-
-      if (check.versionstamp === null) {
-        // Check that key doesn't exist
-        if (currentVersionstamp !== undefined) {
-          return { ok: false };
-        }
-      } else {
-        // Check that versionstamp matches
-        if (currentVersionstamp !== check.versionstamp) {
-          return { ok: false };
-        }
-      }
-    }
-
-    // Generate new versionstamp for this commit
-    const versionstamp = generateVersionstamp();
-    const now = Math.floor(Date.now() / 1000);
-
-    // Apply all mutations
-    const statements = this.mutations.map((mutation) => {
-      const encodedKey = encodeKey(mutation.key);
-
-      if (mutation.type === "delete") {
-        return {
-          sql: "DELETE FROM kv_entries WHERE key = ?",
-          args: [encodedKey],
-        };
+      // Execute all mutations in a batch
+      if (statements.length > 0) {
+        await this.adapter.batch(statements);
       }
 
-      const encodedValue = serializeValue(mutation.value);
-      const expiresAt = mutation.expireIn
-        ? now + Math.floor(mutation.expireIn / 1000)
-        : null;
+      // Fire triggers for each mutation
+      if (this.kv) {
+        for (const mutation of this.mutations) {
+          const resolvedKey = resolveKey(mutation.key, versionstamp);
+          if (mutation.type === "set") {
+            await this.kv.fireTriggers("set", resolvedKey, mutation.value, versionstamp);
+          } else if (mutation.type === "delete") {
+            await this.kv.fireTriggers("delete", resolvedKey, undefined, versionstamp);
+          }
+          // Note: sum, max, min, append, prepend are treated as "set" for trigger purposes
+          else if (["sum", "max", "min", "append", "prepend"].includes(mutation.type)) {
+            await this.kv.fireTriggers("set", resolvedKey, mutation.value, versionstamp);
+          }
+        }
+      }
 
-      return {
-        sql: `INSERT OR REPLACE INTO kv_entries (key, value, versionstamp, expires_at)
-              VALUES (?, ?, ?, ?)`,
-        args: [encodedKey, encodedValue, versionstamp, expiresAt],
-      };
-    });
-
-    if (statements.length > 0) {
-      await this.client.batch(statements, "write");
+      return { ok: true, versionstamp };
+    } catch (err) {
+      error = true;
+      throw err;
+    } finally {
+      this.metrics.recordOperation("atomic_commit", performance.now() - start, error);
     }
-
-    return { ok: true, versionstamp };
   }
 }

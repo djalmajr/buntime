@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Icon } from "~/components/icon";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "~/components/ui/collapsible";
 import { ScrollArea } from "~/components/ui/scroll-area";
-import { cn } from "~/libs/cn";
+import { cn } from "~/helpers/cn";
 
 interface EditorSidebarProps {
   children: React.ReactNode;

@@ -1,6 +1,6 @@
 import { Icon } from "~/components/icon";
-import { cn } from "~/libs/cn";
-import { type Theme, themeList } from "~/libs/themes";
+import { cn } from "~/helpers/cn";
+import { type Theme, themeList } from "~/helpers/themes";
 
 interface SettingsPanelProps {
   theme: Theme;

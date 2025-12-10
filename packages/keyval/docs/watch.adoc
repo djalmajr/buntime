@@ -1,0 +1,537 @@
+== Observando Mudanças (Watch)
+
+=== Visão Geral
+
+O KeyVal permite **observar mudanças** em uma ou mais chaves em tempo real. Quando uma chave é modificada, o callback é chamado com as entradas atualizadas.
+
+[NOTE]
+====
+O watch usa polling interno no servidor (não há suporte nativo a notificações no libSQL). A latência típica é de ~100ms no modo SSE.
+====
+
+=== API Básica
+
+[source,typescript]
+----
+const handle = kv.watch(keys, callback, options?);
+
+// Parar de observar manualmente
+handle.stop();
+
+// Ou usar `using` para cleanup automático (TS 5.2+)
+{
+  using watcher = kv.watch(keys, callback);
+  await waitForCondition();
+} // watcher.stop() chamado automaticamente
+----
+
+**Parâmetros:**
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `keys`
+| `KvKey[]`
+| Array de chaves para observar
+
+| `callback`
+| `(entries: KvEntry[]) => void`
+| Função chamada quando alguma chave muda
+
+| `options.mode`
+| `"sse" \| "polling"`
+| Modo de conexão (default: `"sse"`)
+
+| `options.pollInterval`
+| `number`
+| Intervalo de polling em ms (default: `1000`)
+
+| `options.emitInitial`
+| `boolean`
+| Emitir valor atual ao iniciar (default: `true`)
+|===
+
+=== Exemplos
+
+==== Observar Uma Chave
+
+[source,typescript]
+----
+interface User {
+  name: string;
+  status: string;
+}
+
+// Observar mudanças no perfil do usuário
+const handle = kv.watch<User>([["users", 123]], (entries) => {
+  const user = entries[0];
+  if (user?.value) {
+    console.log(`Status do usuário: ${user.value.status}`);
+  }
+});
+
+// Em outro lugar, quando o usuário muda...
+await kv.set(["users", 123], { name: "Alice", status: "online" });
+// Callback será chamado com o novo valor
+
+// Parar de observar
+handle.stop();
+----
+
+==== Observar Múltiplas Chaves
+
+[source,typescript]
+----
+interface Settings {
+  theme: string;
+  language: string;
+}
+
+// Observar usuário e configurações simultaneamente
+const handle = kv.watch(
+  [["users", 123], ["settings", 123]],
+  (entries) => {
+    for (const entry of entries) {
+      const keyType = entry.key[0];
+      console.log(`${keyType} mudou:`, entry.value);
+    }
+  }
+);
+----
+
+==== Dashboard em Tempo Real
+
+[source,typescript]
+----
+interface Metrics {
+  activeUsers: number;
+  cpu: number;
+  memory: number;
+  requests: number;
+}
+
+function DashboardComponent() {
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+
+  useEffect(() => {
+    const handle = kv.watch<Metrics>([["metrics", "current"]], (entries) => {
+      const entry = entries[0];
+      if (entry?.value) {
+        setMetrics(entry.value);
+      }
+    });
+
+    return () => handle.stop();
+  }, []);
+
+  if (!metrics) return <div>Loading...</div>;
+
+  return (
+    <div>
+      <p>Active Users: {metrics.activeUsers}</p>
+      <p>CPU: {metrics.cpu}%</p>
+      <p>Memory: {metrics.memory}%</p>
+      <p>Requests/s: {metrics.requests}</p>
+    </div>
+  );
+}
+----
+
+==== Sincronização de Estado
+
+[source,typescript]
+----
+interface Document {
+  content: string;
+  lastModified: number;
+  version: number;
+}
+
+class DocumentSync {
+  private handle: KvWatchHandle | null = null;
+  private docId: string;
+
+  constructor(docId: string) {
+    this.docId = docId;
+  }
+
+  start(onUpdate: (doc: Document) => void): void {
+    this.handle = kv.watch<Document>(
+      [["documents", this.docId]],
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.value) {
+          onUpdate(entry.value);
+        }
+      },
+      { emitInitial: true }
+    );
+  }
+
+  stop(): void {
+    this.handle?.stop();
+    this.handle = null;
+  }
+}
+
+// Uso
+const sync = new DocumentSync("doc-123");
+sync.start((doc) => {
+  console.log("Document updated:", doc.version);
+  renderDocument(doc);
+});
+----
+
+==== Modo Polling
+
+[source,typescript]
+----
+// Útil quando SSE não funciona (proxies restritivos, firewalls)
+const handle = kv.watch(
+  [["status", "server"]],
+  (entries) => {
+    console.log("Server status:", entries[0]?.value);
+  },
+  {
+    mode: "polling",
+    pollInterval: 5000, // Verificar a cada 5 segundos
+  }
+);
+----
+
+==== Sem Valor Inicial
+
+[source,typescript]
+----
+// Só notificar mudanças futuras, ignorar valor atual
+const handle = kv.watch(
+  [["notifications", userId]],
+  (entries) => {
+    // Só chamado quando houver mudança
+    showNotification(entries[0]?.value);
+  },
+  { emitInitial: false }
+);
+----
+
+=== Modos de Conexão
+
+==== SSE (Server-Sent Events)
+
+**Vantagens:**
+- Baixa latência (~100ms)
+- Conexão persistente
+- Reconexão automática
+- Menor overhead de rede
+
+**Desvantagens:**
+- Pode não funcionar com alguns proxies
+- Uma conexão por watch
+
+[source,typescript]
+----
+// SSE é o padrão
+kv.watch(keys, callback);
+
+// Explicitamente SSE
+kv.watch(keys, callback, { mode: "sse" });
+----
+
+==== Polling
+
+**Vantagens:**
+- Funciona com qualquer proxy
+- Mais simples de debugar
+- Sem conexões persistentes
+
+**Desvantagens:**
+- Maior latência (depende do intervalo)
+- Mais requests de rede
+
+[source,typescript]
+----
+// Polling com intervalo padrão (1s)
+kv.watch(keys, callback, { mode: "polling" });
+
+// Polling com intervalo customizado
+kv.watch(keys, callback, { mode: "polling", pollInterval: 2000 });
+----
+
+=== Como Funciona
+
+==== Arquitetura
+
+[source]
+----
+┌─────────────────┐
+│     Client      │
+│  kv.watch(...)  │
+└────────┬────────┘
+         │ SSE / HTTP
+         ▼
+┌─────────────────┐
+│     Server      │
+│  GET /watch     │◄───┐
+└────────┬────────┘    │ poll (100ms)
+         │             │
+         ▼             │
+┌─────────────────┐    │
+│     libSQL      │────┘
+│   kv_entries    │
+└─────────────────┘
+----
+
+==== Fluxo SSE
+
+1. Client abre conexão SSE para `/watch?keys=...`
+2. Server inicia loop de polling interno (100ms)
+3. A cada iteração, server verifica versionstamps
+4. Se mudou, envia evento `change` via SSE
+5. Se não mudou, envia `ping` (heartbeat)
+6. Client reconecta automaticamente se conexão cair
+
+==== Fluxo Polling
+
+1. Client faz GET `/watch/poll?keys=...&versionstamps=...`
+2. Server compara versionstamps atuais com os informados
+3. Retorna apenas entradas que mudaram
+4. Client aguarda `pollInterval` e repete
+
+=== Detecção de Mudanças
+
+O watch usa **versionstamps** para detectar mudanças:
+
+[source,typescript]
+----
+// Cada entrada tem um versionstamp único
+const entry = await kv.get(["users", 123]);
+console.log(entry.versionstamp); // "018d5e2a3b4c5d6e"
+
+// Quando a entrada é modificada, versionstamp muda
+await kv.set(["users", 123], { name: "Bob" });
+const updated = await kv.get(["users", 123]);
+console.log(updated.versionstamp); // "018d5e2a3b4c5d6f" (diferente)
+----
+
+Isso significa que:
+- Mudanças são detectadas mesmo sem comparar valores
+- Operações idempotentes (mesmo valor) geram novo versionstamp
+- Deletar e recriar com mesmo valor também dispara callback
+
+=== Limitações
+
+==== Não é Real-Time Verdadeiro
+
+O libSQL não suporta notificações push. O server faz polling interno:
+
+[source,typescript]
+----
+// Latência mínima é o intervalo de polling do server (~100ms)
+// Isso é suficiente para maioria dos casos (dashboards, colaboração)
+
+// Para real-time verdadeiro (<10ms), considere:
+// - WebSockets com pub/sub dedicado
+// - Redis pub/sub
+// - Supabase Realtime
+----
+
+==== Uma Conexão por Watch
+
+Cada chamada a `watch()` cria uma conexão:
+
+[source,typescript]
+----
+// ❌ Muitas conexões
+for (const userId of userIds) {
+  kv.watch([["users", userId]], callback);
+}
+
+// ✅ Uma conexão, múltiplas chaves
+const keys = userIds.map(id => ["users", id]);
+kv.watch(keys, callback);
+----
+
+==== Sem Suporte a Prefixos
+
+O watch observa chaves específicas, não prefixos:
+
+[source,typescript]
+----
+// ❌ Não funciona
+kv.watch([["users"]], callback); // Não observa todos os usuários
+
+// ✅ Liste as chaves específicas
+const keys = [["users", 1], ["users", 2], ["users", 3]];
+kv.watch(keys, callback);
+----
+
+=== Boas Práticas
+
+==== Cleanup ao Desmontar
+
+[source,typescript]
+----
+// React
+useEffect(() => {
+  const handle = kv.watch(keys, callback);
+  return () => handle.stop();
+}, []);
+
+// Vanilla
+const handle = kv.watch(keys, callback);
+window.addEventListener("beforeunload", () => handle.stop());
+----
+
+==== Usando `using` para Cleanup Automático (TS 5.2+)
+
+O handle implementa `Symbol.dispose`, permitindo cleanup automático:
+
+[source,typescript]
+----
+// Cleanup automático quando o bloco termina
+async function monitorUser(userId: string): Promise<void> {
+  using watcher = kv.watch([["users", userId]], (entries) => {
+    console.log("User updated:", entries[0]?.value);
+  });
+
+  // Aguarda alguma condição
+  await waitForUserLogout(userId);
+} // watcher.stop() chamado automaticamente aqui
+
+// Útil para scripts e testes
+async function runMigration(): Promise<void> {
+  using progressWatcher = kv.watch([["migration", "progress"]], (entries) => {
+    const progress = entries[0]?.value as number;
+    console.log(`Migration: ${progress}%`);
+  });
+
+  await performMigration();
+} // Watcher parado automaticamente
+
+// Múltiplos recursos
+async function syncDashboard(): Promise<void> {
+  using metricsWatcher = kv.watch([["metrics"]], updateMetrics);
+  using alertsWatcher = kv.watch([["alerts"]], updateAlerts);
+  using logsWatcher = kv.watch([["logs"]], updateLogs);
+
+  await runDashboard();
+} // Todos os watchers parados automaticamente
+----
+
+==== Backpressure para Updates Frequentes
+
+O watch suporta **backpressure** para lidar com cenários onde mudanças ocorrem mais rápido do que o callback consegue processar.
+
+===== Opções de Backpressure
+
+[cols="1,1,3"]
+|===
+| Opção | Tipo | Descrição
+
+| `bufferSize`
+| `number \| null`
+| Máximo de entradas no buffer. `null` = sem limite (default)
+
+| `overflowStrategy`
+| `"drop-oldest" \| "drop-newest"`
+| Estratégia quando buffer está cheio (default: `"drop-oldest"`)
+|===
+
+===== Comportamento
+
+* **Coalescência**: Múltiplas mudanças para a mesma chave são mescladas, mantendo apenas o valor mais recente
+* **drop-oldest**: Remove as entradas mais antigas para abrir espaço (ideal para dashboards)
+* **drop-newest**: Ignora novas entradas se o buffer estiver cheio (ideal para logs críticos)
+
+===== Exemplos
+
+[source,typescript]
+----
+// Limitar buffer a 10 chaves, descartando as mais antigas
+const handle = kv.watch(
+  [["metrics", "cpu"], ["metrics", "memory"], ["metrics", "disk"]],
+  (entries) => {
+    // Recebe apenas as últimas mudanças (sem duplicatas de chave)
+    updateDashboard(entries);
+  },
+  {
+    bufferSize: 10,
+    overflowStrategy: "drop-oldest", // default
+  }
+);
+
+// Preservar mudanças antigas (ignorar novas se ocupado)
+const auditHandle = kv.watch(
+  auditKeys,
+  async (entries) => {
+    // Processamento lento - novas mudanças serão ignoradas
+    await saveToAuditLog(entries);
+  },
+  {
+    bufferSize: 100,
+    overflowStrategy: "drop-newest",
+  }
+);
+
+// Sem backpressure (comportamento padrão)
+const handle = kv.watch(keys, callback);
+// Equivalente a:
+const handle = kv.watch(keys, callback, { bufferSize: null });
+----
+
+===== Quando Usar
+
+* **Dashboard em tempo real**: `bufferSize: 50, overflowStrategy: "drop-oldest"`
+* **Logs de auditoria**: `bufferSize: 1000, overflowStrategy: "drop-newest"`
+* **Sincronização de estado**: Sem backpressure (processar todas as mudanças)
+
+==== Debounce para Updates Frequentes (Alternativa)
+
+Se você precisa de controle mais fino sobre o timing:
+
+[source,typescript]
+----
+import { debounce } from "lodash";
+
+const debouncedUpdate = debounce((entries) => {
+  // Processa apenas o último estado
+  updateUI(entries);
+}, 100);
+
+kv.watch(keys, debouncedUpdate);
+----
+
+==== Tratamento de Erros
+
+[source,typescript]
+----
+const handle = kv.watch(keys, (entries) => {
+  try {
+    processEntries(entries);
+  } catch (error) {
+    console.error("Error processing watch update:", error);
+    // Reconectar ou notificar usuário
+  }
+});
+----
+
+==== Evite Loops Infinitos
+
+[source,typescript]
+----
+// ❌ Perigoso: atualiza a mesma chave que está observando
+kv.watch([["counter"]], async (entries) => {
+  const current = entries[0]?.value ?? 0;
+  await kv.set(["counter"], current + 1); // Loop infinito!
+});
+
+// ✅ Use lógica condicional
+kv.watch([["trigger"]], async (entries) => {
+  if (entries[0]?.value === "increment") {
+    const counter = await kv.get(["counter"]);
+    await kv.set(["counter"], (counter.value ?? 0) + 1);
+    await kv.set(["trigger"], "done");
+  }
+});
+----

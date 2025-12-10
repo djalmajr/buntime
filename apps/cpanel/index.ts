@@ -1,18 +1,7 @@
-import { join } from "node:path";
+import { createStaticHandler } from "@buntime/shared/utils/static-handler";
 import { PORT } from "~/constants";
 
 export default {
   port: PORT,
-  fetch: async (req: Bun.BunRequest) => {
-    const path = new URL(req.url).pathname;
-    const name = path !== "/" ? path : "index.html";
-    const file = Bun.file(join(import.meta.dir, name));
-
-    if (await file.exists()) {
-      return new Response(file, { headers: { "Content-Type": file.type } });
-    }
-
-    const home = Bun.file(join(import.meta.dir, "index.html"));
-    return new Response(home, { headers: { "Content-Type": home.type } });
-  },
+  fetch: createStaticHandler(import.meta.dir),
 } satisfies Parameters<typeof Bun.serve>[0];

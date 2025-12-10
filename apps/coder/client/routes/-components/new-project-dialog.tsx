@@ -9,8 +9,8 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
-import { cn } from "~/libs/cn";
-import { type TemplateId, templateList } from "~/libs/templates";
+import { cn } from "~/helpers/cn";
+import { type TemplateId, templateList } from "~/helpers/templates";
 import { TemplateIcon } from "./template-icon";
 
 interface NewProjectDialogProps {

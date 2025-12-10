@@ -20,6 +20,9 @@
   },
   "form": {
     "addHeader": "Add Header",
+    "base": "Base Path",
+    "baseDescription": "Inject <base href> tag into HTML responses (for SPAs under subpaths)",
+    "basePlaceholder": "/my-app",
     "changeOrigin": "Change Origin",
     "changeOriginDescription": "Change Host/Origin headers to target",
     "emptyHeaders": "No headers configured. Click the button below to add one.",
@@ -32,6 +35,8 @@
     "pattern": "Pattern",
     "patternDescription": "JavaScript regular expression to match paths",
     "patternPlaceholder": "^/api/(.*)$",
+    "relativePaths": "Relative Paths",
+    "relativePathsDescription": "Rewrite absolute paths (/...) to relative (./) in HTML responses",
     "rewrite": "Rewrite",
     "rewriteDescription": "Path rewrite using regex capture groups ($1, $2, etc.)",
     "rewritePlaceholder": "/v1/$1",

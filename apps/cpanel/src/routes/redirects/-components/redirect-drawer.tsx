@@ -16,11 +16,13 @@ import { Label } from "~/components/ui/label";
 import { Switch } from "~/components/ui/switch";
 
 export interface RedirectData {
+  base?: string;
   changeOrigin?: boolean;
   headers?: Record<string, string>;
   id?: string;
   name?: string;
   pattern: string;
+  relativePaths?: boolean;
   rewrite?: string;
   secure?: boolean;
   target: string;
@@ -35,10 +37,12 @@ interface RedirectDrawerProps {
 }
 
 const initFormData: RedirectData = {
+  base: "",
   changeOrigin: true,
   headers: {},
   name: "",
   pattern: "",
+  relativePaths: false,
   rewrite: "",
   secure: true,
   target: "",
@@ -102,6 +106,7 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
 
     onSave({
       ...formData,
+      base: formData.base?.trim() || undefined,
       headers: Object.keys(cleanHeaders).length > 0 ? cleanHeaders : undefined,
       rewrite: formData.rewrite?.trim() || undefined,
     });
@@ -144,7 +149,6 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
               <p className="text-sm text-destructive">{t("common:validation.required")}</p>
             )}
           </div>
-
           <div className="space-y-2">
             <Label htmlFor="pattern">{t("form.pattern")}</Label>
             <Input
@@ -159,7 +163,6 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
               <p className="text-sm text-destructive">{t("common:validation.required")}</p>
             )}
           </div>
-
           <div className="space-y-2">
             <Label htmlFor="target">{t("form.target")}</Label>
             <Input
@@ -174,7 +177,6 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
               <p className="text-sm text-destructive">{t("common:validation.required")}</p>
             )}
           </div>
-
           <div className="space-y-2">
             <Label htmlFor="rewrite">{t("form.rewrite")}</Label>
             <Input
@@ -185,7 +187,27 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
             />
             <p className="text-sm text-muted-foreground">{t("form.rewriteDescription")}</p>
           </div>
-
+          <div className="space-y-2">
+            <Label htmlFor="base">{t("form.base")}</Label>
+            <Input
+              id="base"
+              placeholder={t("form.basePlaceholder")}
+              value={formData.base ?? ""}
+              onChange={(evt) => setField("base", evt.target.value)}
+            />
+            <p className="text-sm text-muted-foreground">{t("form.baseDescription")}</p>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="relativePaths">{t("form.relativePaths")}</Label>
+              <p className="text-sm text-muted-foreground">{t("form.relativePathsDescription")}</p>
+            </div>
+            <Switch
+              checked={formData.relativePaths ?? false}
+              id="relativePaths"
+              onCheckedChange={(checked) => setField("relativePaths", checked)}
+            />
+          </div>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
@@ -201,7 +223,6 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
                 }}
               />
             </div>
-
             {hasHeaders && (
               <div className="space-y-2">
                 {headersEntries.length > 0 ? (
@@ -249,7 +270,6 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
               </div>
             )}
           </div>
-
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <Label htmlFor="changeOrigin">{t("form.changeOrigin")}</Label>
@@ -261,7 +281,6 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
               onCheckedChange={(checked) => setField("changeOrigin", checked)}
             />
           </div>
-
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <Label htmlFor="secure">{t("form.secure")}</Label>
@@ -273,7 +292,6 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
               onCheckedChange={(checked) => setField("secure", checked)}
             />
           </div>
-
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <Label htmlFor="ws">{t("form.ws")}</Label>

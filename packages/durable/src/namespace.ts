@@ -4,7 +4,10 @@ import type { DurableObjectId } from "./types";
  * Internal interface for the registry (provided by the extension)
  */
 interface DurableObjectRegistry {
-  getOrCreate(className: string, id: DurableObjectId): Promise<{
+  getOrCreate(
+    className: string,
+    id: DurableObjectId,
+  ): Promise<{
     fetch(request: Request): Promise<Response>;
   }>;
 }

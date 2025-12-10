@@ -48,7 +48,7 @@ export function useFileSystem(initialFiles?: { content: string; path: string }[]
       let currentPath = "";
 
       for (let i = 0; i < pathParts.length; i++) {
-        const part = pathParts[i];
+        const part = pathParts[i]!;
         const isFile = i === pathParts.length - 1;
         currentPath = `${currentPath}/${part}`;
 
@@ -96,6 +96,8 @@ export function useFileSystem(initialFiles?: { content: string; path: string }[]
     setState((prev) => {
       const pathParts = path.split("/").filter(Boolean);
       const fileName = pathParts[pathParts.length - 1];
+      if (!fileName) return prev;
+
       const parentPath = getParentPath(path);
 
       // Find parent folder
@@ -120,11 +122,14 @@ export function useFileSystem(initialFiles?: { content: string; path: string }[]
       const newItems = { ...prev.items, [id]: newItem };
 
       // Update parent's children
-      if (parentId && newItems[parentId]) {
-        newItems[parentId] = {
-          ...newItems[parentId],
-          children: [...(newItems[parentId].children || []), id],
-        };
+      if (parentId) {
+        const parent = newItems[parentId];
+        if (parent) {
+          newItems[parentId] = {
+            ...parent,
+            children: [...(parent.children || []), id],
+          };
+        }
       }
 
       const newRootIds = parentId === null ? [...prev.rootIds, id] : prev.rootIds;
@@ -143,6 +148,8 @@ export function useFileSystem(initialFiles?: { content: string; path: string }[]
     setState((prev) => {
       const pathParts = path.split("/").filter(Boolean);
       const folderName = pathParts[pathParts.length - 1];
+      if (!folderName) return prev;
+
       const parentPath = getParentPath(path);
 
       let parentId: string | null = null;
@@ -165,11 +172,14 @@ export function useFileSystem(initialFiles?: { content: string; path: string }[]
 
       const newItems = { ...prev.items, [id]: newItem };
 
-      if (parentId && newItems[parentId]) {
-        newItems[parentId] = {
-          ...newItems[parentId],
-          children: [...(newItems[parentId].children || []), id],
-        };
+      if (parentId) {
+        const parent = newItems[parentId];
+        if (parent) {
+          newItems[parentId] = {
+            ...parent,
+            children: [...(parent.children || []), id],
+          };
+        }
       }
 
       const newRootIds = parentId === null ? [...prev.rootIds, id] : prev.rootIds;
@@ -203,11 +213,14 @@ export function useFileSystem(initialFiles?: { content: string; path: string }[]
       }
 
       // Update parent's children
-      if (item.parentId && newItems[item.parentId]) {
-        newItems[item.parentId] = {
-          ...newItems[item.parentId],
-          children: newItems[item.parentId].children?.filter((cId) => cId !== id),
-        };
+      if (item.parentId) {
+        const parent = newItems[item.parentId];
+        if (parent) {
+          newItems[item.parentId] = {
+            ...parent,
+            children: parent.children?.filter((cId) => cId !== id),
+          };
+        }
       }
 
       const newRootIds = prev.rootIds.filter((rId) => !idsToDelete.has(rId));
@@ -326,7 +339,7 @@ export function useFileSystem(initialFiles?: { content: string; path: string }[]
     const buildTree = (ids: string[]): FileSystemItem[] => {
       return ids
         .map((id) => state.items[id])
-        .filter(Boolean)
+        .filter((item): item is FileSystemItem => item !== undefined)
         .sort((a, b) => {
           // Folders first, then alphabetical
           if (a.type !== b.type) {
@@ -350,7 +363,9 @@ export function useFileSystem(initialFiles?: { content: string; path: string }[]
     getFileTree,
     items: state.items,
     openFileIds: state.openFileIds,
-    openFiles: state.openFileIds.map((id) => state.items[id]).filter(Boolean),
+    openFiles: state.openFileIds
+      .map((id) => state.items[id])
+      .filter((item): item is FileSystemItem => item !== undefined),
     renameItem,
     rootIds: state.rootIds,
     setActiveFile,

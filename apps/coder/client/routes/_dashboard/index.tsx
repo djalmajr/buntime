@@ -13,8 +13,8 @@ import {
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
+import type { TemplateId } from "~/helpers/templates";
 import { useProjects } from "~/hooks/use-projects";
-import type { TemplateId } from "~/libs/templates";
 import { NewProjectDialog } from "../-components/new-project-dialog";
 import { ProjectCard } from "../-components/project-card";
 

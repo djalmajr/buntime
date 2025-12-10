@@ -1,9 +1,25 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { MetricsCharts } from "~/components/metrics-charts";
 import { PoolOverview } from "~/components/pool-overview";
 import { WorkersList } from "~/components/workers-list";
+import { api } from "~/helpers/api-client";
 import { usePoolStats } from "~/hooks/use-pool-stats";
+
+interface PluginInfo {
+  name: string;
+}
+
+async function checkMetricsPlugin(): Promise<boolean> {
+  try {
+    const res = await api.internal.plugins.$get();
+    if (!res.ok) return false;
+    const plugins = (await res.json()) as PluginInfo[];
+    return plugins.some((p) => p.name === "@buntime/plugin-metrics");
+  } catch {
+    return false;
+  }
+}
 
 function DashboardPage() {
   const { t } = useTranslation();
@@ -54,5 +70,11 @@ function DashboardPage() {
 
 export const Route = createFileRoute("/")({
   component: DashboardPage,
+  beforeLoad: async () => {
+    const hasMetrics = await checkMetricsPlugin();
+    if (!hasMetrics) {
+      throw redirect({ to: "/deployments", search: { path: undefined, search: undefined } });
+    }
+  },
   loader: () => ({ breadcrumb: "common:nav.dashboard" }),
 });

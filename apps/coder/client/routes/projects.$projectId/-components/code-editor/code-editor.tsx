@@ -1,6 +1,6 @@
 import Editor, { type BeforeMount, type OnMount } from "@monaco-editor/react";
 import { useCallback, useEffect, useRef } from "react";
-import type { Theme } from "~/libs/themes";
+import type { Theme } from "~/helpers/themes";
 import { getLanguageFromPath } from "./language";
 import { REACT_TYPES } from "./react-types";
 

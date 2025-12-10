@@ -1,6 +1,6 @@
 import { Icon } from "~/components/icon";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "~/components/ui/tooltip";
-import { cn } from "~/libs/cn";
+import { cn } from "~/helpers/cn";
 
 export type ActivityView = "dependencies" | "explorer" | "search";
 

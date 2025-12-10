@@ -7,7 +7,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
-import { cn } from "~/libs/cn";
+import { cn } from "~/helpers/cn";
 import type { FileSystemItem } from "../-hooks/use-file-system";
 
 interface FileTreeProps {
@@ -76,7 +76,7 @@ function FileTreeItem({
 
   const children = item.children
     ?.map((childId) => items[childId])
-    .filter(Boolean)
+    .filter((child): child is FileSystemItem => child !== undefined)
     .sort((a, b) => {
       if (a.type !== b.type) {
         return a.type === "folder" ? -1 : 1;
@@ -94,9 +94,7 @@ function FileTreeItem({
             type="button"
             className={cn(
               "flex w-full items-center gap-1 rounded px-2 py-1 text-left text-sm transition-colors",
-              isActive
-                ? "bg-primary/20 text-primary-foreground"
-                : "hover:bg-accent/50",
+              isActive ? "bg-primary/20 text-primary-foreground" : "hover:bg-accent/50",
             )}
             style={{ paddingLeft: `${level * 12 + 8}px` }}
             onClick={handleClick}
@@ -175,7 +173,7 @@ export function FileTree({
 }: FileTreeProps) {
   const rootItems = rootIds
     .map((id) => items[id])
-    .filter(Boolean)
+    .filter((item): item is FileSystemItem => item !== undefined)
     .sort((a, b) => {
       if (a.type !== b.type) {
         return a.type === "folder" ? -1 : 1;

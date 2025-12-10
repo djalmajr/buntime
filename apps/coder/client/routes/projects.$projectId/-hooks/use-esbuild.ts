@@ -1,5 +1,6 @@
 import * as esbuild from "esbuild-wasm";
 import { useCallback, useEffect, useRef, useState } from "react";
+import pkg from "#/package.json";
 import type { Dependency } from "./use-dependencies";
 
 export interface VirtualFile {
@@ -64,10 +65,18 @@ function createVirtualFsPlugin(
 
         // Check for subpath imports (e.g., "react-dom/client", "react/jsx-runtime")
         const basePkg = importPath.split("/")[0];
+        if (!basePkg) {
+          return { external: true, path: `https://esm.sh/${importPath}` };
+        }
+
         // Handle scoped packages (e.g., "@radix-ui/react-dialog")
         const scopedPkg = importPath.startsWith("@")
           ? importPath.split("/").slice(0, 2).join("/")
           : basePkg;
+
+        if (!scopedPkg) {
+          return { external: true, path: `https://esm.sh/${importPath}` };
+        }
 
         if (depMap.has(scopedPkg)) {
           // Build the full esm.sh URL with subpath
@@ -134,7 +143,7 @@ async function initEsbuild() {
   if (initPromise) return initPromise;
 
   initPromise = esbuild.initialize({
-    wasmURL: "https://esm.sh/esbuild-wasm@0.27.0/esbuild.wasm",
+    wasmURL: `https://esm.sh/esbuild-wasm@${pkg.dependencies["esbuild-wasm"]}/esbuild.wasm`,
   });
 
   await initPromise;

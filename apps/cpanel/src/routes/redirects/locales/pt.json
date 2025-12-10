@@ -20,6 +20,9 @@
   },
   "form": {
     "addHeader": "Adicionar Header",
+    "base": "Caminho Base",
+    "baseDescription": "Injetar tag <base href> em respostas HTML (para SPAs sob subpaths)",
+    "basePlaceholder": "/meu-app",
     "changeOrigin": "Alterar Origin",
     "changeOriginDescription": "Alterar headers Host/Origin para o target",
     "emptyHeaders": "Nenhum header configurado. Clique no botão abaixo para adicionar.",
@@ -32,6 +35,8 @@
     "pattern": "Padrão",
     "patternDescription": "Expressão regular JavaScript para corresponder aos caminhos",
     "patternPlaceholder": "^/api/(.*)$",
+    "relativePaths": "Caminhos Relativos",
+    "relativePathsDescription": "Reescrever caminhos absolutos (/...) para relativos (./) em respostas HTML",
     "rewrite": "Reescrever",
     "rewriteDescription": "Reescrita de caminho usando grupos de captura regex ($1, $2, etc.)",
     "rewritePlaceholder": "/v1/$1",

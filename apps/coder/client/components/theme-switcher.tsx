@@ -10,8 +10,8 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "~/components/ui/sheet";
+import { themeList } from "~/helpers/themes";
 import { useThemeState } from "~/hooks/use-theme";
-import { themeList } from "~/libs/themes";
 
 export function ThemeSwitcher() {
   const [open, setOpen] = useState(false);

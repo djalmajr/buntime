@@ -1,6 +1,6 @@
 # @buntime/gateway
 
-API gateway extension for Buntime server.
+API gateway extension for Buntime runner.
 
 ## Features
 

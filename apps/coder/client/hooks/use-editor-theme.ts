@@ -1,8 +1,8 @@
 import { useCallback, useState, useSyncExternalStore } from "react";
-import { defaultTheme, type Theme, themes, themeList } from "~/libs/themes";
+import { defaultTheme, type Theme, themeList, themes } from "~/helpers/themes";
 
 // Simple external store for editor theme state
-let currentTheme: Theme = defaultTheme;
+let currentTheme: Theme = defaultTheme!;
 const listeners = new Set<() => void>();
 
 function getThemeSnapshot() {
@@ -30,18 +30,21 @@ export function useEditorThemeState() {
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("editor-theme-id");
-      if (stored && themes[stored]) {
-        return themes[stored];
+      if (stored) {
+        const storedTheme = themes[stored];
+        if (storedTheme) {
+          return storedTheme;
+        }
       }
     }
-    return defaultTheme;
+    return defaultTheme!;
   });
 
   const setTheme = useCallback((themeId: string) => {
-    if (themes[themeId]) {
-      const newTheme = themes[themeId];
-      setThemeState(newTheme);
-      setGlobalTheme(newTheme);
+    const selectedTheme = themes[themeId];
+    if (selectedTheme) {
+      setThemeState(selectedTheme);
+      setGlobalTheme(selectedTheme);
     }
   }, []);
 
@@ -55,8 +58,9 @@ export function useEditorTheme() {
   const theme = useSyncExternalStore(subscribeToTheme, getThemeSnapshot, getThemeSnapshot);
 
   const setTheme = useCallback((themeId: string) => {
-    if (themes[themeId]) {
-      setGlobalTheme(themes[themeId]);
+    const selectedTheme = themes[themeId];
+    if (selectedTheme) {
+      setGlobalTheme(selectedTheme);
     }
   }, []);
 

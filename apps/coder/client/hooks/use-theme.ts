@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { defaultTheme, type Theme, themes } from "~/libs/themes";
+import { defaultTheme, type Theme, themes } from "~/helpers/themes";
 
 // Simple external store for theme state
-let currentTheme: Theme = defaultTheme;
+let currentTheme: Theme = defaultTheme!;
 const listeners = new Set<() => void>();
 
 function getThemeSnapshot() {
@@ -25,11 +25,12 @@ export function useThemeState() {
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("theme-id");
-      if (stored && themes[stored]) {
-        return themes[stored];
+      const storedTheme = stored ? themes[stored] : undefined;
+      if (storedTheme) {
+        return storedTheme;
       }
     }
-    return defaultTheme;
+    return defaultTheme!;
   });
 
   useEffect(() => {
@@ -61,8 +62,8 @@ export function useThemeState() {
   }, [theme]);
 
   const setTheme = useCallback((themeId: string) => {
-    if (themes[themeId]) {
-      const newTheme = themes[themeId];
+    const newTheme = themes[themeId];
+    if (newTheme) {
       setThemeState(newTheme);
       setGlobalTheme(newTheme);
     }
@@ -87,6 +88,7 @@ export function useTheme() {
     // Toggle between current dark theme and github-light
     const newThemeId = theme.type === "dark" ? "github-light" : "github-dark";
     const newTheme = themes[newThemeId];
+    if (!newTheme) return;
     setGlobalTheme(newTheme);
 
     // Apply CSS variables and save to localStorage

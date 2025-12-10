@@ -3,13 +3,13 @@ services:
     image: ghcr.io/tursodatabase/libsql-server:latest
     ports:
       - "8880:8080" # HTTP API
-      - "8881:5000" # Admin API
+      - "8881:5001" # gRPC API (for replication)
     volumes:
       - libsql-data:/var/lib/sqld
     environment:
       SQLD_NODE: primary
       SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
-      SQLD_ADMIN_LISTEN_ADDR: 0.0.0.0:5000
+      SQLD_GRPC_LISTEN_ADDR: 0.0.0.0:5001
       # Development mode - no auth required
       SQLD_DISABLE_AUTH: "true"
     healthcheck:
@@ -19,5 +19,27 @@ services:
       retries: 3
     restart: unless-stopped
 
+  libsql-replica:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8882:8080" # HTTP API (replica)
+    volumes:
+      - libsql-replica-data:/var/lib/sqld
+    environment:
+      SQLD_NODE: replica
+      SQLD_PRIMARY_URL: http://libsql:5001
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+      SQLD_DISABLE_AUTH: "true"
+    depends_on:
+      libsql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
 volumes:
   libsql-data:
+  libsql-replica-data:

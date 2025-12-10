@@ -1,6 +1,6 @@
 # @buntime/proxy
 
-HTTP and WebSocket proxy extension for Buntime server.
+HTTP and WebSocket proxy extension for Buntime runner.
 
 ## Features
 

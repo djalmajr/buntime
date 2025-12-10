@@ -1,5 +1,5 @@
 import type { BuntimePlugin, PluginContext } from "@buntime/shared/types";
-import { substituteEnvVars } from "@buntime/shared/utils";
+import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
 import { Hono } from "hono";
 
 export interface Identity {
@@ -341,7 +341,7 @@ export default function authnPlugin(pluginConfig: AuthnConfig = {}): BuntimePlug
   return {
     name: "@buntime/plugin-authn",
     version: "1.0.0",
-    priority: 10, // Run after proxy, before authz
+    optionalDependencies: ["@buntime/plugin-proxy"], // Run after proxy if present
 
     onInit(ctx: PluginContext) {
       logger = ctx.logger;

@@ -1,0 +1,359 @@
+== Consistency Modes
+
+=== Visão Geral
+
+O KeyVal suporta dois modos de consistência para operações de leitura:
+
+[cols="1,2,2"]
+|===
+| Modo | Descrição | Quando usar
+
+| `strong` (padrão)
+| Sempre lê do nó primário, garantindo o valor mais recente
+| Operações críticas que precisam do dado mais atual
+
+| `eventual`
+| Pode ler de uma réplica, com menor latência mas possível atraso
+| Dashboards, caches, dados que não mudam frequentemente
+|===
+
+[NOTE]
+====
+O modo `eventual` só funciona quando o plugin está configurado com `libsqlReplicaUrl`. Caso contrário, todas as leituras usam o primário.
+====
+
+=== Configuração
+
+==== Docker Compose (Desenvolvimento)
+
+Para simular replicação localmente:
+
+[source,yaml]
+----
+services:
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8880:8080" # HTTP API
+      - "8881:5001" # gRPC (replicação)
+    environment:
+      SQLD_NODE: primary
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+      SQLD_GRPC_LISTEN_ADDR: 0.0.0.0:5001
+      SQLD_DISABLE_AUTH: "true"
+
+  libsql-replica:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8882:8080" # HTTP API (replica)
+    environment:
+      SQLD_NODE: replica
+      SQLD_PRIMARY_URL: http://libsql:5001
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+      SQLD_DISABLE_AUTH: "true"
+    depends_on:
+      - libsql
+----
+
+==== Configuração do Plugin
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-keyval", {
+      "libsqlUrl": "${LIBSQL_URL}",           // Primary: http://localhost:8880
+      "libsqlReplicaUrl": "${LIBSQL_REPLICA_URL}", // Replica: http://localhost:8882
+      "libsqlToken": "${LIBSQL_TOKEN}"
+    }]
+  ]
+}
+----
+
+==== Variáveis de Ambiente
+
+[source,bash]
+----
+# Desenvolvimento local
+LIBSQL_URL=http://localhost:8880
+LIBSQL_REPLICA_URL=http://localhost:8882
+
+# Produção (Turso)
+LIBSQL_URL=libsql://your-database.turso.io
+LIBSQL_REPLICA_URL=libsql://your-database-replica.turso.io
+LIBSQL_TOKEN=your-auth-token
+----
+
+=== Uso
+
+==== Strong Consistency (Padrão)
+
+[source,typescript]
+----
+// Leitura do primário - sempre o valor mais recente
+const entry = await kv.get(["users", 123]);
+
+// Explicitamente strong
+const entry = await kv.get(["users", 123], { consistency: "strong" });
+
+// List também suporta
+for await (const entry of kv.list({ prefix: ["users"], consistency: "strong" })) {
+  console.log(entry);
+}
+----
+
+==== Eventual Consistency
+
+[source,typescript]
+----
+// Leitura da réplica - menor latência, possivelmente desatualizado
+const entry = await kv.get(["users", 123], { consistency: "eventual" });
+
+// List com eventual consistency
+for await (const entry of kv.list({ prefix: ["metrics"], consistency: "eventual" })) {
+  console.log(entry);
+}
+----
+
+=== Exemplos
+
+==== Dashboard de Métricas
+
+Métricas não precisam ser 100% atuais, então eventual consistency é ideal:
+
+[source,typescript]
+----
+interface DashboardMetrics {
+  activeUsers: number;
+  requestsPerSecond: number;
+  errorRate: number;
+}
+
+async function getDashboardMetrics(): Promise<DashboardMetrics> {
+  const entries = [];
+
+  for await (const entry of kv.list<number>({
+    prefix: ["metrics"],
+    consistency: "eventual", // OK se dados tiverem alguns ms de atraso
+  })) {
+    entries.push(entry);
+  }
+
+  return {
+    activeUsers: entries.find(e => e.key[1] === "active_users")?.value ?? 0,
+    requestsPerSecond: entries.find(e => e.key[1] === "rps")?.value ?? 0,
+    errorRate: entries.find(e => e.key[1] === "error_rate")?.value ?? 0,
+  };
+}
+----
+
+==== Operação Crítica de Pagamento
+
+Para operações críticas, use strong consistency:
+
+[source,typescript]
+----
+interface UserBalance {
+  amount: number;
+  currency: string;
+}
+
+async function processPayment(userId: string, amount: number): Promise<boolean> {
+  // SEMPRE usar strong para operações financeiras
+  const entry = await kv.get<UserBalance>(
+    ["balances", userId],
+    { consistency: "strong" }
+  );
+
+  if (!entry.value || entry.value.amount < amount) {
+    return false; // Saldo insuficiente
+  }
+
+  // Usar atomic com check para garantir consistência
+  const result = await kv.atomic()
+    .check({ key: ["balances", userId], versionstamp: entry.versionstamp })
+    .set(["balances", userId], {
+      ...entry.value,
+      amount: entry.value.amount - amount,
+    })
+    .commit();
+
+  return result.ok;
+}
+----
+
+==== Cache de Configurações
+
+Configurações que raramente mudam são ótimas para eventual consistency:
+
+[source,typescript]
+----
+interface AppConfig {
+  featureFlags: Record<string, boolean>;
+  maintenanceMode: boolean;
+  version: string;
+}
+
+// Cache local com refresh periódico
+let cachedConfig: AppConfig | null = null;
+let lastFetch = 0;
+const CACHE_TTL = 30_000; // 30 segundos
+
+async function getConfig(): Promise<AppConfig> {
+  const now = Date.now();
+
+  if (cachedConfig && now - lastFetch < CACHE_TTL) {
+    return cachedConfig;
+  }
+
+  // Eventual consistency é ok para config
+  const entry = await kv.get<AppConfig>(
+    ["config", "app"],
+    { consistency: "eventual" }
+  );
+
+  if (entry.value) {
+    cachedConfig = entry.value;
+    lastFetch = now;
+  }
+
+  return cachedConfig ?? getDefaultConfig();
+}
+----
+
+==== Leitura Híbrida
+
+Combine ambos os modos conforme a necessidade:
+
+[source,typescript]
+----
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  stock: number;
+}
+
+async function getProductDetails(productId: string): Promise<{
+  product: Product | null;
+  currentStock: number;
+}> {
+  // Dados do produto podem ser eventual (nome, descrição raramente mudam)
+  const product = await kv.get<Product>(
+    ["products", productId],
+    { consistency: "eventual" }
+  );
+
+  // Estoque precisa ser strong (muda frequentemente, crítico para compras)
+  const stock = await kv.get<number>(
+    ["stock", productId],
+    { consistency: "strong" }
+  );
+
+  return {
+    product: product.value,
+    currentStock: stock.value ?? 0,
+  };
+}
+----
+
+=== Como Funciona
+
+==== Arquitetura
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                        Aplicação                            │
+│                   kv.get(key, options)                      │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼ consistency="strong" (padrão)
+┌─────────────────────────────────────────────────────────────┐
+│                 @buntime/plugin-keyval                      │
+│                                                             │
+│   ┌──────────────┐              ┌──────────────┐           │
+│   │ Primary      │◄─────────────│ Replica      │           │
+│   │ Client       │  replicação  │ Client       │           │
+│   └──────┬───────┘              └──────┬───────┘           │
+│          │                              │                   │
+│          │ consistency="strong"         │ consistency="eventual"
+│          ▼                              ▼                   │
+│   ┌──────────────┐              ┌──────────────┐           │
+│   │ libSQL       │              │ libSQL       │           │
+│   │ Primary      │─────────────►│ Replica      │           │
+│   │ :8880        │    gRPC      │ :8882        │           │
+│   └──────────────┘              └──────────────┘           │
+└─────────────────────────────────────────────────────────────┘
+----
+
+==== Latência de Replicação
+
+A replicação entre primary e replica tem latência típica de:
+
+- **Mesmo host**: < 1ms
+- **Mesma região**: 1-5ms
+- **Cross-region**: 50-200ms
+
+Ao usar `eventual`, você aceita que os dados podem estar desatualizados por esse período.
+
+=== Boas Práticas
+
+==== Quando Usar Strong
+
+- Operações financeiras (pagamentos, saldos)
+- Verificações de permissão/autenticação
+- Dados que mudam frequentemente e precisam ser atuais
+- Operações com `atomic()` que dependem do versionstamp
+
+==== Quando Usar Eventual
+
+- Dashboards e métricas
+- Dados de perfil do usuário (nome, foto)
+- Configurações e feature flags
+- Caches e dados agregados
+- Listagens que toleram atraso (catálogo de produtos)
+
+==== Evite Misturar em Transações
+
+[source,typescript]
+----
+// ❌ Evite: ler com eventual e depois usar em atomic
+const entry = await kv.get(key, { consistency: "eventual" });
+await kv.atomic()
+  .check({ key, versionstamp: entry.versionstamp }) // versionstamp pode estar desatualizado!
+  .set(key, newValue)
+  .commit();
+
+// ✅ Correto: use strong quando precisar do versionstamp
+const entry = await kv.get(key, { consistency: "strong" });
+await kv.atomic()
+  .check({ key, versionstamp: entry.versionstamp })
+  .set(key, newValue)
+  .commit();
+----
+
+=== Limitações
+
+==== Sem Replica Configurada
+
+Se `libsqlReplicaUrl` não estiver configurado, todas as leituras usam o primário:
+
+[source,typescript]
+----
+// Sem replica, ambos vão para o primário
+await kv.get(key); // → primary
+await kv.get(key, { consistency: "eventual" }); // → primary (fallback)
+----
+
+==== Escritas Sempre no Primário
+
+Escritas (`set`, `delete`, `atomic`) sempre vão para o primário, independente do consistency mode:
+
+[source,typescript]
+----
+// Escritas ignoram consistency (sempre strong)
+await kv.set(key, value); // → primary
+await kv.delete(key);     // → primary
+await kv.atomic()...      // → primary
+----

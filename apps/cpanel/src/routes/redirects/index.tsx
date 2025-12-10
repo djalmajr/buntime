@@ -84,15 +84,13 @@ function RedirectsListPage() {
     {
       accessorKey: "pattern",
       cell: ({ row }) => (
-        <code className="rounded bg-muted px-1.5 py-0.5 text-sm">{row.original.pattern}</code>
+        <code className="rounded bg-muted px-1.5 py-0.5">{row.original.pattern}</code>
       ),
       header: t("list.pattern"),
     },
     {
       accessorKey: "target",
-      cell: ({ row }) => (
-        <span className="max-w-[200px] truncate text-sm">{row.original.target}</span>
-      ),
+      cell: ({ row }) => <span className="max-w-[200px] truncate">{row.original.target}</span>,
       header: t("list.target"),
     },
     {

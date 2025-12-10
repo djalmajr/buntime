@@ -67,6 +67,20 @@ export interface PluginContext {
 
   /** Access to worker pool (if needed) */
   pool?: unknown;
+
+  /**
+   * Register a service for other plugins to use
+   * @param name Service name (e.g., "kv", "cache")
+   * @param service The service instance
+   */
+  registerService<T>(name: string, service: T): void;
+
+  /**
+   * Get a service registered by another plugin
+   * @param name Service name
+   * @returns The service instance or undefined if not registered
+   */
+  getService<T>(name: string): T | undefined;
 }
 
 /**
@@ -141,16 +155,18 @@ export interface BuntimePlugin {
   version: string;
 
   /**
-   * Dependencies on other plugins
+   * Required dependencies on other plugins
    * These plugins must be loaded before this one
+   * Throws error if dependency is not configured
    */
   dependencies?: string[];
 
   /**
-   * Execution priority (lower = earlier)
-   * If not set, uses array order from config
+   * Optional dependencies on other plugins
+   * If available, these plugins will be loaded before this one
+   * Does not throw if dependency is not configured
    */
-  priority?: number;
+  optionalDependencies?: string[];
 
   /**
    * Called when plugin is initialized

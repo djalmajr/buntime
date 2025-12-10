@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { type TemplateId, templates } from "~/libs/templates";
+import { type TemplateId, templates } from "~/helpers/templates";
 
 const STORAGE_KEY = "buntime-projects";
 

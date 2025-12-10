@@ -37,10 +37,7 @@ function reactCompilerPlugin(): BunPlugin {
   if (compilationMode) compilerOptions.compilationMode = compilationMode;
   if (target) compilerOptions.target = target;
 
-  const configInfo = [
-    target && `target=${target}`,
-    compilationMode && `mode=${compilationMode}`,
-  ]
+  const configInfo = [target && `target=${target}`, compilationMode && `mode=${compilationMode}`]
     .filter(Boolean)
     .join(", ");
 

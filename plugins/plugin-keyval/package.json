@@ -9,11 +9,13 @@
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
     "lint": "bun run lint:format && bun run lint:types",
-    "test": "bun test"
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "test:watch": "bun test --watch"
   },
   "dependencies": {
-    "@buntime/shared": "workspace:*",
-    "@libsql/client": "^0.15.0"
+    "@buntime/plugin-database": "workspace:*",
+    "@buntime/shared": "workspace:*"
   },
   "peerDependencies": {
     "hono": "^4.0.0",

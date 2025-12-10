@@ -3,7 +3,11 @@ import { StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { routeTree } from "./routeTree.gen";
 
+const base = document.querySelector("base");
+const url = new URL(base?.href || "http://a.b");
+
 const router = createRouter({
+  basepath: url.pathname,
   routeTree,
 });
 

@@ -59,13 +59,7 @@ export function Icon({ icon, name, ...props }: IconProps) {
     }),
   };
 
-  return (
-    <svg
-      {...svgProps}
-      dangerouslySetInnerHTML={{ __html: iconData.body }}
-      {...props}
-    />
-  );
+  return <svg {...svgProps} dangerouslySetInnerHTML={{ __html: iconData.body }} {...props} />;
 }
 
 export type { IconData };

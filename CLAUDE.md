@@ -2,7 +2,7 @@
 
 ## Apps
 
-@.claude/rules/apps/server.md
+@.claude/rules/apps/runner.md
 
 @.claude/rules/apps/cpanel.md
 
@@ -15,3 +15,5 @@
 ## Code Conventions
 
 @.claude/rules/code-conventions/no-barrel-files.md
+
+@.claude/rules/code-conventions/lint-test-requirement.md

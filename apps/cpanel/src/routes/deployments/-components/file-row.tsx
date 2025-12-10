@@ -79,8 +79,8 @@ export function FileRow({
       <td className="p-3">
         <div className="flex items-center gap-2">
           <Icon
-            className="size-5 text-muted-foreground"
-            icon={entry.isDirectory ? "lucide:folder" : "lucide:file"}
+            className={entry.isDirectory ? "size-5 text-primary" : "size-5 text-muted-foreground"}
+            icon={entry.isDirectory ? "ic:twotone-folder-open" : "ic:outline-insert-drive-file"}
           />
           <span className="font-medium">{entry.name}</span>
         </div>

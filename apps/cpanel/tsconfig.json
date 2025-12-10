@@ -5,11 +5,11 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["../server/src/*"],
+      "@/*": ["../runner/src/*"],
       "~/*": ["./src/*"]
     },
     "skipLibCheck": true
   },
-  "include": ["index.ts", "index.dev.ts", "src/**/*", "../server/src/globals.d.ts"],
+  "include": ["index.ts", "index.dev.ts", "src/**/*", "../runner/src/globals.d.ts"],
   "exclude": ["node_modules", "dist"]
 }

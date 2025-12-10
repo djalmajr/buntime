@@ -1,0 +1,356 @@
+== Chaves e Espaço de Nomes
+
+=== Visão Geral
+
+No KeyVal, chaves são **arrays ordenados** de partes. Esse design permite:
+
+* Organização hierárquica natural
+* Listagem eficiente por prefixo
+* Evitar colisões de namespace
+
+=== Estrutura de Chaves
+
+==== Anatomia de uma Chave
+
+[source,typescript]
+----
+// Chave simples
+["users", 123]
+
+// Chave hierárquica
+["organizations", "acme", "teams", "engineering", "members", 456]
+
+// Chave com múltiplos tipos
+["logs", 2024, 12, 25, "error", "abc123"]
+----
+
+==== Tipos de Partes Suportados
+
+[cols="1,2,2"]
+|===
+| Tipo | Exemplo | Uso Comum
+
+| `string`
+| `"users"`, `"config"`
+| Namespaces, identificadores textuais
+
+| `number`
+| `123`, `2024`
+| IDs numéricos, anos, índices
+
+| `bigint`
+| `9007199254740993n`
+| IDs muito grandes, timestamps precisos
+
+| `boolean`
+| `true`, `false`
+| Flags, estados binários
+
+| `Uint8Array`
+| `new Uint8Array([1, 2, 3])`
+| Dados binários, hashes
+|===
+
+=== Ordenação de Chaves
+
+As chaves são ordenadas **lexicograficamente** primeiro por tipo, depois por valor:
+
+[source]
+----
+Ordem de tipos:
+1. Uint8Array (ordenado por bytes)
+2. string (ordenado lexicograficamente)
+3. number (ordenado numericamente)
+4. bigint (ordenado numericamente)
+5. boolean (false < true)
+----
+
+==== Exemplos de Ordenação
+
+[source,typescript]
+----
+// Estas chaves são ordenadas assim:
+["a"]           // string "a"
+["b"]           // string "b"
+["users", 1]    // depois vem numbers
+["users", 2]
+["users", 10]   // 10 > 2 numericamente
+["users", 100]
+----
+
+=== Modelagem de Dados
+
+==== Padrão: Entidade por ID
+
+[source,typescript]
+----
+// Usuários indexados por ID
+["users", <userId>]
+
+// Exemplo
+await kv.set(["users", 123], {
+  id: 123,
+  name: "Alice",
+  email: "alice@example.com",
+});
+
+await kv.set(["users", 456], {
+  id: 456,
+  name: "Bob",
+  email: "bob@example.com",
+});
+----
+
+==== Padrão: Hierarquia de Recursos
+
+[source,typescript]
+----
+// Organização > Time > Membro
+["orgs", orgId, "teams", teamId, "members", memberId]
+
+// Exemplo
+await kv.set(
+  ["orgs", "acme", "teams", "eng", "members", 123],
+  { role: "developer", joinedAt: "2024-01-15" }
+);
+
+// Listar todos os membros de um time
+for await (const entry of kv.list({
+  prefix: ["orgs", "acme", "teams", "eng", "members"]
+})) {
+  console.log(entry.value);
+}
+----
+
+==== Padrão: Dados Relacionados
+
+[source,typescript]
+----
+// Dados do usuário
+["users", userId]                    // Perfil principal
+["users", userId, "settings"]        // Configurações
+["users", userId, "notifications"]   // Notificações
+["users", userId, "sessions", sessionId]  // Sessões
+
+// Exemplo
+const userId = 123;
+
+await kv.set(["users", userId], {
+  name: "Alice",
+  email: "alice@example.com",
+});
+
+await kv.set(["users", userId, "settings"], {
+  theme: "dark",
+  language: "pt-BR",
+});
+
+await kv.set(["users", userId, "sessions", "sess_abc"], {
+  device: "Chrome/Windows",
+  ip: "192.168.1.1",
+  createdAt: new Date().toISOString(),
+});
+----
+
+==== Padrão: Logs e Eventos Temporais
+
+[source,typescript]
+----
+// Logs ordenados por tempo
+["logs", <year>, <month>, <day>, <timestamp>, <eventId>]
+
+// Exemplo
+const now = new Date();
+await kv.set(
+  ["logs", now.getFullYear(), now.getMonth() + 1, now.getDate(), Date.now(), crypto.randomUUID()],
+  { type: "error", message: "Connection failed" }
+);
+
+// Listar logs de um dia específico
+for await (const entry of kv.list({
+  prefix: ["logs", 2024, 12, 25]
+})) {
+  console.log(entry.value);
+}
+----
+
+=== Namespaces e Isolamento
+
+==== Separação por Ambiente
+
+[source,typescript]
+----
+const env = process.env.NODE_ENV; // "dev", "staging", "prod"
+
+// Prefixar todas as chaves com ambiente
+await kv.set([env, "users", 123], userData);
+await kv.set([env, "config", "app"], appConfig);
+----
+
+==== Separação por Tenant (Multi-tenancy)
+
+[source,typescript]
+----
+// Tenant ID como primeiro elemento
+["tenant", tenantId, "users", userId]
+["tenant", tenantId, "orders", orderId]
+
+// Listar todos os recursos de um tenant
+for await (const entry of kv.list({
+  prefix: ["tenant", "acme"]
+})) {
+  console.log(entry.key, entry.value);
+}
+----
+
+=== Boas Práticas
+
+==== Use Namespaces Consistentes
+
+[source,typescript]
+----
+// ✅ Bom: namespace consistente e descritivo
+["users", userId]
+["users", userId, "profile"]
+["users", userId, "orders", orderId]
+
+// ❌ Ruim: inconsistente
+["user", userId]
+["userProfile", userId]
+["user-orders", orderId]
+----
+
+==== Evite Chaves Muito Longas
+
+[source,typescript]
+----
+// ✅ Bom: conciso mas descritivo
+["orgs", orgId, "members", memberId]
+
+// ❌ Ruim: muito verboso
+["organizations", "organization_data", orgId, "organization_members", "member_info", memberId]
+----
+
+==== Use IDs Numéricos Quando Possível
+
+[source,typescript]
+----
+// ✅ Bom: ID numérico (ordenação natural)
+["users", 123]
+["users", 124]
+["users", 125]
+
+// ⚠️ Cuidado: UUIDs são strings (ordenação lexicográfica)
+["users", "a1b2c3..."]  // Não ordena "naturalmente"
+----
+
+==== Prefira Hierarquias Rasas
+
+[source,typescript]
+----
+// ✅ Bom: 3-4 níveis
+["orgs", orgId, "users", userId]
+
+// ⚠️ Evite: hierarquias muito profundas
+["orgs", orgId, "departments", deptId, "teams", teamId, "projects", projId, "tasks", taskId, "comments", commentId]
+----
+
+=== Padrões de Acesso
+
+==== Busca Direta
+
+[source,typescript]
+----
+// Acesso O(1) por chave exata
+const user = await kv.get(["users", 123]);
+----
+
+==== Scan por Prefixo
+
+[source,typescript]
+----
+// Listar todos com prefixo
+for await (const entry of kv.list({ prefix: ["users"] })) {
+  // Processa cada usuário
+}
+----
+
+==== Range Queries
+
+[source,typescript]
+----
+// Buscar range de IDs
+for await (const entry of kv.list({
+  start: ["users", 100],
+  end: ["users", 200],
+})) {
+  // Usuários com ID 100-199
+}
+----
+
+=== Convenções de Nomenclatura
+
+==== Singular vs Plural
+
+[source,typescript]
+----
+// Convenção recomendada: plural para coleções
+["users", userId]        // Coleção de usuários
+["orders", orderId]      // Coleção de pedidos
+
+// Singular para configurações únicas
+["config", "app"]        // Configuração da app
+["config", "database"]   // Configuração do banco
+----
+
+==== Kebab-case vs camelCase
+
+[source,typescript]
+----
+// Recomendado: kebab-case para namespaces
+["user-sessions", sessionId]
+["api-keys", keyId]
+
+// Alternativa: camelCase (consistente com JavaScript)
+["userSessions", sessionId]
+["apiKeys", keyId]
+----
+
+=== Migração e Versionamento
+
+==== Versionamento de Schema
+
+[source,typescript]
+----
+// Incluir versão no namespace
+["v1", "users", userId]
+["v2", "users", userId]
+
+// Ou em metadados
+await kv.set(["users", userId], {
+  _version: 2,
+  name: "Alice",
+  // ... campos v2
+});
+----
+
+==== Migração de Dados
+
+[source,typescript]
+----
+async function migrateUsersV1toV2() {
+  for await (const entry of kv.list({ prefix: ["v1", "users"] })) {
+    const oldData = entry.value;
+    const userId = entry.key[2];
+
+    // Transformar para novo formato
+    const newData = {
+      ...oldData,
+      fullName: `${oldData.firstName} ${oldData.lastName}`,
+    };
+
+    // Salvar em nova localização
+    await kv.set(["v2", "users", userId], newData);
+  }
+}
+----

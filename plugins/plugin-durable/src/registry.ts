@@ -1,8 +1,4 @@
-import type {
-  DurableObject,
-  DurableObjectId,
-  DurableObjectState,
-} from "@buntime/durable";
+import type { DurableObject, DurableObjectId, DurableObjectState } from "@buntime/durable";
 import type { Client } from "@libsql/client";
 import QuickLRU from "quick-lru";
 import { DurableObjectStorage } from "./storage";

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "~/components/icon";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
-import { cn } from "~/libs/cn";
+import { cn } from "~/helpers/cn";
 import type { Dependency, NpmPackageInfo } from "../-hooks/use-dependencies";
 
 interface DependenciesPanelProps {

@@ -87,7 +87,6 @@ export default function durableObjectsExtension(config: DurableObjectsConfig = {
   return {
     name: "@buntime/plugin-durable",
     mountPath: config.mountPath,
-    priority: 25,
     version: "1.0.0",
 
     async onInit(ctx: PluginContext) {

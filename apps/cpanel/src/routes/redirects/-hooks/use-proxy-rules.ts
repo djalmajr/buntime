@@ -3,12 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 const API_BASE = import.meta.env.DEV ? "http://localhost:8000" : "";
 
 export interface ProxyRule {
+  base?: string;
   changeOrigin?: boolean;
   headers?: Record<string, string>;
   id: string;
   name?: string;
   pattern: string;
   readonly?: boolean;
+  relativePaths?: boolean;
   rewrite?: string;
   secure?: boolean;
   target: string;
@@ -16,10 +18,12 @@ export interface ProxyRule {
 }
 
 export interface ProxyRuleInput {
+  base?: string;
   changeOrigin?: boolean;
   headers?: Record<string, string>;
   name?: string;
   pattern: string;
+  relativePaths?: boolean;
   rewrite?: string;
   secure?: boolean;
   target: string;

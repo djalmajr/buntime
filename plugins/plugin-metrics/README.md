@@ -1,6 +1,6 @@
 # @buntime/metrics
 
-Pool metrics extension for Buntime server.
+Pool metrics extension for Buntime runner.
 
 ## Features
 

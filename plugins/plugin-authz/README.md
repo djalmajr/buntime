@@ -1,6 +1,6 @@
 # @buntime/authz
 
-XACML-like policy-based authorization extension for Buntime server.
+XACML-like policy-based authorization extension for Buntime runner.
 
 ## Architecture
 

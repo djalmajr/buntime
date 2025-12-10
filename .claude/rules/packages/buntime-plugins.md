@@ -1,6 +1,6 @@
 # Buntime Plugins
 
-Runtime plugins for Buntime server. Located in `plugins/plugin-*/` folders.
+Runtime plugins for Buntime runner. Located in `plugins/plugin-*/` folders.
 
 ## Available Plugins
 

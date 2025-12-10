@@ -23,9 +23,7 @@ export function SelectionToolbar({
 
   return (
     <div className="flex items-center gap-2 rounded-lg border bg-background p-2 shadow-sm">
-      <span className="px-2 text-sm font-medium">
-        {t("batch.selected", { count })}
-      </span>
+      <span className="px-2 text-sm font-medium">{t("batch.selected", { count })}</span>
       <div className="h-4 w-px bg-border" />
       {onMove && (
         <Button className="gap-2" size="sm" variant="ghost" onClick={onMove}>

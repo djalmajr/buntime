@@ -1,6 +1,6 @@
 # @buntime/plugin-durable
 
-Stateful actors plugin for Buntime server (similar to Cloudflare Durable Objects).
+Stateful actors plugin for Buntime runner (similar to Cloudflare Durable Objects).
 
 ## Features
 

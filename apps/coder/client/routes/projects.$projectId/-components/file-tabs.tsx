@@ -1,5 +1,5 @@
 import { Icon } from "~/components/icon";
-import { cn } from "~/libs/cn";
+import { cn } from "~/helpers/cn";
 import type { FileSystemItem } from "../-hooks/use-file-system";
 
 interface FileTabsProps {

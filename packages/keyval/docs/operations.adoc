@@ -1,0 +1,494 @@
+== Operações Básicas
+
+=== Visão Geral
+
+O KeyVal fornece quatro operações fundamentais para manipulação de dados:
+
+* **get** - Recuperar um valor por chave
+* **getMany** - Recuperar múltiplos valores
+* **set** - Armazenar um valor
+* **delete** - Remover um valor
+* **list** - Listar entradas por prefixo
+
+=== Conectando ao KeyVal
+
+[source,typescript]
+----
+import { Kv } from "@buntime/keyval";
+
+const kv = new Kv("http://localhost:8000/_/plugin-keyval");
+----
+
+=== get
+
+Recupera uma única entrada pelo seu array de chaves.
+
+==== Sintaxe
+
+[source,typescript]
+----
+const entry = await kv.get<T>(key: KvKey): Promise<KvEntry<T>>
+----
+
+==== Parâmetros
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| key
+| `KvKey`
+| Array de partes da chave (string, number, boolean, bigint, Uint8Array)
+|===
+
+==== Retorno
+
+[source,typescript]
+----
+interface KvEntry<T> {
+  key: KvKey;              // A chave solicitada
+  value: T | null;         // O valor ou null se não existir
+  versionstamp: string | null; // Versão da entrada ou null
+}
+----
+
+==== Exemplos
+
+[source,typescript]
+----
+// Buscar usuário
+const user = await kv.get<User>(["users", 123]);
+if (user.value) {
+  console.log(user.value.name);
+}
+
+// Buscar configuração
+const config = await kv.get(["config", "app", "theme"]);
+console.log(config.value ?? "default");
+
+// Verificar existência
+const entry = await kv.get(["some", "key"]);
+if (entry.versionstamp === null) {
+  console.log("Chave não existe");
+}
+----
+
+=== getMany
+
+Recupera múltiplas entradas em uma única chamada HTTP otimizada.
+
+==== Sintaxe
+
+[source,typescript]
+----
+const entries = await kv.getMany<T>(keys: KvKey[], options?: KvGetOptions): Promise<KvEntry<T>[]>
+----
+
+==== Parâmetros
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| keys
+| `KvKey[]`
+| Array de chaves a buscar
+
+| options.consistency
+| `"strong" \| "eventual"`
+| Nível de consistência (default: "strong")
+|===
+
+==== Otimização
+
+O `getMany` faz uma **única requisição HTTP** para o endpoint `/keys/batch`, que por sua vez executa uma **única query SQL**:
+
+[source,sql]
+----
+SELECT key, value, versionstamp FROM kv_entries
+WHERE key IN (?, ?, ?) AND (expires_at IS NULL OR expires_at > unixepoch())
+----
+
+Isso é significativamente mais eficiente que N chamadas `get()` separadas.
+
+==== Exemplos
+
+[source,typescript]
+----
+// Buscar múltiplos usuários
+const users = await kv.getMany<User>([
+  ["users", 1],
+  ["users", 2],
+  ["users", 3],
+]);
+
+// Resultados na mesma ordem das chaves
+users.forEach((entry, index) => {
+  if (entry.value) {
+    console.log(`Usuário ${index + 1}:`, entry.value.name);
+  }
+});
+
+// Com eventual consistency (leitura de réplica)
+const entries = await kv.getMany(keys, { consistency: "eventual" });
+
+// Carregar dados relacionados
+const [user, profile, settings] = await kv.getMany([
+  ["users", oderId],
+  ["users", oderId, "profile"],
+  ["users", oderId, "settings"],
+]);
+----
+
+=== set
+
+Armazena um valor com a chave especificada. Sobrescreve se já existir.
+
+==== Sintaxe
+
+[source,typescript]
+----
+const result = await kv.set<T>(
+  key: KvKey,
+  value: T,
+  options?: KvSetOptions
+): Promise<{ ok: true; versionstamp: string }>
+----
+
+==== Parâmetros
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| key
+| `KvKey`
+| Array de partes da chave
+
+| value
+| `T`
+| Valor a ser armazenado (serializado como JSON)
+
+| options.expireIn
+| `number`
+| Tempo de vida em milissegundos (opcional)
+|===
+
+==== Exemplos
+
+[source,typescript]
+----
+// Armazenar usuário
+await kv.set(["users", 123], {
+  name: "Alice",
+  email: "alice@example.com",
+  createdAt: new Date().toISOString(),
+});
+
+// Armazenar com expiração
+await kv.set(
+  ["sessions", sessionId],
+  { userId: 123 },
+  { expireIn: 3600000 } // 1 hora
+);
+
+// Armazenar valor primitivo
+await kv.set(["counters", "visits"], 42);
+
+// Armazenar array
+await kv.set(["users", 123, "roles"], ["admin", "editor"]);
+----
+
+=== delete
+
+Remove uma entrada pelo seu array de chaves.
+
+==== Sintaxe
+
+[source,typescript]
+----
+await kv.delete(key: KvKey): Promise<void>
+----
+
+==== Exemplos
+
+[source,typescript]
+----
+// Deletar usuário
+await kv.delete(["users", 123]);
+
+// Deletar sessão
+await kv.delete(["sessions", sessionId]);
+
+// Deletar é idempotente (não falha se não existir)
+await kv.delete(["key", "that", "does", "not", "exist"]);
+----
+
+=== list
+
+Lista entradas que correspondem a um seletor. Retorna um AsyncIterator.
+
+==== Sintaxe
+
+[source,typescript]
+----
+const iterator = kv.list<T>(options: KvListOptions): AsyncIterableIterator<KvEntry<T>>
+----
+
+==== Parâmetros
+
+[cols="1,1,1,3"]
+|===
+| Parâmetro | Tipo | Default | Descrição
+
+| prefix
+| `KvKey`
+| -
+| Prefixo para filtrar chaves
+
+| start
+| `KvKey`
+| -
+| Chave inicial (inclusiva)
+
+| end
+| `KvKey`
+| -
+| Chave final (exclusiva)
+
+| limit
+| `number`
+| 100
+| Número máximo de entradas
+
+| reverse
+| `boolean`
+| false
+| Ordem reversa
+|===
+
+==== Exemplos
+
+[source,typescript]
+----
+// Listar todos os usuários
+for await (const entry of kv.list<User>({ prefix: ["users"] })) {
+  console.log(entry.key, entry.value);
+}
+
+// Listar com limite
+for await (const entry of kv.list({ prefix: ["logs"], limit: 10 })) {
+  console.log(entry.value);
+}
+
+// Listar em ordem reversa (mais recentes primeiro)
+for await (const entry of kv.list({
+  prefix: ["events"],
+  limit: 50,
+  reverse: true,
+})) {
+  console.log(entry.value);
+}
+
+// Coletar em array
+const users: User[] = [];
+for await (const entry of kv.list<User>({ prefix: ["users"] })) {
+  if (entry.value) users.push(entry.value);
+}
+
+// Com range
+for await (const entry of kv.list({
+  start: ["users", 100],
+  end: ["users", 200],
+})) {
+  console.log(entry.key);
+}
+
+// Ordem reversa (mais recentes primeiro)
+for await (const entry of kv.list({
+  prefix: ["logs"],
+  limit: 50,
+  reverse: true,
+})) {
+  console.log(entry.value);
+}
+----
+
+==== Paginação
+
+O `list` suporta paginação manual usando `start` para continuar de onde parou:
+
+[source,typescript]
+----
+async function* paginatedList<T>(
+  prefix: KvKey,
+  pageSize = 100
+): AsyncIterableIterator<KvEntry<T>> {
+  let lastKey: KvKey | undefined;
+
+  while (true) {
+    let count = 0;
+
+    for await (const entry of kv.list<T>({
+      prefix,
+      start: lastKey,
+      limit: pageSize,
+    })) {
+      // Pular a primeira entrada se for a mesma da última página
+      if (lastKey && JSON.stringify(entry.key) === JSON.stringify(lastKey)) {
+        continue;
+      }
+
+      yield entry;
+      lastKey = entry.key;
+      count++;
+    }
+
+    // Se retornou menos que pageSize, chegamos ao fim
+    if (count < pageSize) break;
+  }
+}
+
+// Uso
+for await (const entry of paginatedList(["users"], 50)) {
+  console.log(entry.key, entry.value);
+}
+----
+
+===== Paginação com Offset
+
+Para APIs REST com page numbers:
+
+[source,typescript]
+----
+async function getPage<T>(
+  prefix: KvKey,
+  page: number,
+  pageSize = 20
+): Promise<{ entries: KvEntry<T>[]; hasMore: boolean }> {
+  const entries: KvEntry<T>[] = [];
+  let skip = page * pageSize;
+  let count = 0;
+
+  for await (const entry of kv.list<T>({ prefix, limit: skip + pageSize + 1 })) {
+    if (skip > 0) {
+      skip--;
+      continue;
+    }
+
+    if (count < pageSize) {
+      entries.push(entry);
+      count++;
+    } else {
+      // Existe próxima página
+      return { entries, hasMore: true };
+    }
+  }
+
+  return { entries, hasMore: false };
+}
+
+// Uso
+const { entries, hasMore } = await getPage(["products"], 2, 20);
+----
+
+NOTE: Para grandes datasets, prefira paginação por cursor (usando `start`) em vez de offset, pois offset requer percorrer todas as entradas anteriores.
+
+=== Tipos de Valor Suportados
+
+O KeyVal serializa valores como JSON, portanto suporta:
+
+* Strings
+* Numbers
+* Booleans
+* null
+* Arrays
+* Objects (plain objects)
+* Date (convertido para string ISO)
+
+[IMPORTANT]
+====
+Não são suportados diretamente:
+
+* Functions
+* Symbols
+* undefined (use null)
+* Classes/instâncias (perdem métodos)
+* Circular references
+====
+
+=== Tratamento de Erros
+
+[source,typescript]
+----
+try {
+  await kv.set(["users", 123], userData);
+} catch (error) {
+  if (error instanceof Error) {
+    console.error("Falha ao salvar:", error.message);
+  }
+}
+----
+
+=== Padrões Comuns
+
+==== Get or Create
+
+[source,typescript]
+----
+async function getOrCreate<T>(key: KvKey, factory: () => T): Promise<T> {
+  const entry = await kv.get<T>(key);
+  if (entry.value !== null) {
+    return entry.value;
+  }
+
+  const value = factory();
+  await kv.set(key, value);
+  return value;
+}
+
+// Uso
+const settings = await getOrCreate(
+  ["users", 123, "settings"],
+  () => ({ theme: "dark", notifications: true })
+);
+----
+
+==== Upsert
+
+[source,typescript]
+----
+async function upsert<T>(
+  key: KvKey,
+  update: (current: T | null) => T
+): Promise<T> {
+  const entry = await kv.get<T>(key);
+  const newValue = update(entry.value);
+  await kv.set(key, newValue);
+  return newValue;
+}
+
+// Uso
+await upsert(["users", 123], (user) => ({
+  ...user,
+  lastLogin: new Date().toISOString(),
+}));
+----
+
+==== Batch Delete
+
+[source,typescript]
+----
+async function deleteByPrefix(prefix: KvKey): Promise<number> {
+  let count = 0;
+  for await (const entry of kv.list({ prefix })) {
+    await kv.delete(entry.key);
+    count++;
+  }
+  return count;
+}
+
+// Uso
+const deleted = await deleteByPrefix(["sessions", "expired"]);
+console.log(`Removidas ${deleted} sessões expiradas`);
+----

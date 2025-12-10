@@ -1,5 +1,5 @@
 import { Icon } from "~/components/icon";
-import { cn } from "~/libs/cn";
+import { cn } from "~/helpers/cn";
 
 interface ThemeCardProps {
   colors: { accent: string; bg: string; bgSecondary: string; text: string };

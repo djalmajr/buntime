@@ -180,8 +180,8 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): Buntime
   return {
     name: "@buntime/plugin-gateway",
     mountPath: pluginConfig.mountPath,
-    priority: 15, // After authn (10), before authz (20)
     version: "1.0.0",
+    optionalDependencies: ["@buntime/plugin-authn"], // Run after authn if present
 
     onInit(ctx: PluginContext) {
       logger = ctx.logger;

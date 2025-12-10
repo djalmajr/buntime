@@ -1,7 +1,6 @@
-import { initSchema, Kv } from "@buntime/plugin-keyval";
+import type { Kv } from "@buntime/plugin-keyval";
 import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
-import { substituteEnvVars } from "@buntime/shared/utils";
-import { type Client, createClient } from "@libsql/client";
+import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
 import type { Server, ServerWebSocket } from "bun";
 import { Hono } from "hono";
 
@@ -67,6 +66,14 @@ export interface ProxyRule {
    * @example "/cpanel"
    */
   base?: string;
+
+  /**
+   * Rewrite absolute paths in HTML responses to relative paths
+   * Converts src="/..." and href="/..." to src="./..." and href="./..."
+   * Works in conjunction with `base` tag for SPAs under subpaths
+   * @default false
+   */
+  relativePaths?: boolean;
 }
 
 export interface ProxyConfig extends BasePluginConfig {
@@ -74,19 +81,6 @@ export interface ProxyConfig extends BasePluginConfig {
    * Static proxy rules (from buntime.jsonc, readonly)
    */
   rules?: ProxyRule[];
-
-  /**
-   * libSQL database URL for dynamic rules
-   * Supports ${ENV_VAR} syntax
-   * @default uses same storage as keyval plugin
-   */
-  libsqlUrl?: string;
-
-  /**
-   * libSQL auth token (for remote databases)
-   * Supports ${ENV_VAR} syntax
-   */
-  libsqlToken?: string;
 }
 
 interface CompiledRule extends ProxyRule {
@@ -115,7 +109,6 @@ let dynamicRules: CompiledRule[] = [];
 let logger: PluginContext["logger"];
 let bunServer: Server<WebSocketData> | null = null;
 let kv: Kv | null = null;
-let client: Client | null = null;
 
 const KV_PREFIX = ["proxy", "rules"];
 
@@ -216,13 +209,27 @@ async function httpProxy(req: Request, rule: CompiledRule, path: string): Promis
     responseHeaders.delete("keep-alive");
     responseHeaders.delete("transfer-encoding");
 
-    // Inject <base> tag for HTML responses if configured
+    // Process HTML responses: inject <base> tag and/or rewrite paths
     const contentType = responseHeaders.get("content-type") || "";
-    if (rule.base && contentType.includes("text/html")) {
-      const html = await response.text();
-      const baseHref = rule.base.endsWith("/") ? rule.base : `${rule.base}/`;
-      const injected = html.replace("<head>", `<head><base href="${baseHref}" />`);
-      return new Response(injected, {
+    if (contentType.includes("text/html") && (rule.base || rule.relativePaths)) {
+      let html = await response.text();
+
+      // Rewrite absolute paths to relative paths (works with <base> tag)
+      // Must be done BEFORE injecting <base> tag
+      if (rule.relativePaths) {
+        // Rewrite src="/..." and href="/..." to src="./..." (but not protocol-relative "//...")
+        html = html.replace(/(src|href)="\/(?!\/)/g, '$1="./');
+        // Rewrite '/...' in inline scripts (single quotes)
+        html = html.replace(/'\/(?!\/)/g, "'./");
+      }
+
+      // Inject <base> tag if configured
+      if (rule.base) {
+        const baseHref = rule.base.endsWith("/") ? rule.base : `${rule.base}/`;
+        html = html.replace("<head>", `<head><base href="${baseHref}" />`);
+      }
+
+      return new Response(html, {
         headers: responseHeaders,
         status: response.status,
         statusText: response.statusText,
@@ -423,7 +430,7 @@ const routes = new Hono()
   // Create a new dynamic rule
   .post("/rules", async (ctx) => {
     if (!kv) {
-      return ctx.json({ error: "Dynamic rules not enabled (no libsqlUrl configured)" }, 400);
+      return ctx.json({ error: "Dynamic rules not enabled (plugin-keyval not configured)" }, 400);
     }
 
     const body = await ctx.req.json<Omit<ProxyRule, "id">>();
@@ -529,7 +536,7 @@ export default function proxyPlugin(config: ProxyConfig = {}): BuntimePlugin {
   return {
     name: "@buntime/plugin-proxy",
     version: "1.0.0",
-    priority: 5,
+    optionalDependencies: ["@buntime/plugin-keyval"],
     mountPath: config.mountPath,
     routes,
 
@@ -545,30 +552,23 @@ export default function proxyPlugin(config: ProxyConfig = {}): BuntimePlugin {
         logger.info(`Loaded ${staticRules.length} static proxy rules`);
       }
 
-      // Initialize KeyVal for dynamic rules (skip if URL is empty or not set)
-      if (config.libsqlUrl) {
-        const url = substituteEnvVars(config.libsqlUrl);
+      // Use shared kv service from plugin-keyval for dynamic rules
+      const sharedKv = ctx.getService<Kv>("kv");
 
-        if (url) {
-          const authToken = config.libsqlToken ? substituteEnvVars(config.libsqlToken) : undefined;
-
-          client = createClient({ url, authToken });
-          await initSchema(client);
-          kv = new Kv(client);
-
-          await loadDynamicRules();
-          logger.info(`Dynamic proxy rules enabled (${dynamicRules.length} loaded)`);
-        } else {
-          logger.debug(
-            "libsqlUrl configured but empty after env substitution, skipping dynamic rules",
-          );
-        }
+      if (sharedKv) {
+        kv = sharedKv;
+        await loadDynamicRules();
+        logger.info(`Dynamic proxy rules enabled (${dynamicRules.length} loaded)`);
+      } else {
+        logger.debug("KeyVal service not available, dynamic rules disabled");
       }
     },
 
     async onShutdown() {
-      kv?.close();
-      client?.close();
+      // Reset state (kv is shared, don't close it)
+      staticRules = [];
+      dynamicRules = [];
+      kv = null;
     },
 
     onServerStart(server) {

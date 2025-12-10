@@ -12,8 +12,7 @@
   },
   "dependencies": {
     "@buntime/plugin-keyval": "workspace:*",
-    "@buntime/shared": "workspace:*",
-    "@libsql/client": "^0.15.11"
+    "@buntime/shared": "workspace:*"
   },
   "peerDependencies": {
     "hono": "^4.0.0",

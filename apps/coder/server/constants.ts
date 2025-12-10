@@ -1,10 +1,10 @@
 import z from "zod/v4";
 import { number } from "@/utils/zod-helpers";
-import { version } from "./package.json";
+import { version } from "../package.json";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "staging", "test"]).default("production"),
-  PORT: number(8080),
+  PORT: number(4001),
 });
 
 const { data, error } = envSchema.safeParse(Bun.env);

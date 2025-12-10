@@ -180,8 +180,7 @@ export default function authzPlugin(pluginConfig: AuthzConfig = {}): BuntimePlug
   return {
     name: "@buntime/plugin-authz",
     version: "1.0.0",
-    dependencies: ["@buntime/authn"],
-    priority: 20, // Run after authn
+    dependencies: ["@buntime/plugin-authn"], // Requires authn to be configured
 
     async onInit(ctx: PluginContext) {
       logger = ctx.logger;

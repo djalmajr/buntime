@@ -1,0 +1,222 @@
+= Buntime Runner
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+ifdef::env-github[]
+:tip-caption: 💡
+:note-caption: ℹ️
+:important-caption: ⚠️
+:caution-caption: 🔥
+:warning-caption: ⚠️
+endif::[]
+
+toc::[]
+
+== Visão Geral
+
+Worker pool runner para aplicações Bun, projetado como engine para uma plataforma serverless.
+
+=== Features
+
+* **Worker Pool Management** - Spawning dinâmico, pool size configurável, lifecycle automático
+* **Semantic Versioning** - Suporte a `app@1.0.0`, `app@1`, `app`
+* **Plugin System** - Config JSONC, lifecycle hooks, ordenação por prioridade
+* **Auth** - Keycloak/OIDC/JWT (AuthN) + políticas XACML (AuthZ)
+* **Monitoring** - SSE, Prometheus, stats por worker
+
+=== Tech Stack
+
+Bun, Hono, Zod, quick-lru, semver
+
+== Estrutura do Projeto
+
+[source]
+----
+apps/runner/
+├── src/
+│   ├── index.ts          # Entry point (Bun.serve)
+│   ├── app.ts            # Hono app (routes aggregator)
+│   ├── constants.ts      # Environment variables
+│   ├── libs/
+│   │   ├── dir-info.ts   # Directory operations
+│   │   └── pool/         # Worker pool management
+│   │       ├── pool.ts       # WorkerPool class & singleton
+│   │       ├── instance.ts   # WorkerInstance lifecycle
+│   │       ├── wrapper.ts    # Worker thread code
+│   │       ├── config.ts     # Worker configuration
+│   │       ├── metrics.ts    # Pool metrics
+│   │       ├── types.ts      # Message types
+│   │       └── preloads/
+│   │           └── setup.ts  # Worker preload
+│   ├── plugins/
+│   │   ├── loader.ts     # Plugin loader
+│   │   └── registry.ts   # Plugin registry
+│   ├── routes/
+│   │   ├── internal/     # /_/* routes
+│   │   └── worker.ts     # /:app/* routes
+│   └── utils/
+│       ├── get-app-dir.ts
+│       ├── get-entrypoint.ts
+│       └── serve-static.ts
+----
+
+== Configuração
+
+=== buntime.jsonc
+
+[source,jsonc]
+----
+{
+  "required": ["@buntime/plugin-metrics"],
+  "plugins": [
+    "@buntime/plugin-metrics",
+    ["@buntime/plugin-authn", { "provider": "keycloak", ... }],
+    ["@buntime/plugin-authz", { "store": "file", ... }]
+  ]
+}
+----
+
+=== worker.jsonc (por app)
+
+[source,jsonc]
+----
+{
+  "entrypoint": "public/index.html",
+  "timeout": 30,
+  "ttl": 60,
+  "maxRequests": 1000,
+  "idleTimeout": 60,
+  "autoInstall": false,
+  "lowMemory": false
+}
+----
+
+[cols="1,1,1,2"]
+|===
+| Opção | Tipo | Default | Descrição
+
+| `autoInstall`
+| boolean
+| false
+| Executa `bun install` antes de iniciar worker
+
+| `entrypoint`
+| string
+| auto
+| Entrypoint da aplicação
+
+| `idleTimeout`
+| number
+| 60
+| Threshold de idle (segundos)
+
+| `lowMemory`
+| boolean
+| false
+| Ativa modo low-memory
+
+| `maxRequests`
+| number
+| 1000
+| Máximo de requests antes de reciclar
+
+| `timeout`
+| number
+| 30
+| Timeout de request (segundos)
+
+| `ttl`
+| number
+| 0
+| TTL do worker (0 = sem limite)
+|===
+
+== Rotas da API
+
+=== Internal (`/_/*`)
+
+* `GET /_/deployments` - Gerenciamento de deployments
+* `GET /_/metrics` - Métricas do pool (JSON)
+* `GET /_/sse` - Stream SSE
+* `GET /_/stats` - Stats completos
+
+=== Plugin (`/_/{name}/*`)
+
+* `/_/plugin-metrics/prometheus`
+* `/_/plugin-authn/well-known`
+* `/_/plugin-authz/policies`
+
+=== Worker (`/`)
+
+* `ALL /:app` - Roteia para worker da app
+* `ALL /:app/*` - Roteia paths aninhados
+
+**Resolução de Versão:**
+
+* `/hello-api` → Versão mais alta
+* `/hello-api@1.0.0` → Versão exata
+* `/hello-api@1` → Maior versão 1.x.x
+
+== Scripts
+
+[source,bash]
+----
+bun dev              # Watch mode
+bun lint             # Format + type check
+bun test             # Run tests
+bun build            # Build runner
+bun build:bin        # Compile to binary
+----
+
+== Arquitetura
+
+=== Request Flow
+
+[source]
+----
+Request → Hono Router → Route?
+  ├── /_/* → Internal Routes
+  ├── /_/{plugin}/* → Plugin Routes
+  └── /:app/* → Worker Pool → Worker Thread
+----
+
+=== Princípios de Design
+
+1. Main thread orquestra, nunca executa lógica de app
+2. Workers provêem isolamento (crash não afeta main)
+3. Pipeline de plugins intercepta requests/responses
+
+=== Worker Lifecycle
+
+[source]
+----
+Creating → Ready → Active ⟷ Idle → Terminated
+----
+
+== Componentes Principais
+
+[cols="1,2"]
+|===
+| Componente | Responsabilidade
+
+| `pool.ts`
+| Classe WorkerPool, LRU cache
+
+| `instance.ts`
+| Lifecycle do WorkerInstance
+
+| `wrapper.ts`
+| Request handling no worker
+
+| `loader.ts`
+| Carrega plugins do config
+
+| `registry.ts`
+| Lifecycle dos plugins
+|===
+
+include::docs/logging.adoc[leveloffset=+1]

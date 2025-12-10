@@ -1,5 +1,5 @@
 import { Icon } from "~/components/icon";
-import type { TemplateId } from "~/libs/templates";
+import type { TemplateId } from "~/helpers/templates";
 
 interface TemplateIconProps {
   className?: string;

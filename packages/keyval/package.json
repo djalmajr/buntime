@@ -8,7 +8,10 @@
   "scripts": {
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
-    "lint": "bun run lint:format && bun run lint:types"
+    "lint": "bun run lint:format && bun run lint:types",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "test:watch": "bun test --watch"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"

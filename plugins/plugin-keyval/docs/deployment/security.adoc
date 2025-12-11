@@ -1,0 +1,400 @@
+== Segurança
+
+=== Autenticação
+
+O plugin KeyVal não possui autenticação própria. Ele depende completamente do sistema de autenticação do Buntime (`plugin-authn`).
+
+==== Autenticação na Camada do Runner
+
+Todas as requisições HTTP passam pelo middleware de autenticação do Buntime antes de chegarem ao KeyVal:
+
+[source,typescript]
+----
+// Configuração no buntime.jsonc
+{
+  "plugins": [
+    ["@buntime/plugin-authn", {
+      "provider": "keycloak",
+      "url": "https://auth.example.com",
+      "realm": "production"
+    }],
+    ["@buntime/plugin-keyval", {
+      "libsqlUrl": "libsql://..."
+    }]
+  ]
+}
+----
+
+==== Autenticação do libSQL
+
+O acesso ao banco de dados libSQL requer token de autenticação:
+
+[source,typescript]
+----
+{
+  "libsqlUrl": "http://libsql:8080",
+  "libsqlToken": "${LIBSQL_TOKEN}"  // Variável de ambiente
+}
+----
+
+IMPORTANT: Nunca commite tokens do libSQL no repositório. Use variáveis de ambiente.
+
+=== Autorização
+
+O plugin KeyVal integra-se com o sistema de autorização do Buntime (`plugin-authz`).
+
+==== Políticas Baseadas em Prefixo
+
+Use prefixos de chave como recursos em políticas XACML-like:
+
+[source,typescript]
+----
+// Configuração no buntime.jsonc
+{
+  "plugins": [
+    ["@buntime/plugin-authz", {
+      "policies": [
+        {
+          "resource": "/kv/tenant:*",
+          "action": "*",
+          "effect": "permit",
+          "condition": "subject.tenant == resource.tenant"
+        },
+        {
+          "resource": "/kv/admin:*",
+          "action": "*",
+          "effect": "permit",
+          "condition": "subject.role == 'admin'"
+        }
+      ]
+    }]
+  ]
+}
+----
+
+==== Exemplo de Uso
+
+[source,typescript]
+----
+// Usuário com tenant=acme só acessa chaves prefixadas com "tenant:acme:"
+await kv.set(["tenant:acme:", "users", "123"], userData);  // Permitido
+await kv.set(["tenant:other:", "users", "456"], userData); // Negado
+----
+
+=== Segurança de Rede
+
+==== Conexões TLS
+
+Use sempre o protocolo `libsql://` para conexões criptografadas:
+
+[source,typescript]
+----
+// CORRETO - TLS habilitado (produção)
+"libsqlUrl": "https://libsql.internal:8080"
+
+// HTTP OK apenas em rede interna isolada
+"libsqlUrl": "http://libsql:8080"
+----
+
+==== Exposição Interna vs Externa
+
+O plugin KeyVal expõe rotas em `/_/plugin-keyval/*`:
+
+* **Interno**: Acesso apenas do runner para workers
+* **Externo**: Expor ao público requer configuração explícita de proxy
+
+Recomendações de firewall:
+
+[source,text]
+----
+# Permitir apenas conexões internas
+iptables -A INPUT -p tcp --dport 4000 -s 10.0.0.0/8 -j ACCEPT
+iptables -A INPUT -p tcp --dport 4000 -j DROP
+----
+
+=== Segurança de Dados
+
+==== Dados em Repouso
+
+O KeyVal armazena dados no libSQL. A criptografia em repouso depende da configuração do ambiente:
+
+* **libSQL self-hosted**: Depende de criptografia de filesystem (LUKS, FileVault, BitLocker) ou volume encriptado
+
+==== Dados em Trânsito
+
+* **Runner ↔ libSQL**: TLS (protocolo `libsql://`)
+* **Cliente ↔ Runner**: TLS (HTTPS)
+
+==== Criptografia de Valores
+
+O KeyVal **não fornece criptografia nativa** para valores. Os dados são armazenados como JSON em texto plano no banco.
+
+Para dados sensíveis, criptografe antes de armazenar:
+
+[source,typescript]
+----
+import { encrypt, decrypt } from "./crypto";
+
+// Armazenar
+const encrypted = encrypt(sensitiveData, encryptionKey);
+await kv.set(["secrets", "api-key"], encrypted);
+
+// Recuperar
+const entry = await kv.get(["secrets", "api-key"]);
+const decrypted = decrypt(entry.value, encryptionKey);
+----
+
+WARNING: Não armazene chaves de criptografia no próprio KeyVal.
+
+=== Validação de Entrada
+
+O plugin implementa validação rigorosa de entrada para prevenir ataques:
+
+==== Limites de Chave
+
+[cols="1,1,2"]
+|===
+| Limite | Valor | Razão
+
+| Profundidade máxima
+| 20 níveis
+| Previne ataques de estouro de pilha
+
+| Tamanho de parte
+| 1024 caracteres
+| Previne chaves excessivamente longas
+
+| Partes vazias
+| Proibidas
+| Garante chaves bem formadas
+|===
+
+[source,typescript]
+----
+// Válido
+["users", "123", "profile"]
+
+// Inválido - profundidade > 20
+["a", "b", "c", ..., "x"]  // 21 níveis
+
+// Inválido - parte vazia
+["users", "", "profile"]
+
+// Inválido - parte muito longa
+["users", "x".repeat(1025)]
+----
+
+==== Limites de Lote
+
+[source,typescript]
+----
+// Válido
+await kv.getMany([key1, key2, ..., key1000]);  // 1000 chaves
+
+// Inválido - excede limite
+await kv.getMany([key1, key2, ..., key1001]);  // 1001 chaves
+----
+
+==== Limites de Valor
+
+[cols="1,1,2"]
+|===
+| Tipo | Limite | Validação
+
+| BigInt
+| ±2^53
+| Safe integer range
+
+| expireIn
+| > 0
+| Número positivo em milissegundos
+
+| versionstamp
+| String hexadecimal
+| 16 bytes (32 caracteres hex)
+|===
+
+[source,typescript]
+----
+// Válido
+await kv.set(["counter"], 9007199254740991n);  // MAX_SAFE_INTEGER
+
+// Inválido - fora do range seguro
+await kv.set(["counter"], 9007199254740992n);
+
+// Válido
+await kv.set(["key"], "value", { expireIn: 60000 });
+
+// Inválido - expireIn negativo
+await kv.set(["key"], "value", { expireIn: -1000 });
+----
+
+=== Limitações Conhecidas
+
+==== Sem ACL por Chave
+
+Não há controle de acesso granular por chave individual. A autorização opera apenas no nível de prefixo de rota.
+
+**Workaround**: Use prefixos significativos e políticas de autorização:
+
+[source,typescript]
+----
+// Tenant isolation via prefixo
+["tenant:acme:", "users", userId]
+["tenant:acme:", "orders", orderId]
+
+// Role-based via prefixo
+["admin:config", "feature-flags"]
+["public:cache", "translations"]
+----
+
+==== Sem Auditoria Nativa
+
+O plugin não registra logs de auditoria de operações.
+
+**Workaround**: Use o `plugin-metrics` para rastreamento básico ou implemente logging customizado.
+
+==== Valores Visíveis
+
+Valores são armazenados como JSON legível no banco de dados.
+
+**Workaround**: Criptografe dados sensíveis na aplicação antes de armazenar.
+
+=== Melhores Práticas
+
+==== Não Armazene Segredos
+
+[source,typescript]
+----
+// NUNCA faça isso
+await kv.set(["config", "db-password"], "super-secret-123");
+await kv.set(["api-keys", "stripe"], "sk_live_...");
+
+// Use gerenciadores de segredos
+import { getSecret } from "@/secrets";
+const dbPassword = await getSecret("DB_PASSWORD");
+----
+
+==== Use Prefixos para Isolamento
+
+[source,typescript]
+----
+// Isolamento de tenant
+await kv.set(["tenant:acme:", "data"], value);
+await kv.set(["tenant:widgets:", "data"], value);
+
+// Isolamento de ambiente
+await kv.set(["prod:", "cache", key], value);
+await kv.set(["dev:", "cache", key], value);
+----
+
+==== Rotacione Tokens do libSQL
+
+[source,bash]
+----
+# Gerar novo JWT token (usando sua própria chave)
+# O sqld aceita JWT tokens assinados com a chave configurada
+
+# Atualizar variável de ambiente
+export LIBSQL_TOKEN="new-jwt-token-here"
+
+# Reiniciar runner
+systemctl restart buntime-runner
+----
+
+TIP: Consulte a https://github.com/tursodatabase/libsql/tree/main/docs[documentação do libSQL] para detalhes sobre autenticação JWT no sqld.
+
+==== Monitore a DLQ
+
+A Dead Letter Queue pode conter dados sensíveis de operações falhadas:
+
+[source,typescript]
+----
+// Verificar e limpar DLQ periodicamente
+const dlq = await kv.getDLQ();
+
+for (const entry of dlq.items) {
+  console.log("Failed key:", entry.key);
+
+  // Não logue valores sensíveis
+  if (isSensitiveKey(entry.key)) {
+    console.log("Value: [REDACTED]");
+  }
+}
+
+// Limpar após análise
+await kv.purgeDLQ();
+----
+
+==== Limite Taxas de Requisição
+
+Use o `plugin-gateway` para rate limiting:
+
+[source,typescript]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-gateway", {
+      "rateLimit": {
+        "window": 60000,
+        "max": 100,
+        "keyGenerator": "req => req.headers.get('x-user-id')"
+      }
+    }],
+    ["@buntime/plugin-keyval", { ... }]
+  ]
+}
+----
+
+==== Habilite CORS Restritivo
+
+[source,typescript]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-gateway", {
+      "cors": {
+        "origin": ["https://app.example.com"],
+        "methods": ["GET", "POST"],
+        "credentials": true
+      }
+    }]
+  ]
+}
+----
+
+==== Valide Dados da Aplicação
+
+Não confie apenas na validação do KeyVal:
+
+[source,typescript]
+----
+import { z } from "zod";
+
+const UserSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  age: z.number().int().positive().max(150)
+});
+
+// Validar antes de armazenar
+const userData = UserSchema.parse(input);
+await kv.set(["users", userData.id], userData);
+----
+
+=== Checklist de Segurança
+
+Antes de ir para produção:
+
+* [ ] Autenticação habilitada via `plugin-authn`
+* [ ] Políticas de autorização configuradas via `plugin-authz`
+* [ ] Conexão libSQL via TLS (`libsql://` protocol)
+* [ ] Token libSQL em variável de ambiente (não hardcoded)
+* [ ] Rate limiting configurado via `plugin-gateway`
+* [ ] CORS restritivo habilitado
+* [ ] Dados sensíveis criptografados na aplicação
+* [ ] Prefixos de chave usados para isolamento de tenant
+* [ ] Monitoramento de DLQ implementado
+* [ ] Logs de auditoria habilitados (via custom middleware)
+* [ ] Backups regulares do libSQL configurados
+* [ ] Rotação de tokens documentada e agendada

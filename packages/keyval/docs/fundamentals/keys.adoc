@@ -1,0 +1,293 @@
+== Estrutura de Chaves
+
+No KeyVal, a estrutura da chave define como os dados são acessados e organizados. Uma chave é um **array ordenado de partes**:
+
+[source,typescript]
+----
+["users", "usr_001"]                    // 2 partes
+["users", "usr_001", "profile"]         // 3 partes
+["orders", 2024, "ord_abc", "items"]    // 4 partes
+----
+
+=== Tipos Suportados
+
+Cada parte pode ser:
+
+[cols="1,2,2"]
+|===
+| Tipo | Exemplo | Uso típico
+
+| `string`
+| `"users"`, `"usr_001"`
+| Namespaces, IDs textuais
+
+| `number`
+| `123`, `2024`
+| IDs numéricos, anos, scores
+
+| `bigint`
+| `9007199254740993n`
+| IDs muito grandes
+
+| `boolean`
+| `true`, `false`
+| Flags (raro)
+
+| `Uint8Array`
+| `new Uint8Array([1,2,3])`
+| Dados binários (avatares, thumbnails, hashes)
+|===
+
+=== Hierarquias e Queries
+
+A estrutura de array permite hierarquias naturais e queries por prefixo.
+
+==== Hierarquia
+
+[source,typescript]
+----
+// Organização hierárquica
+["users", userId]                        // Usuário
+["users", userId, "profile"]             // Perfil do usuário
+["users", userId, "settings"]            // Configurações do usuário
+["users", userId, "posts", postId]       // Post do usuário
+["users", userId, "posts", postId, "comments", commentId]  // Comentário
+----
+
+Estrutura resultante:
+
+[source]
+----
+users/
+├── usr_001/
+│   ├── (dados do usuário)
+│   ├── profile
+│   ├── settings
+│   └── posts/
+│       ├── post_001/
+│       │   ├── (dados do post)
+│       │   └── comments/
+│       │       ├── cmt_001
+│       │       └── cmt_002
+│       └── post_002/
+└── usr_002/
+    └── ...
+----
+
+==== Queries por Prefixo
+
+[source,typescript]
+----
+// Listar todos os usuários
+for await (const e of kv.list(["users"])) { ... }
+
+// Listar tudo de um usuário específico
+for await (const e of kv.list(["users", "usr_001"])) { ... }
+
+// Listar posts de um usuário
+for await (const e of kv.list(["users", "usr_001", "posts"])) { ... }
+
+// Listar comentários de um post
+for await (const e of kv.list(["users", "usr_001", "posts", "post_001", "comments"])) { ... }
+----
+
+==== Delete em Cascata
+
+[source,typescript]
+----
+// Remove usuário E todos os posts, comments, profile, settings...
+await kv.delete(["users", "usr_001"]);
+----
+
+=== Convenções de Nomenclatura
+
+==== Namespaces (primeira parte)
+
+[source,typescript]
+----
+// Plural, snake_case
+["users", id]
+["blog_posts", id]
+["order_items", id]
+
+// Evite
+["user", id]        // Singular confunde
+["blogPosts", id]   // camelCase dificulta leitura
+["USERS", id]       // UPPERCASE não adiciona valor
+----
+
+==== Identificadores
+
+[source,typescript]
+----
+// Prefixo tipado
+["users", "usr_550e8400"]
+["orders", "ord_7c9e6679"]
+["posts", "pst_01ARZ3ND"]
+
+// UUID puro
+["users", "550e8400-e29b-41d4-a716-446655440000"]
+
+// ULID (ordenável)
+["users", "01ARZ3NDEKTSV4RRFFQ69G5FAV"]
+
+// Evite IDs sequenciais em sistemas distribuídos
+["users", 1]  // Conflitos entre instâncias
+["users", 2]  // Gargalo de geração
+----
+
+==== Sub-entidades
+
+[source,typescript]
+----
+// Plural para coleções (1:N)
+["users", userId, "posts", postId]
+["users", userId, "comments", commentId]
+
+// Singular para relações únicas (1:1)
+["users", userId, "profile"]
+["users", userId, "settings"]
+["orders", orderId, "shipping"]
+----
+
+=== Ordenação
+
+Chaves são ordenadas lexicograficamente, afetando a ordem dos resultados em `list()`.
+
+==== Ordenação de Números
+
+[source,typescript]
+----
+// Números seguem ordenação lexicográfica
+await kv.set(["items", 1], "first");
+await kv.set(["items", 2], "second");
+await kv.set(["items", 10], "tenth");
+
+for await (const e of kv.list(["items"])) {
+  console.log(e.key[1]);
+}
+// Resultado: 1, 10, 2
+----
+
+==== Soluções
+
+[source,typescript]
+----
+// Opção 1: Padding com zeros
+await kv.set(["items", "0001"], "first");
+await kv.set(["items", "0002"], "second");
+await kv.set(["items", "0010"], "tenth");
+// Ordem: 0001, 0002, 0010 ✓
+
+// Opção 2: ULID
+import { ulid } from "ulid";
+const id = ulid(); // "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+// Opção 3: Timestamp invertido
+const invertedTs = Number.MAX_SAFE_INTEGER - Date.now();
+await kv.set(["events", invertedTs, eventId], event);
+----
+
+=== Padrões Comuns
+
+==== Entidade Simples
+
+[source,typescript]
+----
+["users", userId] → { name, email, createdAt }
+----
+
+==== Entidade com Sub-recursos
+
+[source,typescript]
+----
+["users", userId]              → { name, email }
+["users", userId, "profile"]   → { bio, avatar }
+["users", userId, "settings"]  → { theme, notifications }
+----
+
+==== Índice Secundário
+
+[source,typescript]
+----
+// Dado principal
+["users", userId]              → { name, email, city }
+
+// Índices para busca
+["users_by_email", email]      → userId
+["users_by_city", city, oderId] → userId
+----
+
+==== Ordenação Temporal
+
+[source,typescript]
+----
+// Posts ordenados por data
+["posts", invertedTimestamp, postId] → { title, content }
+
+// Ou índice separado
+["posts", postId]                           → { title, content, createdAt }
+["posts_by_date", timestamp, postId]        → postId
+----
+
+==== Relações N:N
+
+[source,typescript]
+----
+["posts", postId]                  → { title, tags: ["js", "tutorial"] }
+["tags", tag, postId]              → postId  // Posts por tag
+["posts_tags", postId, tag]        → true    // Tags de um post
+----
+
+=== Limites Técnicos
+
+[cols="1,2"]
+|===
+| Limite | Valor
+
+| Tamanho de cada parte string
+| 1KB (1024 caracteres)
+
+| Profundidade (número de partes)
+| 20 partes no máximo
+
+| Tamanho total da chave
+| ~20KB teórico (20 partes × 1KB)
+|===
+
+=== Anti-padrões
+
+==== Chaves Excessivamente Profundas
+
+[source,typescript]
+----
+// Dificulta manutenção
+["org", orgId, "dept", deptId, "team", teamId, "member", oderId, "role", roleId]
+
+// Simplifique com entidades separadas
+["members", oderId]           → { orgId, deptId, teamId, roleId }
+["member_roles", oderId, roleId] → true
+----
+
+==== Dados Mutáveis na Chave
+
+[source,typescript]
+----
+// Email pode mudar
+["users", email]
+
+// Use ID imutável, email em índice
+["users", oderId]           → { email, ... }
+["users_by_email", email]  → oderId
+----
+
+==== Dados Sensíveis em Chaves
+
+[source,typescript]
+----
+// Chaves são expostas em logs
+["users", "password123", oderId]
+
+// Dados sensíveis no valor
+["users", oderId] → { passwordHash: "..." }
+----

@@ -1,0 +1,531 @@
+== Roadmap e Futuro
+
+Este documento descreve o roadmap do plugin KeyVal, funcionalidades planejadas, dívida técnica conhecida, e considerações para evolução.
+
+=== Dívida Técnica Atual
+
+==== Crítica (Deve ser resolvida)
+
+===== Retry Automático em Transações
+
+*Problema*: Documentação promete retry com exponential backoff, mas não está implementado.
+
+*Impacto*: Desenvolvedores esperam retry automático e podem ter dados inconsistentes.
+
+*Solução proposta*:
+
+[source,typescript]
+----
+// Em kv.ts
+async transaction<T>(
+  fn: (tx: KvTransaction) => Promise<T>,
+  options?: { maxRetries?: number; baseDelay?: number }
+): Promise<T> {
+  const { maxRetries = 3, baseDelay = 100 } = options ?? {};
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const tx = new KvTransaction(this);
+    try {
+      const result = await fn(tx);
+      const commitResult = await tx.commit();
+      if (commitResult.ok) {
+        return result;
+      }
+      // Conflict detected, retry
+    } catch (err) {
+      throw err;  // Application errors não são retried
+    }
+    await sleep(baseDelay * Math.pow(2, attempt));
+  }
+  throw new TransactionConflictError('Max retries exceeded');
+}
+----
+
+*Esforço estimado*: 2-4 horas
+
+===== BigInt em Operações Atômicas
+
+*Problema*: `sum()`, `max()`, `min()` convertem BigInt para Number, perdendo precisão.
+
+*Impacto*: Contadores grandes podem ter valores incorretos.
+
+*Solução proposta*:
+
+[source,typescript]
+----
+// Usar TEXT para armazenar BigInt em operações atômicas
+case "sum": {
+  return {
+    sql: `INSERT INTO kv_entries (key, value, versionstamp, expires_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(key) DO UPDATE SET
+            value = CAST(
+              CAST(COALESCE(json_extract(CAST(kv_entries.value AS TEXT), '$'), '0') AS TEXT)
+              + CAST(? AS TEXT)
+            AS BLOB),
+            versionstamp = excluded.versionstamp`,
+    args: [encodedKey, encodedValue, versionstamp, expiresAt, mutation.value.toString()],
+  };
+}
+----
+
+*Esforço estimado*: 4-8 horas (inclui migração de dados existentes)
+
+===== Graceful Shutdown de Queue Listener
+
+*Problema*: Mensagens em processamento podem ser perdidas no shutdown.
+
+*Impacto*: Perda de dados em deploys ou restarts.
+
+*Solução proposta*:
+
+[source,typescript]
+----
+// Adicionar timeout e waiting list
+return async (options?: { timeout?: number }) => {
+  const { timeout = 30000 } = options ?? {};
+  state.running = false;
+  this.listeners.delete(state);
+
+  const deadline = Date.now() + timeout;
+  while (state.activeWorkers > 0 && Date.now() < deadline) {
+    await sleep(100);
+  }
+
+  if (state.activeWorkers > 0) {
+    logger.warn(`Shutdown timeout: ${state.activeWorkers} workers still active`);
+  }
+};
+----
+
+*Esforço estimado*: 2-4 horas
+
+==== Média (Deve ser planejada)
+
+===== Watch Batch Otimizado
+
+*Problema*: Uma query por chave a cada 100ms.
+
+*Impacto*: CPU overhead, não escala para muitas chaves.
+
+*Solução proposta*:
+
+[source,typescript]
+----
+// Batch all watched keys in single query
+async function pollWatchedKeys(keys: KvKey[]): Promise<Map<string, KvEntry>> {
+  const entries = await kv.getMany(keys);  // 1 query para todas
+  return new Map(entries.map(e => [keyToString(e.key), e]));
+}
+----
+
+*Esforço estimado*: 4-8 horas
+
+===== Cleanup de DLQ Automático
+
+*Problema*: Dead Letter Queue cresce indefinidamente.
+
+*Impacto*: Storage crescente, potencial OOM.
+
+*Solução proposta*:
+
+[source,typescript]
+----
+// Adicionar maxAge para DLQ
+interface KvQueueCleanupConfig {
+  dlqMaxAge?: number;  // Default: 7 days
+}
+
+// No cleanup interval
+await adapter.execute(
+  `DELETE FROM kv_dlq WHERE failed_at < ?`,
+  [Date.now() - config.dlqMaxAge]
+);
+----
+
+*Esforço estimado*: 1-2 horas
+
+===== Validação de Fields em where-to-sql
+
+*Problema*: Campos são interpolados diretamente no SQL.
+
+*Impacto*: Potencial SQL injection se where filters vêm de user input.
+
+*Solução proposta*:
+
+[source,typescript]
+----
+const VALID_FIELD_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_.\[\]]*$/;
+
+function validateField(field: string): void {
+  if (!VALID_FIELD_PATTERN.test(field)) {
+    throw new Error(`Invalid field name: ${field}`);
+  }
+}
+----
+
+*Esforço estimado*: 1-2 horas
+
+==== Baixa (Nice to have)
+
+===== Tracing OpenTelemetry
+
+*Problema*: Sem observabilidade distribuída.
+
+*Solução proposta*:
+
+[source,typescript]
+----
+import { trace, SpanStatusCode } from '@opentelemetry/api';
+
+const tracer = trace.getTracer('keyval');
+
+async get<T>(key: KvKey): Promise<KvEntry<T>> {
+  return tracer.startActiveSpan('kv.get', async (span) => {
+    span.setAttribute('kv.key', keyToString(key));
+    try {
+      return await this._get(key);
+    } catch (err) {
+      span.setStatus({ code: SpanStatusCode.ERROR });
+      throw err;
+    } finally {
+      span.end();
+    }
+  });
+}
+----
+
+*Esforço estimado*: 8-16 horas
+
+===== Query Logging Debug
+
+*Problema*: Difícil debugar queries lentas.
+
+*Solução proposta*:
+
+[source,typescript]
+----
+// DEBUG=keyval:sql
+if (process.env.DEBUG?.includes('keyval:sql')) {
+  logger.debug('SQL', { query: sql, params, duration });
+}
+----
+
+*Esforço estimado*: 2-4 horas
+
+=== Funcionalidades Planejadas
+
+==== Curto Prazo (1-3 meses)
+
+===== Compressão de Valores
+
+Compressão automática para valores grandes.
+
+*Motivação*: Reduzir storage e latência de rede para valores >1KB.
+
+*Implementação proposta*:
+
+[source,typescript]
+----
+interface KvConfig {
+  compression?: {
+    enabled: boolean;
+    threshold: number;  // bytes
+    algorithm: 'gzip' | 'brotli' | 'lz4';
+  };
+}
+
+// Header para identificar valores comprimidos
+const GZIP_MARKER = new Uint8Array([0x1f, 0x8b]);
+
+function serializeValue(value: unknown, config: KvConfig): Uint8Array {
+  const json = JSON.stringify(value, jsonReplacer);
+  const bytes = new TextEncoder().encode(json);
+
+  if (config.compression?.enabled && bytes.length > config.compression.threshold) {
+    return Bun.gzipSync(bytes);
+  }
+  return bytes;
+}
+----
+
+*Considerações*:
+
+- Migração: Valores antigos continuam funcionando (sem marker)
+- CPU trade-off: Compressão tem custo
+- Benchmark necessário para escolher threshold ideal
+
+===== Batch Write API
+
+API explícita para múltiplos sets sem checks.
+
+*Motivação*: `atomic()` requer checks, mas às vezes queremos apenas batch writes.
+
+*Implementação proposta*:
+
+[source,typescript]
+----
+// Nova API
+await kv.setMany([
+  { key: ["a"], value: 1 },
+  { key: ["b"], value: 2 },
+  { key: ["c"], value: 3 },
+]);
+
+// Internamente: única transação, sem checks
+----
+
+===== Métricas de Slow Queries
+
+Tracking de operações lentas.
+
+*Implementação proposta*:
+
+[source,typescript]
+----
+interface SlowQueryLog {
+  operation: string;
+  key: string;
+  duration: number;
+  timestamp: number;
+}
+
+// Configurável
+slowQueryThreshold: 100  // ms
+
+if (duration > config.slowQueryThreshold) {
+  this.slowQueries.push({ operation, key, duration, timestamp: Date.now() });
+}
+----
+
+==== Médio Prazo (3-6 meses)
+
+===== CDC (Change Data Capture)
+
+Webhook triggers para mudanças.
+
+*Motivação*: Integração com sistemas externos, event-driven architecture.
+
+*Implementação proposta*:
+
+[source,typescript]
+----
+// Tabela de log
+CREATE TABLE kv_changelog (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key BLOB NOT NULL,
+  operation TEXT NOT NULL,  -- 'set' | 'delete'
+  value BLOB,
+  versionstamp TEXT NOT NULL,
+  timestamp INTEGER NOT NULL
+);
+
+// API
+kv.subscribe(["users", "*"], {
+  webhook: "https://api.example.com/webhook",
+  // ou
+  handler: async (change) => { ... }
+});
+----
+
+*Considerações*:
+
+- Retenção: Por quanto tempo guardar changelog?
+- Replay: Suportar replay de eventos?
+- Ordenação: Garantir ordem de entrega?
+
+===== Streaming de Valores Grandes
+
+Stream para valores >1MB.
+
+*Motivação*: Suportar blobs grandes sem OOM.
+
+*Implementação proposta*:
+
+[source,typescript]
+----
+// Nova API
+const stream = await kv.getStream(["large_file"]);
+for await (const chunk of stream) {
+  // Processa chunk por chunk
+}
+
+await kv.setStream(["large_file"], readableStream);
+----
+
+*Considerações*:
+
+- SQLite não é ideal para blobs muito grandes
+- Considerar S3 para arquivos, KeyVal para metadata
+
+===== Sharding Manual
+
+Suporte a múltiplas instâncias libSQL.
+
+*Motivação*: Escalar além dos limites de uma instância.
+
+*Implementação proposta*:
+
+[source,typescript]
+----
+const kv = new ShardedKv({
+  shards: [
+    { url: "http://libsql-shard-0:8080", range: [0x00, 0x3f] },
+    { url: "http://libsql-shard-1:8080", range: [0x40, 0x7f] },
+    { url: "http://libsql-shard-2:8080", range: [0x80, 0xbf] },
+    { url: "http://libsql-shard-3:8080", range: [0xc0, 0xff] },
+  ],
+  hashFunction: (key) => md5(encodeKey(key))[0]  // Primeiro byte do hash
+});
+----
+
+*Considerações*:
+
+- Transações cross-shard impossíveis
+- Rebalancing é complexo
+- Resharding requer migração
+
+==== Longo Prazo (6-12 meses)
+
+===== Multi-Region Active-Active
+
+Escritas em múltiplas regiões com resolução de conflitos.
+
+*Motivação*: Latência global baixa para escritas.
+
+*Abordagens possíveis*:
+
+1. **Last-Write-Wins**: Simples, mas pode perder dados
+2. **CRDTs**: Merge automático, tipos limitados
+3. **Operational Transform**: Complexo, flexível
+
+*Considerações*:
+
+- libSQL suporta apenas primary/replica (não active-active)
+- Requer mudança de arquitetura significativa
+- Considerar CockroachDB ou Spanner se necessário
+
+===== Query Engine
+
+Queries além de get/list.
+
+*Motivação*: Reduzir necessidade de índices manuais.
+
+*Funcionalidades possíveis*:
+
+[source,typescript]
+----
+// Agregações
+await kv.aggregate(["orders"], {
+  sum: "$.amount",
+  groupBy: "$.status"
+});
+
+// Joins (via índices)
+await kv.join(
+  { prefix: ["users"], as: "user" },
+  { prefix: ["orders"], as: "order", on: "$.userId = user.$.id" }
+);
+----
+
+*Considerações*:
+
+- SQLite já suporta JSON queries
+- Performance pode ser problema sem índices
+- Considerar se não é melhor usar Postgres
+
+===== Cold Storage Tiering
+
+Mover dados antigos para storage barato.
+
+*Motivação*: Reduzir custo de storage para dados raramente acessados.
+
+*Implementação proposta*:
+
+[source,typescript]
+----
+interface TieringConfig {
+  hot: {
+    storage: "libsql",
+    maxAge: 7 * 24 * 60 * 60 * 1000  // 7 dias
+  },
+  cold: {
+    storage: "s3",
+    bucket: "keyval-cold-storage"
+  }
+}
+
+// Background job
+for await (const entry of kv.list([])) {
+  if (entry.updatedAt < hotThreshold) {
+    await s3.put(keyToPath(entry.key), entry.value);
+    await kv.delete(entry.key);
+  }
+}
+----
+
+*Considerações*:
+
+- Latência de acesso a cold storage
+- Migração de volta para hot
+- Consistência durante migração
+
+=== Compatibilidade Futura
+
+==== Breaking Changes Planejadas
+
+Não há breaking changes planejadas para as próximas versões.
+
+*Política de versionamento*:
+
+- Major (1.0 → 2.0): Breaking changes, requer migração
+- Minor (1.0 → 1.1): Novas features, backward compatible
+- Patch (1.0.0 → 1.0.1): Bug fixes
+
+==== Deprecations
+
+Atualmente não há APIs marcadas como deprecated.
+
+==== Migração de Dados
+
+Para futuras versões que exijam migração:
+
+[source,typescript]
+----
+// Script de migração fornecido
+bunx @buntime/keyval-migrate --from 1.0 --to 2.0
+
+// Ou programaticamente
+import { migrate } from '@buntime/plugin-keyval/migrate';
+await migrate(adapter, { from: '1.0', to: '2.0' });
+----
+
+=== Como Contribuir
+
+==== Reportar Bugs
+
+1. Verifique se já existe issue
+2. Crie issue com reprodução mínima
+3. Inclua versões (Bun, plugin, libSQL)
+
+==== Sugerir Features
+
+1. Abra Discussion (não Issue)
+2. Explique o caso de uso
+3. Proponha solução se tiver
+
+==== Contribuir Código
+
+1. Fork do repositório
+2. Branch feature/fix
+3. Testes obrigatórios
+4. PR com descrição clara
+
+==== Priorização
+
+Features são priorizadas por:
+
+1. **Impacto**: Quantos usuários beneficia?
+2. **Esforço**: Quanto trabalho requer?
+3. **Alinhamento**: Faz sentido para o projeto?
+4. **Contribuidor**: Comunidade vs core team

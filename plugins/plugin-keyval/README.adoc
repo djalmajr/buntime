@@ -1,0 +1,354 @@
+= KeyVal Plugin
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+ifdef::env-github[]
+:tip-caption: 💡
+:note-caption: ℹ️
+:important-caption: ⚠️
+:caution-caption: 🔥
+:warning-caption: ⚠️
+endif::[]
+
+image:https://img.shields.io/badge/Bun-1.x-blue[Bun]
+image:https://img.shields.io/badge/libSQL-latest-green[libSQL]
+image:https://img.shields.io/badge/TypeScript-5.0+-blue[TypeScript]
+
+toc::[]
+
+== Visão Geral
+
+**plugin-keyval** é o plugin Buntime que expõe uma API REST para o KeyVal, um banco de dados key-value com API compatível com Deno KV.
+
+Para documentação de uso do SDK, veja o pacote link:../../packages/keyval/README.adoc[@buntime/keyval].
+
+== Instalação
+
+[source,bash]
+----
+# O plugin é instalado junto com o Buntime
+bun add @buntime/plugin-keyval
+----
+
+== Configuração
+
+=== buntime.jsonc
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-keyval", {
+      "libsqlUrl": "${LIBSQL_URL}",           // URL do servidor libSQL
+      "libsqlReplicaUrl": "${LIBSQL_REPLICA_URL}", // URL da réplica (opcional)
+      "libsqlToken": "${LIBSQL_TOKEN}",       // Token de autenticação (opcional)
+      "cleanupInterval": 60000,               // Intervalo de limpeza de expirados (ms)
+      "operationTimeout": 30000               // Timeout de operações (ms)
+    }]
+  ]
+}
+----
+
+=== Variáveis de Ambiente
+
+[source,bash]
+----
+# Desenvolvimento local
+LIBSQL_URL=http://localhost:8880
+
+# Com réplica
+LIBSQL_REPLICA_URL=http://localhost:8882
+
+# Produção (libSQL self-hosted)
+LIBSQL_URL=http://libsql:8080
+LIBSQL_TOKEN=your-jwt-token
+----
+
+TIP: Para detalhes sobre autenticação JWT e configuração avançada do sqld, consulte a https://github.com/tursodatabase/libsql/tree/main/docs[documentação oficial do libSQL].
+
+=== Docker Compose
+
+[source,yaml]
+----
+services:
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8880:8080"  # HTTP API
+      - "8881:5001"  # gRPC (replicação)
+    environment:
+      SQLD_NODE: primary
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+      SQLD_GRPC_LISTEN_ADDR: 0.0.0.0:5001
+      SQLD_DISABLE_AUTH: "true"
+
+  libsql-replica:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8882:8080"
+    environment:
+      SQLD_NODE: replica
+      SQLD_PRIMARY_URL: http://libsql:5001
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+      SQLD_DISABLE_AUTH: "true"
+    depends_on:
+      - libsql
+----
+
+== Arquitetura
+
+=== Componentes
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                        Aplicação                            │
+│                    (Worker/App Buntime)                     │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ HTTP
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   @buntime/keyval                           │
+│                   (Cliente HTTP)                            │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ HTTP
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                @buntime/plugin-keyval                       │
+│                   (Plugin Server)                           │
+│   Rotas: /_/plugin-keyval/*                                │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ libSQL Protocol
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      libSQL Server                          │
+│                  (SQLite distribuído)                       │
+└─────────────────────────────────────────────────────────────┘
+----
+
+=== Schema do Banco
+
+[source,sql]
+----
+-- Tabela de entradas KV
+CREATE TABLE kv_entries (
+  key BLOB PRIMARY KEY,        -- Chave codificada em bytes
+  value BLOB NOT NULL,         -- Valor serializado em JSON
+  versionstamp TEXT NOT NULL,  -- Versão para controle de concorrência
+  expires_at INTEGER           -- Unix timestamp de expiração (opcional)
+);
+
+CREATE INDEX idx_kv_expires ON kv_entries(expires_at)
+  WHERE expires_at IS NOT NULL;
+
+-- Tabela de fila de mensagens
+CREATE TABLE kv_queue (
+  id TEXT PRIMARY KEY,              -- UUID da mensagem
+  value BLOB NOT NULL,              -- Payload serializado
+  ready_at INTEGER NOT NULL,        -- Quando ficará disponível
+  attempts INTEGER DEFAULT 0,       -- Tentativas de entrega
+  max_attempts INTEGER DEFAULT 5,   -- Máximo de tentativas
+  backoff_schedule TEXT,            -- JSON array de delays
+  keys_if_undelivered TEXT,         -- Fallback keys
+  status TEXT DEFAULT 'pending',    -- pending | processing | failed
+  locked_until INTEGER,             -- Lock timestamp
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+-- Dead Letter Queue
+CREATE TABLE kv_dlq (
+  id TEXT PRIMARY KEY,
+  original_id TEXT NOT NULL,
+  value BLOB NOT NULL,
+  error_message TEXT,
+  attempts INTEGER NOT NULL,
+  failed_at INTEGER NOT NULL
+);
+----
+
+== Endpoints REST
+
+=== Keys
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/keys/:key`
+| Buscar uma chave
+
+| POST
+| `/keys/batch`
+| Buscar múltiplas chaves (getMany)
+
+| PUT
+| `/keys/:key`
+| Criar/atualizar uma chave
+
+| DELETE
+| `/keys/:key`
+| Deletar uma chave
+
+| GET
+| `/keys`
+| Listar por prefixo
+
+| DELETE
+| `/keys`
+| Deletar por prefixo
+
+| POST
+| `/keys/paginate`
+| Listar com paginação por cursor
+
+| POST
+| `/keys/count`
+| Contar entradas por prefixo
+|===
+
+=== Transações
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| POST
+| `/atomic`
+| Executar operação atômica
+
+| POST
+| `/transaction`
+| Executar transação com snapshot
+|===
+
+=== Filas
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| POST
+| `/queue/enqueue`
+| Enfileirar mensagem
+
+| GET
+| `/queue/dequeue`
+| Obter próxima mensagem
+
+| POST
+| `/queue/ack/:id`
+| Confirmar processamento
+
+| POST
+| `/queue/nack/:id`
+| Rejeitar mensagem (retry)
+
+| GET
+| `/queue/stats`
+| Estatísticas da fila
+
+| GET
+| `/queue/listen`
+| SSE para receber mensagens
+|===
+
+=== Dead Letter Queue
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/queue/dlq`
+| Listar mensagens na DLQ
+
+| GET
+| `/queue/dlq/:id`
+| Obter mensagem específica
+
+| POST
+| `/queue/dlq/:id/requeue`
+| Reprocessar mensagem
+
+| DELETE
+| `/queue/dlq/:id`
+| Deletar mensagem
+
+| DELETE
+| `/queue/dlq`
+| Limpar toda DLQ
+|===
+
+=== Watch
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/watch`
+| SSE para observar chaves
+
+| GET
+| `/watch/poll`
+| Polling para observar chaves
+
+| GET
+| `/watch/prefix`
+| SSE para observar prefixo
+
+| GET
+| `/watch/prefix/poll`
+| Polling para observar prefixo
+|===
+
+=== Métricas
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/metrics`
+| Métricas em JSON
+
+| GET
+| `/metrics/prometheus`
+| Métricas em formato Prometheus
+|===
+
+== Fundamentos
+
+include::docs/fundamentals/architecture.adoc[leveloffset=+1]
+
+include::docs/fundamentals/consistency.adoc[leveloffset=+1]
+
+include::docs/fundamentals/internals.adoc[leveloffset=+1]
+
+include::docs/fundamentals/limitations.adoc[leveloffset=+1]
+
+include::docs/fundamentals/decisions.adoc[leveloffset=+1]
+
+include::docs/fundamentals/future.adoc[leveloffset=+1]
+
+== API
+
+include::docs/api/http-api-spec.adoc[leveloffset=+1]
+
+include::docs/api/metrics.adoc[leveloffset=+1]
+
+== Deploy e Operações
+
+include::docs/deployment/deployment.adoc[leveloffset=+1]
+
+include::docs/deployment/security.adoc[leveloffset=+1]
+
+include::docs/deployment/performance.adoc[leveloffset=+1]
+
+include::docs/deployment/troubleshooting.adoc[leveloffset=+1]

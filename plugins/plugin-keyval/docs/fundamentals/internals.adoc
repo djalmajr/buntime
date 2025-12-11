@@ -1,0 +1,520 @@
+== Detalhes de Implementação
+
+Este documento descreve os detalhes internos de implementação do plugin KeyVal para desenvolvedores e operadores que precisam entender como o sistema funciona.
+
+=== Codificação de Chaves
+
+As chaves do KeyVal são arrays de partes que precisam ser codificadas em bytes para armazenamento no SQLite.
+
+==== Type Tags
+
+Cada parte da chave é prefixada com um type tag para preservar a ordenação lexicográfica:
+
+[cols="1,1,2"]
+|===
+| Tipo | Tag (hex) | Ordenação
+
+| Uint8Array
+| `0x01`
+| Primeira (menor)
+
+| string
+| `0x02`
+| Segunda
+
+| number
+| `0x03`
+| Terceira
+
+| bigint
+| `0x04`
+| Quarta
+
+| boolean
+| `0x05`
+| Quinta (maior)
+|===
+
+Isso garante que chaves de tipos diferentes são ordenadas consistentemente:
+
+[source,typescript]
+----
+// Ordenação garantida:
+["users", new Uint8Array([1])]  // Menor (Uint8Array primeiro)
+["users", "admin"]              // Maior (string depois)
+----
+
+==== Codificação de Números
+
+Números IEEE 754 (float64) são codificados com manipulação do bit de sinal para ordenação correta:
+
+[source]
+----
+Positivos: Flip do sign bit (0x80 XOR)
+Negativos: Flip de todos os bits (0xFF XOR em cada byte)
+
+Resultado: -∞ < -1 < 0 < 1 < +∞ na ordenação de bytes
+----
+
+==== Separadores e Escaping
+
+- Separador entre partes: `0x00`
+- Escape byte: `0xFF`
+- Se `0x00` ou `0xFF` aparecem nos dados, são escapados com `0xFF` prefixado
+
+==== Consultas por Prefixo
+
+Para listar por prefixo, o KeyVal gera um range query:
+
+[source,typescript]
+----
+// Prefixo: ["users"]
+// Codificado: [0x02, "users"]
+// Range: start = [0x02, "users", 0x00]
+//        end   = [0x02, "users", 0xFF]
+
+SELECT * FROM kv_entries
+WHERE key >= ? AND key < ?
+ORDER BY key ASC
+----
+
+=== Serialização de Valores
+
+Valores são armazenados como JSON com suporte especial para BigInt:
+
+[source,typescript]
+----
+// Serialização
+function serializeValue(value: unknown): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify(value, jsonReplacer));
+}
+
+// BigInt → { __type: "bigint", value: "123" }
+// Outros tipos → JSON padrão
+----
+
+=== Geração de Versionstamps
+
+Versionstamps são gerados usando UUIDv7:
+
+[source,typescript]
+----
+const versionstamp = Bun.randomUUIDv7();
+// Exemplo: "0190a5b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b"
+----
+
+**Propriedades do UUIDv7:**
+
+- Time-ordered (primeiros 48 bits são timestamp Unix em ms)
+- Único globalmente
+- Sortável lexicograficamente
+- ~10^38 valores possíveis por milissegundo
+
+=== Sistema de Filas
+
+==== Arquitetura
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                      kv_queue (tabela)                       │
+├──────────┬──────────┬──────────┬──────────┬─────────────────┤
+│ pending  │ pending  │ pending  │processing│   processing    │
+│ ready    │ ready    │ delayed  │ locked   │   expired lock  │
+│ now      │ now      │ (futuro) │          │   → pending     │
+└────┬─────┴────┬─────┴──────────┴────┬─────┴────────┬────────┘
+     │          │                      │              │
+     ▼          ▼                      │              │
+┌─────────────────────┐               │              │
+│     dequeue()       │               │              │
+│  UPDATE...RETURNING │◄──────────────┘              │
+└─────────┬───────────┘                              │
+          │                                          │
+          ▼                                          │
+     ┌────────┐                                     │
+     │ Worker │                                     │
+     └────┬───┘                                     │
+          │                                          │
+     ┌────┴────┐                                    │
+     │ success │ ──► ack() ──► DELETE               │
+     │  error  │ ──► nack() ──► retry ou DLQ        │
+     └─────────┘                        ◄───────────┘
+                                   cleanup() reseta locks
+----
+
+==== Dequeue Atômico
+
+O dequeue usa `UPDATE...RETURNING` para operação atômica:
+
+[source,sql]
+----
+UPDATE kv_queue
+SET status = 'processing',
+    locked_until = ?,
+    attempts = attempts + 1,
+    updated_at = ?
+WHERE id = (
+  SELECT id FROM kv_queue
+  WHERE status = 'pending'
+    AND ready_at <= ?
+  ORDER BY ready_at ASC
+  LIMIT 1
+)
+RETURNING id, value, attempts
+----
+
+Isso garante que apenas um worker processa cada mensagem.
+
+==== Backoff Schedule
+
+Retries seguem um schedule configurável:
+
+[source,typescript]
+----
+const DEFAULT_BACKOFF_SCHEDULE = [1000, 5000, 10000]; // ms
+
+// Tentativa 1: imediata
+// Tentativa 2: +1s
+// Tentativa 3: +5s
+// Tentativa 4: +10s
+// Após: vai para DLQ
+----
+
+==== Dead Letter Queue
+
+Mensagens que falharam todas as tentativas vão para `kv_dlq`:
+
+[source,sql]
+----
+CREATE TABLE kv_dlq (
+  id TEXT PRIMARY KEY,
+  original_id TEXT NOT NULL,      -- ID original da mensagem
+  value BLOB NOT NULL,
+  error_message TEXT,
+  attempts INTEGER NOT NULL,
+  original_created_at INTEGER NOT NULL,
+  failed_at INTEGER NOT NULL
+);
+----
+
+==== Cleanup Automático
+
+Um timer periódico limpa mensagens antigas e reseta locks expirados:
+
+[source,typescript]
+----
+// A cada cleanupInterval (default: 60s)
+
+// 1. Deleta mensagens antigas
+DELETE FROM kv_queue
+WHERE status IN ('delivered', 'failed')
+  AND updated_at < (now - maxAge)
+
+// 2. Reseta locks expirados (mensagens "presas")
+UPDATE kv_queue
+SET status = 'pending',
+    locked_until = NULL
+WHERE status = 'processing'
+  AND locked_until < now
+----
+
+=== Limpeza de TTL
+
+Entradas expiradas são filtradas em leituras e removidas periodicamente:
+
+==== Filtro em Leituras
+
+[source,sql]
+----
+SELECT key, value, versionstamp FROM kv_entries
+WHERE key = ?
+  AND (expires_at IS NULL OR expires_at > unixepoch())
+----
+
+==== Cleanup Background
+
+[source,typescript]
+----
+// A cada 60 segundos
+setInterval(async () => {
+  await adapter.execute(
+    "DELETE FROM kv_entries WHERE expires_at IS NOT NULL AND expires_at <= unixepoch()"
+  );
+}, 60_000);
+----
+
+=== Operações Atômicas
+
+==== Fluxo de Commit
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                    atomic().commit()                         │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. Para cada check:                                         │
+│     SELECT versionstamp FROM kv_entries WHERE key = ?        │
+│     Se versionstamp != esperado → return { ok: false }       │
+│                                                              │
+│  2. Gerar novo versionstamp (UUIDv7)                         │
+│                                                              │
+│  3. Para cada mutation, construir SQL:                       │
+│     - set: INSERT OR REPLACE INTO kv_entries ...             │
+│     - delete: DELETE FROM kv_entries WHERE key = ?           │
+│     - sum/max/min: INSERT ... ON CONFLICT DO UPDATE ...      │
+│     - append/prepend: INSERT ... ON CONFLICT (json_each)     │
+│                                                              │
+│  4. Executar todas as mutations em batch                     │
+│                                                              │
+│  5. Disparar triggers (se configurados)                      │
+│                                                              │
+│  6. return { ok: true, versionstamp }                        │
+└─────────────────────────────────────────────────────────────┘
+----
+
+==== Mutações Especiais
+
+**sum, max, min** usam SQL com `json_extract`:
+
+[source,sql]
+----
+-- sum
+INSERT INTO kv_entries (key, value, versionstamp, expires_at)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(key) DO UPDATE SET
+  value = CAST(json(
+    COALESCE(json_extract(CAST(kv_entries.value AS TEXT), '$'), 0)
+    + json_extract(CAST(excluded.value AS TEXT), '$')
+  ) AS BLOB),
+  versionstamp = excluded.versionstamp
+
+-- max
+... MAX(COALESCE(...), ...) ...
+
+-- min
+... MIN(COALESCE(...), ...) ...
+----
+
+**append, prepend** usam `json_each` e `json_group_array`:
+
+[source,sql]
+----
+-- append
+ON CONFLICT(key) DO UPDATE SET
+  value = (
+    SELECT CAST(json_group_array(value) AS BLOB) FROM (
+      SELECT value FROM json_each(COALESCE(CAST(kv_entries.value AS TEXT), '[]'))
+      UNION ALL
+      SELECT value FROM json_each(CAST(excluded.value AS TEXT))
+    )
+  )
+----
+
+=== Transações com Snapshot Isolation
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                 kv.transaction(async (tx) => {...})          │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  KvTransaction internamente mantém:                          │
+│  - reads: Map<keyHex, KvEntry>   // Cache de leituras        │
+│  - writes: KvMutation[]          // Buffer de escritas       │
+│                                                              │
+│  tx.get(key):                                                │
+│    1. Se key em reads → retorna cache                        │
+│    2. Senão → kv.get(key) e armazena em reads                │
+│                                                              │
+│  tx.set(key, value):                                         │
+│    1. Adiciona { type: "set", key, value } em writes         │
+│                                                              │
+│  tx.commit() (chamado internamente):                         │
+│    1. Cria atomic()                                          │
+│    2. Para cada read: atomic.check({ key, versionstamp })    │
+│    3. Para cada write: atomic.set/delete/sum...              │
+│    4. atomic.commit()                                        │
+│                                                              │
+│  Se conflito: retry com exponential backoff                  │
+└─────────────────────────────────────────────────────────────┘
+----
+
+=== Watch por Polling
+
+O watch é implementado via polling (não WebSocket):
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                     GET /watch (SSE)                         │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. Parsear keys do query param                              │
+│  2. Inicializar Map<keyStr, versionstamp>                    │
+│                                                              │
+│  Loop (a cada 100ms):                                        │
+│    3. Para cada key:                                         │
+│       - GET key                                              │
+│       - Se versionstamp mudou → adicionar a changedEntries   │
+│       - Atualizar Map                                        │
+│                                                              │
+│    4. Se changedEntries.length > 0:                          │
+│       - stream.writeSSE({ event: "change", data: JSON })     │
+│    Senão:                                                    │
+│       - stream.writeSSE({ event: "ping", data: "" })         │
+│                                                              │
+│  5. Repetir até cliente desconectar                          │
+└─────────────────────────────────────────────────────────────┘
+----
+
+**Trade-off:** Polling é simples mas consome CPU. Para muitas keys, considere aumentar o intervalo ou usar menos watchers.
+
+=== Métricas
+
+==== Coleta
+
+[source,typescript]
+----
+// Wrapper em cada operação
+async get<T>(key: KvKey): Promise<KvEntry<T>> {
+  const start = performance.now();
+  let error = false;
+  try {
+    // ... operação ...
+  } catch (err) {
+    error = true;
+    throw err;
+  } finally {
+    this.metrics.recordOperation("get", performance.now() - start, error);
+  }
+}
+----
+
+==== Histograma de Latência
+
+Buckets padrão (em ms): `[1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, +Inf]`
+
+==== Persistência Opcional
+
+Se `persistentMetrics: true`, métricas são salvas no banco periodicamente:
+
+[source,sql]
+----
+INSERT INTO kv_metrics (id, operation, count, errors, latency_sum, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+  count = count + excluded.count,
+  errors = errors + excluded.errors,
+  latency_sum = latency_sum + excluded.latency_sum
+----
+
+=== Triggers
+
+Callbacks podem ser registrados para reagir a modificações:
+
+[source,typescript]
+----
+// Registro
+const unsubscribe = kv.addTrigger({
+  prefix: ["users"],
+  events: ["set", "delete"],
+  handler: async (event) => {
+    console.log(`${event.type} on ${event.key}`);
+  },
+});
+
+// Disparo (interno, após cada set/delete)
+await this.fireTriggers("set", key, value, versionstamp);
+----
+
+**Execução:**
+
+- Síncrona (dentro da operação)
+- Erros são logados mas não propagados
+- Matching por prefixo (array prefix match)
+
+=== Validação de Input
+
+Limites configurados em `validation.ts`:
+
+[cols="1,2"]
+|===
+| Limite | Valor
+
+| MAX_KEY_DEPTH
+| 20 partes
+
+| MAX_KEY_PART_LENGTH
+| 1024 caracteres
+
+| MAX_BATCH_SIZE
+| 1000 chaves
+
+| Safe Integer Range
+| -(2^53-1) a (2^53-1)
+|===
+
+Validação ocorre no handler HTTP antes de qualquer operação de banco.
+
+=== Schema do Banco
+
+[source,sql]
+----
+-- Entradas KV
+CREATE TABLE kv_entries (
+  key BLOB PRIMARY KEY,
+  value BLOB NOT NULL,
+  versionstamp TEXT NOT NULL,
+  expires_at INTEGER
+);
+
+CREATE INDEX idx_kv_expires ON kv_entries(expires_at)
+  WHERE expires_at IS NOT NULL;
+
+-- Fila de mensagens
+CREATE TABLE kv_queue (
+  id TEXT PRIMARY KEY,
+  value BLOB NOT NULL,
+  ready_at INTEGER NOT NULL,
+  attempts INTEGER DEFAULT 0,
+  max_attempts INTEGER DEFAULT 5,
+  backoff_schedule TEXT,
+  keys_if_undelivered TEXT,
+  status TEXT DEFAULT 'pending',
+  locked_until INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_queue_ready ON kv_queue(status, ready_at)
+  WHERE status = 'pending';
+
+CREATE INDEX idx_queue_locked ON kv_queue(locked_until)
+  WHERE status = 'processing';
+
+-- Dead Letter Queue
+CREATE TABLE kv_dlq (
+  id TEXT PRIMARY KEY,
+  original_id TEXT NOT NULL,
+  value BLOB NOT NULL,
+  error_message TEXT,
+  attempts INTEGER NOT NULL,
+  original_created_at INTEGER NOT NULL,
+  failed_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_dlq_failed_at ON kv_dlq(failed_at);
+
+-- Métricas (opcional)
+CREATE TABLE kv_metrics (
+  id TEXT PRIMARY KEY,
+  operation TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  errors INTEGER NOT NULL DEFAULT 0,
+  latency_sum REAL NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_metrics_operation ON kv_metrics(operation);
+----

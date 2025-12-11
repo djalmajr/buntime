@@ -1,6 +1,81 @@
-== Consistency Modes
+== Modelo de Consistência
 
-=== Visão Geral
+Este documento descreve as garantias de consistência do KeyVal, inspirado nas documentações do https://github.com/tursodatabase/libsql/blob/main/docs/CONSISTENCY_MODEL.md[libSQL] e https://docs.deno.com/deploy/kv/manual/[Deno KV].
+
+=== Fundamentos
+
+==== Transações SQLite
+
+O KeyVal herda as garantias transacionais do SQLite/libSQL:
+
+- **Serializable Isolation**: Transações são executadas como se fossem sequenciais
+- **Atomicidade**: Todas as operações de uma transação completam ou nenhuma completa
+- **Durabilidade**: Dados commitados sobrevivem a falhas
+
+==== Optimistic Concurrency Control (OCC)
+
+O KeyVal usa OCC em vez de locks pessimistas:
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                 Pessimistic Locking                          │
+├─────────────────────────────────────────────────────────────┤
+│  1. BEGIN TRANSACTION                                        │
+│  2. SELECT ... FOR UPDATE  ← Lock adquirido                  │
+│  3. UPDATE ...                                               │
+│  4. COMMIT                 ← Lock liberado                   │
+│                                                              │
+│  Problema: Outros clientes bloqueados durante todo o tempo   │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                 Optimistic Concurrency (KeyVal)              │
+├─────────────────────────────────────────────────────────────┤
+│  1. GET key → {value, versionstamp}  ← Sem lock             │
+│  2. (Processamento local)                                    │
+│  3. ATOMIC                                                   │
+│       CHECK(key, versionstamp)       ← Verifica se mudou    │
+│       SET(key, newValue)                                     │
+│     COMMIT                                                   │
+│                                                              │
+│  Se versionstamp mudou: conflito → retry                     │
+│  Se igual: commit bem-sucedido                               │
+└─────────────────────────────────────────────────────────────┘
+----
+
+**Vantagens do OCC:**
+
+- Sem bloqueio durante leituras
+- Melhor throughput para cargas read-heavy
+- Sem deadlocks
+
+**Desvantagens:**
+
+- Retries em caso de conflito
+- Overhead de versionstamp em cada operação
+
+==== Versionstamps
+
+Cada entrada no KeyVal tem um `versionstamp` - um identificador único que muda a cada modificação:
+
+[source,typescript]
+----
+interface KvEntry<T> {
+  key: KvKey;
+  value: T | null;
+  versionstamp: string | null;  // UUIDv7 - ordenável por tempo
+}
+----
+
+**Características:**
+
+- Gerado como UUIDv7 (time-ordered UUID)
+- Único globalmente
+- Crescente monotonicamente no tempo
+- Usado para detecção de conflitos em `atomic().check()`
+
+=== Modos de Consistência
 
 O KeyVal suporta dois modos de consistência para operações de leitura:
 
@@ -17,10 +92,7 @@ O KeyVal suporta dois modos de consistência para operações de leitura:
 | Dashboards, caches, dados que não mudam frequentemente
 |===
 
-[NOTE]
-====
-O modo `eventual` só funciona quando o plugin está configurado com `libsqlReplicaUrl`. Caso contrário, todas as leituras usam o primário.
-====
+NOTE: O modo `eventual` só funciona quando o plugin está configurado com `libsqlReplicaUrl`. Caso contrário, todas as leituras usam o primário.
 
 === Configuração
 
@@ -78,10 +150,10 @@ services:
 LIBSQL_URL=http://localhost:8880
 LIBSQL_REPLICA_URL=http://localhost:8882
 
-# Produção (Turso)
-LIBSQL_URL=libsql://your-database.turso.io
-LIBSQL_REPLICA_URL=libsql://your-database-replica.turso.io
-LIBSQL_TOKEN=your-auth-token
+# Produção (libSQL self-hosted)
+LIBSQL_URL=http://libsql-primary:8080
+LIBSQL_REPLICA_URL=http://libsql-replica:8080
+LIBSQL_TOKEN=your-jwt-token
 ----
 
 === Uso
@@ -97,7 +169,7 @@ const entry = await kv.get(["users", 123]);
 const entry = await kv.get(["users", 123], { consistency: "strong" });
 
 // List também suporta
-for await (const entry of kv.list({ prefix: ["users"], consistency: "strong" })) {
+for await (const entry of kv.list(["users"], { consistency: "strong" })) {
   console.log(entry);
 }
 ----
@@ -110,7 +182,7 @@ for await (const entry of kv.list({ prefix: ["users"], consistency: "strong" }))
 const entry = await kv.get(["users", 123], { consistency: "eventual" });
 
 // List com eventual consistency
-for await (const entry of kv.list({ prefix: ["metrics"], consistency: "eventual" })) {
+for await (const entry of kv.list(["metrics"], { consistency: "eventual" })) {
   console.log(entry);
 }
 ----
@@ -318,14 +390,14 @@ Ao usar `eventual`, você aceita que os dados podem estar desatualizados por ess
 
 [source,typescript]
 ----
-// ❌ Evite: ler com eventual e depois usar em atomic
+// Evite: ler com eventual e depois usar em atomic
 const entry = await kv.get(key, { consistency: "eventual" });
 await kv.atomic()
   .check({ key, versionstamp: entry.versionstamp }) // versionstamp pode estar desatualizado!
   .set(key, newValue)
   .commit();
 
-// ✅ Correto: use strong quando precisar do versionstamp
+// Correto: use strong quando precisar do versionstamp
 const entry = await kv.get(key, { consistency: "strong" });
 await kv.atomic()
   .check({ key, versionstamp: entry.versionstamp })
@@ -357,3 +429,325 @@ await kv.set(key, value); // → primary
 await kv.delete(key);     // → primary
 await kv.atomic()...      // → primary
 ----
+
+=== Garantias de Visibilidade
+
+==== Read-Your-Writes
+
+Dentro de uma mesma conexão, você sempre vê suas próprias escritas:
+
+[source,typescript]
+----
+await kv.set(["counter"], 1);
+const entry = await kv.get(["counter"]);
+// entry.value === 1 (garantido)
+----
+
+==== Monotonic Reads
+
+Uma vez que você leu um valor, leituras subsequentes nunca retornam valores mais antigos:
+
+[source,typescript]
+----
+// Leitura 1: valor versão V5
+const entry1 = await kv.get(["data"], { consistency: "eventual" });
+
+// Leitura 2: nunca retorna versão < V5
+const entry2 = await kv.get(["data"], { consistency: "eventual" });
+----
+
+==== Causal Consistency
+
+O KeyVal **não** garante consistência causal entre clientes diferentes:
+
+[source,typescript]
+----
+// Cliente A
+await kv.set(["flag"], true);
+await notifyClientB(); // Notifica via canal externo
+
+// Cliente B (pode não ver a escrita ainda!)
+const flag = await kv.get(["flag"], { consistency: "eventual" });
+// flag.value pode ser false se replicação não completou
+----
+
+Para garantir visibilidade entre clientes, use `consistency: "strong"` ou implemente sincronização explícita.
+
+==== Ordenação Global
+
+Não há garantia de ordenação global entre operações independentes:
+
+[source,typescript]
+----
+// Operações em paralelo - ordem não determinística
+await Promise.all([
+  kv.set(["a"], 1),
+  kv.set(["b"], 2),
+]);
+
+// Outro cliente pode ver:
+// - a=1, b=undefined
+// - a=undefined, b=2
+// - a=1, b=2
+// - a=undefined, b=undefined
+----
+
+Para ordenação garantida, use operações atômicas:
+
+[source,typescript]
+----
+await kv.atomic()
+  .set(["a"], 1)
+  .set(["b"], 2)
+  .commit();
+
+// Agora ambos são visíveis atomicamente
+----
+
+=== Comparação com Deno KV
+
+O KeyVal foi inspirado no Deno KV e busca compatibilidade de API. Esta tabela compara as funcionalidades:
+
+[cols="2,1,1,2"]
+|===
+| Funcionalidade | KeyVal | Deno KV | Notas
+
+| *Operações Básicas*
+|
+|
+|
+
+| get
+| Sim
+| Sim
+| Idêntico
+
+| getMany
+| Sim
+| Sim
+| Idêntico
+
+| set
+| Sim
+| Sim
+| Idêntico
+
+| delete
+| Sim
+| Sim
+| Idêntico
+
+| list (prefixo)
+| Sim
+| Sim
+| Idêntico
+
+| list (range)
+| Sim
+| Sim
+| start/end keys
+
+| *Transações*
+|
+|
+|
+
+| atomic()
+| Sim
+| Sim
+| OCC com versionstamps
+
+| check()
+| Sim
+| Sim
+| Verifica versionstamp
+
+| sum()
+| Sim
+| Sim
+| Contadores atômicos
+
+| max()
+| Sim
+| Sim
+| Máximo atômico
+
+| min()
+| Sim
+| Sim
+| Mínimo atômico
+
+| *Consistência*
+|
+|
+|
+
+| Strong (padrão)
+| Sim
+| Sim
+| Leitura do primário
+
+| Eventual
+| Sim (com réplica)
+| Sim
+| Leitura de réplica
+
+| *Watch*
+|
+|
+|
+
+| watch keys
+| Sim (polling)
+| Sim (nativo)
+| KeyVal usa polling 100ms
+
+| watch prefix
+| Sim (polling)
+| Não
+| Extensão do KeyVal
+
+| *Filas*
+|
+|
+|
+
+| enqueue
+| Sim
+| Sim
+| Idêntico
+
+| listenQueue
+| Sim
+| Sim
+| Idêntico
+
+| delay
+| Sim
+| Sim
+| Agendamento futuro
+
+| keysIfUndelivered (DLQ)
+| Sim
+| Sim
+| Dead Letter Queue
+
+| backoffSchedule
+| Sim
+| Sim
+| Retry customizado
+
+| *Expiração*
+|
+|
+|
+
+| expireIn
+| Sim
+| Sim
+| TTL em milissegundos
+
+| expireAt
+| Sim
+| Sim
+| Timestamp absoluto
+
+| *Filtros (where)*
+|
+|
+|
+
+| Filtros em list()
+| Sim
+| Não
+| Extensão do KeyVal
+
+| *Busca Textual*
+|
+|
+|
+
+| Full-text search (FTS5)
+| Sim
+| Não
+| Extensão do KeyVal
+
+| *Limites*
+|
+|
+|
+
+| Checks por atomic
+| 1000
+| 100
+| KeyVal mais permissivo
+
+| Mutations por atomic
+| 1000
+| 1000
+| Idêntico
+
+| Tamanho de chave
+| ~20KB
+| 2KB
+| KeyVal mais permissivo
+
+| Tamanho de valor
+| Sem limite rígido
+| 64KB
+| KeyVal usa libSQL
+
+| *Backend*
+|
+|
+|
+
+| Produção
+| libSQL (sqld)
+| FoundationDB
+| Arquiteturas diferentes
+
+| Local
+| libSQL (sqld)
+| SQLite
+| KeyVal sempre usa libSQL
+|===
+
+=== Comparação com Outros Sistemas
+
+[cols="1,1,1,1"]
+|===
+| Sistema | Consistência Padrão | Suporta Eventual | Modelo de Conflito
+
+| KeyVal
+| Strong
+| Sim (com réplica)
+| OCC com versionstamps
+
+| Deno KV
+| Strong
+| Sim
+| OCC com versionstamps
+
+| Redis
+| Eventual (cluster)
+| Sempre
+| Last-write-wins
+
+| DynamoDB
+| Eventual
+| Strong opcional
+| Conditional writes
+
+| PostgreSQL
+| Strong
+| Não
+| Pessimistic locking
+|===
+
+=== Referências
+
+- https://github.com/tursodatabase/libsql/blob/main/docs/CONSISTENCY_MODEL.md[libSQL Consistency Model]
+- https://docs.deno.com/deploy/kv/manual/[Deno KV Manual]
+- https://github.com/denoland/docs/tree/main/deploy/kv[Deno KV Documentation Source]
+- https://jepsen.io/consistency[Jepsen Consistency Models]

@@ -1,0 +1,524 @@
+== Limitações e Restrições
+
+Este documento descreve as limitações conhecidas do plugin KeyVal. Entender essas restrições é essencial para evitar problemas em produção.
+
+=== Limitações de Precisão Numérica
+
+==== BigInt em Operações Atômicas
+
+IMPORTANT: As operações `sum()`, `max()` e `min()` convertem BigInt para Number, causando perda de precisão para valores grandes.
+
+[source,typescript]
+----
+// PROBLEMA: Valores > 2^53 perdem precisão
+await kv.atomic()
+  .sum(["counter"], 9007199254740993n)  // > MAX_SAFE_INTEGER
+  .commit();
+
+// Internamente acontece:
+// bigIntToNumber(9007199254740993n) → 9007199254740992 (ERRADO!)
+----
+
+*Código problemático* (atomic.ts:50-58):
+
+[source,typescript]
+----
+function bigIntToNumber(value: bigint, operation: string): number {
+  if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < BigInt(Number.MIN_SAFE_INTEGER)) {
+    throw new Error(`BigInt value ${value} exceeds safe integer range...`);
+  }
+  return Number(value);  // Conversão com potencial perda
+}
+----
+
+*Workaround*: Use valores string para contadores grandes:
+
+[source,typescript]
+----
+// Armazenar como string
+const entry = await kv.get<string>(["big_counter"]);
+const current = BigInt(entry.value ?? "0");
+await kv.set(["big_counter"], (current + 1n).toString());
+----
+
+==== Ordenação de Números Negativos BigInt
+
+A ordenação de BigInts negativos pode não funcionar corretamente em range queries devido à codificação de sinal.
+
+[source,typescript]
+----
+// Ordem esperada: -10, -5, 0, 5, 10
+// Ordem real pode variar dependendo do encoding
+----
+
+=== Limitações de Watch
+
+==== Polling CPU Overhead
+
+O watch usa polling a cada 100ms por chave. Não há otimização de batch.
+
+[source,typescript]
+----
+// Internamente (a cada 100ms):
+for (const key of watchedKeys) {
+  const current = await kv.get(key);  // 1 query por chave!
+  if (current.versionstamp !== cached.versionstamp) {
+    emit(current);
+  }
+}
+----
+
+*Impacto*:
+
+|===
+| Chaves | Queries/segundo | CPU Impact
+
+| 10
+| 100
+| Baixo
+
+| 100
+| 1,000
+| Médio
+
+| 1,000
+| 10,000
+| Alto (não recomendado)
+|===
+
+==== Sem Batch Watch
+
+Não há API para watch eficiente de múltiplas chaves:
+
+[source,typescript]
+----
+// Cada watch é independente
+kv.watch([["users", "1"]]);  // 10 queries/seg
+kv.watch([["users", "2"]]);  // +10 queries/seg
+kv.watch([["users", "3"]]);  // +10 queries/seg
+// Total: 30 queries/seg para 3 chaves
+----
+
+*Workaround*: Use list com polling manual:
+
+[source,typescript]
+----
+// Polling manual mais eficiente
+setInterval(async () => {
+  const entries = await kv.list(["users"], { limit: 100 });
+  // Processa todas as mudanças de uma vez
+}, 1000);
+----
+
+=== Limitações de Transações
+
+==== Sem Retry Automático
+
+A documentação menciona retry com exponential backoff, mas **não está implementado**:
+
+[source,typescript]
+----
+// transaction.ts - commit() simplesmente retorna { ok: false }
+// Não há retry automático!
+
+const result = await kv.transaction(async (tx) => {
+  // ...
+});
+// Se result.ok === false, você precisa implementar retry manualmente
+----
+
+*Implementação correta*:
+
+[source,typescript]
+----
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  baseDelay = 100
+): Promise<T> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const result = await fn();
+      if (result && typeof result === 'object' && 'ok' in result && !result.ok) {
+        throw new Error('Transaction conflict');
+      }
+      return result;
+    } catch (err) {
+      if (attempt === maxRetries - 1) throw err;
+      await sleep(baseDelay * Math.pow(2, attempt));
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+----
+
+==== Snapshot Isolation Limitada
+
+A transação cacheia leituras mas **não vê suas próprias escritas**:
+
+[source,typescript]
+----
+const result = await kv.transaction(async (tx) => {
+  await tx.set(["key"], "value");
+
+  // Retorna valor ANTIGO, não "value"
+  const entry = await tx.get(["key"]);
+  console.log(entry.value);  // undefined ou valor anterior
+});
+----
+
+*Razão*: Escritas são bufferizadas e só aplicadas no commit.
+
+=== Limitações de Segurança
+
+==== Injeção em where-to-sql
+
+O conversor where-to-sql interpola paths diretamente no SQL:
+
+[source,typescript]
+----
+// where-to-sql.ts:36-39
+function fieldToJsonExtract(field: string): string {
+  const jsonPath = field.startsWith("$") ? field : `$.${field}`;
+  return `json_extract(value, '${jsonPath}')`;  // Sem escape!
+}
+----
+
+*Mitigação*: O campo `field` vem das chaves do objeto where, não de user input direto. Mas se você expor where filters via API, sanitize primeiro:
+
+[source,typescript]
+----
+// Valide campos permitidos
+const ALLOWED_FIELDS = ['status', 'email', 'createdAt'];
+for (const field of Object.keys(where)) {
+  if (!ALLOWED_FIELDS.includes(field) && !field.startsWith('$')) {
+    throw new Error(`Invalid field: ${field}`);
+  }
+}
+----
+
+=== Limitações de Fila
+
+==== Lock Não É Garantido
+
+Se o processo crashar durante processamento, a mensagem fica travada até `lockDuration` expirar (30s padrão):
+
+[source,typescript]
+----
+const msg = await kv.queue.dequeue();
+// Processo crasha aqui
+// Mensagem fica "processing" por 30 segundos
+
+// Outro worker só pode pegar após:
+// locked_until < Date.now()
+----
+
+==== Graceful Shutdown Incompleto
+
+O listener não tem garantia de completar processamento:
+
+[source,typescript]
+----
+// queue.ts:493-501
+return async () => {
+  state.running = false;
+  this.listeners.delete(state);
+
+  // Aguarda workers ativos, mas...
+  while (state.activeWorkers > 0) {
+    await sleep(100);
+  }
+  // ...não aguarda mensagens em voo serem acked/nacked
+};
+----
+
+*Workaround*: Implemente graceful shutdown manualmente:
+
+[source,typescript]
+----
+process.on('SIGTERM', async () => {
+  console.log('Shutting down...');
+
+  // Para de aceitar novas mensagens
+  const stop = listener.stop();
+
+  // Aguarda processamento atual
+  await stop;
+
+  // Aguarda um pouco mais para acks em voo
+  await sleep(5000);
+
+  process.exit(0);
+});
+----
+
+==== DLQ Sem Cleanup Automático
+
+A Dead Letter Queue cresce indefinidamente:
+
+[source,typescript]
+----
+// Não há cleanup automático de DLQ
+// Mensagens ficam lá para sempre
+----
+
+*Workaround*: Implemente cleanup manual:
+
+[source,typescript]
+----
+// Cleanup semanal de DLQ
+setInterval(async () => {
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+  for (const msg of await kv.queue.listDlq({ limit: 1000 })) {
+    if (msg.failedAt < weekAgo) {
+      await kv.queue.deleteDlq(msg.id);
+    }
+  }
+}, 24 * 60 * 60 * 1000);
+----
+
+=== Limitações de TTL
+
+==== Cleanup Blocking
+
+O cleanup de TTL roda no mesmo thread e pode causar picos de latência:
+
+[source,typescript]
+----
+// Internamente (a cada 60s):
+await adapter.execute(
+  "DELETE FROM kv_entries WHERE expires_at IS NOT NULL AND expires_at <= unixepoch()"
+);
+// Se houver milhões de entradas expiradas, isso pode demorar segundos
+----
+
+*Mitigação*: Não expire milhões de entradas de uma vez. Use TTLs escalonados:
+
+[source,typescript]
+----
+// Todas expiram ao mesmo tempo
+for (const item of items) {
+  await kv.set(["cache", item.id], item, { expireIn: 3600_000 });
+}
+
+// TTLs distribuídos
+for (const item of items) {
+  const jitter = Math.random() * 600_000;  // 0-10min de jitter
+  await kv.set(["cache", item.id], item, { expireIn: 3600_000 + jitter });
+}
+----
+
+==== Granularidade de Segundos
+
+TTL é armazenado em segundos Unix, não milissegundos:
+
+[source,typescript]
+----
+// atomic.ts:209
+const expiresAt = mutation.expireIn
+  ? now + Math.floor(mutation.expireIn / 1000)  // Trunca para segundos
+  : null;
+----
+
+*Impacto*: TTLs < 1000ms são efetivamente 0-1 segundos.
+
+=== Limitações de Escala
+
+==== Single Writer
+
+SQLite/libSQL tem um único writer. Writes concorrentes são serializados:
+
+[source]
+----
+Writer 1: [████████████]
+Writer 2:              [████████████]
+Writer 3:                            [████████████]
+----
+
+*Throughput máximo*: ~1,000-5,000 writes/seg dependendo do hardware.
+
+==== Sem Particionamento
+
+Não há sharding automático. Todo dado vai para uma única instância libSQL:
+
+[source]
+----
+Dados: ~100GB máximo recomendado
+Após: Considere Postgres, CockroachDB, ou sharding manual
+----
+
+==== Memória de Métricas
+
+Histogramas de latência crescem com o tempo:
+
+[source,typescript]
+----
+// metrics.ts - Map cresce indefinidamente
+private latencyHistograms = new Map<KvOperationType, Map<number, number>>();
+----
+
+*Impacto*: ~1KB por tipo de operação. Negligível na prática.
+
+=== Limitações de Valor
+
+==== Tamanho Máximo
+
+Valores são armazenados como JSON BLOB. Limite prático:
+
+|===
+| Limite | Valor | Razão
+
+| Hard limit
+| ~2GB
+| SQLite BLOB limit
+
+| Recomendado
+| <1MB
+| Performance de parse
+
+| Ideal
+| <100KB
+| Latência de rede
+|===
+
+==== Tipos Não Suportados
+
+[source,typescript]
+----
+// Não serializáveis nativamente
+const date = new Date();
+const map = new Map();
+const set = new Set();
+const uint8 = new Uint8Array();  // Em valores, não chaves
+const fn = () => {};
+
+// Workarounds
+await kv.set(["key"], {
+  date: date.toISOString(),
+  map: Object.fromEntries(map),
+  set: Array.from(set),
+  uint8: Buffer.from(uint8).toString('base64')
+});
+----
+
+=== Limitações de Índices Secundários
+
+==== Consistência Manual
+
+Índices secundários são mantidos manualmente via `atomic()`:
+
+[source,typescript]
+----
+// Você é responsável por manter consistência
+await kv.atomic()
+  .set(["users", id], user)
+  .set(["users_by_email", user.email], id)
+  .commit();
+
+// Se esquecer o índice:
+await kv.set(["users", id], { ...user, email: "new@email.com" });
+// Index users_by_email agora está desatualizado!
+----
+
+==== Sem Unique Constraints
+
+Não há validação de unicidade:
+
+[source,typescript]
+----
+// Ambos podem existir
+await kv.set(["users_by_email", "john@example.com"], "user-1");
+await kv.set(["users_by_email", "john@example.com"], "user-2");
+// Sem erro, último valor ganha
+----
+
+*Workaround*: Use atomic com check:
+
+[source,typescript]
+----
+const existing = await kv.get(["users_by_email", email]);
+const result = await kv.atomic()
+  .check({ key: ["users_by_email", email], versionstamp: null })  // Deve não existir
+  .set(["users_by_email", email], userId)
+  .commit();
+
+if (!result.ok) {
+  throw new Error("Email already exists");
+}
+----
+
+=== Limitações de Observabilidade
+
+==== Sem Tracing Distribuído
+
+Não há integração com OpenTelemetry ou similar:
+
+[source,typescript]
+----
+// Sem span IDs, trace IDs, ou propagação de contexto
+----
+
+*Workaround*: Implemente wrapper manualmente:
+
+[source,typescript]
+----
+import { trace } from '@opentelemetry/api';
+
+async function tracedGet<T>(key: KvKey): Promise<KvEntry<T>> {
+  const span = trace.getTracer('keyval').startSpan('kv.get');
+  try {
+    return await kv.get<T>(key);
+  } finally {
+    span.end();
+  }
+}
+----
+
+==== Sem Query Logging
+
+Não há log de queries SQL executadas:
+
+[source,typescript]
+----
+// Útil para debug mas não implementado
+// DEBUG=keyval:sql não existe
+----
+
+=== Resumo de Limites
+
+|===
+| Categoria | Limite | Impacto
+
+| Chave
+| 20 partes, 1KB cada
+| Baixo
+
+| Valor
+| <1MB recomendado
+| Médio
+
+| Batch
+| 1000 chaves
+| Baixo
+
+| Watch
+| <100 chaves
+| Alto
+
+| Transação
+| Sem limite, mas sem retry
+| Alto
+
+| Writes/seg
+| ~1K-5K
+| Médio
+
+| Dataset
+| ~100GB
+| Médio
+
+| BigInt
+| ±2^53 em atomic ops
+| Alto
+|===

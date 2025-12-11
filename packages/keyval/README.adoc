@@ -14,248 +14,111 @@ ifdef::env-github[]
 :warning-caption: ⚠️
 endif::[]
 
-image:https://img.shields.io/badge/Bun-1.x-blue[Bun]
-image:https://img.shields.io/badge/libSQL-latest-green[libSQL]
-image:https://img.shields.io/badge/TypeScript-5.0+-blue[TypeScript]
-image:https://img.shields.io/badge/API-Deno_KV-purple[Deno KV Compatible]
-
 toc::[]
 
-== Visão Geral
+== Introdução
 
-**KeyVal** é um cliente de key-value store com API idêntica ao https://deno.land/kv[Deno KV], porém utilizando https://turso.tech/libsql[libSQL] como backend de armazenamento.
+Este guia ensina como modelar dados e resolver problemas comuns usando KeyVal, um banco de dados chave-valor inspirado no Deno KV.
 
-O objetivo é fornecer uma experiência familiar para desenvolvedores que conhecem Deno KV, permitindo migração fácil e uso em ambientes Bun/Node.js.
+Se você vem de bancos relacionais (PostgreSQL, MySQL) ou NoSQL (MongoDB), este guia vai ajudar a traduzir seus conhecimentos para o modelo KeyVal.
 
-=== Características
+=== O que é KeyVal?
 
-* **API compatível com Deno KV** - Mesma interface de programação
-* **Backend libSQL** - Armazenamento SQLite distribuído via Turso
-* **Chaves compostas** - Arrays de strings, números, booleans e Uint8Array
-* **TTL nativo** - Expiração automática de entradas
-* **Transações atômicas** - Operações com controle de concorrência otimista
-* **Operações atômicas** - sum, max, min, append, prepend (sem read-modify-write)
-* **Listagem por prefixo** - Iteração eficiente sobre grupos de chaves
-* **getMany otimizado** - Busca múltiplas chaves em uma única requisição
-* **Filas de mensagens** - enqueue/listenQueue com retry e backoff
-* **Watch** - Monitoramento de mudanças em tempo real (SSE/polling) com backpressure
-* **Consistency modes** - Strong (primary) e Eventual (replica)
+KeyVal é um banco de dados chave-valor hierárquico onde:
 
-== Quick Start
-
-=== Instalação
-
-[source,bash]
-----
-bun add @buntime/keyval
-----
-
-=== Configuração do libSQL
-
-O KeyVal requer uma instância libSQL rodando. Para desenvolvimento local:
-
-[source,bash]
-----
-# Via Docker
-docker run -d \
-  -p 8880:8080 \
-  -p 8881:5000 \
-  ghcr.io/tursodatabase/libsql-server:latest
-
-# Ou via docker-compose (veja docker-compose.yml na raiz do projeto)
-docker compose up -d libsql
-----
-
-=== Uso Básico
+* **Chaves** são arrays ordenados: `["users", 123, "profile"]`
+* **Valores** são JSON: objetos, arrays, strings, números
+* **Operações** são atômicas e consistentes
 
 [source,typescript]
 ----
 import { Kv } from "@buntime/keyval";
 
-// Conectar ao KeyVal (via plugin buntime)
 const kv = new Kv("http://localhost:8000/_/plugin-keyval");
 
-// Armazenar um valor
-await kv.set(["users", 123], { name: "Alice", email: "alice@example.com" });
+// Salvar
+await kv.set(["users", 1], { name: "Alice", email: "alice@example.com" });
 
-// Recuperar um valor
-const entry = await kv.get(["users", 123]);
-console.log(entry.value); // { name: "Alice", email: "alice@example.com" }
+// Buscar
+const user = await kv.get(["users", 1]);
 
 // Listar por prefixo
-for await (const entry of kv.list({ prefix: ["users"] })) {
+for await (const entry of kv.list(["users"])) {
   console.log(entry.key, entry.value);
 }
-
-// Deletar
-await kv.delete(["users", 123]);
 ----
 
-== Arquitetura
+=== Quando usar KeyVal?
 
-=== Componentes
-
-[source]
-----
-┌─────────────────────────────────────────────────────────────┐
-│                        Aplicação                            │
-│                    (Worker/App Buntime)                     │
-└─────────────────────┬───────────────────────────────────────┘
-                      │ HTTP
-                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   @buntime/keyval                           │
-│                   (Cliente HTTP)                            │
-└─────────────────────┬───────────────────────────────────────┘
-                      │ HTTP
-                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│                @buntime/plugin-keyval                       │
-│                   (Plugin Server)                           │
-│   Rotas: /_/plugin-keyval/keys/*                           │
-└─────────────────────┬───────────────────────────────────────┘
-                      │ libSQL Protocol
-                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      libSQL Server                          │
-│              (SQLite distribuído/Turso)                     │
-└─────────────────────────────────────────────────────────────┘
-----
-
-=== Schema do Banco
-
-[source,sql]
-----
--- Tabela de entradas KV
-CREATE TABLE kv_entries (
-  key BLOB PRIMARY KEY,        -- Chave codificada em bytes
-  value BLOB NOT NULL,         -- Valor serializado em JSON
-  versionstamp TEXT NOT NULL,  -- Versão para controle de concorrência
-  expires_at INTEGER           -- Unix timestamp de expiração (opcional)
-);
-
-CREATE INDEX idx_kv_expires ON kv_entries(expires_at)
-  WHERE expires_at IS NOT NULL;
-
--- Tabela de fila de mensagens
-CREATE TABLE kv_queue (
-  id TEXT PRIMARY KEY,              -- UUID da mensagem
-  value BLOB NOT NULL,              -- Payload serializado
-  ready_at INTEGER NOT NULL,        -- Quando ficará disponível
-  attempts INTEGER DEFAULT 0,       -- Tentativas de entrega
-  max_attempts INTEGER DEFAULT 5,   -- Máximo de tentativas
-  backoff_schedule TEXT,            -- JSON array de delays
-  keys_if_undelivered TEXT,         -- Fallback keys
-  status TEXT DEFAULT 'pending',    -- pending | processing | failed
-  locked_until INTEGER,             -- Lock timestamp
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-----
-
-== Configuração no Buntime
-
-Para usar o KeyVal em um projeto Buntime, configure o plugin no `buntime.jsonc`:
-
-[source,jsonc]
-----
-{
-  "plugins": [
-    ["@buntime/plugin-keyval", {
-      "libsqlUrl": "${LIBSQL_URL}",      // URL do servidor libSQL
-      "libsqlToken": "${LIBSQL_TOKEN}"   // Token de autenticação (opcional)
-    }]
-  ]
-}
-----
-
-=== Variáveis de Ambiente
-
-[source,bash]
-----
-# Desenvolvimento local
-LIBSQL_URL=http://localhost:8880
-
-# Produção (Turso)
-LIBSQL_URL=libsql://your-database.turso.io
-LIBSQL_TOKEN=your-auth-token
-----
-
-== Comparação com Deno KV
-
-[cols="1,1,1"]
+[cols="1,1"]
 |===
-| Feature | Deno KV | KeyVal
+| Bom para: | Evitar para:
 
-| Backend
-| FoundationDB (Deno Deploy) / SQLite (local)
-| libSQL (Turso/SQLite)
+| Sessões e cache
+| Queries SQL complexas (JOINs)
 
-| Ambiente
-| Deno
-| Bun/Node.js
+| Configurações por usuário
+| Relatórios analíticos
 
-| Distribuído
-| Sim (Deno Deploy)
-| Sim (Turso)
+| Filas de trabalho
+| Agregações pesadas
 
-| Chaves Compostas
-| Sim
-| Sim
+| Dados hierárquicos
+| Dados altamente relacionais
 
-| TTL
-| Sim
-| Sim
+| Real-time (watch)
+|
 
-| Transações Atômicas
-| Sim
-| Sim
-
-| sum/max/min
-| Sim (via mutate)
-| Sim (métodos dedicados)
-
-| append/prepend
-| Não
-| Sim
-
-| getMany otimizado
-| Sim
-| Sim (batch endpoint)
-
-| Watch (Streaming)
-| Sim
-| Sim (SSE/polling)
-
-| Watch Backpressure
-| Não
-| Sim (bufferSize, overflowStrategy)
-
-| Enqueue/ListenQueue
-| Sim
-| Sim
-
-| commitVersionstamp()
-| Sim
-| Sim
-
-| Consistency Modes
-| Sim
-| Sim (strong/eventual)
+| Full-text search
+|
 |===
 
-include::docs/operations.adoc[leveloffset=+1]
+== Fundamentos
 
-include::docs/keys.adoc[leveloffset=+1]
+Conceitos essenciais para entender o KeyVal.
 
-include::docs/expiration.adoc[leveloffset=+1]
+include::docs/fundamentals/mindset.adoc[leveloffset=+1]
 
-include::docs/transactions.adoc[leveloffset=+1]
+include::docs/fundamentals/keys.adoc[leveloffset=+1]
 
-include::docs/secondary-indexes.adoc[leveloffset=+1]
+include::docs/fundamentals/versionstamp.adoc[leveloffset=+1]
 
-include::docs/queues.adoc[leveloffset=+1]
+include::docs/fundamentals/consistency.adoc[leveloffset=+1]
 
-include::docs/watch.adoc[leveloffset=+1]
+== Operações
 
-include::docs/consistency.adoc[leveloffset=+1]
+Como ler, escrever e manipular dados.
+
+include::docs/operations/crud.adoc[leveloffset=+1]
+
+include::docs/operations/listing.adoc[leveloffset=+1]
+
+include::docs/operations/atomic.adoc[leveloffset=+1]
+
+include::docs/operations/transactions.adoc[leveloffset=+1]
+
+== Modelagem
+
+Padrões para estruturar seus dados.
+
+include::docs/modeling/relationships.adoc[leveloffset=+1]
+
+include::docs/modeling/indexes.adoc[leveloffset=+1]
+
+include::docs/modeling/patterns.adoc[leveloffset=+1]
+
+== Funcionalidades
+
+Recursos avançados do KeyVal.
+
+include::docs/features/expiration.adoc[leveloffset=+1]
+
+include::docs/features/queues.adoc[leveloffset=+1]
+
+include::docs/features/realtime.adoc[leveloffset=+1]
+
+include::docs/features/fts.adoc[leveloffset=+1]
+
+== Limitações
+
+include::docs/limitations.adoc[leveloffset=+1]

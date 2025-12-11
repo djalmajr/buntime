@@ -1,0 +1,310 @@
+== Métricas
+
+=== Visão Geral
+
+O KeyVal fornece métricas detalhadas sobre operações, filas e armazenamento. As métricas estão disponíveis em dois formatos:
+
+* **JSON**: Para consumo programático
+* **Prometheus**: Para integração com sistemas de monitoramento
+
+=== API
+
+==== Métricas em JSON
+
+[source,typescript]
+----
+const metrics = await kv.metrics();
+// ou explicitamente
+const metrics = await kv.metrics("json");
+----
+
+==== Métricas em Prometheus
+
+[source,typescript]
+----
+const prometheusText = await kv.metrics("prometheus");
+----
+
+=== Estrutura das Métricas
+
+==== Formato JSON
+
+[source,typescript]
+----
+interface KvMetrics {
+  operations: Record<string, KvOperationMetrics>;
+  queue: KvQueueStats;
+  storage: KvStorageStats;
+}
+
+interface KvOperationMetrics {
+  count: number;       // Total de operações
+  errors: number;      // Operações com erro
+  avgLatencyMs: number; // Latência média em ms
+}
+
+interface KvQueueStats {
+  pending: number;     // Mensagens aguardando
+  processing: number;  // Mensagens sendo processadas
+  dlq: number;         // Mensagens na dead letter queue
+  total: number;       // Total (pending + processing + dlq)
+}
+
+interface KvStorageStats {
+  entries: number;     // Total de entradas
+  sizeBytes: number;   // Tamanho em bytes
+}
+----
+
+==== Exemplo de Resposta JSON
+
+[source,json]
+----
+{
+  "operations": {
+    "get": { "count": 1523, "errors": 2, "avgLatencyMs": 1.2 },
+    "set": { "count": 456, "errors": 0, "avgLatencyMs": 2.5 },
+    "delete": { "count": 89, "errors": 0, "avgLatencyMs": 1.8 },
+    "list": { "count": 234, "errors": 1, "avgLatencyMs": 5.3 },
+    "atomic": { "count": 67, "errors": 3, "avgLatencyMs": 4.1 }
+  },
+  "queue": {
+    "pending": 42,
+    "processing": 3,
+    "dlq": 1,
+    "total": 46
+  },
+  "storage": {
+    "entries": 15234,
+    "sizeBytes": 2456789
+  }
+}
+----
+
+==== Formato Prometheus
+
+[source,text]
+----
+# HELP keyval_operations_total Total operations by type
+# TYPE keyval_operations_total counter
+keyval_operations_total{operation="get"} 1523
+keyval_operations_total{operation="set"} 456
+keyval_operations_total{operation="delete"} 89
+keyval_operations_total{operation="list"} 234
+keyval_operations_total{operation="atomic"} 67
+
+# HELP keyval_operations_errors_total Total operation errors by type
+# TYPE keyval_operations_errors_total counter
+keyval_operations_errors_total{operation="get"} 2
+keyval_operations_errors_total{operation="set"} 0
+keyval_operations_errors_total{operation="delete"} 0
+keyval_operations_errors_total{operation="list"} 1
+keyval_operations_errors_total{operation="atomic"} 3
+
+# HELP keyval_queue_pending Pending messages in queue
+# TYPE keyval_queue_pending gauge
+keyval_queue_pending 42
+
+# HELP keyval_queue_processing Messages being processed
+# TYPE keyval_queue_processing gauge
+keyval_queue_processing 3
+
+# HELP keyval_queue_dlq Messages in dead letter queue
+# TYPE keyval_queue_dlq gauge
+keyval_queue_dlq 1
+
+# HELP keyval_queue_total Total messages in queue system
+# TYPE keyval_queue_total gauge
+keyval_queue_total 46
+
+# HELP keyval_entries_total Total stored entries
+# TYPE keyval_entries_total gauge
+keyval_entries_total 15234
+
+# HELP keyval_storage_bytes Total storage size in bytes
+# TYPE keyval_storage_bytes gauge
+keyval_storage_bytes 2456789
+----
+
+=== Exemplos de Uso
+
+==== Dashboard de Monitoramento
+
+[source,typescript]
+----
+async function getHealthStatus(): Promise<{
+  healthy: boolean;
+  metrics: KvMetrics;
+}> {
+  const metrics = await kv.metrics();
+
+  const healthy =
+    metrics.queue.dlq < 100 && // Menos de 100 mensagens na DLQ
+    metrics.queue.pending < 1000; // Menos de 1000 pendentes
+
+  return { healthy, metrics };
+}
+
+// Endpoint de health check
+app.get("/health", async (c) => {
+  const { healthy, metrics } = await getHealthStatus();
+
+  return c.json(
+    {
+      status: healthy ? "healthy" : "degraded",
+      queue: metrics.queue,
+      storage: metrics.storage,
+    },
+    healthy ? 200 : 503
+  );
+});
+----
+
+==== Integração com Prometheus
+
+[source,typescript]
+----
+// Endpoint para Prometheus scraper
+app.get("/metrics", async (c) => {
+  const metrics = await kv.metrics("prometheus");
+
+  return new Response(metrics, {
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+});
+----
+
+==== Alertas Baseados em Métricas
+
+[source,typescript]
+----
+async function checkAlerts(): Promise<void> {
+  const metrics = await kv.metrics();
+
+  // Alerta de DLQ crescendo
+  if (metrics.queue.dlq > 50) {
+    await sendAlert({
+      level: "warning",
+      message: `DLQ has ${metrics.queue.dlq} messages`,
+    });
+  }
+
+  // Alerta de fila acumulando
+  if (metrics.queue.pending > 500) {
+    await sendAlert({
+      level: "warning",
+      message: `Queue backlog: ${metrics.queue.pending} pending`,
+    });
+  }
+
+  // Alerta de erros frequentes
+  const totalOps = Object.values(metrics.operations).reduce(
+    (sum, op) => sum + op.count,
+    0
+  );
+  const totalErrors = Object.values(metrics.operations).reduce(
+    (sum, op) => sum + op.errors,
+    0
+  );
+  const errorRate = totalErrors / totalOps;
+
+  if (errorRate > 0.01) {
+    // Mais de 1% de erros
+    await sendAlert({
+      level: "critical",
+      message: `Error rate: ${(errorRate * 100).toFixed(2)}%`,
+    });
+  }
+}
+
+// Executar a cada minuto
+setInterval(checkAlerts, 60000);
+----
+
+==== Logging Periódico
+
+[source,typescript]
+----
+async function logMetrics(): Promise<void> {
+  const metrics = await kv.metrics();
+
+  console.log({
+    type: "keyval_metrics",
+    timestamp: new Date().toISOString(),
+    operations: metrics.operations,
+    queue: metrics.queue,
+    storage: {
+      entries: metrics.storage.entries,
+      sizeMB: (metrics.storage.sizeBytes / 1024 / 1024).toFixed(2),
+    },
+  });
+}
+
+// Log a cada 5 minutos
+setInterval(logMetrics, 5 * 60 * 1000);
+----
+
+=== Métricas Disponíveis
+
+==== Operações
+
+[cols="1,3"]
+|===
+| Métrica | Descrição
+
+| `get`
+| Leituras de chaves individuais
+
+| `getMany`
+| Leituras em batch
+
+| `set`
+| Escritas de chaves
+
+| `delete`
+| Deleções de chaves
+
+| `list`
+| Listagens por prefixo
+
+| `atomic`
+| Operações atômicas (transações)
+
+| `enqueue`
+| Mensagens enfileiradas
+
+| `dequeue`
+| Mensagens processadas
+|===
+
+==== Fila
+
+[cols="1,3"]
+|===
+| Métrica | Descrição
+
+| `pending`
+| Mensagens aguardando processamento
+
+| `processing`
+| Mensagens sendo processadas agora
+
+| `dlq`
+| Mensagens na dead letter queue
+
+| `total`
+| Soma de pending + processing + dlq
+|===
+
+==== Armazenamento
+
+[cols="1,3"]
+|===
+| Métrica | Descrição
+
+| `entries`
+| Número total de entradas no KV
+
+| `sizeBytes`
+| Tamanho total ocupado em bytes
+|===

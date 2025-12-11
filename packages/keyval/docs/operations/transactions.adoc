@@ -1,0 +1,459 @@
+== Transações
+
+`transaction()` encapsula operações de read-modify-write com verificação automática e retry.
+
+=== Race Conditions em Read-Modify-Write
+
+Operações que seguem o padrão:
+
+1. **Read**: Ler o valor atual
+2. **Modify**: Processar/modificar no código
+3. **Write**: Salvar o novo valor
+
+estão sujeitas a race conditions:
+
+[source,typescript]
+----
+// Race condition
+const entry = await kv.get(["counters", "likes"]);
+const newCount = (entry.value ?? 0) + 1;
+await kv.set(["counters", "likes"], newCount);
+
+// Se dois processos fazem isso ao mesmo tempo:
+// Processo A: lê 10
+// Processo B: lê 10
+// Processo A: escreve 11
+// Processo B: escreve 11  <- Deveria ser 12!
+----
+
+=== Sintaxe
+
+[source,typescript]
+----
+const result = await kv.transaction(async (tx) => {
+  // 1. Read (cacheado e verificado no commit)
+  const entry = await tx.get<number>(["counters", "likes"]);
+
+  // 2. Modify
+  const newCount = (entry.value ?? 0) + 1;
+
+  // 3. Write (bufferizado até o commit)
+  tx.set(["counters", "likes"], newCount);
+
+  return newCount;
+});
+
+if (result.ok) {
+  console.log("Novo valor:", result.value);
+}
+----
+
+=== Mecanismo
+
+1. **Leituras cacheadas**: `tx.get()` salva o versionstamp
+2. **Escritas bufferizadas**: `tx.set()` não escreve imediatamente
+3. **Verificação no commit**: Valida se os versionstamps ainda são válidos
+4. **Retry em conflito**: Re-executa a função automaticamente
+5. **Commit atômico**: Aplica todas as escritas de uma vez
+
+[source]
+----
+┌─────────────────────────────────────────────────────────┐
+│                    transaction()                         │
+├─────────────────────────────────────────────────────────┤
+│  tx.get(key1)  →  Cache: {key1: vs1}                    │
+│  tx.get(key2)  →  Cache: {key1: vs1, key2: vs2}         │
+│  tx.set(key1, newValue)  →  Buffer: {key1: newValue}    │
+├─────────────────────────────────────────────────────────┤
+│  COMMIT:                                                 │
+│  1. Verifica: key1 ainda tem vs1? key2 ainda tem vs2?   │
+│  2. Se sim: aplica Buffer atomicamente                  │
+│  3. Se não: retry (re-executa a função)                 │
+└─────────────────────────────────────────────────────────┘
+----
+
+=== Opções de Retry
+
+[source,typescript]
+----
+const result = await kv.transaction(
+  async (tx) => {
+    // ... sua lógica
+  },
+  {
+    maxRetries: 5,      // Máximo de tentativas (padrão: 3)
+    retryDelay: 10      // Delay base em ms entre retries
+  }
+);
+----
+
+O delay usa **exponential backoff** com jitter para evitar thundering herd.
+
+=== Métodos Disponíveis no tx
+
+==== tx.get() e tx.getMany()
+
+[source,typescript]
+----
+await kv.transaction(async (tx) => {
+  // Leitura única
+  const user = await tx.get<User>(["users", id]);
+
+  // Leituras múltiplas
+  const [account, settings] = await tx.getMany<Account | Settings>([
+    ["accounts", id],
+    ["settings", id],
+  ]);
+});
+----
+
+==== tx.set() e tx.delete()
+
+[source,typescript]
+----
+await kv.transaction(async (tx) => {
+  const user = await tx.get<User>(["users", id]);
+
+  // Modificações (bufferizadas)
+  tx.set(["users", id], { ...user.value, name: "Novo Nome" });
+  tx.delete(["temp", sessionId]);
+});
+----
+
+==== tx.sum(), tx.max(), tx.min()
+
+[source,typescript]
+----
+await kv.transaction(async (tx) => {
+  tx.sum(["counters", "views"], 1n);
+  tx.max(["stats", "peak"], BigInt(currentValue));
+});
+----
+
+=== Padrões Comuns
+
+==== Transferência Bancária
+
+[source,typescript]
+----
+async function transfer(
+  fromId: string,
+  toId: string,
+  amount: number
+): Promise<void> {
+  const result = await kv.transaction(async (tx) => {
+    // Ler ambas as contas
+    const [from, to] = await tx.getMany<Account>([
+      ["accounts", fromId],
+      ["accounts", toId],
+    ]);
+
+    // Validações
+    if (!from.value) throw new Error("Conta origem não encontrada");
+    if (!to.value) throw new Error("Conta destino não encontrada");
+    if (from.value.balance < amount) throw new Error("Saldo insuficiente");
+
+    // Transferir
+    tx.set(["accounts", fromId], {
+      ...from.value,
+      balance: from.value.balance - amount
+    });
+    tx.set(["accounts", toId], {
+      ...to.value,
+      balance: to.value.balance + amount
+    });
+
+    return { from: fromId, to: toId, amount };
+  }, { maxRetries: 5 });
+
+  if (!result.ok) {
+    throw new Error("Transferência falhou após múltiplas tentativas");
+  }
+}
+----
+
+==== Reserva de Estoque
+
+[source,typescript]
+----
+async function reserveStock(
+  productId: string,
+  quantity: number
+): Promise<string> {
+  const result = await kv.transaction(async (tx) => {
+    const product = await tx.get<Product>(["products", productId]);
+
+    if (!product.value) {
+      throw new Error("Produto não encontrado");
+    }
+
+    if (product.value.stock < quantity) {
+      throw new Error("Estoque insuficiente");
+    }
+
+    // Reduzir estoque
+    tx.set(["products", productId], {
+      ...product.value,
+      stock: product.value.stock - quantity
+    });
+
+    // Criar reserva
+    const reservationId = crypto.randomUUID();
+    tx.set(["reservations", reservationId], {
+      productId,
+      quantity,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 15 * 60 * 1000  // 15 min
+    });
+
+    return reservationId;
+  });
+
+  if (!result.ok) {
+    throw new Error("Falha na reserva");
+  }
+
+  return result.value;
+}
+----
+
+==== Incrementar com Limite
+
+[source,typescript]
+----
+async function incrementWithLimit(
+  key: KvKey,
+  max: number
+): Promise<number> {
+  const result = await kv.transaction(async (tx) => {
+    const entry = await tx.get<number>(key);
+    const current = entry.value ?? 0;
+
+    if (current >= max) {
+      throw new Error("Limite atingido");
+    }
+
+    tx.set(key, current + 1);
+    return current + 1;
+  });
+
+  if (!result.ok) {
+    throw new Error("Falha ao incrementar");
+  }
+
+  return result.value;
+}
+
+// Uso: rate limiting
+await incrementWithLimit(["rate_limit", oderId, minute], 100);
+----
+
+==== Toggle com Estado
+
+[source,typescript]
+----
+async function toggleLike(postId: string, oderId: string): Promise<boolean> {
+  const result = await kv.transaction(async (tx) => {
+    const likeKey: KvKey = ["likes", postId, oderId];
+    const like = await tx.get(likeKey);
+
+    if (like.value) {
+      // Já curtiu, remover
+      tx.delete(likeKey);
+      tx.sum(["posts", postId, "likeCount"], -1n);
+      return false;
+    } else {
+      // Não curtiu, adicionar
+      tx.set(likeKey, { createdAt: Date.now() });
+      tx.sum(["posts", postId, "likeCount"], 1n);
+      return true;
+    }
+  });
+
+  return result.ok ? result.value : false;
+}
+----
+
+=== Tratamento de Erros
+
+==== Erros de Validação vs Conflitos
+
+[source,typescript]
+----
+const result = await kv.transaction(async (tx) => {
+  const user = await tx.get<User>(["users", id]);
+
+  // Erro de validação - NÃO deve fazer retry
+  if (!user.value) {
+    throw new Error("Usuário não encontrado");
+  }
+
+  // Erro de regra de negócio - NÃO deve fazer retry
+  if (user.value.status === "banned") {
+    throw new Error("Usuário banido");
+  }
+
+  tx.set(["users", id], { ...user.value, lastLogin: Date.now() });
+});
+
+// result.ok é false se:
+// 1. Houve conflito após maxRetries
+// 2. A função lançou uma exceção
+
+if (!result.ok) {
+  // Verificar se foi erro de validação ou conflito
+  // (depende de como você estrutura os erros)
+}
+----
+
+==== Distinguindo Tipos de Falha
+
+[source,typescript]
+----
+class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
+
+async function updateUser(id: string, data: Partial<User>): Promise<User> {
+  try {
+    const result = await kv.transaction(async (tx) => {
+      const entry = await tx.get<User>(["users", id]);
+
+      if (!entry.value) {
+        throw new ValidationError("Usuário não encontrado");
+      }
+
+      const updated = { ...entry.value, ...data };
+      tx.set(["users", id], updated);
+      return updated;
+    });
+
+    if (!result.ok) {
+      throw new Error("Conflito persistente - tente novamente mais tarde");
+    }
+
+    return result.value;
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      // Erro de validação - não faz sentido retry
+      throw error;
+    }
+    throw error;
+  }
+}
+----
+
+=== atomic() vs transaction()
+
+[cols="1,1,1"]
+|===
+| Aspecto | atomic() | transaction()
+
+| Check de versionstamp
+| Manual (você chama `.check()`)
+| Automático (todas as leituras)
+
+| Retry em conflito
+| Manual (você implementa)
+| Automático (configurável)
+
+| Leituras
+| Fora do atomic
+| Dentro do callback, cacheadas
+
+| Controle
+| Total (você decide o que verificar)
+| Conveniente (verifica tudo)
+
+| Uso típico
+| Operações sem leitura prévia
+| Read-modify-write
+|===
+
+==== Quando usar atomic()
+
+[source,typescript]
+----
+// Criar sem verificação (você sabe que não existe)
+await kv.atomic()
+  .set(["events", eventId], event)
+  .sum(["stats", "events"], 1n)
+  .commit();
+
+// Operações que não precisam de leitura
+await kv.atomic()
+  .sum(["counters", "pageviews"], 1n)
+  .max(["stats", "concurrent"], BigInt(currentUsers))
+  .commit();
+----
+
+==== Quando usar transaction()
+
+[source,typescript]
+----
+// Qualquer read-modify-write
+await kv.transaction(async (tx) => {
+  const data = await tx.get(key);
+  // ... modificar
+  tx.set(key, newData);
+});
+
+// Lógica complexa com múltiplas leituras
+await kv.transaction(async (tx) => {
+  const [a, b, c] = await tx.getMany([keyA, keyB, keyC]);
+  // ... lógica de negócio
+  tx.set(keyA, newA);
+  tx.set(keyB, newB);
+});
+----
+
+=== Boas Práticas
+
+==== Transações Curtas
+
+[source,typescript]
+----
+// Ruim: transação longa
+await kv.transaction(async (tx) => {
+  const users = [];
+  for await (const u of kv.list(["users"])) {
+    users.push(u.value);
+  }
+  // ... processa por minutos
+  // Alta chance de conflito
+});
+
+// Bom: transação curta
+const users = [];
+for await (const u of kv.list(["users"])) {
+  users.push(u.value);
+}
+// Processa fora da transação
+const processed = processUsers(users);
+// Transação apenas para salvar
+await kv.transaction(async (tx) => {
+  for (const u of processed) {
+    tx.set(["users", u.id], u);
+  }
+});
+----
+
+==== Idempotência
+
+[source,typescript]
+----
+// Idempotente: pode executar múltiplas vezes com mesmo resultado
+await kv.transaction(async (tx) => {
+  const order = await tx.get<Order>(["orders", orderId]);
+
+  if (order.value?.status === "paid") {
+    return; // Já processado, não faz nada
+  }
+
+  tx.set(["orders", orderId], { ...order.value, status: "paid" });
+});
+----
+

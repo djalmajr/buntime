@@ -4,6 +4,27 @@
 
 Use **AsciiDoc** (`.adoc`) for all documentation. Never use Markdown for docs.
 
+## Tone
+
+- **Professional and mature** - Content for experienced developers
+- **Explanatory but not infantilized** - No dramatic introductions or unnecessary analogies
+- **Relevant** - Not too verbose, not too minimal
+- **No motivational phrases** like "prepare-se para uma mudança de paradigma"
+
+## Automatic Features (Don't Duplicate)
+
+**AsciiDoc handles these automatically via `:sectnums:`:**
+
+- Section numbering - NEVER add manual numbers like `=== 1. Title`
+- Table of contents generation
+
+**Never use emojis in content:**
+
+- No emojis in code comments: use `// ERRADO` not `// ❌ ERRADO`
+- No emojis in tables: use `Sim`/`Não` not `✅`/`❌`
+
+**Exception:** GitHub captions with emojis ARE allowed (`:tip-caption: 💡`)
+
 ## Structure
 
 ### Main README.adoc

@@ -8,16 +8,20 @@ import {
   encodePrefixRange,
   serializeValue,
 } from "./encoding";
+import { KvFts } from "./fts";
 import { KvMetrics } from "./metrics";
 import { KvQueue, type KvQueueCleanupConfig } from "./queue";
 import { KvTransaction } from "./transaction";
 import {
   createCommitVersionstamp,
   type KvCommitVersionstamp,
+  type KvDeleteOptions,
   type KvEntry,
   type KvGetOptions,
   type KvKey,
   type KvListOptions,
+  type KvPaginateOptions,
+  type KvPaginateResult,
   type KvSetOptions,
   type KvTransactionError,
   type KvTransactionOptions,
@@ -26,6 +30,7 @@ import {
   type KvTriggerEvent,
   type KvTriggerEventType,
 } from "./types";
+import { whereToSql } from "./where-to-sql";
 
 /**
  * Options for Kv constructor
@@ -50,6 +55,7 @@ export interface KvOptions {
  */
 export class Kv {
   private cleanupInterval: Timer | null = null;
+  private _fts: KvFts | null = null;
   private _metrics: KvMetrics | null = null;
   private _queue: KvQueue | null = null;
   private readonly logger: PluginLogger | undefined;
@@ -95,6 +101,13 @@ export class Kv {
    */
   get queue(): KvQueue {
     return (this._queue ||= new KvQueue(this.adapter, this, this.kvOptions?.queueCleanup));
+  }
+
+  /**
+   * Get the FTS instance (created lazily)
+   */
+  get fts(): KvFts {
+    return (this._fts ||= new KvFts(this.adapter));
   }
 
   /**
@@ -282,6 +295,12 @@ export class Kv {
         [encodedKey, encodedValue, versionstamp, expiresAt],
       );
 
+      // Index document if there's a matching FTS index
+      const index = await this.fts.getMatchingIndex(key);
+      if (index) {
+        await this.fts.indexDocument(index.prefix, key, value);
+      }
+
       // Fire triggers after successful write
       await this.fireTriggers("set", key, value, versionstamp);
 
@@ -295,19 +314,70 @@ export class Kv {
   }
 
   /**
-   * Delete a key
+   * Delete a key and all keys that start with it (children)
+   *
+   * @param prefix - Key prefix to delete
+   * @param options - Delete options including where filter
+   *
+   * @example
+   * ```typescript
+   * // Deletes ["users", 123] AND ["users", 123, "profile"], ["users", 123, "settings"], etc.
+   * await kv.delete(["users", 123]);
+   *
+   * // Delete with filter
+   * await kv.delete(["sessions"], {
+   *   where: { expiresAt: { $lt: Date.now() } }
+   * });
+   *
+   * // Delete with complex filter
+   * await kv.delete(["users"], {
+   *   where: {
+   *     $or: [
+   *       { status: { $eq: "inactive" } },
+   *       { "profile.verified": { $eq: false } }
+   *     ]
+   *   }
+   * });
+   * ```
    */
-  async delete(key: KvKey): Promise<void> {
+  async delete(prefix: KvKey, options?: KvDeleteOptions): Promise<{ deletedCount: number }> {
     const start = performance.now();
     let error = false;
 
     try {
-      const encodedKey = encodeKey(key);
+      const encodedKey = encodeKey(prefix);
+      const range = encodePrefixRange(prefix);
 
-      await this.adapter.execute("DELETE FROM kv_entries WHERE key = ?", [encodedKey]);
+      let sql: string;
+      let args: unknown[];
+
+      if (options?.where) {
+        // Delete with filter: uses json_extract for filtering
+        const whereResult = whereToSql(options.where);
+        sql = `DELETE FROM kv_entries
+               WHERE (key = ? OR (key >= ? AND key < ?))
+               AND (expires_at IS NULL OR expires_at > unixepoch())
+               AND ${whereResult.sql}`;
+        args = [encodedKey, range.start, range.end, ...whereResult.params];
+      } else {
+        // Delete without filter: delete exact key and all children
+        sql = `DELETE FROM kv_entries WHERE key = ? OR (key >= ? AND key < ?)`;
+        args = [encodedKey, range.start, range.end];
+      }
+
+      const result = await this.adapter.execute<{ changes: number }>(sql, args);
+      const deletedCount = (result as unknown as { changes?: number })?.changes ?? 0;
+
+      // Remove from FTS index if there's a matching index
+      const index = await this.fts.getMatchingIndex(prefix);
+      if (index) {
+        await this.fts.removeDocument(index.prefix, prefix);
+      }
 
       // Fire triggers after successful delete
-      await this.fireTriggers("delete", key);
+      await this.fireTriggers("delete", prefix);
+
+      return { deletedCount };
     } catch (err) {
       error = true;
       throw err;
@@ -317,20 +387,41 @@ export class Kv {
   }
 
   /**
-   * List entries matching a selector
+   * List entries matching a prefix
+   *
+   * @param prefix - Key prefix to filter by
+   * @param options - List options (limit, reverse, start, end, where)
+   *
+   * @example
+   * ```typescript
+   * // List all users
+   * for await (const entry of kv.list(["users"])) {
+   *   console.log(entry);
+   * }
+   *
+   * // List with filter
+   * for await (const entry of kv.list(["users"], {
+   *   where: { status: { $eq: "active" } }
+   * })) {
+   *   console.log(entry);
+   * }
+   * ```
    */
-  async *list<T = unknown>(options: KvListOptions): AsyncIterableIterator<KvEntry<T>> {
+  async *list<T = unknown>(
+    prefix: KvKey,
+    options: KvListOptions = {},
+  ): AsyncIterableIterator<KvEntry<T>> {
     const start = performance.now();
     let error = false;
 
     try {
-      const { prefix, start: startKey, end, limit = 100, reverse = false } = options;
+      const { start: startKey, end, limit = 100, reverse = false, where } = options;
 
       let sql = `SELECT key, value, versionstamp FROM kv_entries
                  WHERE (expires_at IS NULL OR expires_at > unixepoch())`;
-      const args: (number | Uint8Array)[] = [];
+      const args: unknown[] = [];
 
-      if (prefix && prefix.length > 0) {
+      if (prefix.length > 0) {
         const range = encodePrefixRange(prefix);
         sql += " AND key >= ? AND key < ?";
         args.push(range.start, range.end);
@@ -346,6 +437,13 @@ export class Kv {
         const encodedEnd = encodeKey(end);
         sql += " AND key < ?";
         args.push(encodedEnd);
+      }
+
+      // Apply where filter if provided
+      if (where) {
+        const whereResult = whereToSql(where);
+        sql += ` AND ${whereResult.sql}`;
+        args.push(...whereResult.params);
       }
 
       sql += ` ORDER BY key ${reverse ? "DESC" : "ASC"} LIMIT ?`;
@@ -371,6 +469,133 @@ export class Kv {
       throw err;
     } finally {
       this.metrics.recordOperation("list", performance.now() - start, error);
+    }
+  }
+
+  /**
+   * Count entries matching a prefix
+   *
+   * @example
+   * ```typescript
+   * const count = await kv.count(["users"]);
+   * console.log(`Total users: ${count}`);
+   * ```
+   */
+  async count(prefix: KvKey): Promise<number> {
+    const start = performance.now();
+    let error = false;
+
+    try {
+      let sql = `SELECT COUNT(*) as count FROM kv_entries
+                 WHERE (expires_at IS NULL OR expires_at > unixepoch())`;
+      const args: Uint8Array[] = [];
+
+      if (prefix.length > 0) {
+        const range = encodePrefixRange(prefix);
+        sql += " AND key >= ? AND key < ?";
+        args.push(range.start, range.end);
+      }
+
+      const rows = await this.adapter.execute<{ count: number }>(sql, args);
+      return rows[0]?.count ?? 0;
+    } catch (err) {
+      error = true;
+      throw err;
+    } finally {
+      this.metrics.recordOperation("count", performance.now() - start, error);
+    }
+  }
+
+  /**
+   * Paginate entries with cursor-based pagination
+   *
+   * @param prefix - Key prefix to filter by
+   * @param options - Paginate options (cursor, limit, reverse)
+   *
+   * @example
+   * ```typescript
+   * // First page
+   * const page1 = await kv.paginate(["users"], { limit: 10 });
+   * console.log(page1.entries);
+   *
+   * // Next page
+   * if (page1.hasMore) {
+   *   const page2 = await kv.paginate(["users"], {
+   *     limit: 10,
+   *     cursor: page1.cursor
+   *   });
+   * }
+   * ```
+   */
+  async paginate<T = unknown>(
+    prefix: KvKey,
+    options: KvPaginateOptions = {},
+  ): Promise<KvPaginateResult<T>> {
+    const start = performance.now();
+    let error = false;
+
+    try {
+      const { cursor, limit = 100, reverse = false } = options;
+
+      let sql = `SELECT key, value, versionstamp FROM kv_entries
+                 WHERE (expires_at IS NULL OR expires_at > unixepoch())`;
+      const args: (number | Uint8Array)[] = [];
+
+      if (prefix.length > 0) {
+        const range = encodePrefixRange(prefix);
+        sql += " AND key >= ? AND key < ?";
+        args.push(range.start, range.end);
+      }
+
+      // Decode cursor (base64 encoded key)
+      if (cursor) {
+        const cursorKey = Buffer.from(cursor, "base64");
+        sql += reverse ? " AND key < ?" : " AND key > ?";
+        args.push(new Uint8Array(cursorKey));
+      }
+
+      // Fetch limit + 1 to check if there are more entries
+      sql += ` ORDER BY key ${reverse ? "DESC" : "ASC"} LIMIT ?`;
+      args.push(limit + 1);
+
+      const rows = await this.adapter.execute<{
+        key: Uint8Array | ArrayBuffer;
+        value: unknown;
+        versionstamp: string;
+      }>(sql, args);
+
+      const hasMore = rows.length > limit;
+      const entries: KvEntry<T>[] = [];
+
+      // Only process up to limit entries
+      const processCount = Math.min(rows.length, limit);
+      let lastKey: Uint8Array | null = null;
+
+      for (let i = 0; i < processCount; i++) {
+        const row = rows[i]!;
+        const keyBytes =
+          row.key instanceof Uint8Array ? row.key : new Uint8Array(row.key as ArrayBuffer);
+        lastKey = keyBytes;
+        entries.push({
+          key: decodeKey(keyBytes),
+          value: deserializeValue<T>(row.value),
+          versionstamp: row.versionstamp,
+        });
+      }
+
+      // Generate cursor from last key
+      const nextCursor = hasMore && lastKey ? Buffer.from(lastKey).toString("base64") : null;
+
+      return {
+        entries,
+        cursor: nextCursor,
+        hasMore,
+      };
+    } catch (err) {
+      error = true;
+      throw err;
+    } finally {
+      this.metrics.recordOperation("paginate", performance.now() - start, error);
     }
   }
 

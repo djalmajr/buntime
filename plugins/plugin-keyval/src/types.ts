@@ -67,10 +67,6 @@ export interface KvListOptions {
    */
   limit?: number;
   /**
-   * Key prefix to filter by
-   */
-  prefix?: KvKey;
-  /**
    * Return entries in reverse order
    * @default false
    */
@@ -79,6 +75,59 @@ export interface KvListOptions {
    * Start key (inclusive)
    */
   start?: KvKey;
+  /**
+   * Filter to apply when listing entries
+   * Only entries matching the filter will be returned
+   *
+   * @example
+   * ```typescript
+   * // List active users
+   * for await (const entry of kv.list(["users"], {
+   *   where: { status: { $eq: "active" } }
+   * })) {
+   *   console.log(entry);
+   * }
+   * ```
+   */
+  where?: KvWhereFilter;
+}
+
+/**
+ * Options for paginate operation
+ */
+export interface KvPaginateOptions {
+  /**
+   * Cursor from previous page (base64-encoded key)
+   */
+  cursor?: string;
+  /**
+   * Maximum number of entries to return
+   * @default 100
+   */
+  limit?: number;
+  /**
+   * Return entries in reverse order
+   * @default false
+   */
+  reverse?: boolean;
+}
+
+/**
+ * Result of paginate operation
+ */
+export interface KvPaginateResult<T = unknown> {
+  /**
+   * Entries in this page
+   */
+  entries: KvEntry<T>[];
+  /**
+   * Cursor to use for next page (null if no more pages)
+   */
+  cursor: string | null;
+  /**
+   * Whether there are more entries after this page
+   */
+  hasMore: boolean;
 }
 
 /**
@@ -337,6 +386,113 @@ export interface KvTriggerEvent<T = unknown> {
 }
 
 // ============================================================================
+// Filter Types (for delete with where)
+// ============================================================================
+
+/**
+ * Serialized $now placeholder from client
+ * When JSON serialized, the Symbol-based $now becomes { "$now": true }
+ */
+export interface KvNowSerialized {
+  $now: true;
+}
+
+/**
+ * Check if a value is a serialized $now placeholder
+ */
+export function isNowPlaceholder(value: unknown): value is KvNowSerialized {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "$now" in value &&
+    (value as KvNowSerialized).$now === true
+  );
+}
+
+/**
+ * Primitive value for filter comparisons
+ */
+export type KvFilterValue = bigint | boolean | null | number | string;
+
+/**
+ * Filter operators for where clauses
+ * Comparison operators can accept KvNowSerialized for server-side timestamp
+ */
+export interface KvFilterOperators {
+  // Comparison operators
+  /** Equal to */
+  $eq?: KvFilterValue;
+  /** Not equal to */
+  $ne?: KvFilterValue;
+  /** Greater than */
+  $gt?: KvNowSerialized | number | string;
+  /** Greater than or equal to */
+  $gte?: KvNowSerialized | number | string;
+  /** Less than */
+  $lt?: KvNowSerialized | number | string;
+  /** Less than or equal to */
+  $lte?: KvNowSerialized | number | string;
+  /** Between two values (inclusive): [min, max] */
+  $between?: [number | string, number | string];
+
+  // Array operators
+  /** Value is in array */
+  $in?: KvFilterValue[];
+  /** Value is not in array */
+  $nin?: KvFilterValue[];
+
+  // String operators (case-sensitive)
+  /** Contains substring */
+  $contains?: string;
+  /** Does not contain substring */
+  $notContains?: string;
+  /** Starts with prefix */
+  $startsWith?: string;
+  /** Ends with suffix */
+  $endsWith?: string;
+
+  // String operators (case-insensitive)
+  /** Contains substring (case-insensitive) */
+  $containsi?: string;
+  /** Does not contain substring (case-insensitive) */
+  $notContainsi?: string;
+  /** Starts with prefix (case-insensitive) */
+  $startsWithi?: string;
+  /** Ends with suffix (case-insensitive) */
+  $endsWithi?: string;
+
+  // Existence operators
+  /** Value is null (true) or not null (false) */
+  $null?: boolean;
+  /** Value is empty (empty string or empty array) */
+  $empty?: boolean;
+  /** Value is not empty */
+  $notEmpty?: boolean;
+}
+
+/**
+ * Where filter for delete operations
+ */
+export interface KvWhereFilter {
+  $and?: KvWhereFilter[];
+  $or?: KvWhereFilter[];
+  $not?: KvWhereFilter;
+  [fieldPath: string]:
+    | KvFilterOperators
+    | KvFilterValue
+    | KvWhereFilter[]
+    | KvWhereFilter
+    | undefined;
+}
+
+/**
+ * Options for delete operation
+ */
+export interface KvDeleteOptions {
+  where?: KvWhereFilter;
+}
+
+// ============================================================================
 // Queue Listener Types
 // ============================================================================
 
@@ -364,4 +520,70 @@ export interface KvQueueListenerConfig<T = unknown> {
    * @default 1000
    */
   pollInterval?: number;
+}
+
+// ============================================================================
+// Full-Text Search Types
+// ============================================================================
+
+/**
+ * FTS5 tokenizer options
+ */
+export type KvFtsTokenizer = "ascii" | "porter" | "unicode61";
+
+/**
+ * Options for creating a full-text search index
+ */
+export interface KvCreateIndexOptions {
+  /**
+   * Fields to index (JSON paths like "title", "content", "user.name")
+   */
+  fields: string[];
+  /**
+   * FTS5 tokenizer to use
+   * @default "unicode61"
+   */
+  tokenize?: KvFtsTokenizer;
+}
+
+/**
+ * Full-text search index metadata
+ */
+export interface KvIndex {
+  /**
+   * Fields being indexed
+   */
+  fields: string[];
+  /**
+   * Key prefix this index applies to
+   */
+  prefix: KvKey;
+  /**
+   * FTS table name (derived from prefix hash)
+   */
+  tableName: string;
+  /**
+   * Tokenizer being used
+   */
+  tokenize: KvFtsTokenizer;
+}
+
+/**
+ * Options for full-text search
+ */
+export interface KvSearchOptions {
+  /**
+   * Consistency level for the read operation
+   * @default "strong"
+   */
+  consistency?: KvConsistency;
+  /**
+   * Maximum number of results to return
+   * @default 100
+   */
+  limit?: number;
+  /**
+   * Additional filter to apply on KV data after FTS match
+   */
+  where?: KvWhereFilter;
 }

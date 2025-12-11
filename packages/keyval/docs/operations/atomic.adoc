@@ -1,0 +1,355 @@
+== Operações Atômicas
+
+Operações atômicas executam múltiplas ações de forma indivisível: ou todas acontecem, ou nenhuma acontece.
+
+[source,typescript]
+----
+// Não atômico - pode falhar no meio
+await kv.set(["users", id], user);
+// <- Se falhar aqui, dados ficam inconsistentes
+await kv.set(["users_by_email", user.email], id);
+
+// Atômico - tudo ou nada
+await kv.atomic()
+  .set(["users", id], user)
+  .set(["users_by_email", user.email], id)
+  .commit();
+// Se qualquer parte falhar, nenhuma é aplicada
+----
+
+=== Sintaxe
+
+[source,typescript]
+----
+const result = await kv.atomic()
+  .set(["users", id], user)
+  .set(["index", email], id)
+  .delete(["temp", sessionId])
+  .commit();
+
+if (result.ok) {
+  console.log("Sucesso! Versionstamp:", result.versionstamp);
+} else {
+  console.log("Falhou - algum check não passou");
+}
+----
+
+=== Operações Disponíveis
+
+==== set: Criar ou Substituir
+
+[source,typescript]
+----
+kv.atomic()
+  .set(["users", id], { name: "Alice" })
+  .set(["cache", key], data, { expireIn: 60000 })  // Com TTL
+  .commit();
+----
+
+==== delete: Remover
+
+[source,typescript]
+----
+kv.atomic()
+  .delete(["sessions", sessionId])
+  .delete(["temp", tempId])
+  .commit();
+----
+
+==== check: Verificar Versionstamp
+
+O `check()` é a chave para controle de concorrência:
+
+[source,typescript]
+----
+const entry = await kv.get(["users", id]);
+
+const result = await kv.atomic()
+  .check(entry)  // Falha se versionstamp mudou
+  .set(["users", id], newValue)
+  .commit();
+
+if (!result.ok) {
+  // Alguém modificou entre o get e o commit
+}
+----
+
+Verificar que **não existe**:
+
+[source,typescript]
+----
+const result = await kv.atomic()
+  .check({ key: ["users", id], versionstamp: null })  // null = não existe
+  .set(["users", id], user)
+  .commit();
+
+if (!result.ok) {
+  throw new Error("Já existe");
+}
+----
+
+==== sum: Incrementar/Decrementar
+
+Adiciona um valor a um contador **sem precisar ler primeiro**:
+
+[source,typescript]
+----
+// Race condition - read-modify-write
+const entry = await kv.get(["counters", "views"]);
+await kv.set(["counters", "views"], (entry.value ?? 0) + 1);
+
+// Atômico - sum faz tudo em uma operação
+await kv.atomic()
+  .sum(["counters", "views"], 1n)
+  .commit();
+
+// Decrementar
+await kv.atomic()
+  .sum(["counters", "stock"], -5n)
+  .commit();
+----
+
+IMPORTANT: `sum()` usa `bigint` (termine com `n`). O valor no banco também será `bigint`.
+
+==== max: Definir se Maior
+
+Atualiza apenas se o novo valor for maior que o atual:
+
+[source,typescript]
+----
+// Atualizar highscore apenas se for maior
+await kv.atomic()
+  .max(["games", oderId, "highscore"], BigInt(newScore))
+  .commit();
+
+// Se highscore atual é 100 e newScore é 90, nada muda
+// Se highscore atual é 100 e newScore é 150, atualiza para 150
+----
+
+==== min: Definir se Menor
+
+Atualiza apenas se o novo valor for menor que o atual:
+
+[source,typescript]
+----
+// Atualizar menor tempo
+await kv.atomic()
+  .min(["races", oderId, "bestTime"], BigInt(raceTime))
+  .commit();
+----
+
+=== Padrões Comuns
+
+==== Criar com Índice
+
+[source,typescript]
+----
+async function createUser(user: NewUser): Promise<string> {
+  const id = crypto.randomUUID();
+
+  const result = await kv.atomic()
+    // Garante que email não existe
+    .check({ key: ["users_by_email", user.email], versionstamp: null })
+    // Cria usuário e índice atomicamente
+    .set(["users", id], { ...user, id, createdAt: Date.now() })
+    .set(["users_by_email", user.email], id)
+    .sum(["stats", "users", "total"], 1n)
+    .commit();
+
+  if (!result.ok) {
+    throw new Error("Email já cadastrado");
+  }
+
+  return id;
+}
+----
+
+==== Atualizar com Verificação
+
+[source,typescript]
+----
+async function updateUser(id: string, updates: Partial<User>): Promise<void> {
+  const entry = await kv.get<User>(["users", id]);
+
+  if (!entry.value) {
+    throw new Error("Usuário não encontrado");
+  }
+
+  const result = await kv.atomic()
+    .check(entry)  // Garante que não mudou
+    .set(["users", id], { ...entry.value, ...updates })
+    .commit();
+
+  if (!result.ok) {
+    throw new Error("Conflito - tente novamente");
+  }
+}
+----
+
+==== Atualizar Email (com Índice)
+
+[source,typescript]
+----
+async function updateEmail(userId: string, newEmail: string): Promise<void> {
+  const entry = await kv.get<User>(["users", oderId]);
+  const user = entry.value;
+
+  if (!user) {
+    throw new Error("Usuário não encontrado");
+  }
+
+  const oldEmail = user.email;
+
+  const result = await kv.atomic()
+    .check(entry)  // Usuário não mudou
+    .check({ key: ["users_by_email", newEmail], versionstamp: null })  // Novo email não existe
+    .set(["users", oderId], { ...user, email: newEmail })
+    .delete(["users_by_email", oldEmail])  // Remove índice antigo
+    .set(["users_by_email", newEmail], oderId)  // Cria índice novo
+    .commit();
+
+  if (!result.ok) {
+    throw new Error("Email já em uso ou conflito");
+  }
+}
+----
+
+==== Deletar com Índices
+
+[source,typescript]
+----
+async function deleteUser(id: string): Promise<void> {
+  const entry = await kv.get<User>(["users", id]);
+
+  if (!entry.value) {
+    return; // Já não existe
+  }
+
+  await kv.atomic()
+    .delete(["users", id])
+    .delete(["users_by_email", entry.value.email])
+    .sum(["stats", "users", "total"], -1n)
+    .commit();
+}
+----
+
+==== Transferência entre Contas
+
+[source,typescript]
+----
+async function transfer(fromId: string, toId: string, amount: bigint): Promise<void> {
+  // Verificar saldos antes
+  const [from, to] = await kv.getMany<Account>([
+    ["accounts", fromId],
+    ["accounts", toId],
+  ]);
+
+  if (!from.value || !to.value) {
+    throw new Error("Conta não encontrada");
+  }
+
+  if (from.value.balance < amount) {
+    throw new Error("Saldo insuficiente");
+  }
+
+  // Transferir atomicamente
+  const result = await kv.atomic()
+    .check(from)  // From não mudou
+    .check(to)    // To não mudou
+    .set(["accounts", fromId], {
+      ...from.value,
+      balance: from.value.balance - amount
+    })
+    .set(["accounts", toId], {
+      ...to.value,
+      balance: to.value.balance + amount
+    })
+    .commit();
+
+  if (!result.ok) {
+    throw new Error("Conflito na transferência - tente novamente");
+  }
+}
+----
+
+=== commitVersionstamp: Referências Consistentes
+
+Às vezes você precisa usar o versionstamp do commit como parte de uma chave:
+
+[source,typescript]
+----
+const postId = crypto.randomUUID();
+const vs = kv.commitVersionstamp();  // Placeholder
+
+await kv.atomic()
+  .set(["posts", postId], { title: "Hello" })
+  .set(["posts_by_date", vs, postId], postId)  // vs será substituído
+  .commit();
+
+// Resultado: ["posts_by_date", "00000000000000010042", "post_123"]
+----
+
+Isso garante que a ordenação por versionstamp reflete a ordem exata de criação.
+
+=== Limites
+
+[cols="1,2"]
+|===
+| Limite | Valor
+
+| Operações por atomic
+| ~1000 (recomendado < 100)
+
+| Checks por atomic
+| Sem limite técnico
+
+| Tamanho total
+| Depende do backend
+|===
+
+Para operações grandes, divida em batches:
+
+[source,typescript]
+----
+// Deletar muitos itens em batches
+const BATCH_SIZE = 100;
+const keysToDelete = [...]; // Muitas chaves
+
+for (let i = 0; i < keysToDelete.length; i += BATCH_SIZE) {
+  const batch = keysToDelete.slice(i, i + BATCH_SIZE);
+
+  let atomic = kv.atomic();
+  for (const key of batch) {
+    atomic = atomic.delete(key);
+  }
+  await atomic.commit();
+}
+----
+
+=== Quando Usar atomic() vs transaction()
+
+[cols="1,1,1"]
+|===
+| Cenário | Usar | Por quê
+
+| Criar com índice
+| `atomic()`
+| Não precisa ler antes
+
+| Incrementar contador
+| `atomic().sum()`
+| Operação direta
+
+| Atualizar após ler
+| `transaction()`
+| Check automático, retry
+
+| Múltiplos updates com lógica
+| `transaction()`
+| Mais ergonômico
+
+| Verificar unicidade
+| `atomic().check()`
+| Explícito sobre o que verifica
+|===
+

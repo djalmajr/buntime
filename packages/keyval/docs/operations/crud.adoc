@@ -1,0 +1,441 @@
+== Operações CRUD
+
+=== get: Lendo um Valor
+
+O método `get()` busca uma única entrada por sua chave:
+
+[source,typescript]
+----
+const entry = await kv.get<User>(["users", "usr_001"]);
+----
+
+==== Retorno
+
+`get()` retorna um objeto `KvEntry`:
+
+[source,typescript]
+----
+interface KvEntry<T> {
+  key: KvKey;           // A chave solicitada
+  value: T | null;      // O valor, ou null se não existir
+  versionstamp: string | null;  // Versão atual, ou null se não existir
+}
+----
+
+==== Tratando Valores Nulos
+
+[source,typescript]
+----
+const entry = await kv.get<User>(["users", "usr_001"]);
+
+// Verificação explícita
+if (entry.value === null) {
+  throw new Error("Usuário não encontrado");
+}
+const user = entry.value; // Aqui TypeScript sabe que não é null
+
+// Com optional chaining
+const userName = entry.value?.name ?? "Anônimo";
+
+// Helper para garantir existência
+async function getOrThrow<T>(key: KvKey, message?: string): Promise<T> {
+  const entry = await kv.get<T>(key);
+  if (entry.value === null) {
+    throw new Error(message ?? `Não encontrado: ${JSON.stringify(key)}`);
+  }
+  return entry.value;
+}
+
+const user = await getOrThrow<User>(["users", "usr_001"], "Usuário não encontrado");
+----
+
+==== Tipagem com Generics
+
+[source,typescript]
+----
+interface User {
+  name: string;
+  email: string;
+}
+
+// Com generic, value é User | null
+const entry = await kv.get<User>(["users", "usr_001"]);
+entry.value?.name; // TypeScript sabe que é string
+
+// Sem generic, value é unknown
+const entry = await kv.get(["users", "usr_001"]);
+(entry.value as User).name; // Precisa de cast
+----
+
+=== getMany: Lendo Múltiplos Valores
+
+Para buscar várias chaves, use `getMany()` em vez de múltiplos `get()`:
+
+[source,typescript]
+----
+// Ineficiente - 3 requisições separadas
+const user1 = await kv.get(["users", "usr_001"]);
+const user2 = await kv.get(["users", "usr_002"]);
+const user3 = await kv.get(["users", "usr_003"]);
+
+// Eficiente - 1 requisição
+const entries = await kv.getMany<User>([
+  ["users", "usr_001"],
+  ["users", "usr_002"],
+  ["users", "usr_003"],
+]);
+----
+
+==== Ordem dos Resultados
+
+Os resultados vêm na **mesma ordem** das chaves solicitadas:
+
+[source,typescript]
+----
+const entries = await kv.getMany([
+  ["users", "usr_003"],  // índice 0
+  ["users", "usr_001"],  // índice 1
+  ["users", "usr_002"],  // índice 2
+]);
+
+entries[0].key; // ["users", "usr_003"]
+entries[1].key; // ["users", "usr_001"]
+entries[2].key; // ["users", "usr_002"]
+----
+
+==== Chaves Não Encontradas
+
+Chaves inexistentes retornam `{ value: null, versionstamp: null }`:
+
+[source,typescript]
+----
+const entries = await kv.getMany([
+  ["users", "existe"],
+  ["users", "nao_existe"],
+]);
+
+entries[0].value; // { name: "Alice", ... }
+entries[1].value; // null
+
+// Filtrar apenas encontrados
+const found = entries.filter(e => e.value !== null);
+----
+
+=== set: Criando e Atualizando
+
+O método `set()` cria ou substitui um valor:
+
+[source,typescript]
+----
+await kv.set(["users", "usr_001"], {
+  name: "Alice",
+  email: "alice@example.com",
+  createdAt: Date.now()
+});
+----
+
+==== set é Sempre Upsert
+
+`set()` não diferencia criação de atualização — sempre sobrescreve:
+
+[source,typescript]
+----
+// Cria se não existe
+await kv.set(["users", "usr_001"], { name: "Alice" });
+
+// Substitui completamente se existe
+await kv.set(["users", "usr_001"], { name: "Alice Smith", status: "active" });
+// O valor anterior foi completamente substituído
+----
+
+==== Criação com Verificação de Unicidade
+
+Para criar apenas se não existir, use `atomic()` com `check()`:
+
+[source,typescript]
+----
+const result = await kv.atomic()
+  .check({ key: ["users", "usr_001"], versionstamp: null }) // null = não existe
+  .set(["users", "usr_001"], { name: "Alice" })
+  .commit();
+
+if (!result.ok) {
+  throw new Error("Usuário já existe");
+}
+----
+
+==== Atualização Parcial (Merge)
+
+KeyVal não tem update parcial nativo. Você faz read-modify-write:
+
+[source,typescript]
+----
+// Lê o valor atual
+const entry = await kv.get<User>(["users", "usr_001"]);
+
+if (!entry.value) {
+  throw new Error("Usuário não encontrado");
+}
+
+// Modifica apenas o que precisa
+await kv.set(["users", "usr_001"], {
+  ...entry.value,
+  name: "Alice Smith" // Atualiza apenas o nome
+});
+----
+
+IMPORTANT: Isso tem race conditions! Veja o capítulo sobre Transações para a forma segura.
+
+==== Opções de set
+
+[source,typescript]
+----
+await kv.set(["cache", "item"], data, {
+  expireIn: 60000  // Expira em 60 segundos (TTL)
+});
+----
+
+=== delete: Removendo Dados
+
+O método `delete()` trata chaves como prefixos por padrão, removendo a chave e todos os seus filhos.
+
+==== Delete por Prefixo (Padrão)
+
+[source,typescript]
+----
+// Remove TODAS as entradas que começam com ["users", "usr_001"]
+await kv.delete(["users", "usr_001"]);
+
+// Isso remove:
+// - ["users", "usr_001"]
+// - ["users", "usr_001", "profile"]
+// - ["users", "usr_001", "posts", "post_001"]
+// - etc.
+----
+
+==== Delete por Chave Exata
+
+Use `{ exact: true }` quando quiser remover apenas a chave específica, sem seus filhos:
+
+[source,typescript]
+----
+// Remove apenas ["users", "usr_001"], mantém os filhos
+await kv.delete(["users", "usr_001"], { exact: true });
+
+// ["users", "usr_001"] - REMOVIDO
+// ["users", "usr_001", "profile"] - MANTIDO
+// ["users", "usr_001", "posts"] - MANTIDO
+----
+
+==== Delete de Múltiplos Prefixos
+
+[source,typescript]
+----
+// Remove múltiplos prefixos de uma vez
+await kv.delete([
+  ["users", "usr_001"],
+  ["orders", "ord_123"],
+  ["sessions", "sess_456"]
+]);
+
+// Cada prefixo remove a chave e seus filhos
+----
+
+==== Delete de Múltiplas Chaves Exatas
+
+[source,typescript]
+----
+// Remove apenas as chaves específicas, sem filhos
+await kv.delete([
+  ["users", "usr_001"],
+  ["users", "usr_002"],
+  ["users", "usr_003"]
+], { exact: true });
+----
+
+==== Delete com Filtro
+
+Para deletar com condições mais complexas:
+
+[source,typescript]
+----
+// Deletar sessões expiradas
+await kv.delete(["sessions"], {
+  where: {
+    expiresAt: { $lt: kv.now() }  // kv.now() é resolvido no servidor
+  }
+});
+
+// Deletar usuários inativos
+await kv.delete(["users"], {
+  where: {
+    status: { $eq: "inactive" }
+  }
+});
+
+// Deletar com múltiplas condições
+await kv.delete(["logs"], {
+  where: {
+    $and: [
+      { level: { $eq: "debug" } },
+      { timestamp: { $lt: kv.now() - 86400000 } }  // Mais de 24h
+    ]
+  }
+});
+----
+
+==== Operadores de Filtro
+
+[cols="1,2,2"]
+|===
+| Operador | Descrição | Exemplo
+
+| `$eq`
+| Igual a
+| `{ status: { $eq: "active" } }`
+
+| `$ne`
+| Diferente de
+| `{ status: { $ne: "deleted" } }`
+
+| `$gt`
+| Maior que
+| `{ age: { $gt: 18 } }`
+
+| `$gte`
+| Maior ou igual
+| `{ age: { $gte: 18 } }`
+
+| `$lt`
+| Menor que
+| `{ expiresAt: { $lt: kv.now() } }`
+
+| `$lte`
+| Menor ou igual
+| `{ score: { $lte: 100 } }`
+
+| `$in`
+| Está na lista
+| `{ status: { $in: ["active", "pending"] } }`
+
+| `$nin`
+| Não está na lista
+| `{ role: { $nin: ["admin", "moderator"] } }`
+
+| `$null`
+| É null
+| `{ deletedAt: { $null: true } }`
+
+| `$and`
+| Todas as condições
+| `{ $and: [cond1, cond2] }`
+
+| `$or`
+| Qualquer condição
+| `{ $or: [cond1, cond2] }`
+|===
+
+==== kv.now(): Timestamp do Servidor
+
+Use `kv.now()` para comparações de tempo — ele é resolvido no servidor, evitando problemas de sincronização de relógio:
+
+[source,typescript]
+----
+// PROBLEMÁTICO - usa relógio do cliente
+await kv.delete(["sessions"], {
+  where: { expiresAt: { $lt: Date.now() } }
+});
+// Se o relógio do cliente estiver errado, resultados serão incorretos
+
+// CORRETO - usa relógio do servidor
+await kv.delete(["sessions"], {
+  where: { expiresAt: { $lt: kv.now() } }
+});
+----
+
+=== Padrões de ID
+
+Como gerar IDs para suas entidades:
+
+==== UUID v4
+
+[source,typescript]
+----
+const id = crypto.randomUUID();
+// "550e8400-e29b-41d4-a716-446655440000"
+
+// Vantagens: Único global, nativo do JS
+// Desvantagens: Não ordenável, difícil de ler
+----
+
+==== ULID
+
+[source,typescript]
+----
+import { ulid } from "ulid";
+const id = ulid();
+// "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+// Vantagens: Único, ordenável por tempo, compacto
+// Desvantagens: Precisa de biblioteca
+----
+
+==== Prefixo + UUID
+
+[source,typescript]
+----
+const id = `usr_${crypto.randomUUID()}`;
+// "usr_550e8400-e29b-41d4-a716-446655440000"
+
+// Vantagens: Fácil identificar o tipo em logs/debug
+// Desvantagens: Mais longo
+----
+
+==== NanoID
+
+[source,typescript]
+----
+import { nanoid } from "nanoid";
+const id = nanoid();
+// "V1StGXR8_Z5jdHi6B-myT"
+
+// Vantagens: Curto, URL-safe
+// Desvantagens: Precisa de biblioteca, não ordenável
+----
+
+=== Validação de Dados
+
+KeyVal não valida dados automaticamente. Use bibliotecas como Zod:
+
+[source,typescript]
+----
+import { z } from "zod";
+
+const UserSchema = z.object({
+  name: z.string().min(1).max(100),
+  email: z.string().email(),
+  status: z.enum(["active", "inactive"]).default("active"),
+  createdAt: z.number().default(() => Date.now())
+});
+
+type User = z.infer<typeof UserSchema>;
+
+async function createUser(data: unknown): Promise<string> {
+  const user = UserSchema.parse(data);
+
+  const id = crypto.randomUUID();
+  await kv.set(["users", id], user);
+
+  return id;
+}
+
+// Uso
+try {
+  const id = await createUser({ name: "Alice", email: "alice@example.com" });
+} catch (error) {
+  if (error instanceof z.ZodError) {
+    console.log("Validação falhou:", error.errors);
+  }
+}
+----
+

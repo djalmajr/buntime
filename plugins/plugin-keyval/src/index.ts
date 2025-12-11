@@ -4,7 +4,14 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { Kv } from "./kv";
 import { initSchema } from "./schema";
-import type { KvConsistency, KvKey } from "./types";
+import type {
+  KvConsistency,
+  KvCreateIndexOptions,
+  KvDeleteOptions,
+  KvKey,
+  KvSearchOptions,
+  KvWhereFilter,
+} from "./types";
 import {
   validateBigInt,
   validateExpireIn,
@@ -177,8 +184,7 @@ const routes = new Hono()
     const startKey = start ? validateKeyPath(start) : undefined;
     const endKey = end ? validateKeyPath(end) : undefined;
 
-    for await (const entry of kv.list({
-      prefix: prefixKey,
+    for await (const entry of kv.list(prefixKey, {
       start: startKey,
       end: endKey,
       limit,
@@ -194,8 +200,70 @@ const routes = new Hono()
 
     return ctx.json(entries);
   })
+  // List with where filter (POST for complex filters)
+  .post("/keys/list", async (ctx) => {
+    const body = await ctx.req.json<{
+      prefix?: KvKey;
+      start?: KvKey;
+      end?: KvKey;
+      limit?: number;
+      reverse?: boolean;
+      consistency?: string;
+      where?: KvWhereFilter;
+    }>();
+
+    const entries = [];
+    const prefixKey = body.prefix ? validateKey(body.prefix) : [];
+    const startKey = body.start ? validateKey(body.start) : undefined;
+    const endKey = body.end ? validateKey(body.end) : undefined;
+    const limit = validateLimit(body.limit?.toString(), 100, 1000);
+    const reverse = body.reverse ?? false;
+    const consistency = parseConsistency(body.consistency);
+
+    for await (const entry of kv.list(prefixKey, {
+      start: startKey,
+      end: endKey,
+      limit,
+      reverse,
+      consistency,
+      where: body.where,
+    })) {
+      entries.push({
+        key: entry.key,
+        value: entry.value,
+        versionstamp: entry.versionstamp,
+      });
+    }
+
+    return ctx.json(entries);
+  })
+  // Count entries by prefix
+  .get("/keys/count", async (ctx) => {
+    const prefix = ctx.req.query("prefix");
+    const prefixKey = prefix ? validateKeyPath(prefix) : [];
+
+    const count = await kv.count(prefixKey);
+    return ctx.json({ count });
+  })
+  // Paginate with cursor
+  .get("/keys/paginate", async (ctx) => {
+    const prefix = ctx.req.query("prefix");
+    const cursor = ctx.req.query("cursor");
+    const limit = validateLimit(ctx.req.query("limit"), 100, 1000);
+    const reverse = ctx.req.query("reverse") === "true";
+
+    const prefixKey = prefix ? validateKeyPath(prefix) : [];
+
+    const result = await kv.paginate(prefixKey, {
+      cursor: cursor || undefined,
+      limit,
+      reverse,
+    });
+
+    return ctx.json(result);
+  })
   .get("/keys/*", async (ctx) => {
-    const keyPath = ctx.req.path.replace("/keys/", "");
+    const keyPath = ctx.req.path.replace(/.*\/keys\//, "");
     const key = validateKeyPath(keyPath);
     const consistency = parseConsistency(ctx.req.query("consistency"));
 
@@ -207,7 +275,7 @@ const routes = new Hono()
     return ctx.json(entry);
   })
   .put("/keys/*", async (ctx) => {
-    const keyPath = ctx.req.path.replace("/keys/", "");
+    const keyPath = ctx.req.path.replace(/.*\/keys\//, "");
     const key = validateKeyPath(keyPath);
     const body = await ctx.req.json();
     const expireIn = validateExpireIn(ctx.req.query("expireIn"));
@@ -217,11 +285,25 @@ const routes = new Hono()
     return ctx.json(result);
   })
   .delete("/keys/*", async (ctx) => {
-    const keyPath = ctx.req.path.replace("/keys/", "");
+    const keyPath = ctx.req.path.replace(/.*\/keys\//, "");
     const key = validateKeyPath(keyPath);
 
-    await kv.delete(key);
-    return ctx.json({ success: true });
+    // Check if there's a request body with where filter
+    let options: KvDeleteOptions | undefined;
+    const contentType = ctx.req.header("content-type");
+    if (contentType?.includes("application/json")) {
+      try {
+        const body = await ctx.req.json<{ where?: KvWhereFilter }>();
+        if (body?.where) {
+          options = { where: body.where };
+        }
+      } catch {
+        // No body or invalid JSON, proceed without filter
+      }
+    }
+
+    const result = await kv.delete(key, options);
+    return ctx.json({ success: true, deletedCount: result.deletedCount });
   })
   // Queue routes
   .post("/queue/enqueue", async (ctx) => {
@@ -508,7 +590,7 @@ const routes = new Hono()
         // Get all entries with the prefix
         const currentKeys = new Set<string>();
 
-        for await (const entry of kv.list({ prefix, limit })) {
+        for await (const entry of kv.list(prefix, { limit })) {
           const keyStr = entry.key.join("/");
           currentKeys.add(keyStr);
           const lastVs = versionstamps.get(keyStr);
@@ -581,7 +663,7 @@ const routes = new Hono()
     const entries: Array<{ key: unknown[]; value: unknown; versionstamp: string | null }> = [];
     const currentVsMap = new Map<string, string>();
 
-    for await (const entry of kv.list({ prefix, limit })) {
+    for await (const entry of kv.list(prefix, { limit })) {
       const keyStr = entry.key.join("/");
       if (entry.versionstamp) {
         currentVsMap.set(keyStr, entry.versionstamp);
@@ -620,6 +702,91 @@ const routes = new Hono()
       entries,
       versionstamps,
     });
+  })
+  // FTS routes
+  .post("/indexes", async (ctx) => {
+    const body = await ctx.req.json<{
+      prefix: KvKey;
+      options: KvCreateIndexOptions;
+    }>();
+
+    const prefix = validateKey(body.prefix);
+
+    if (!body.options?.fields || !Array.isArray(body.options.fields)) {
+      return ctx.json({ error: "options.fields must be a non-empty array" }, 400);
+    }
+
+    if (body.options.fields.length === 0) {
+      return ctx.json({ error: "At least one field must be specified" }, 400);
+    }
+
+    await kv.fts.createIndex(prefix, body.options);
+
+    return ctx.json({ ok: true });
+  })
+  .get("/indexes", async (ctx) => {
+    const indexes = await kv.fts.listIndexes();
+    return ctx.json(indexes);
+  })
+  .delete("/indexes", async (ctx) => {
+    const prefixParam = ctx.req.query("prefix");
+    if (!prefixParam) {
+      return ctx.json({ error: "Missing 'prefix' query parameter" }, 400);
+    }
+
+    const prefix = validateKeyPath(prefixParam);
+    await kv.fts.removeIndex(prefix);
+
+    return ctx.json({ ok: true });
+  })
+  .get("/search", async (ctx) => {
+    const prefixParam = ctx.req.query("prefix");
+    const query = ctx.req.query("query");
+
+    if (!prefixParam) {
+      return ctx.json({ error: "Missing 'prefix' query parameter" }, 400);
+    }
+    if (!query) {
+      return ctx.json({ error: "Missing 'query' query parameter" }, 400);
+    }
+
+    const prefix = validateKeyPath(prefixParam);
+    const limit = validateLimit(ctx.req.query("limit"), 100, 1000);
+    const consistency = parseConsistency(ctx.req.query("consistency"));
+
+    const results = await kv.fts.search(prefix, query, {
+      consistency,
+      limit,
+    });
+
+    return ctx.json(results);
+  })
+  // Search with POST for complex filters
+  .post("/search", async (ctx) => {
+    const body = await ctx.req.json<{
+      prefix: KvKey;
+      query: string;
+      options?: KvSearchOptions;
+    }>();
+
+    if (!body.prefix) {
+      return ctx.json({ error: "prefix is required" }, 400);
+    }
+    if (!body.query) {
+      return ctx.json({ error: "query is required" }, 400);
+    }
+
+    const prefix = validateKey(body.prefix);
+    const limit = validateLimit(body.options?.limit?.toString(), 100, 1000);
+    const consistency = parseConsistency(body.options?.consistency);
+
+    const results = await kv.fts.search(prefix, body.query, {
+      consistency,
+      limit,
+      where: body.options?.where,
+    });
+
+    return ctx.json(results);
   });
 
 /**
@@ -691,6 +858,7 @@ export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugi
 // Named exports
 export { keyvalExtension };
 export { AtomicOperation } from "./atomic";
+export { KvFts } from "./fts";
 export { Kv, type KvOptions } from "./kv";
 export { KvMetrics } from "./metrics";
 export { KvQueue, type KvQueueCleanupConfig } from "./queue";
@@ -702,9 +870,12 @@ export type {
   KvCommitResult,
   KvCommitVersionstamp,
   KvConsistency,
+  KvCreateIndexOptions,
   KvEnqueueOptions,
   KvEntry,
+  KvFtsTokenizer,
   KvGetOptions,
+  KvIndex,
   KvKey,
   KvKeyPart,
   KvKeyPartWithVersionstamp,
@@ -712,8 +883,11 @@ export type {
   KvListOptions,
   KvMutation,
   KvMutationType,
+  KvPaginateOptions,
+  KvPaginateResult,
   KvQueueEntry,
   KvQueueMessage,
+  KvSearchOptions,
   KvSetOptions,
   KvTransactionError,
   KvTransactionOptions,

@@ -1,0 +1,1113 @@
+== Filas de Mensagens
+
+=== Visão Geral
+
+Filas de mensagens implementam o padrão FIFO (First In, First Out) para processamento assíncrono de tarefas. Produtores (quem envia o trabalho) enviam mensagens para a fila, e consumidores (workers) as processam independentemente.
+
+==== Características
+
+*Desacoplamento:* O produtor não precisa saber como ou quando o trabalho será processado. Ele só envia a mensagem e continua sua execução.
+
+*Escalabilidade:* Você pode adicionar múltiplos consumidores para processar mensagens em paralelo, distribuindo a carga de trabalho.
+
+*Resiliência:* Se um worker falhar, a mensagem pode ser reprocessada automaticamente. O sistema não perde trabalho.
+
+*Controle de fluxo:* Tarefas pesadas não bloqueiam requisições HTTP. O usuário recebe uma resposta imediata enquanto o trabalho acontece em background.
+
+==== Quando Usar Filas
+
+[cols="1,2,2"]
+|===
+| Caso de Uso | Problema | Solução com Filas
+
+| Envio de emails
+| Esperar conexão SMTP bloqueia a resposta
+| Enfileira o email e responde imediatamente
+
+| Processamento de imagens
+| Resize/compress leva segundos
+| Upload retorna rápido, processamento em background
+
+| Webhooks
+| API externa pode estar lenta ou indisponível
+| Enfileira o webhook com retry automático
+
+| Relatórios pesados
+| Consultas SQL complexas demoram minutos
+| Gera relatório em background, notifica quando pronto
+
+| Notificações push
+| Enviar para milhares de dispositivos
+| Enfileira cada notificação, processa em lote
+|===
+
+=== Como Funciona no KeyVal
+
+O KeyVal implementa um sistema de filas com duas operações principais:
+
+1. *enqueue*: Adiciona mensagem à fila
+2. *listenQueue*: Escuta e processa mensagens
+
+[source]
+----
+┌─────────────┐   enqueue()   ┌─────────┐   listenQueue()   ┌─────────────┐
+│  Produtor   │──────────────▶│  Fila   │──────────────────▶│  Consumidor │
+│ (API/App)   │               │ (KeyVal)│                   │  (Worker)   │
+└─────────────┘               └─────────┘                   └─────────────┘
+                                    │
+                                    │ se falhar
+                                    ▼
+                              ┌──────────┐
+                              │   DLQ    │ (Dead Letter Queue)
+                              └──────────┘
+----
+
+=== Sintaxe e Exemplos Básicos
+
+==== Produzindo Mensagens
+
+A forma mais simples de adicionar trabalho à fila:
+
+[source,typescript]
+----
+// Envia um trabalho para a fila
+await kv.enqueue({
+  type: "send_email",
+  to: "usuario@example.com",
+  subject: "Bem-vindo!",
+  template: "welcome"
+});
+
+// A execução continua imediatamente, não espera o email ser enviado
+console.log("Email enfileirado com sucesso");
+----
+
+==== Consumindo Mensagens
+
+Em outro processo (ou no mesmo), você escuta a fila:
+
+[source,typescript]
+----
+// Inicia um worker que processa mensagens
+kv.listenQueue(async (mensagem) => {
+  console.log("Processando:", mensagem);
+
+  // Lógica de processamento baseada no tipo
+  if (mensagem.type === "send_email") {
+    await enviarEmail(mensagem.to, mensagem.subject, mensagem.template);
+  }
+
+  // Se não lançar erro, mensagem é confirmada (ACK) e removida da fila
+  // Se lançar erro, mensagem volta para fila para retry (NACK)
+});
+----
+
+TIP: O handler é chamado automaticamente para cada mensagem. Você não precisa fazer polling manual.
+
+=== Casos de Uso Detalhados
+
+==== Envio de Emails
+
+Cenário comum: após cadastro, enviar email de boas-vindas sem bloquear a resposta HTTP.
+
+[source,typescript]
+----
+// No endpoint de cadastro (POST /api/users)
+export async function cadastrarUsuario(req: Request) {
+  const data = await req.json();
+
+  // Salva usuário no banco
+  const usuario = await db.insert(users).values(data);
+
+  // Enfileira email (não bloqueia)
+  await kv.enqueue({
+    type: "welcome_email",
+    userId: usuario.id,
+    email: usuario.email,
+    name: usuario.name
+  });
+
+  // Responde imediatamente
+  return Response.json({ id: usuario.id }, { status: 201 });
+}
+
+// No worker (processo separado)
+kv.listenQueue(async (job) => {
+  if (job.type === "welcome_email") {
+    await emailService.send({
+      to: job.email,
+      template: "welcome",
+      variables: { name: job.name }
+    });
+
+    console.log(`Email de boas-vindas enviado para ${job.email}`);
+  }
+});
+----
+
+==== Processamento de Imagens
+
+Upload de imagem retorna rápido, processamento acontece em background.
+
+[source,typescript]
+----
+// Endpoint de upload
+export async function uploadImage(req: Request) {
+  const formData = await req.formData();
+  const file = formData.get("image") as File;
+
+  // Salva arquivo original
+  const imageId = crypto.randomUUID();
+  await storage.save(`originals/${imageId}`, file);
+
+  // Enfileira processamento
+  await kv.enqueue({
+    type: "process_image",
+    imageId,
+    operations: ["resize:800x600", "optimize", "watermark"]
+  });
+
+  return Response.json({ imageId });
+}
+
+// Worker de processamento
+kv.listenQueue(async (job) => {
+  if (job.type === "process_image") {
+    const original = await storage.load(`originals/${job.imageId}`);
+
+    for (const op of job.operations) {
+      if (op.startsWith("resize:")) {
+        const [width, height] = op.split(":")[1].split("x").map(Number);
+        await imageProcessor.resize(original, width, height);
+      } else if (op === "optimize") {
+        await imageProcessor.optimize(original);
+      } else if (op === "watermark") {
+        await imageProcessor.addWatermark(original);
+      }
+    }
+
+    await storage.save(`processed/${job.imageId}`, original);
+  }
+});
+----
+
+==== Webhooks com Retry Automático
+
+Chamar APIs externas são imprevisíveis. A API pode estar temporariamente indisponível.
+
+[source,typescript]
+----
+// Quando algo importante acontece
+await kv.enqueue(
+  {
+    type: "webhook",
+    url: "https://cliente.com/api/webhook",
+    event: "order.completed",
+    data: { orderId: 123, total: 99.90 }
+  },
+  {
+    // Tenta novamente com intervalos crescentes
+    backoffSchedule: [1000, 5000, 30000, 120000] // 1s, 5s, 30s, 2min
+  }
+);
+
+// Worker
+kv.listenQueue(async (job) => {
+  if (job.type === "webhook") {
+    const response = await fetch(job.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event: job.event, data: job.data })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Webhook falhou: ${response.status}`);
+      // Erro lançado = mensagem volta para fila para retry
+    }
+  }
+});
+----
+
+==== Geração de Relatórios
+
+Gerar relatórios complexos pode levar minutos. O usuário não deve esperar.
+
+[source,typescript]
+----
+// Endpoint para solicitar relatório
+export async function solicitarRelatorio(req: Request) {
+  const { tipo, filtros } = await req.json();
+  const reportId = crypto.randomUUID();
+
+  // Salva status inicial
+  await kv.set(["relatorios", reportId], {
+    status: "pending",
+    tipo,
+    solicitadoEm: Date.now()
+  });
+
+  // Enfileira geração
+  await kv.enqueue({
+    type: "generate_report",
+    reportId,
+    tipo,
+    filtros
+  });
+
+  return Response.json({
+    reportId,
+    status: "pending",
+    checkUrl: `/api/reports/${reportId}`
+  });
+}
+
+// Worker de relatórios
+kv.listenQueue(async (job) => {
+  if (job.type === "generate_report") {
+    // Atualiza status
+    await kv.set(["relatorios", job.reportId], {
+      status: "processing",
+      iniciadoEm: Date.now()
+    });
+
+    // Gera relatório (pode levar minutos)
+    const dados = await database.queryComplexData(job.filtros);
+    const pdf = await reportGenerator.generate(dados, job.tipo);
+
+    // Salva resultado
+    await storage.save(`reports/${job.reportId}.pdf`, pdf);
+
+    await kv.set(["relatorios", job.reportId], {
+      status: "completed",
+      finalizadoEm: Date.now(),
+      url: `/downloads/reports/${job.reportId}.pdf`
+    });
+  }
+});
+----
+
+==== Notificações Push em Massa
+
+Distribuição eficiente de notificações em larga escala.
+
+[source,typescript]
+----
+// Campanha para todos os usuários
+export async function enviarCampanha(req: Request) {
+  const { titulo, mensagem, segmento } = await req.json();
+
+  // Busca usuários do segmento (pode ser milhares)
+  const usuarios = await db.query.users.findMany({
+    where: eq(users.segmento, segmento)
+  });
+
+  // Enfileira uma notificação para cada usuário
+  for (const usuario of usuarios) {
+    await kv.enqueue({
+      type: "push_notification",
+      userId: usuario.id,
+      token: usuario.pushToken,
+      titulo,
+      mensagem
+    });
+  }
+
+  return Response.json({
+    enfileiradas: usuarios.length,
+    status: "processing"
+  });
+}
+
+// Worker processa em paralelo (múltiplas instâncias)
+kv.listenQueue(async (job) => {
+  if (job.type === "push_notification") {
+    await pushService.send({
+      token: job.token,
+      notification: {
+        title: job.titulo,
+        body: job.mensagem
+      }
+    });
+  }
+});
+----
+
+=== Delay de Mensagens (Scheduled Jobs)
+
+Você pode agendar trabalho para ser executado no futuro.
+
+==== Delay Relativo
+
+[source,typescript]
+----
+// Enviar lembrete em 24 horas
+await kv.enqueue(
+  {
+    type: "send_reminder",
+    userId: 123,
+    mensagem: "Você tem uma reunião amanhã às 14h"
+  },
+  { delay: 24 * 60 * 60 * 1000 } // 24 horas em milissegundos
+);
+----
+
+==== Agendar para Horário Específico
+
+[source,typescript]
+----
+async function agendarPara(payload: unknown, dataHora: Date) {
+  const delay = dataHora.getTime() - Date.now();
+
+  if (delay < 0) {
+    throw new Error("Não é possível agendar para o passado");
+  }
+
+  await kv.enqueue(payload, { delay });
+}
+
+// Uso
+await agendarPara(
+  {
+    type: "birthday_email",
+    userId: 456,
+    email: "usuario@example.com"
+  },
+  new Date("2024-03-15T09:00:00Z")
+);
+----
+
+==== Casos de Uso para Delay
+
+[cols="1,2"]
+|===
+| Cenário | Delay
+
+| Lembrete de carrinho abandonado
+| 2 horas após abandono
+
+| Email de aniversário
+| Data de aniversário às 09:00
+
+| Expiração de trial
+| 7 dias após início
+
+| Follow-up de vendas
+| 3 dias após último contato
+
+| Renovação de assinatura
+| 7 dias antes do vencimento
+|===
+
+=== Retry e Tratamento de Erros
+
+==== Comportamento Automático de Retry
+
+O KeyVal implementa ACK (acknowledge) e NACK (negative acknowledge) automáticos:
+
+[source,typescript]
+----
+kv.listenQueue(async (job) => {
+  try {
+    // Se processar com sucesso
+    await processarTrabalho(job);
+    // ACK automático: mensagem é removida da fila
+
+  } catch (error) {
+    // NACK automático: mensagem volta para fila
+    console.error("Erro ao processar, será reprocessado:", error);
+    throw error; // Importante: propagar o erro
+  }
+});
+----
+
+WARNING: Se você não propagar o erro (throw), o KeyVal assume que o processamento foi bem-sucedido e remove a mensagem da fila, perdendo o trabalho.
+
+==== Configurando Backoff Schedule
+
+Você controla os intervalos entre tentativas:
+
+[source,typescript]
+----
+await kv.enqueue(
+  { type: "api_call", url: "https://api.externa.com" },
+  {
+    // Tenta 4 vezes com intervalos crescentes
+    backoffSchedule: [
+      1000,    // 1ª tentativa: aguarda 1 segundo
+      5000,    // 2ª tentativa: aguarda 5 segundos
+      30000,   // 3ª tentativa: aguarda 30 segundos
+      120000   // 4ª tentativa: aguarda 2 minutos
+    ]
+  }
+);
+----
+
+Se todas as tentativas falharem, a mensagem vai para a Dead Letter Queue (DLQ).
+
+==== Dead Letter Queue (DLQ)
+
+Mensagens que falharam todas as tentativas vão para a DLQ para análise manual.
+
+[source,typescript]
+----
+// Listar mensagens na DLQ
+const mensagensMortas = await kv.dlq.list({ limit: 10 });
+
+for (const msg of mensagensMortas) {
+  console.log({
+    id: msg.id,
+    payload: msg.value,
+    tentativas: msg.attempts,
+    erro: msg.errorMessage,
+    falhouEm: new Date(msg.failedAt)
+  });
+}
+
+// Ver mensagem específica
+const mensagem = await kv.dlq.get("message-id-123");
+console.log("Detalhes:", mensagem);
+
+// Reprocessar manualmente (volta para fila)
+await kv.dlq.requeue("message-id-123");
+
+// Descartar mensagem (não vai ser reprocessada)
+await kv.dlq.delete("message-id-123");
+
+// Limpar toda a DLQ
+await kv.dlq.purge();
+----
+
+TIP: Monitore a DLQ regularmente. Mensagens lá podem indicar bugs no código ou problemas de configuração.
+
+==== Fallback para Chave KV
+
+Se quiser salvar mensagens que falharam em uma chave KV específica:
+
+[source,typescript]
+----
+const jobId = crypto.randomUUID();
+
+await kv.enqueue(
+  {
+    type: "critical_job",
+    jobId,
+    data: { /* dados importantes */ }
+  },
+  {
+    backoffSchedule: [1000, 5000, 10000],
+    keysIfUndelivered: [["jobs_falhados", jobId]]
+  }
+);
+
+// Depois você pode verificar jobs que falharam
+for await (const entry of kv.list(["jobs_falhados"])) {
+  console.log("Job crítico falhou:", entry.value);
+  // Pode alertar desenvolvedores, logar em sistema externo, etc.
+}
+----
+
+=== Modos de Conexão
+
+O KeyVal oferece dois modos para consumir mensagens:
+
+==== Server-Sent Events (SSE)
+
+Modo padrão com baixa latência e conexão persistente.
+
+[source,typescript]
+----
+const handle = kv.listenQueue(handler, { mode: "sse" });
+----
+
+*Vantagens:*
+- Latência baixíssima (mensagens chegam instantaneamente)
+- Não desperdiça recursos com polling
+
+*Desvantagens:*
+- Alguns proxies/firewalls podem interromper conexões persistentes
+- Pode exigir configuração de timeout em load balancers
+
+==== Polling
+
+Consulta periódica com maior compatibilidade.
+
+[source,typescript]
+----
+const handle = kv.listenQueue(handler, {
+  mode: "polling",
+  pollInterval: 2000 // Consulta a cada 2 segundos
+});
+----
+
+*Vantagens:*
+- Funciona em qualquer ambiente
+- Compatível com todos os proxies
+
+*Desvantagens:*
+- Latência maior (depende do intervalo)
+- Mais requisições ao servidor
+
+TIP: Use SSE por padrão. Só mude para polling se tiver problemas de conectividade.
+
+=== Boas Práticas
+
+==== Idempotência
+
+Handlers devem ser idempotentes: processar a mesma mensagem deve produzir o mesmo resultado.
+
+[source,typescript]
+----
+// ERRADO: Não é idempotente
+kv.listenQueue(async (job) => {
+  if (job.type === "credit_user") {
+    // Se reprocessar, credita duas vezes!
+    await db.update(users)
+      .set({ credits: sql`credits + ${job.amount}` })
+      .where(eq(users.id, job.userId));
+  }
+});
+
+// CORRETO: Idempotente com ID único
+kv.listenQueue(async (job) => {
+  if (job.type === "credit_user") {
+    // Verifica se já foi processado
+    const existing = await db.query.transactions.findFirst({
+      where: eq(transactions.jobId, job.jobId)
+    });
+
+    if (existing) {
+      console.log("Job já processado, ignorando");
+      return;
+    }
+
+    // Processa e registra
+    await db.transaction(async (tx) => {
+      await tx.update(users)
+        .set({ credits: sql`credits + ${job.amount}` })
+        .where(eq(users.id, job.userId));
+
+      await tx.insert(transactions).values({
+        jobId: job.jobId,
+        userId: job.userId,
+        amount: job.amount,
+        type: "credit"
+      });
+    });
+  }
+});
+----
+
+==== Payloads Pequenos
+
+Dados grandes devem ser salvos no KV, não na mensagem da fila.
+
+[source,typescript]
+----
+// ERRADO: Payload enorme
+await kv.enqueue({
+  type: "process_data",
+  data: [...Array(10000)] // Dados enormes
+});
+
+// CORRETO: Salva dados no KV, referência na fila
+const dataId = crypto.randomUUID();
+await kv.set(["temp_data", dataId], largeDatabaseResults);
+
+await kv.enqueue({
+  type: "process_data",
+  dataId // Apenas referência
+});
+
+// Worker busca dados
+kv.listenQueue(async (job) => {
+  if (job.type === "process_data") {
+    const data = await kv.get(["temp_data", job.dataId]);
+    await processar(data.value);
+    await kv.delete(["temp_data", job.dataId]); // Limpa
+  }
+});
+----
+
+==== Timeout nos Handlers
+
+Evite que um job trave indefinidamente.
+
+[source,typescript]
+----
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("Timeout")), timeoutMs)
+    )
+  ]);
+}
+
+kv.listenQueue(async (job) => {
+  try {
+    // Timeout de 30 segundos
+    await withTimeout(processarJob(job), 30000);
+  } catch (error) {
+    if (error.message === "Timeout") {
+      console.error("Job excedeu timeout de 30s");
+    }
+    throw error; // Propaga para retry
+  }
+});
+----
+
+==== Logging Estruturado
+
+Facilita debug e monitoramento.
+
+[source,typescript]
+----
+kv.listenQueue(async (job) => {
+  const startTime = Date.now();
+  const jobId = crypto.randomUUID();
+
+  console.log({
+    event: "job_started",
+    jobId,
+    type: job.type,
+    timestamp: new Date().toISOString()
+  });
+
+  try {
+    await processarJob(job);
+
+    console.log({
+      event: "job_completed",
+      jobId,
+      type: job.type,
+      duration: Date.now() - startTime,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error({
+      event: "job_failed",
+      jobId,
+      type: job.type,
+      error: error.message,
+      stack: error.stack,
+      duration: Date.now() - startTime,
+      timestamp: new Date().toISOString()
+    });
+    throw error;
+  }
+});
+----
+
+==== Monitor a DLQ
+
+Crie alertas para quando mensagens caírem na DLQ.
+
+[source,typescript]
+----
+// Executar periodicamente (ex: a cada hora)
+async function monitorarDLQ() {
+  const stats = await kv.queueStats();
+
+  if (stats.dlq > 0) {
+    console.error(`${stats.dlq} mensagens na DLQ`);
+
+    // Lista as mensagens
+    const mensagens = await kv.dlq.list({ limit: 10 });
+
+    for (const msg of mensagens) {
+      console.error({
+        id: msg.id,
+        tipo: msg.value.type,
+        erro: msg.errorMessage,
+        tentativas: msg.attempts
+      });
+    }
+
+    // Envia alerta (email, Slack, etc)
+    await alertar({
+      titulo: "Mensagens na Dead Letter Queue",
+      quantidade: stats.dlq,
+      detalhes: mensagens
+    });
+  }
+}
+
+// Agendar monitoramento a cada hora
+setInterval(monitorarDLQ, 60 * 60 * 1000);
+----
+
+==== Tipagem com TypeScript
+
+Use union types para ter type safety nos jobs.
+
+[source,typescript]
+----
+type JobPayload =
+  | { type: "send_email"; to: string; template: string; vars: Record<string, unknown> }
+  | { type: "resize_image"; imageId: string; width: number; height: number }
+  | { type: "generate_report"; reportId: string; filters: unknown }
+  | { type: "webhook"; url: string; event: string; data: unknown };
+
+kv.listenQueue<JobPayload>(async (job) => {
+  // TypeScript sabe quais campos existem em cada type
+  switch (job.type) {
+    case "send_email":
+      await sendEmail(job.to, job.template, job.vars);
+      break;
+
+    case "resize_image":
+      await resizeImage(job.imageId, job.width, job.height);
+      break;
+
+    case "generate_report":
+      await generateReport(job.reportId, job.filters);
+      break;
+
+    case "webhook":
+      await callWebhook(job.url, job.event, job.data);
+      break;
+
+    default:
+      // TypeScript garante que todos os tipos foram tratados
+      const _: never = job;
+  }
+});
+----
+
+=== Padrões Avançados
+
+==== Job com Resultado
+
+Quando o produtor precisa do resultado do processamento.
+
+[source,typescript]
+----
+// Função helper para aguardar resultado
+async function processarComResultado<T>(
+  payload: unknown,
+  timeout = 30000
+): Promise<T> {
+  const jobId = crypto.randomUUID();
+
+  // Enfileira job
+  await kv.enqueue({ ...payload, jobId });
+
+  // Aguarda resultado (polling)
+  const inicio = Date.now();
+  while (Date.now() - inicio < timeout) {
+    const resultado = await kv.get(["job_results", jobId]);
+
+    if (resultado.value) {
+      await kv.delete(["job_results", jobId]);
+
+      if (resultado.value.error) {
+        throw new Error(resultado.value.error);
+      }
+
+      return resultado.value.data as T;
+    }
+
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  throw new Error("Timeout aguardando resultado");
+}
+
+// Uso (endpoint HTTP)
+export async function processarDados(req: Request) {
+  const input = await req.json();
+
+  const resultado = await processarComResultado({
+    type: "complex_calculation",
+    input
+  }, 60000); // Timeout de 60 segundos
+
+  return Response.json({ resultado });
+}
+
+// Worker salva resultado
+kv.listenQueue(async (job) => {
+  if (job.type === "complex_calculation") {
+    try {
+      const resultado = await calcularComplexo(job.input);
+      await kv.set(["job_results", job.jobId], { data: resultado });
+    } catch (error) {
+      await kv.set(["job_results", job.jobId], { error: error.message });
+      throw error;
+    }
+  }
+});
+----
+
+WARNING: Este padrão funciona mas não é ideal para alta escala. Para casos de uso intensivo, considere usar WebSockets ou SSE para notificar o cliente.
+
+==== Múltiplos Workers (Load Balancing)
+
+Você pode ter múltiplas instâncias escutando a mesma fila. As mensagens são automaticamente distribuídas entre elas.
+
+[source,typescript]
+----
+// Em worker-1 (processo/container 1)
+kv.listenQueue(async (job) => {
+  console.log("Worker 1 processando:", job.type);
+  await processar(job);
+});
+
+// Em worker-2 (processo/container 2)
+kv.listenQueue(async (job) => {
+  console.log("Worker 2 processando:", job.type);
+  await processar(job);
+});
+
+// Em worker-3 (processo/container 3)
+kv.listenQueue(async (job) => {
+  console.log("Worker 3 processando:", job.type);
+  await processar(job);
+});
+
+// Cada mensagem vai para apenas UM worker
+// A distribuição é feita automaticamente pelo KeyVal
+----
+
+==== Rate Limiting na Fila
+
+Controlar quantas mensagens podem ser enfileiradas por período.
+
+[source,typescript]
+----
+async function enqueueComRateLimit(
+  payload: unknown,
+  chave: string,
+  maxPorMinuto: number
+) {
+  const minuto = Math.floor(Date.now() / 60000);
+  const rateKey = ["rate_limit", chave, minuto];
+
+  const resultado = await kv.transaction(async (tx) => {
+    const entry = await tx.get(rateKey);
+    const count = (entry.value as number) ?? 0;
+
+    if (count >= maxPorMinuto) {
+      throw new Error("Rate limit excedido");
+    }
+
+    tx.sum(rateKey, 1n);
+  });
+
+  if (resultado.ok) {
+    await kv.enqueue(payload);
+  } else {
+    throw resultado.error;
+  }
+}
+
+// Uso
+try {
+  await enqueueComRateLimit(
+    { type: "send_email", to: "user@example.com" },
+    "emails",
+    100 // Max 100 emails por minuto
+  );
+} catch (error) {
+  console.error("Rate limit atingido");
+}
+----
+
+==== Priority Queues (Múltiplas Filas)
+
+O KeyVal tem uma fila global, mas você pode simular prioridades usando múltiplas instâncias e roteamento.
+
+[source,typescript]
+----
+// Para jobs de alta prioridade, use uma chave específica
+await kv.enqueue({
+  type: "urgent_job",
+  priority: "high",
+  data: { /* ... */ }
+});
+
+await kv.enqueue({
+  type: "normal_job",
+  priority: "normal",
+  data: { /* ... */ }
+});
+
+// Worker 1: processa apenas prioridade alta
+kv.listenQueue(async (job) => {
+  if (job.priority === "high") {
+    await processarUrgente(job);
+  } else {
+    // Ignora e reenfileira para outro worker
+    await kv.enqueue(job);
+  }
+});
+
+// Worker 2: processa prioridade normal
+kv.listenQueue(async (job) => {
+  if (job.priority === "normal") {
+    await processarNormal(job);
+  }
+});
+----
+
+NOTE: Este padrão é um workaround. Uma implementação nativa de priority queues está no roadmap do KeyVal.
+
+=== Monitoramento e Estatísticas
+
+==== Obter Estatísticas da Fila
+
+[source,typescript]
+----
+const stats = await kv.queueStats();
+
+console.log({
+  pendentes: stats.pending,        // Aguardando processamento
+  processando: stats.processing,   // Sendo processadas agora
+  dlq: stats.dlq,                  // Na dead letter queue
+  total: stats.total               // Total de mensagens
+});
+----
+
+==== Dashboard de Monitoramento
+
+Exemplo de endpoint para dashboard:
+
+[source,typescript]
+----
+export async function statusFila(req: Request) {
+  const stats = await kv.queueStats();
+  const dlqMessages = await kv.dlq.list({ limit: 5 });
+
+  return Response.json({
+    stats,
+    recentFailures: dlqMessages.map(msg => ({
+      id: msg.id,
+      type: msg.value.type,
+      error: msg.errorMessage,
+      failedAt: new Date(msg.failedAt),
+      attempts: msg.attempts
+    })),
+    health: stats.dlq === 0 ? "healthy" : "degraded"
+  });
+}
+----
+
+=== Auto-Cleanup com `using`
+
+TypeScript 5.2+ suporta a keyword `using` para cleanup automático.
+
+[source,typescript]
+----
+async function processar() {
+  // `using` chama automaticamente .stop() ao sair do escopo
+  using listener = kv.listenQueue(async (msg) => {
+    await processarMensagem(msg);
+  });
+
+  // Processa por 5 minutos
+  await new Promise(r => setTimeout(r, 5 * 60 * 1000));
+
+  // listener.stop() é chamado automaticamente aqui
+}
+
+processar();
+----
+
+Isso é especialmente útil em testes:
+
+[source,typescript]
+----
+import { afterEach, describe, it } from "bun:test";
+
+describe("Queue processing", () => {
+  it("should process messages", async () => {
+    using listener = kv.listenQueue(async (msg) => {
+      // processar
+    });
+
+    // testes...
+
+    // cleanup automático
+  });
+});
+----
+
+=== Limitações
+
+[cols="1,2,2"]
+|===
+| Limitação | Descrição | Alternativa
+
+| Fila única global
+| Não há suporte nativo para múltiplas filas separadas
+| Use campo `type` ou `queue` no payload para rotear
+
+| Sem priority queues
+| Todas as mensagens têm mesma prioridade
+| Simule com múltiplos workers e roteamento
+
+| Sem filas FIFO garantidas
+| Em alta concorrência, ordem pode variar
+| Se ordem é crítica, use índice sequencial no KV
+
+| Payload limitado
+| Mensagens muito grandes podem impactar performance
+| Salve dados no KV, use referência na fila
+
+| Sem transações cross-fila
+| Não é possível enfileirar em transação atômica com set/delete
+| Use `keysIfUndelivered` para fallback
+|===
+
+=== Comparação com Outras Filas
+
+[cols="1,1,1,1"]
+|===
+| Feature | KeyVal Queues | Redis Queue | RabbitMQ
+
+| Setup
+| Zero config
+| Requer Redis
+| Requer RabbitMQ server
+
+| Retry automático
+| Sim
+| Depende da lib
+| Sim
+
+| DLQ nativa
+| Sim
+| Não
+| Sim
+
+| Delay/Schedule
+| Sim
+| Sim
+| Sim (via plugin)
+
+| Priority queues
+| Não
+| Sim
+| Sim
+
+| Múltiplas filas
+| Simulação
+| Sim
+| Sim
+
+| Load balancing
+| Sim (Automático)
+| Sim
+| Sim
+
+| Persistência
+| Sim (libSQL)
+| Depende config
+| Sim
+|===
+
+TIP: KeyVal Queues é ideal para casos de uso comuns (emails, webhooks, jobs) sem overhead de infraestrutura. Para casos avançados (priority, múltiplas filas, routing complexo), considere RabbitMQ.
+

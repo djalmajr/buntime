@@ -1,0 +1,392 @@
+== Limitações
+
+=== Queries
+
+==== Queries ad-hoc complexas
+
+[source,typescript]
+----
+// SQL: fácil
+SELECT * FROM users
+WHERE city = 'SP' AND age > 25 AND status = 'active'
+ORDER BY created_at DESC;
+
+// KeyVal: precisa de índice pré-definido ou scan completo
+for await (const u of kv.list(["users"])) {
+  if (u.value.city === "SP" && u.value.age > 25 && u.value.status === "active") {
+    results.push(u.value);
+  }
+}
+// Depois ordenar em memória...
+----
+
+Crie índices secundários para queries conhecidas ou use banco SQL para relatórios.
+
+==== JOINs
+
+[source,typescript]
+----
+// SQL: uma query
+SELECT o.*, u.name as customer_name, p.title as product_title
+FROM orders o
+JOIN users u ON o.user_id = u.id
+JOIN products p ON o.product_id = p.id;
+
+// KeyVal: múltiplas queries
+const order = await kv.get(["orders", orderId]);
+const [user, product] = await kv.getMany([
+  ["users", order.value.userId],
+  ["products", order.value.productId]
+]);
+----
+
+==== Agregações
+
+[source,typescript]
+----
+// SQL: calculado no banco
+SELECT city, COUNT(*), AVG(age)
+FROM users
+GROUP BY city;
+
+// KeyVal: manter contadores atualizados
+await kv.atomic()
+  .set(["users", id], user)
+  .sum(["stats", "users_by_city", user.city], 1n)
+  .commit();
+
+// Ou calcular sob demanda (lento para grandes datasets)
+const stats = {};
+for await (const u of kv.list(["users"])) {
+  stats[u.value.city] = (stats[u.value.city] || 0) + 1;
+}
+----
+
+Mantenha agregações pré-calculadas ou use banco analítico separado.
+
+==== Full-text search
+
+[source,typescript]
+----
+// SQL: com extensão
+SELECT * FROM articles WHERE to_tsvector(content) @@ to_tsquery('typescript');
+
+// KeyVal: não suportado
+----
+
+Use Meilisearch, Typesense, ou Elasticsearch.
+
+==== Transações longas
+
+[source,typescript]
+----
+// Ruim: transação que demora
+await kv.transaction(async (tx) => {
+  const users = [];
+  for await (const u of kv.list(["users"])) {
+    users.push(await tx.get(u.key));
+  }
+  // ... processa por minutos
+  // Alta chance de conflito
+});
+
+// Melhor: operações curtas
+const userIds = [];
+for await (const u of kv.list(["users"], { limit: 100 })) {
+  userIds.push(u.key[1]);
+}
+await processInBatches(userIds);
+----
+
+=== Limites Técnicos
+
+[cols="1,2,2"]
+|===
+| Limite | Valor | Impacto
+
+| Tamanho de cada parte da chave
+| 1KB (1024 chars)
+| Partes muito longas falham
+
+| Profundidade da chave
+| 20 partes
+| Chaves muito profundas falham
+
+| Operações por batch
+| 1000
+| Dividir em batches se necessário
+
+| Limite de list
+| Paginado (max 1000/req)
+| Use cursor para grandes resultados
+
+| Tamanho do valor
+| Sem limite rígido
+| Veja seção "Dados Grandes" abaixo
+|===
+
+=== Dados Grandes
+
+O KeyVal usa libSQL/SQLite que suporta valores de até 1GB. Não há limite rígido no tamanho do valor, mas documentos muito grandes têm impacto em:
+
+* **Performance**: Serialização/deserialização JSON leva mais tempo
+* **Memória**: Todo o valor é carregado em memória
+* **Rede**: Transferência mais lenta
+
+==== Recomendações por Tamanho
+
+[cols="1,2,2"]
+|===
+| Tamanho | Recomendação | Exemplo
+
+| < 100KB
+| Armazenar diretamente
+| Usuários, pedidos, configurações
+
+| 100KB - 1MB
+| Considerar separação
+| Logs acumulados, histórico
+
+| > 1MB
+| Storage externo
+| Imagens, PDFs, vídeos
+|===
+
+==== Padrão: Referência a Storage Externo
+
+Para arquivos binários grandes, armazene em S3/R2/GCS e guarde apenas a referência:
+
+[source,typescript]
+----
+interface Attachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  storageUrl: string;  // URL no S3/R2
+  createdAt: number;
+}
+
+// Upload: salva arquivo em S3, referência no KeyVal
+async function uploadAttachment(file: File): Promise<Attachment> {
+  const id = crypto.randomUUID();
+  const storageUrl = await s3.upload(`attachments/${id}`, file);
+
+  const attachment: Attachment = {
+    id,
+    filename: file.name,
+    contentType: file.type,
+    size: file.size,
+    storageUrl,
+    createdAt: Date.now(),
+  };
+
+  await kv.set(["attachments", id], attachment);
+  return attachment;
+}
+
+// Download: busca referência, redireciona para S3
+async function getAttachment(id: string): Promise<Response> {
+  const entry = await kv.get<Attachment>(["attachments", id]);
+  if (!entry.value) throw new Error("Not found");
+
+  return Response.redirect(entry.value.storageUrl);
+}
+----
+
+==== Padrão: Chunking para Dados Grandes
+
+Se precisar armazenar dados grandes diretamente (sem storage externo):
+
+[source,typescript]
+----
+const CHUNK_SIZE = 500_000; // 500KB por chunk
+
+async function saveLargeData(id: string, data: string): Promise<void> {
+  const chunks = [];
+  for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+    chunks.push(data.slice(i, i + CHUNK_SIZE));
+  }
+
+  const atomic = kv.atomic();
+
+  // Metadados
+  atomic.set(["large_data", id, "meta"], {
+    totalSize: data.length,
+    chunkCount: chunks.length,
+    createdAt: Date.now(),
+  });
+
+  // Chunks
+  for (let i = 0; i < chunks.length; i++) {
+    atomic.set(["large_data", id, "chunks", i], chunks[i]);
+  }
+
+  await atomic.commit();
+}
+
+async function loadLargeData(id: string): Promise<string | null> {
+  const meta = await kv.get<{ chunkCount: number }>(["large_data", id, "meta"]);
+  if (!meta.value) return null;
+
+  const chunks: string[] = [];
+  for await (const entry of kv.list<string>(["large_data", id, "chunks"])) {
+    chunks.push(entry.value);
+  }
+
+  return chunks.join("");
+}
+----
+
+WARNING: Chunking adiciona complexidade. Prefira storage externo para arquivos binários.
+
+=== Índices: Custo vs Benefício
+
+[cols="1,1,1"]
+|===
+| Aspecto | Sem índice | Com índice
+
+| Escrita
+| O(1)
+| O(n) onde n = número de índices
+
+| Leitura por chave
+| O(1)
+| O(1)
+
+| Query por campo
+| O(n) scan
+| O(1) lookup
+
+| Espaço
+| 1x
+| 2x, 3x... por índice
+|===
+
+[source,typescript]
+----
+// Cada índice adiciona operações na escrita
+await kv.atomic()
+  .set(["users", id], user)                           // Dado principal
+  .set(["users_by_email", user.email], id)            // Índice 1
+  .set(["users_by_city", user.city, id], id)          // Índice 2
+  .set(["users_by_status", user.status, id], id)      // Índice 3
+  .commit();
+
+// 4 operações vs 1 operação
+// Mas queries são O(1) em vez de O(n)
+----
+
+=== Quando NÃO usar KeyVal
+
+[cols="1,2"]
+|===
+| Cenário | Use em vez
+
+| Relatórios BI
+| PostgreSQL, ClickHouse
+
+| Busca textual
+| Meilisearch, Elasticsearch
+
+| Grafos relacionais
+| Neo4j, PostgreSQL
+
+| Time series
+| TimescaleDB, InfluxDB
+
+| Dados geoespaciais
+| PostGIS
+
+| ML/Analytics
+| Data warehouse
+|===
+
+=== Quando usar KeyVal
+
+[cols="1,2"]
+|===
+| Cenário | Por que KeyVal
+
+| Sessões de usuário
+| Simples, TTL nativo, rápido
+
+| Configurações
+| Key-value natural, watch em tempo real
+
+| Cache de aplicação
+| TTL, invalidação simples
+
+| Filas de trabalho
+| Sistema de queue integrado
+
+| Rate limiting
+| Contadores atômicos, TTL
+
+| Feature flags
+| Configuração em tempo real
+
+| Dados de usuário
+| Hierarquia natural, delete em cascata
+
+| Eventos/logs
+| Ordenação por tempo, prefixo
+
+| Leaderboards
+| Contadores atômicos (max/min)
+
+| Real-time sync
+| Watch integrado
+|===
+
+=== Combinando com outros bancos
+
+[source,typescript]
+----
+// PostgreSQL para dados relacionais
+const orders = await db.query(`
+  SELECT * FROM orders
+  WHERE user_id = $1 AND status = 'pending'
+`, [userId]);
+
+// KeyVal para sessões
+const session = await kv.get(["sessions", sessionId]);
+
+// KeyVal para cache
+const cached = await kv.get(["cache", "user", oderId]);
+if (!cached.value) {
+  const user = await db.query("SELECT * FROM users WHERE id = $1", [oderId]);
+  await kv.set(["cache", "user", oderId], user, { expireIn: 300000 });
+}
+
+// KeyVal para filas
+await kv.enqueue({ type: "send_email", orderId });
+----
+
+=== Dicas de Migração
+
+==== De Redis
+
+* Strings → `set(["key"], value)`
+* Hashes → `set(["hash", field], value)` ou objeto JSON
+* Sets → Array no valor ou chaves separadas
+* Sorted Sets → Chave com score: `["zset", score, member]`
+* TTL → `expireIn` em milissegundos
+* Pub/Sub → `watch()` + padrão de eventos
+
+==== De MongoDB
+
+* Collections → Prefixo na chave: `["users", id]`
+* Documents → Valores JSON
+* Indexes → Índices manuais
+* Aggregation → Pré-computar ou usar outro banco
+
+==== De DynamoDB
+
+* Table → Prefixo
+* Primary Key → Chave KeyVal
+* Sort Key → Parte da chave: `["table", pk, sk]`
+* GSI → Índices secundários manuais
+* TTL → `expireIn`
+* Streams → `watch()`
+

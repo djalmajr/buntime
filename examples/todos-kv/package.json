@@ -1,0 +1,34 @@
+{
+  "name": "todos-kv",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workerConfig": {
+    "idleTimeout": 30,
+    "lowMemory": false,
+    "maxRequests": 100,
+    "timeout": 30,
+    "ttl": 60
+  },
+  "scripts": {
+    "build": "NODE_ENV=production bun scripts/build.ts",
+    "dev": "bun --port=5001 --hot index.dev.ts",
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "lint": "bun run lint:format && bun run lint:types",
+    "start": "bun run build && bun --port=5001 dist/index.js"
+  },
+  "dependencies": {
+    "@buntime/keyval": "workspace:*",
+    "@buntime/shared": "workspace:*",
+    "clsx": "^2.1.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "bun-plugin-tailwind": "^0.1.2",
+    "tailwindcss": "^4.1.17"
+  }
+}

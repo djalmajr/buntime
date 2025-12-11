@@ -177,7 +177,7 @@ describe("Kv", () => {
 
     it("should filter by prefix", async () => {
       const entries = [];
-      for await (const entry of kv.list({ prefix: ["users"] })) {
+      for await (const entry of kv.list(["users"])) {
         entries.push(entry);
       }
 
@@ -187,7 +187,7 @@ describe("Kv", () => {
 
     it("should respect limit", async () => {
       const entries = [];
-      for await (const entry of kv.list({ prefix: ["users"], limit: 2 })) {
+      for await (const entry of kv.list(["users"], { limit: 2 })) {
         entries.push(entry);
       }
 
@@ -196,7 +196,7 @@ describe("Kv", () => {
 
     it("should support reverse order", async () => {
       const entries = [];
-      for await (const entry of kv.list({ prefix: ["users"], reverse: true })) {
+      for await (const entry of kv.list(["users"], { reverse: true })) {
         entries.push(entry);
       }
 
@@ -207,8 +207,7 @@ describe("Kv", () => {
 
     it("should handle start/end bounds", async () => {
       const entries = [];
-      for await (const entry of kv.list({
-        prefix: ["users"],
+      for await (const entry of kv.list(["users"], {
         start: ["users", 2],
         end: ["users", 3],
       })) {
@@ -221,7 +220,7 @@ describe("Kv", () => {
 
     it("should return empty for non-matching prefix", async () => {
       const entries = [];
-      for await (const entry of kv.list({ prefix: ["nonexistent"] })) {
+      for await (const entry of kv.list(["nonexistent"])) {
         entries.push(entry);
       }
 

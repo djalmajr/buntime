@@ -1,0 +1,727 @@
+== Arquitetura
+
+=== Filosofia de Design
+
+==== Compatibilidade com Deno KV
+
+O KeyVal foi projetado para ser compatível com a API do Deno KV, proporcionando:
+
+* **API Familiar**: Mesmos métodos (`get`, `set`, `list`, `atomic`)
+* **Tipos Compatíveis**: Chaves compostas, versionstamps, transações
+* **Comportamento Consistente**: Semântica de operações atômicas e transações
+
+A compatibilidade permite migração fácil e uso de padrões conhecidos da comunidade Deno.
+
+==== Key-Value vs Relacional
+
+A escolha de um modelo key-value ao invés de relacional oferece:
+
+* **Simplicidade**: Operações CRUD diretas sem necessidade de esquemas complexos
+* **Performance**: Acesso direto por chave sem joins
+* **Flexibilidade**: Valores JSON arbitrários sem migrações de schema
+* **Escalabilidade**: Particionamento horizontal natural por prefixo de chave
+
+*Casos de Uso Ideais*:
+
+* Sessões e cache
+* Filas de mensagens
+* Contadores e métricas
+* Dados hierárquicos (usando chaves compostas)
+* Índices secundários customizados
+
+==== Controle de Concorrência Otimista (OCC)
+
+O KeyVal utiliza Optimistic Concurrency Control ao invés de locks pessimistas:
+
+*Vantagens*:
+
+* **Melhor para workloads read-heavy**: Leituras nunca bloqueiam
+* **Maior throughput**: Sem overhead de aquisição de locks
+* **Sem deadlocks**: Impossível por design
+* **Escalabilidade**: Melhor paralelização de leituras
+
+*Trade-offs*:
+
+* **Conflitos em writes**: Requer retry quando detectado conflito
+* **Complexidade do cliente**: Necessita lógica de retry
+* **Potencial starvation**: Transações longas podem sofrer muitos retries
+
+*Quando usar*:
+
+* Proporção alta de leituras vs escritas (>70%)
+* Conflitos raros (chaves diferentes sendo modificadas)
+* Operações que podem ser retried com segurança
+
+=== Por Que libSQL?
+
+==== Compatibilidade com SQLite
+
+* **Battle-tested**: Motor SQLite maduro e confiável
+* **Familiar**: SQL padrão e ferramentas conhecidas
+* **Embarcável**: Pode rodar in-process ou remoto
+* **ACID**: Garantias transacionais completas
+
+==== Replicação
+
+Suporte nativo a replicação primary/replica:
+
+[source]
+----
+┌──────────────┐
+│   Primary    │ ← Writes (strong consistency)
+└──────┬───────┘
+       │ Replication
+       ├─────────────┬─────────────┐
+       ▼             ▼             ▼
+┌─────────┐   ┌─────────┐   ┌─────────┐
+│ Replica │   │ Replica │   │ Replica │
+│ (us-east)│   │ (eu-west)│   │ (ap-south)│
+└─────────┘   └─────────┘   └─────────┘
+     ▲             ▲             ▲
+     └─────────────┴─────────────┘
+     Reads (eventual consistency)
+----
+
+* **Writes**: Sempre vão para o primary
+* **Reads Strong**: Leem do primary (latência maior, dados sempre atualizados)
+* **Reads Eventual**: Podem ler de réplicas (latência menor, dados possivelmente stale)
+
+==== Protocolo HTTP
+
+libSQL oferece API HTTP além do protocolo nativo:
+
+* **Simplicidade**: Requests HTTP padrão
+* **Compatibilidade**: Funciona em ambientes restritos (Workers, Edge Functions)
+* **Stateless**: Sem necessidade de manter conexões persistentes
+* **Batching**: Múltiplas queries em uma única request
+
+==== Suporte a Transações
+
+Transações ACID completas:
+
+* **Atomicidade**: Todas as operações ou nenhuma
+* **Consistência**: Checks de versionstamp garantem snapshot isolation
+* **Isolamento**: Snapshot isolation level
+* **Durabilidade**: WAL (Write-Ahead Log) com sync
+
+=== Arquitetura de Componentes
+
+==== Visão Geral
+
+[source]
+----
+┌────────────────────────────────────────────────────────────┐
+│                      Worker/App                             │
+│                                                              │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │         @buntime/keyval (Client SDK)                 │   │
+│  │  • Kv class                                          │   │
+│  │  • KvAtomicOperation                                 │   │
+│  │  • KvTransaction                                     │   │
+│  │  • Watch, Queue methods                              │   │
+│  └──────────────────┬───────────────────────────────────┘   │
+└─────────────────────┼───────────────────────────────────────┘
+                      │ HTTP REST API
+                      │ /_/plugin-keyval/*
+                      ▼
+┌────────────────────────────────────────────────────────────┐
+│              @buntime/plugin-keyval (Plugin)                │
+│                                                              │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │              Hono REST Routes                        │   │
+│  │  GET    /keys/*         - Get entry                  │   │
+│  │  PUT    /keys/*         - Set entry                  │   │
+│  │  DELETE /keys/*         - Delete entry               │   │
+│  │  GET    /keys           - List entries               │   │
+│  │  POST   /atomic         - Atomic operations          │   │
+│  │  GET    /watch          - Watch keys (SSE)           │   │
+│  │  POST   /queue/enqueue  - Enqueue message            │   │
+│  │  GET    /queue/listen   - Listen queue (SSE)         │   │
+│  └──────────────────┬───────────────────────────────────┘   │
+│                     │                                        │
+│  ┌──────────────────▼──────────────────────────────────┐   │
+│  │                  Kv Class                            │   │
+│  │  • get, set, delete, list                            │   │
+│  │  • atomic operations                                 │   │
+│  │  • transactions                                      │   │
+│  │  • triggers                                          │   │
+│  └──────────────────┬───────────────────────────────────┘   │
+│                     │                                        │
+│         ┌───────────┴────────────┬───────────────────────┐  │
+│         ▼                        ▼                       ▼  │
+│  ┌───────────┐          ┌──────────────┐      ┌──────────┐ │
+│  │ KvQueue   │          │  KvMetrics   │      │ Encoding │ │
+│  │ • enqueue │          │  • tracking  │      │ • keys   │ │
+│  │ • dequeue │          │  • prometheus│      │ • values │ │
+│  │ • DLQ     │          │  • persistence│      └──────────┘ │
+│  └───────────┘          └──────────────┘                    │
+│         │                        │                           │
+│         └────────────┬───────────┘                           │
+│                      ▼                                       │
+│         ┌────────────────────────────────────────┐          │
+│         │      @buntime/plugin-database          │          │
+│         │         DatabaseAdapter                │          │
+│         └────────────────┬───────────────────────┘          │
+└──────────────────────────┼──────────────────────────────────┘
+                           │ HTTP/HTTPS
+                           ▼
+                ┌───────────────────────┐
+                │   libSQL Server       │
+                │  • SQLite engine      │
+                │  • HTTP API           │
+                │  • Replication        │
+                │  • Transactions       │
+                └───────────────────────┘
+----
+
+==== Responsabilidades de Cada Camada
+
+*Worker/App (@buntime/keyval)*:
+
+* **Interface do desenvolvedor**: API TypeScript tipada
+* **Serialização**: Conversão de tipos JS para JSON
+* **Comunicação HTTP**: Requests para o plugin
+* **Gestão de listeners**: Watch e Queue via SSE ou polling
+* **Buffering**: Gerenciamento de backpressure em watch
+
+*Plugin REST API*:
+
+* **Validação**: Sanitização e validação de inputs
+* **Roteamento**: Mapeamento de endpoints para operações
+* **SSE Streaming**: Server-Sent Events para watch/queue
+* **Error Handling**: Tradução de erros internos
+
+*Kv Class (Core)*:
+
+* **Lógica de negócio**: Implementação das operações KV
+* **Transações**: Controle de concorrência otimista
+* **Triggers**: Sistema de eventos para mudanças
+* **TTL**: Expiração automática de entries
+* **Metrics**: Coleta de métricas de operação
+
+*KvQueue*:
+
+* **Fila de mensagens**: Enqueue/dequeue com retries
+* **Dead Letter Queue**: Mensagens que falharam após todos retries
+* **Lock management**: Evita processamento duplicado
+* **Cleanup**: Remoção de mensagens antigas
+
+*DatabaseAdapter*:
+
+* **Abstração**: Interface única para diferentes DBs
+* **Connection pooling**: Gerenciamento de conexões
+* **Query execution**: Execução de SQL com bindings
+* **Transaction support**: BEGIN/COMMIT/ROLLBACK
+
+*libSQL Server*:
+
+* **Persistência**: Armazenamento durável dos dados
+* **ACID**: Garantias transacionais
+* **Indexação**: Índices para queries eficientes
+* **Replicação**: Sync entre primary e replicas
+
+=== Fluxo de Dados
+
+==== Codificação de Chaves
+
+Chaves compostas são codificadas em bytes para ordenação lexicográfica correta:
+
+*Type Tags (determinam ordem de tipos)*:
+
+[source,typescript]
+----
+const TYPE_TAGS = {
+  UINT8ARRAY: 0x01,  // Binário vem primeiro
+  STRING:     0x02,  // Strings depois
+  NUMBER:     0x03,  // Números
+  BIGINT:     0x04,  // BigInts
+  BOOLEAN:    0x05,  // Booleanos por último
+};
+----
+
+*Formato de Codificação*:
+
+[source]
+----
+Key: ["users", 123, true]
+
+Encoded:
+┌────┬──────────────┬────┬────┬──────────┬────┬────┬────┐
+│0x02│"users"       │0x00│0x03│float64   │0x00│0x05│0x02│
+│tag │string escaped│sep │tag │IEEE 754  │sep │tag │true│
+└────┴──────────────┴────┴────┴──────────┴────┴────┴────┘
+----
+
+*Características*:
+
+* **Type tag primeiro**: Garante ordenação por tipo
+* **Separador 0x00**: Delimita partes da chave
+* **Escape 0xFF**: Escapa bytes 0x00 e 0xFF dentro de valores
+* **Ordenação correta**: Strings, números e booleans ordenam naturalmente
+* **Fixed-size para números**: IEEE 754 com sign bit flip para ordenação
+
+*Exemplo de Ordenação*:
+
+[source,typescript]
+----
+["users", 1]       // 0x02..."users"<sep>0x03...1
+["users", 2]       // 0x02..."users"<sep>0x03...2
+["users", 10]      // 0x02..."users"<sep>0x03...10
+["users", "alice"] // 0x02..."users"<sep>0x02..."alice"
+["users", true]    // 0x02..."users"<sep>0x05...0x02
+----
+
+==== Serialização de Valores
+
+Valores são armazenados como JSON com suporte especial para BigInt:
+
+*Formato JSON*:
+
+[source,json]
+----
+// Valor original
+{
+  "name": "Alice",
+  "balance": 9007199254740991n,
+  "active": true
+}
+
+// Armazenado como
+{
+  "name": "Alice",
+  "balance": {
+    "__type": "bigint",
+    "value": "9007199254740991"
+  },
+  "active": true
+}
+----
+
+*Vantagens*:
+
+* **Flexibilidade**: Qualquer estrutura JSON
+* **Schema-less**: Sem necessidade de definir tipos
+* **Evolução**: Adicionar campos sem migração
+* **Debugging**: Valores legíveis no banco
+
+*Desvantagens*:
+
+* **Tamanho**: JSON é verbose comparado a formatos binários
+* **Sem queries**: Não há indexação de campos internos (exceto via where filter)
+* **Tipo limitado**: Apenas tipos JSON (sem Date, Map, Set nativos)
+
+==== Geração de Versionstamps
+
+Versionstamps usam UUIDv7 para ordenação temporal:
+
+*UUIDv7 Structure*:
+
+[source]
+----
+┌───────────────────────────────────────────────────┐
+│ unix_ts_ms (48 bits) │ random (74 bits)           │
+└───────────────────────────────────────────────────┘
+       Timestamp              Random nonce
+    (millisecond)          (collision prevention)
+----
+
+*Características*:
+
+* **Sortable**: Ordem cronológica natural
+* **Unique**: Collision-resistant com random nonce
+* **Time-ordered**: Prefixo temporal permite range queries
+* **Compact**: 128 bits (16 bytes), string representation 36 chars
+
+*Uso em Índices Secundários*:
+
+[source,typescript]
+----
+const postId = crypto.randomUUID();
+const vs = kv.commitVersionstamp();
+
+await kv.atomic()
+  .set(["posts", postId], post)
+  .set(["posts_by_time", vs, postId], postId)  // vs será substituído
+  .commit();
+
+// Listar posts cronologicamente
+for await (const entry of kv.list(["posts_by_time"])) {
+  const postId = entry.value;
+  const post = await kv.get(["posts", postId]);
+  console.log(post);
+}
+----
+
+=== Decisões de Design
+
+==== Chaves Compostas como Arrays
+
+*Decisão*: Chaves são `KvKey = KvKeyPart[]` ao invés de strings delimitadas.
+
+*Razões*:
+
+* **Previne injection**: Impossível injetar delimitadores
+* **Type-safe**: TypeScript valida tipos de cada parte
+* **Ordenação correta**: Cada parte é tipada e ordenada corretamente
+* **Hierarquia natural**: Arrays representam hierarquia de forma intuitiva
+
+*Comparação*:
+
+[source,typescript]
+----
+// String delimitada (vulnerável)
+const key = `users:${userId}:profile`;  // E se userId contém ":"?
+
+// Array (seguro)
+const key: KvKey = ["users", userId, "profile"];
+----
+
+==== Armazenamento de Chaves como Blobs
+
+*Decisão*: Chaves são armazenadas como `BLOB` no SQLite.
+
+*Razões*:
+
+* **Ordenação lexicográfica**: BLOBs ordenam byte-a-byte
+* **Performance**: Comparação binária é rápida
+* **Prefixos eficientes**: Range queries com `key >= prefix AND key < prefix_end`
+* **Tamanho fixo para números**: Não sofre com ordenação de strings numéricas
+
+*Schema*:
+
+[source,sql]
+----
+CREATE TABLE kv_entries (
+  key BLOB PRIMARY KEY,  -- Chave codificada
+  value BLOB NOT NULL,   -- JSON
+  versionstamp TEXT NOT NULL,
+  expires_at INTEGER,    -- Unix timestamp (segundos)
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+----
+
+==== Valores JSON
+
+*Decisão*: Valores armazenados como JSON ao invés de formato binário.
+
+*Trade-offs*:
+
+*Vantagens*:
+
+* **Flexibilidade**: Schema-less, adicionar campos sem migração
+* **Debugging**: Valores legíveis diretamente no DB
+* **Queries**: Possível usar JSON functions do SQLite (json_extract)
+* **Interoperabilidade**: Fácil integração com outras ferramentas
+
+*Desvantagens*:
+
+* **Tamanho**: JSON é verbose (~30-50% maior que binário)
+* **Parse overhead**: Serialização/desserialização tem custo CPU
+* **Sem tipos nativos**: Date, Map, Set requerem conversão
+
+*Quando Otimizar*:
+
+* Para valores grandes (>1KB), considerar compressão (gzip)
+* Para campos específicos frequentemente queried, criar colunas separadas
+* Para dados binários, usar Uint8Array na chave ou valor base64
+
+==== UUIDv7 para Versionstamps
+
+*Decisão*: Usar UUIDv7 (time-ordered) ao invés de sequencial ou UUIDv4.
+
+*Comparação*:
+
+[cols="1,2,2,2"]
+|===
+| Tipo | Vantagens | Desvantagens | Quando usar
+
+| Sequencial
+| Mínimo, ordenação perfeita
+| Single point of failure, não distribuído
+| Sistemas centralizados
+
+| UUIDv4
+| Geração distribuída, sem coordenação
+| Sem ordenação, fragmentação de índice
+| IDs únicos sem necessidade de ordem
+
+| UUIDv7
+| Geração distribuída, ordenação temporal
+| Requer relógio sincronizado
+| **Ideal para versionstamps**
+|===
+
+*Por que UUIDv7*:
+
+* **Distributed-friendly**: Cada nó pode gerar sem coordenação
+* **Time-ordered**: Permite índices secundários por tempo
+* **Collision-resistant**: Random nonce evita colisões no mesmo ms
+* **Standard**: RFC draft, suporte crescente em bibliotecas
+
+==== Watch via Polling
+
+*Decisão*: Implementar watch via polling ao invés de LISTEN/NOTIFY ou WebSockets.
+
+*Alternativas Consideradas*:
+
+[cols="1,2,2"]
+|===
+| Abordagem | Vantagens | Desvantagens
+
+| Polling (escolhida)
+| Simples, stateless, funciona com SQLite
+| Latência (100ms), CPU overhead
+
+| LISTEN/NOTIFY
+| Push real-time, baixa latência
+| Requer Postgres, stateful
+
+| WebSockets
+| Push real-time, bidireccional
+| Complexo, stateful, requer connection manager
+|===
+
+*Otimizações do Polling*:
+
+* **Coalescing**: Buffer agrupa mudanças da mesma chave
+* **SSE streaming**: Reduz overhead de HTTP requests
+* **Poll interval configurável**: Balanço entre latência e CPU
+* **Selective polling**: Apenas chaves watched são verificadas
+
+*Quando Polling é OK*:
+
+* Latência de 100ms é aceitável
+* Número limitado de watches ativos
+* Infraestrutura stateless (serverless)
+
+*Quando Considerar Alternativas*:
+
+* Latência <50ms necessária
+* Milhares de watches simultâneos
+* DB com LISTEN/NOTIFY (Postgres, Redis)
+
+==== Design de Tabela Única
+
+*Decisão*: Uma única tabela `kv_entries` para todos dados.
+
+*Razões*:
+
+* **Simplicidade**: Sem necessidade de gerenciar múltiplas tabelas
+* **Schema-less**: Adicionar novos "namespaces" sem DDL
+* **Queries uniformes**: Mesma query structure para todos dados
+* **Atomic operations**: Transações em uma única tabela são mais simples
+
+*Trade-offs*:
+
+*Vantagens*:
+
+* Operações atômicas entre diferentes "entidades"
+* Backup/restore simples
+* Sem necessidade de foreign keys ou joins
+
+*Desvantagens*:
+
+* Todos dados em um único namespace (pode ficar grande)
+* Sem particionamento automático por tipo
+* Índices globais (não especializados por tipo)
+
+*Estratégias de Organização*:
+
+[source,typescript]
+----
+// Por namespace
+["users", userId, ...]
+["posts", postId, ...]
+["sessions", sessionId, ...]
+
+// Por tenant
+[tenantId, "users", userId, ...]
+[tenantId, "posts", postId, ...]
+
+// Por ambiente
+[env, "config", key, ...]
+----
+
+=== Performance e Otimizações
+
+==== Índices
+
+*Índice Primário*:
+
+[source,sql]
+----
+PRIMARY KEY (key)  -- Índice B-tree para lookups O(log n)
+----
+
+*Índice de Expiração*:
+
+[source,sql]
+----
+CREATE INDEX idx_expires_at ON kv_entries(expires_at)
+WHERE expires_at IS NOT NULL;
+----
+
+* Acelera cleanup de entries expirados
+* Partial index (apenas entries com TTL)
+
+==== Prefix Queries
+
+Range queries eficientes para list operations:
+
+[source,sql]
+----
+SELECT * FROM kv_entries
+WHERE key >= ? AND key < ?
+ORDER BY key ASC
+LIMIT 100;
+----
+
+*Otimização*:
+
+* `key >= prefix_start`: Inclui chave exata e filhos
+* `key < prefix_end`: Exclui próximo prefixo
+* `ORDER BY key`: Usa índice primário
+* `LIMIT`: Evita scans desnecessários
+
+==== Atomic Operations
+
+Implementação usando transações SQL:
+
+[source,sql]
+----
+BEGIN TRANSACTION;
+
+-- 1. Verificar versionstamps (checks)
+SELECT versionstamp FROM kv_entries WHERE key = ?;
+-- Se não bate, ROLLBACK
+
+-- 2. Executar mutações
+INSERT OR REPLACE INTO kv_entries (key, value, versionstamp, ...)
+VALUES (?, ?, ?, ...);
+
+COMMIT;
+----
+
+*Garantias*:
+
+* **Atomicidade**: Todas operações ou nenhuma
+* **Isolamento**: Snapshot isolation via checks
+* **Performance**: Writes batcheados em uma transação
+
+==== Connection Pooling
+
+plugin-database gerencia pool de conexões:
+
+* **Min/Max connections**: Configurable
+* **Idle timeout**: Fecha conexões ociosas
+* **Connection reuse**: Evita overhead de criar conexões
+* **Load balancing**: Distribui queries entre replicas
+
+==== Query Optimization
+
+*Batch Operations*:
+
+[source,typescript]
+----
+// N+1 queries
+for (const key of keys) {
+  await kv.get(key);  // N queries
+}
+
+// Batch get
+const entries = await kv.getMany(keys);  // 1 query
+----
+
+*Pagination*:
+
+[source,typescript]
+----
+// Offset pagination (slow for large offsets)
+LIMIT 100 OFFSET 10000  -- Scans 10100 rows
+
+// Cursor pagination (always fast)
+WHERE key > ? LIMIT 100  -- Scans apenas 100 rows
+----
+
+=== Limitações e Considerações
+
+==== Limitações Atuais
+
+*Tamanho*:
+
+* **Valor máximo**: ~1MB (SQLite BLOB limit ~2GB, mas JSON parse tem limites)
+* **Chave máxima**: ~1KB (recomendado <256 bytes)
+* **Transação**: Sem limite hard, mas timeout de 30s
+
+*Performance*:
+
+* **Watch latency**: 100ms (polling interval)
+* **Throughput**: ~1000 ops/sec (single SQLite writer)
+* **Storage**: Limitado pelo disco do servidor libSQL
+
+*Funcionalidades*:
+
+* **Sem queries complexas**: Apenas get, list, count
+* **Sem full-text search**: Use plugin-search se necessário
+* **Sem geospatial**: Considerar PostGIS
+
+==== Quando NÃO Usar KeyVal
+
+*Considere alternativas se*:
+
+* Necessita **relational queries** (JOINs, agregações complexas) → Use Postgres
+* Necessita **full-text search** → Use Elasticsearch/Meilisearch
+* Necessita **graph queries** → Use Neo4j
+* Necessita **high write throughput** (>10K ops/sec) → Use Redis/Cassandra
+* Necessita **strong consistency distribuída** → Use CockroachDB/Spanner
+
+==== Quando Usar KeyVal
+
+*Ideal para*:
+
+* **Sessões**: TTL automático, acesso por chave
+* **Cache**: Get/Set rápido, expiração
+* **Filas**: Enqueue/dequeue com retries
+* **Contadores**: Atomic increment/decrement
+* **Configurações**: Estrutura hierárquica simples
+* **Índices secundários**: Mapeamento customizado
+
+==== Escalabilidade
+
+*Vertical Scaling*:
+
+* **CPU**: Aumentar cores ajuda reads (parallel queries)
+* **Memory**: Mais RAM = mais cache SQLite
+* **Disk**: SSD NVMe para writes mais rápidos
+
+*Horizontal Scaling*:
+
+* **Read replicas**: Distribute reads geograficamente
+* **Partitioning**: Por prefixo de chave (manual)
+* **Caching**: Layer de cache (Redis) na frente
+
+*Limites Práticos*:
+
+* **Dataset**: Até ~100GB em SQLite (depois considerar Postgres)
+* **Writes**: ~1K/sec por primary (depois considerar sharding)
+* **Reads**: ~10K/sec com replicas (eventual consistency)
+
+=== Roadmap de Melhorias
+
+==== Curto Prazo
+
+* **Compressão de valores**: gzip automático para values >1KB
+* **Batch writes**: API para multiple sets em uma request
+* **Métricas detalhadas**: Latency percentiles, slow queries
+
+==== Médio Prazo
+
+* **Sharding**: Particionamento automático por key range
+* **Streaming**: Stream large values em chunks
+* **CDC (Change Data Capture)**: Webhook triggers para mudanças
+
+==== Longo Prazo
+
+* **Multi-region active-active**: CRDTs para resolução de conflitos
+* **Query engine**: Suporte a queries mais complexas (agregações)
+* **Cold storage**: Tier automático para dados antigos (S3)

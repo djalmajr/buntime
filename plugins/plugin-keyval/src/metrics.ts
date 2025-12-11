@@ -6,10 +6,12 @@ import type { DatabaseAdapter } from "@buntime/plugin-database";
 export type KvOperationType =
   | "atomic_commit"
   | "cleanup"
+  | "count"
   | "delete"
   | "get"
   | "getMany"
   | "list"
+  | "paginate"
   | "queue_ack"
   | "queue_dequeue"
   | "queue_enqueue"

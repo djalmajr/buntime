@@ -1,0 +1,584 @@
+== Decisões de Design
+
+Este documento explica as decisões arquiteturais do plugin KeyVal, incluindo alternativas consideradas, trade-offs, e contexto histórico.
+
+=== Por Que libSQL?
+
+==== Contexto
+
+Precisávamos de um banco de dados que suportasse:
+
+- Transações ACID
+- Operações atômicas
+- Suporte a réplicas
+- Baixa latência
+- Deploy simples
+
+==== Alternativas Consideradas
+
+[cols="1,2,2,2"]
+|===
+| Opção | Prós | Contras | Decisão
+
+| *PostgreSQL*
+| Robusto, features avançadas, comunidade enorme
+| Pesado, requer DBA, complexo para edge
+| Rejeitado
+
+| *SQLite (bun:sqlite)*
+| Embutido, zero setup, rápido
+| Sem replicação nativa, single-file lock
+| Rejeitado
+
+| *Redis*
+| Extremamente rápido, pub/sub nativo
+| Perda de dados possível, sem transações ACID reais
+| Rejeitado
+
+| *libSQL*
+| SQLite compatível, replicação nativa, HTTP API
+| Projeto relativamente novo
+| Escolhido
+
+| *FoundationDB*
+| Escala horizontal, ACID distribuído
+| Complexo, requer cluster, overhead operacional
+| Rejeitado
+|===
+
+==== Decisão Final
+
+libSQL foi escolhido porque:
+
+1. **Compatibilidade SQLite**: Familiar, battle-tested
+2. **Replicação nativa**: Primary/replica via gRPC
+3. **HTTP API**: Stateless, funciona em serverless
+4. **Self-hosted**: Controle total sobre dados e infraestrutura
+5. **Licença Open Source**: MIT, sem vendor lock-in
+
+==== Trade-offs Aceitos
+
+- *Single writer*: Throughput de escrita limitado (~1K-5K ops/s)
+- *Projeto jovem*: Menos comunidade que Postgres/Redis
+- *Menos features*: Sem pub/sub, sem streams nativos
+
+=== Por Que Chaves como Arrays?
+
+==== Contexto
+
+Chaves compostas podem ser representadas de várias formas:
+
+[source,typescript]
+----
+// Opção 1: String delimitada
+"users:123:profile"
+
+// Opção 2: Array (escolhido)
+["users", 123, "profile"]
+
+// Opção 3: Objeto
+{ collection: "users", id: 123, field: "profile" }
+----
+
+==== Alternativas Consideradas
+
+[cols="1,2,2"]
+|===
+| Opção | Prós | Contras
+
+| String delimitada
+| Simples, URL-friendly
+| Delimiter injection, ordenação de números errada
+
+| *Array (escolhido)*
+| Type-safe, sem injection, ordenação correta
+| Mais verbose, requer encoding
+
+| Objeto
+| Semântico, nomeado
+| Ordenação ambígua, mais overhead
+|===
+
+==== Por Que Array?
+
+[source,typescript]
+----
+// String delimitada - PROBLEMA de injection
+const userId = "admin:delete";
+const key = `users:${userId}`;  // "users:admin:delete" - ERRADO!
+
+// Array - SEGURO
+const key = ["users", userId];  // ["users", "admin:delete"] - Correto
+----
+
+[source,typescript]
+----
+// String delimitada - PROBLEMA de ordenação
+"users:1", "users:10", "users:2"  // Ordem léxica: 1, 10, 2
+
+// Array com encoding - CORRETO
+["users", 1], ["users", 2], ["users", 10]  // Ordem: 1, 2, 10
+----
+
+==== Trade-offs Aceitos
+
+- *Verbose*: `["users", id]` vs `users/${id}`
+- *Encoding overhead*: Precisa codificar/decodificar
+- *Compatibilidade API*: APIs REST precisam serializar arrays
+
+=== Por Que Valores JSON?
+
+==== Contexto
+
+Valores precisam ser serializados para armazenamento. Opções:
+
+[source,typescript]
+----
+// Opção 1: JSON (escolhido)
+{"name": "Alice", "age": 30}
+
+// Opção 2: MessagePack/CBOR
+<binary>
+
+// Opção 3: Protocol Buffers
+<binary com schema>
+----
+
+==== Alternativas Consideradas
+
+[cols="1,2,2"]
+|===
+| Formato | Prós | Contras
+
+| *JSON (escolhido)*
+| Legível, debug fácil, json_extract no SQL
+| Verbose, sem Date/BigInt nativo
+
+| MessagePack
+| Compacto, mais tipos
+| Binário, debug difícil, sem query SQL
+
+| Protocol Buffers
+| Schema, compacto, evoluível
+| Complexo, requer schema management
+|===
+
+==== Por Que JSON?
+
+1. **Debug**: Valores legíveis diretamente no DB
+2. **json_extract()**: Queries SQL no conteúdo (where filters)
+3. **Universalidade**: Todo dev conhece JSON
+4. **Ferramentas**: DBeaver, sqlite3 CLI funcionam
+
+==== Trade-offs Aceitos
+
+- *Tamanho*: ~30-50% maior que binário
+- *Tipos limitados*: Date → string, BigInt → wrapper
+- *Parse overhead*: CPU para serialização
+
+==== Mitigação de Tamanho
+
+Para o futuro, considerar:
+
+[source,typescript]
+----
+// Compressão transparente para valores > 1KB
+if (value.length > 1024) {
+  compressed = gzip(value);
+  // Prefixo para indicar compressão
+  return Buffer.concat([GZIP_MARKER, compressed]);
+}
+----
+
+=== Por Que UUIDv7 para Versionstamps?
+
+==== Contexto
+
+Versionstamps identificam versões de entries. Opções:
+
+[source,typescript]
+----
+// Opção 1: Auto-increment
+1, 2, 3, 4, ...
+
+// Opção 2: UUIDv4
+"a3bb189e-8bf9-3888-9912-ace4e6543002"
+
+// Opção 3: UUIDv7 (escolhido)
+"0190a5b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b"
+
+// Opção 4: ULID
+"01ARZ3NDEKTSV4RRFFQ69G5FAV"
+----
+
+==== Alternativas Consideradas
+
+[cols="1,2,2"]
+|===
+| Tipo | Prós | Contras
+
+| Auto-increment
+| Mínimo, ordenação perfeita
+| Requer coordenação central, não distribuído
+
+| UUIDv4
+| Distribuído, sem coordenação
+| Sem ordenação, fragmenta índices
+
+| *UUIDv7 (escolhido)*
+| Distribuído + ordenado por tempo
+| Requer relógio sincronizado
+
+| ULID
+| Similar a UUIDv7, case-insensitive
+| Menos padronizado
+|===
+
+==== Por Que UUIDv7?
+
+[source,typescript]
+----
+// UUIDv7 = timestamp (48 bits) + random (74 bits)
+// Exemplo: 0190a5b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b
+//          ├─────────────┤ ├─────────────────────┤
+//          Timestamp      Random nonce
+
+// Benefícios:
+// 1. Cada processo gera independentemente
+// 2. Ordenação cronológica natural
+// 3. Collision-resistant no mesmo milissegundo
+----
+
+==== Trade-offs Aceitos
+
+- *Clock dependency*: Relógio dessincronizado afeta ordenação
+- *Não sequencial*: Gaps entre versões são normais
+- *Tamanho*: 36 chars vs 8 bytes de auto-increment
+
+=== Por Que Watch via Polling?
+
+==== Contexto
+
+Watch permite observar mudanças em chaves. Implementações possíveis:
+
+[source,typescript]
+----
+// Opção 1: Polling (escolhido)
+// Cliente pergunta periodicamente se mudou
+
+// Opção 2: LISTEN/NOTIFY (PostgreSQL)
+// Banco notifica clientes conectados
+
+// Opção 3: WebSocket push
+// Servidor mantém conexão e envia updates
+
+// Opção 4: Change Data Capture
+// Log de mudanças que clientes consomem
+----
+
+==== Alternativas Consideradas
+
+[cols="1,2,2"]
+|===
+| Método | Prós | Contras
+
+| *Polling (escolhido)*
+| Simples, stateless, funciona com SQLite
+| Latência (100ms), CPU overhead
+
+| LISTEN/NOTIFY
+| Push real-time, baixa latência
+| Requer Postgres, stateful
+
+| WebSocket
+| Push real-time, bidirecional
+| Complexo, stateful, connection management
+
+| CDC
+| Completo, replay possível
+| Overhead de storage, complexidade
+|===
+
+==== Por Que Polling?
+
+1. **Compatibilidade SQLite**: LISTEN/NOTIFY é Postgres-only
+2. **Stateless**: Funciona em serverless/edge
+3. **Simplicidade**: Menos código, menos bugs
+4. **libSQL HTTP**: Não mantém conexões persistentes
+
+==== Trade-offs Aceitos
+
+- *Latência mínima 100ms*: Não é real-time
+- *CPU overhead*: Query por chave a cada 100ms
+- *Não escala*: >100 chaves fica inviável
+
+==== Quando Reconsiderar
+
+- Se libSQL implementar change notifications
+- Se migrar para libSQL protocol nativo (gRPC)
+- Se watch for crítico para >1000 chaves
+
+=== Por Que libSQL HTTP vs Protocolo Nativo?
+
+==== Contexto
+
+libSQL suporta múltiplos protocolos:
+
+[source,typescript]
+----
+// Opção 1: HTTP (escolhido)
+fetch("http://localhost:8080/v2/pipeline", { body: SQL })
+
+// Opção 2: WebSocket
+ws.send(SQL)
+
+// Opção 3: libSQL native (Rust FFI)
+libsql.execute(SQL)
+----
+
+==== Alternativas Consideradas
+
+[cols="1,2,2"]
+|===
+| Protocolo | Prós | Contras
+
+| *HTTP (escolhido)*
+| Stateless, debug fácil, funciona em edge
+| Latência de connection setup
+
+| WebSocket
+| Conexão persistente, menor latência
+| Stateful, connection management
+
+| Native FFI
+| Mais rápido, acesso direto
+| Requer binários nativos, não funciona em edge
+|===
+
+==== Por Que HTTP?
+
+1. **Edge compatibility**: Funciona em Cloudflare Workers, Deno Deploy
+2. **Debug**: curl, Postman, logs HTTP funcionam
+3. **Batching**: Pipeline de queries em uma request
+4. **Resilience**: Reconexão automática (é stateless)
+
+==== Trade-offs Aceitos
+
+- *Latência*: ~1-5ms overhead por request
+- *Sem streams*: Não há cursor streaming
+- *Connection overhead*: Novo TCP handshake se keep-alive expirar
+
+==== Otimizações Implementadas
+
+[source,typescript]
+----
+// Batching de queries
+adapter.batch([
+  { sql: "INSERT ...", args: [...] },
+  { sql: "INSERT ...", args: [...] },
+]);
+// Uma request HTTP, múltiplas queries
+----
+
+=== Por Que Tabela Única?
+
+==== Contexto
+
+Dados KV podem ser organizados de várias formas:
+
+[source,sql]
+----
+-- Opção 1: Tabela única (escolhido)
+CREATE TABLE kv_entries (key BLOB PRIMARY KEY, value BLOB, ...);
+
+-- Opção 2: Tabela por namespace
+CREATE TABLE kv_users (...);
+CREATE TABLE kv_sessions (...);
+
+-- Opção 3: Partitioned table
+CREATE TABLE kv_entries PARTITION BY RANGE (key);
+----
+
+==== Alternativas Consideradas
+
+[cols="1,2,2"]
+|===
+| Abordagem | Prós | Contras
+
+| *Tabela única (escolhido)*
+| Simples, atomic cross-namespace, backup fácil
+| Pode ficar grande, índice global
+
+| Tabela por namespace
+| Isolamento, índices especializados
+| DDL para criar namespaces, atomic cross-table complexo
+
+| Partitioned table
+| Escala, paralelismo
+| SQLite não suporta nativamente
+|===
+
+==== Por Que Tabela Única?
+
+1. **Atomic operations**: Transações entre "namespaces" são simples
+2. **Schema-less**: Não precisa DDL para novo namespace
+3. **Backup/Restore**: Um arquivo só
+4. **Queries simples**: Sem JOINs ou UNION
+
+==== Trade-offs Aceitos
+
+- *Sem particionamento*: Todo dado na mesma tabela
+- *Índice global*: Não há índice por "tipo" de dado
+- *Crescimento*: Tabela pode ficar grande (limite ~100GB)
+
+=== Por Que OCC em vez de Locks?
+
+==== Contexto
+
+Controle de concorrência pode usar:
+
+[source,typescript]
+----
+// Opção 1: Pessimistic Locking
+BEGIN; SELECT ... FOR UPDATE; UPDATE ...; COMMIT;
+
+// Opção 2: Optimistic Concurrency (escolhido)
+GET → value, versionstamp
+CHECK versionstamp → SET
+
+// Opção 3: CRDTs
+merge(local, remote) → consistent
+----
+
+==== Alternativas Consideradas
+
+[cols="1,2,2"]
+|===
+| Método | Prós | Contras
+
+| Pessimistic Locking
+| Garantia forte, sem retries
+| Bloqueio, deadlocks possíveis
+
+| *OCC (escolhido)*
+| Sem bloqueio, melhor throughput read
+| Retries em conflito
+
+| CRDTs
+| Merge automático, distribuído
+| Tipos limitados, complexidade
+|===
+
+==== Por Que OCC?
+
+1. **Workload read-heavy**: Maioria das apps lê mais que escreve
+2. **Sem deadlocks**: Impossível por design
+3. **Compatível com Deno KV**: API similar
+4. **Simples de implementar**: Só precisa de versionstamp
+
+==== Trade-offs Aceitos
+
+- *Retries*: Conflitos requerem retry no cliente
+- *Starvation*: Transações longas podem sofrer muitos retries
+- *Sem isolamento forte*: Read committed, não serializable pleno
+
+==== Quando OCC Falha
+
+[source,typescript]
+----
+// Problema: Hot key com muitas escritas
+// Taxa de conflito alta
+for (let i = 0; i < 1000; i++) {
+  await kv.atomic()
+    .check({ key: ["counter"], versionstamp })
+    .set(["counter"], current + 1)
+    .commit();
+}
+
+// Solução: Use sum() atômico
+await kv.atomic()
+  .sum(["counter"], 1n)  // Sem check, sempre sucede
+  .commit();
+----
+
+=== Por Que Métricas In-Memory + Persistência Opcional?
+
+==== Contexto
+
+Métricas podem ser armazenadas de várias formas:
+
+[source,typescript]
+----
+// Opção 1: In-memory only
+Map<operation, count>
+
+// Opção 2: Persistente sempre
+INSERT INTO metrics ON EVERY operation
+
+// Opção 3: Híbrido (escolhido)
+In-memory + flush periódico
+----
+
+==== Por Que Híbrido?
+
+1. **Zero overhead por operação**: Counter increment é O(1)
+2. **Persistência opcional**: Flush a cada 30s se configurado
+3. **Restart resilience**: Métricas sobrevivem a reinícios
+
+==== Trade-offs Aceitos
+
+- *Perda em crash*: Até 30s de métricas perdidas
+- *Memória*: Maps crescem com número de operações
+- *Histogramas simplificados*: Não temos percentis exatos
+
+=== Decisões Pendentes
+
+==== Compressão de Valores
+
+Status: **Não implementado**
+
+[source,typescript]
+----
+// Proposta:
+if (value.length > 1024) {
+  return gzip(value);
+}
+
+// Trade-offs:
+// + Economia de storage/bandwidth
+// - CPU overhead
+// - Complexidade de migração
+----
+
+==== Sharding
+
+Status: **Não implementado**
+
+[source,typescript]
+----
+// Proposta:
+const shard = hash(key) % numShards;
+const db = shards[shard];
+
+// Trade-offs:
+// + Escala horizontal
+// - Transações cross-shard impossíveis
+// - Complexidade operacional
+----
+
+==== CDC (Change Data Capture)
+
+Status: **Não implementado**
+
+[source,typescript]
+----
+// Proposta:
+kv.subscribe(["users", "*"], (change) => {
+  webhook.send(change);
+});
+
+// Trade-offs:
+// + Integração com sistemas externos
+// - Storage para log de mudanças
+// - Ordenação garantida é complexa
+----

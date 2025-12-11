@@ -1,0 +1,709 @@
+== Performance
+
+=== Características das Operações
+
+Cada operação possui características de desempenho distintas:
+
+[cols="1,2,3"]
+|===
+| Operação | Complexidade | Descrição
+
+| `get()`
+| O(1)
+| Lookup direto por chave primária. Acesso instantâneo via índice B-tree.
+
+| `getMany()`
+| O(k)
+| Busca múltiplas chaves em uma única query SQL usando `IN`. k = número de chaves.
+
+| `list()`
+| O(n)
+| Scan sequencial com LIMIT. n = número de entradas no prefixo. Use LIMIT baixo para evitar varreduras longas.
+
+| `count()`
+| O(n)
+| Conta todas as entradas no prefixo. Pode ser custoso para prefixos grandes.
+
+| `paginate()`
+| O(limit)
+| Similar a `list()` mas retorna cursor para próxima página. Eficiente para navegação.
+
+| `set()`
+| O(1)
+| Upsert (INSERT OR REPLACE) direto. Atualiza versionstamp automaticamente.
+
+| `delete()`
+| O(n)
+| Deleta chave exata + todos os filhos (prefixo). n = número de chaves deletadas.
+
+| `atomic()`
+| O(checks + mutations)
+| Executa verificações e mutações em batch. Custo linear ao número de operações.
+
+| `transaction()`
+| O(operations)
+| Transação com snapshot isolation. Custo varia com número de operações e tentativas de retry.
+|===
+
+TIP: Para operações em massa, sempre prefira `getMany()` ou `atomic()` em vez de múltiplas chamadas individuais.
+
+=== Indexação
+
+O schema do plugin-keyval utiliza índices estratégicos para otimizar as operações mais comuns:
+
+==== Índice Primário
+
+[source,sql]
+----
+CREATE TABLE kv_entries (
+  key BLOB PRIMARY KEY,
+  value BLOB NOT NULL,
+  versionstamp TEXT NOT NULL,
+  expires_at INTEGER
+)
+----
+
+* **key (PRIMARY KEY)**: B-tree index para lookups O(1)
+* Garante unicidade e acesso rápido por chave
+
+==== Índices Secundários
+
+[source,sql]
+----
+-- Índice para limpeza de TTL
+CREATE INDEX idx_kv_expires ON kv_entries(expires_at)
+WHERE expires_at IS NOT NULL;
+
+-- Índice para fila de mensagens prontas
+CREATE INDEX idx_queue_ready ON kv_queue(status, ready_at)
+WHERE status = 'pending';
+
+-- Índice para mensagens travadas
+CREATE INDEX idx_queue_locked ON kv_queue(locked_until)
+WHERE status = 'processing';
+
+-- Índice para Dead Letter Queue
+CREATE INDEX idx_dlq_failed_at ON kv_dlq(failed_at);
+
+-- Índice para métricas
+CREATE INDEX idx_metrics_operation ON kv_metrics(operation);
+----
+
+**Benefícios dos índices:**
+
+* `idx_kv_expires`: Permite cleanup rápido de entradas expiradas (executa a cada 60s)
+* `idx_queue_ready`: Otimiza dequeue de mensagens prontas para processamento
+* `idx_queue_locked`: Facilita detecção de locks expirados
+* `idx_dlq_failed_at`: Permite busca eficiente de mensagens falhadas por data
+* `idx_metrics_operation`: Acelera agregação de métricas por tipo de operação
+
+WARNING: Índices parciais (com `WHERE`) são mais eficientes pois indexam apenas subconjunto relevante dos dados.
+
+=== Operações em Batch
+
+Operações em batch reduzem drasticamente a latência ao eliminar round-trips de rede:
+
+==== getMany()
+
+[source,typescript]
+----
+// Lento: 10 round-trips
+const entries = [];
+for (const id of userIds) {
+  const entry = await kv.get(["users", id]);
+  entries.push(entry);
+}
+
+// Rápido: 1 round-trip
+const entries = await kv.getMany(
+  userIds.map(id => ["users", id])
+);
+----
+
+**Implementação:** Query SQL única com `IN (?, ?, ...)`:
+
+[source,sql]
+----
+SELECT key, value, versionstamp FROM kv_entries
+WHERE key IN (?, ?, ?, ...)
+  AND (expires_at IS NULL OR expires_at > unixepoch())
+----
+
+==== atomic()
+
+[source,typescript]
+----
+// Lento: múltiplas transações
+await kv.set(["counter", "a"], 1);
+await kv.set(["counter", "b"], 2);
+await kv.set(["counter", "c"], 3);
+
+// Rápido: transação atômica
+await kv.atomic()
+  .set(["counter", "a"], 1)
+  .set(["counter", "b"], 2)
+  .set(["counter", "c"], 3)
+  .commit();
+----
+
+**Benefícios:**
+
+* Todas as operações executam em uma única transação SQL
+* Garante atomicidade: ou todas executam ou nenhuma
+* Reduz latência de N operações para 1 round-trip
+
+=== Gerenciamento de Conexões
+
+O plugin-keyval utiliza o `@buntime/plugin-database` para gerenciar conexões:
+
+==== Protocolo HTTP
+
+[source,typescript]
+----
+// Configuração do plugin-database
+{
+  "url": "http://localhost:8880",
+  "authToken": "your-token"
+}
+----
+
+**Características:**
+
+* **Sem connection pooling**: HTTP é stateless, cada request é independente
+* **HTTP/2 multiplexing**: Múltiplas queries simultâneas no mesmo socket
+* **Retry automático**: plugin-database gerencia retries em caso de falha
+* **Keep-alive**: Reutiliza conexões TCP quando possível
+
+==== Latência Típica
+
+[cols="1,1,2"]
+|===
+| Cenário | Latência | Observações
+
+| Local (mesma máquina)
+| 1-5ms
+| Unix socket ou localhost
+
+| Mesma rede (LAN)
+| 5-20ms
+| Baixa latência de rede
+
+| Remoto (Internet)
+| 50-200ms+
+| Depende da distância e qualidade da conexão
+|===
+
+TIP: Para ambientes de alta latência, maximize o uso de operações em batch como `getMany()` e `atomic()`.
+
+=== Limpeza de TTL
+
+O plugin-keyval executa limpeza automática de entradas expiradas:
+
+==== Configuração
+
+[source,typescript]
+----
+const kv = new Kv(adapter, {
+  // Cleanup padrão: a cada 60 segundos
+});
+----
+
+**Implementação:** Task em background que executa periodicamente:
+
+[source,sql]
+----
+DELETE FROM kv_entries
+WHERE expires_at IS NOT NULL
+  AND expires_at <= unixepoch()
+----
+
+==== Características
+
+* **Intervalo fixo**: 60 segundos (não configurável atualmente)
+* **Índice otimizado**: Usa `idx_kv_expires` para performance
+* **Não bloqueante**: Executa em background sem afetar operações normais
+* **Métricas**: Falhas são registradas em `metrics.cleanup`
+
+==== Comportamento de Leitura
+
+NOTE: Operações de leitura (`get`, `list`, etc.) **sempre verificam TTL** antes de retornar dados, garantindo que entradas expiradas nunca sejam retornadas, mesmo que o cleanup ainda não tenha executado.
+
+[source,sql]
+----
+-- Todas as queries incluem verificação de TTL
+WHERE (expires_at IS NULL OR expires_at > unixepoch())
+----
+
+=== Performance de Filas
+
+O sistema de filas do KeyVal é otimizado para throughput e confiabilidade:
+
+==== Dequeue Atômico
+
+[source,sql]
+----
+UPDATE kv_queue
+SET status = 'processing',
+    locked_until = ?,
+    attempts = attempts + 1,
+    updated_at = unixepoch()
+WHERE id = (
+  SELECT id FROM kv_queue
+  WHERE status = 'pending'
+    AND ready_at <= unixepoch()
+  ORDER BY ready_at ASC
+  LIMIT 1
+)
+RETURNING *;
+----
+
+**Características:**
+
+* **Atômico**: `UPDATE...RETURNING` garante que apenas um worker processa cada mensagem
+* **FIFO**: `ORDER BY ready_at` garante ordem de chegada
+* **Lock timeout**: `locked_until` evita mensagens travadas indefinidamente
+* **Retry tracking**: `attempts` contabiliza tentativas
+
+==== Duração do Lock
+
+[source,typescript]
+----
+// Configuração padrão
+{
+  lockDuration: 30_000  // 30 segundos
+}
+----
+
+* Mensagem fica "travada" por 30 segundos durante processamento
+* Se worker falhar, lock expira e mensagem volta para fila
+* Ajuste conforme tempo médio de processamento
+
+==== Backoff Schedule
+
+[source,typescript]
+----
+await kv.queue.enqueue(data, {
+  maxAttempts: 5,
+  backoffSchedule: [1000, 5000, 15000, 60000]  // ms
+});
+----
+
+**Estratégia de retry:**
+
+* Tentativa 1: falha → aguarda 1s
+* Tentativa 2: falha → aguarda 5s
+* Tentativa 3: falha → aguarda 15s
+* Tentativa 4: falha → aguarda 60s
+* Tentativa 5: falha → move para DLQ
+
+TIP: Use backoff exponencial para evitar sobrecarga durante falhas transitórias.
+
+==== Cleanup de Filas
+
+[source,typescript]
+----
+const kv = new Kv(adapter, {
+  queueCleanup: {
+    enabled: true,
+    interval: 60_000,      // 1 minuto
+    lockExpiration: 300    // 5 minutos
+  }
+});
+----
+
+**Tarefas de cleanup:**
+
+* **Release locks expirados**: Libera mensagens travadas há mais de `lockExpiration`
+* **Retry scheduled**: Move mensagens com `ready_at` passado de volta para pending
+* **DLQ migration**: Move mensagens que excederam `maxAttempts` para Dead Letter Queue
+
+=== Performance de Watch
+
+O sistema de watch monitora mudanças em chaves específicas:
+
+==== Polling Interval
+
+[source,typescript]
+----
+// Implementação interna
+const WATCH_POLL_INTERVAL = 100;  // 100ms
+----
+
+**Trade-offs:**
+
+* **Menor intervalo** (50ms): Menor latência, maior CPU
+* **Maior intervalo** (500ms): Menor CPU, maior latência
+* **Padrão** (100ms): Balanço entre latência e overhead
+
+==== Memória
+
+Cada watcher mantém mapa de versionstamps em memória:
+
+[source,typescript]
+----
+private watchedKeys = new Map<string, string>();  // key → versionstamp
+----
+
+**Consumo de memória:**
+
+* ~100 bytes por chave monitorada
+* 1000 chaves = ~100KB
+* 10000 chaves = ~1MB
+
+WARNING: Evite watch em milhares de chaves simultaneamente. Para muitas chaves, considere polling manual com `list()`.
+
+==== Alternativas ao Watch
+
+[cols="1,2,2"]
+|===
+| Método | Quando Usar | Performance
+
+| `watch()`
+| Poucas chaves (<100), updates frequentes
+| Polling a cada 100ms
+
+| `list()` manual
+| Muitas chaves (>1000), updates raros
+| Você controla intervalo
+
+| Triggers
+| Mutations no mesmo processo
+| Zero overhead (callbacks síncronos)
+
+| SSE (`/_/plugin-keyval/watch`)
+| Updates para frontend
+| Server-Sent Events via HTTP
+|===
+
+=== Dicas de Otimização
+
+==== Use Consistência Eventual
+
+Para leituras que toleram dados levemente desatualizados:
+
+[source,typescript]
+----
+// Leitura eventual (padrão)
+const entry = await kv.get(["users", userId], {
+  consistency: "eventual"
+});
+----
+
+Note: Atualmente todas as leituras são "strong" pois usam libSQL. Consistência eventual será implementada com replicas read-only no futuro.
+
+==== Operações em Batch
+
+Sempre que possível, agrupe operações:
+
+[source,typescript]
+----
+// Batch de leituras
+const entries = await kv.getMany(keys);
+
+// Batch de escritas
+await kv.atomic()
+  .set(key1, value1)
+  .set(key2, value2)
+  .commit();
+----
+
+==== Limite Resultados de list()
+
+Sempre use `limit` para evitar varreduras completas:
+
+[source,typescript]
+----
+// Pode retornar milhões de entradas
+for await (const entry of kv.list(["users"])) {
+  // ...
+}
+
+// Limita a 100 entradas por vez
+for await (const entry of kv.list(["users"], { limit: 100 })) {
+  // ...
+}
+
+// Melhor ainda: use paginate()
+let cursor = null;
+do {
+  const page = await kv.paginate(["users"], { limit: 100, cursor });
+  // processar page.entries
+  cursor = page.cursor;
+} while (cursor);
+----
+
+==== Use Prefixos Específicos
+
+Prefixos específicos reduzem o escopo de varreduras:
+
+[source,typescript]
+----
+// Varre todas as chaves
+await kv.list([]);
+
+// Varre todos os usuários
+await kv.list(["users"]);
+
+// Varre apenas usuários de uma empresa
+await kv.list(["users", companyId]);
+
+// Ainda melhor: use índices secundários
+await kv.list(["users_by_email", email]);
+----
+
+==== Monitore Latência
+
+Use as métricas do plugin para identificar operações lentas:
+
+[source,typescript]
+----
+// Obter métricas
+const metrics = kv.metrics.getAll();
+
+// Verificar latência média
+for (const [operation, stats] of Object.entries(metrics)) {
+  const avgLatency = stats.latency_sum / stats.count;
+  if (avgLatency > 50) {  // >50ms
+    console.warn(`${operation} está lento: ${avgLatency.toFixed(2)}ms`);
+  }
+}
+----
+
+**Endpoint HTTP:**
+
+[source,bash]
+----
+curl http://localhost:4000/_/plugin-keyval/metrics
+----
+
+==== Evite Polling Desnecessário
+
+Use watch ou triggers em vez de polling manual:
+
+[source,typescript]
+----
+// Polling desnecessário
+setInterval(async () => {
+  const entry = await kv.get(["config", "feature_flags"]);
+  updateConfig(entry.value);
+}, 1000);
+
+// Use watch
+for await (const entries of kv.watch([["config", "feature_flags"]])) {
+  updateConfig(entries[0].value);
+}
+
+// Ou use trigger (se mutation acontece localmente)
+kv.addTrigger({
+  prefix: ["config"],
+  events: ["set"],
+  handler: async (event) => {
+    updateConfig(event.value);
+  }
+});
+----
+
+==== Configure TTL Apropriado
+
+Use TTL para limpar dados automaticamente:
+
+[source,typescript]
+----
+// Cache de sessão: 1 hora
+await kv.set(["sessions", sessionId], session, {
+  expireIn: 3600_000  // 1h em ms
+});
+
+// Cache de dados externos: 5 minutos
+await kv.set(["cache", "api_response"], data, {
+  expireIn: 300_000  // 5min
+});
+----
+
+**Benefícios:**
+
+* Reduz uso de storage
+* Cleanup automático (nenhuma query DELETE manual)
+* Índice `idx_kv_expires` torna cleanup rápido
+
+=== Benchmarks
+
+Valores típicos em ambientes reais (baseado em libSQL local):
+
+==== Operações Locais (mesma máquina)
+
+[cols="1,1,2"]
+|===
+| Operação | Latência Típica | Observações
+
+| `get()`
+| < 5ms
+| Lookup direto por chave primária
+
+| `set()`
+| < 10ms
+| INSERT OR REPLACE + atualização de índices
+
+| `getMany()` (10 keys)
+| < 10ms
+| Query única com IN clause
+
+| `list()` (100 items)
+| < 20ms
+| Scan com LIMIT, usa índices
+
+| `atomic()` (10 ops)
+| < 50ms
+| Transação com múltiplas operações
+
+| `delete()` (prefix)
+| < 30ms
+| Varia com número de chaves deletadas
+
+| `count()`
+| < 15ms
+| COUNT(*) otimizado
+|===
+
+==== Operações Remotas (rede local)
+
+[cols="1,1,2"]
+|===
+| Operação | Latência Típica | Observações
+
+| `get()`
+| < 50ms
+| + latência de rede (~5-20ms)
+
+| `set()`
+| < 100ms
+| + roundtrip para confirmar write
+
+| `getMany()` (10 keys)
+| < 80ms
+| Batch reduz impacto da rede
+
+| `list()` (100 items)
+| < 100ms
+| Volume de dados transferidos
+
+| `atomic()` (10 ops)
+| < 150ms
+| Uma transação única
+|===
+
+==== Throughput
+
+Capacidade típica com libSQL local:
+
+* **Leituras**: ~10,000 ops/s (get simples)
+* **Escritas**: ~5,000 ops/s (set simples)
+* **Batch reads**: ~50,000 keys/s (getMany com 100 keys)
+* **Batch writes**: ~20,000 keys/s (atomic com 100 ops)
+
+WARNING: Valores reais dependem de hardware, configuração do libSQL, tamanho dos dados e concorrência. Sempre meça no seu ambiente específico.
+
+==== Fatores que Afetam Performance
+
+[cols="1,2"]
+|===
+| Fator | Impacto
+
+| **Tamanho do valor**
+| Valores grandes (>1MB) aumentam tempo de serialização e transferência
+
+| **Número de índices**
+| Mais índices = writes mais lentos (mas reads mais rápidos)
+
+| **Contention**
+| Muitas escritas simultâneas na mesma chave causam retries
+
+| **TTL cleanup**
+| Cleanup de milhares de entradas expiradas pode causar picos de latência
+
+| **Latência de rede**
+| Principal fator para operações remotas (use batching!)
+
+| **Tamanho da transação**
+| Transações grandes aumentam risco de conflito e retry
+|===
+
+=== Monitoramento
+
+Use as métricas do plugin para monitorar performance em produção:
+
+==== Endpoint de Métricas
+
+[source,bash]
+----
+curl http://localhost:4000/_/plugin-keyval/metrics
+----
+
+**Resposta:**
+
+[source,json]
+----
+{
+  "operations": {
+    "get": {
+      "count": 15420,
+      "errors": 3,
+      "latency_sum": 45260.5,
+      "avg_latency": 2.94
+    },
+    "set": {
+      "count": 8732,
+      "errors": 1,
+      "latency_sum": 78456.2,
+      "avg_latency": 8.98
+    }
+  },
+  "storage": {
+    "entries": 125430,
+    "size_bytes": 52428800
+  },
+  "queue": {
+    "pending": 42,
+    "processing": 8,
+    "completed": 9520,
+    "failed": 12
+  }
+}
+----
+
+==== Métricas Programáticas
+
+[source,typescript]
+----
+// Obter métricas no código
+const metrics = kv.metrics.getAll();
+
+// Verificar operações lentas
+for (const [op, stats] of Object.entries(metrics)) {
+  const avgLatency = stats.latency_sum / stats.count;
+  const errorRate = stats.errors / stats.count;
+
+  if (avgLatency > 100) {
+    logger.warn(`${op} slow: ${avgLatency.toFixed(2)}ms`);
+  }
+
+  if (errorRate > 0.01) {  // >1%
+    logger.error(`${op} high error rate: ${(errorRate * 100).toFixed(2)}%`);
+  }
+}
+----
+
+==== Prometheus
+
+Se métricas persistentes estão habilitadas, exporte para Prometheus:
+
+[source,typescript]
+----
+// Configuração
+const kv = new Kv(adapter, {
+  persistentMetrics: true,
+  metricsFlushInterval: 10_000  // 10s
+});
+----
+
+TIP: Métricas persistentes sobrevivem a reinicializações do processo, ideais para dashboards de longo prazo.

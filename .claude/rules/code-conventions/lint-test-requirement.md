@@ -1,6 +1,6 @@
-# Lint and Test Requirement
+# Lint, Test, and Docs Requirement
 
-**RULE: All code changes MUST pass lint and test before being considered complete**
+**RULE: All code changes MUST pass lint, test, and have updated docs before being considered complete**
 
 ## Requirement
 
@@ -8,6 +8,7 @@ Before any task can be marked as complete:
 
 1. Run `bun lint` - Must have zero errors
 2. Run `bun test` - All tests must pass
+3. Update documentation if API changed
 
 ## Commands
 
@@ -45,8 +46,18 @@ cd packages/keyval && bun lint && bun test
 2. Run `bun lint` to fix format and check types
 3. Write tests for new functionality
 4. Run `bun test` to verify tests pass
-5. Only then is the task complete
+5. Update/add documentation for API changes
+6. Only then is the task complete
+
+## Documentation Requirements
+
+When API changes occur:
+
+- **New functions/methods**: Add JSDoc and update relevant `.adoc` files
+- **Changed signatures**: Update JSDoc, types, and `.adoc` examples
+- **Removed functions**: Remove from docs, add migration notes if needed
+- **New options/parameters**: Document in JSDoc and `.adoc`
 
 ## Exceptions
 
-None. All code must pass lint and test.
+None. All code must pass lint, test, and have updated docs.

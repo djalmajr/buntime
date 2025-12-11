@@ -56,9 +56,32 @@
             "ws": true
           },
           {
-            "name": "Coder Assets",
+            "name": "Coder HMR",
             "pattern": "^/coder/(_bun)(/.*)?$",
             "target": "http://localhost:4001",
+            "rewrite": "/$1$2",
+            "ws": true
+          },
+          {
+            "name": "Todos HTM App",
+            "pattern": "^/todos-htm(/.*)?$",
+            "target": "http://localhost:5000",
+            "rewrite": "$1",
+            "base": "/todos-htm"
+          },
+          {
+            "name": "Todos KV App",
+            "pattern": "^/todos-kv(/.*)?$",
+            "target": "http://localhost:5001",
+            "base": "/todos-kv",
+            "rewrite": "$1",
+            "relativePaths": true,
+            "ws": true
+          },
+          {
+            "name": "Todos KV HMR",
+            "pattern": "^/todos-kv/(_bun)(/.*)?$",
+            "target": "http://localhost:5001",
             "rewrite": "/$1$2",
             "ws": true
           }

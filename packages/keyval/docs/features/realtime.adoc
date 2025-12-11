@@ -1,0 +1,1290 @@
+== Real-time: Observando Mudanças
+
+=== Visão Geral
+
+O sistema de real-time permite receber notificações automáticas quando dados mudam, eliminando a necessidade de polling manual.
+
+==== Características
+
+* **Notificações instantâneas**: Mudanças propagadas imediatamente
+* **Sincronização automática**: Múltiplos clientes mantidos atualizados
+* **Eficiência**: Redução de requisições desnecessárias
+* **Push-based**: Servidor notifica clientes ativamente
+
+==== Casos de Uso Comuns
+
+[cols="1,2"]
+|===
+| Caso de Uso | Exemplo
+
+| Dashboard ao vivo
+| Painel de vendas que atualiza automaticamente
+
+| Chat
+| Mensagens aparecem instantaneamente
+
+| Notificações
+| Alertas em tempo real para usuários
+
+| Presença online
+| Ver quem está online agora
+
+| Edição colaborativa
+| Múltiplos usuários editando o mesmo documento
+
+| Status de pedidos
+| Cliente vê quando pedido muda de status
+
+| Cache invalidation
+| Limpar cache quando dados mudam no banco
+|===
+
+TIP: Real-time é ideal quando você precisa que a UI reaja automaticamente a mudanças, sem o usuário ter que atualizar a página ou clicar em um botão.
+
+=== Como Funciona o watch() no KeyVal
+
+O KeyVal oferece uma API unificada para observar mudanças:
+
+* **`watch(keys, callback)`**: Observa chaves como prefixos por padrão (chave + filhos)
+* **`watch(keys, callback, { exact: true })`**: Observa apenas chaves exatas (sem filhos)
+
+==== Arquitetura
+
+[source]
+----
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│   Cliente   │         │   KeyVal    │         │   Banco     │
+│             │         │   Plugin    │         │   (libSQL)  │
+└──────┬──────┘         └──────┬──────┘         └──────┬──────┘
+       │                       │                       │
+       │ watch(["users", 123]) │                       │
+       ├──────────────────────▶│                       │
+       │                       │                       │
+       │    SSE Connection     │                       │
+       │◀──────────────────────┤                       │
+       │                       │                       │
+       │                       │  set(["users", 123])  │
+       │                       │◀──────────────────────┤
+       │                       │                       │
+       │  Event: value changed │                       │
+       │◀──────────────────────┤                       │
+       │                       │                       │
+----
+
+O cliente estabelece uma conexão (SSE ou polling) e o servidor notifica automaticamente quando a chave observada muda.
+
+=== Watch: Observando Mudanças
+
+O `watch()` trata chaves como prefixos por padrão, observando a chave e todos os seus filhos.
+
+==== Observar um Prefixo (Padrão)
+
+[source,typescript]
+----
+// Observar mudanças em todos os usuários
+const handle = kv.watch(
+  ["users"], // Prefixo: observa users/* (todos os filhos)
+  (entries) => {
+    for (const entry of entries) {
+      console.log("Usuário modificado:", entry.key, entry.value);
+    }
+  }
+);
+
+// Importante: sempre parar quando não precisar mais
+handle.stop();
+----
+
+==== Observar uma Chave Exata
+
+Use `{ exact: true }` quando você quer observar apenas chaves específicas, sem seus filhos:
+
+[source,typescript]
+----
+// Observar APENAS ["users", 123], não seus filhos
+const handle = kv.watch(
+  ["users", 123],
+  (entries) => {
+    console.log("Usuário mudou:", entries[0].value);
+  },
+  { exact: true }
+);
+----
+
+NOTE: Com `exact: true`, o callback recebe um array de `entries`, mesmo que você esteja observando apenas uma chave. Isso permite consistência na API.
+
+==== Observar Múltiplos Prefixos
+
+[source,typescript]
+----
+// Observar várias áreas do banco
+const handle = kv.watch(
+  [
+    ["users", 123],       // Tudo em users/123/*
+    ["orders", "client-456"]  // Tudo em orders/client-456/*
+  ],
+  (entries) => {
+    for (const entry of entries) {
+      console.log("Mudou:", entry.key, "→", entry.value);
+    }
+  }
+);
+----
+
+==== Observar Múltiplas Chaves Exatas
+
+[source,typescript]
+----
+// Observar apenas chaves específicas, sem filhos
+const handle = kv.watch(
+  [
+    ["users", 123],              // Dados do usuário
+    ["users", 123, "settings"],  // Configurações do usuário
+    ["users", 123, "profile"]    // Perfil do usuário
+  ],
+  (entries) => {
+    for (const entry of entries) {
+      console.log("Mudou:", entry.key, "→", entry.value);
+    }
+  },
+  { exact: true }
+);
+----
+
+==== Estrutura do WatchHandle
+
+O `watch()` retorna um handle para controlar a observação:
+
+[source,typescript]
+----
+interface WatchHandle {
+  stop(): void;              // Para a observação
+  [Symbol.dispose](): void;  // Suporte para `using`
+}
+----
+
+==== Exemplo: Monitorar Pedidos de um Cliente
+
+[source,typescript]
+----
+// Estrutura: ["orders", clientId, orderId]
+const handle = kv.watch(
+  ["orders", "client-456"], // Prefixo: pedidos deste cliente
+  (entries) => {
+    for (const entry of entries) {
+      const orderId = entry.key[2];
+      console.log(`Pedido ${orderId} atualizado:`, entry.value);
+    }
+  }
+);
+----
+
+WARNING: Watch com prefixos amplos pode gerar muitas notificações. Seja específico no prefixo para evitar sobrecarga.
+
+=== Estrutura do Evento de Mudança
+
+Cada entrada no callback tem esta estrutura:
+
+[source,typescript]
+----
+interface KvEntry<T = unknown> {
+  key: KvKey;                    // A chave que mudou
+  value: T | null;               // Novo valor (null se deletado)
+  versionstamp: string | null;   // Versão para otimistic locking
+}
+----
+
+==== Exemplo: Detectando Tipo de Mudança
+
+[source,typescript]
+----
+kv.watch(
+  ["users", userId],
+  (entries) => {
+    const entry = entries[0];
+
+    if (entry.value === null) {
+      // Chave foi deletada
+      console.log("Usuário foi removido");
+    } else if (entry.versionstamp === "00000000000000000001") {
+      // Primeira versão = criação
+      console.log("Novo usuário criado:", entry.value);
+    } else {
+      // Atualização
+      console.log("Usuário atualizado:", entry.value);
+    }
+  },
+  { exact: true } // Observar apenas esta chave exata
+);
+----
+
+=== Opções Avançadas
+
+==== Modo de Conexão: SSE vs Polling
+
+O KeyVal suporta dois modos de conexão:
+
+[cols="1,2,2"]
+|===
+| Modo | Vantagens | Desvantagens
+
+| **SSE** (Server-Sent Events)
+| Baixa latência (~ms), Conexão persistente, Eficiente
+| Pode não funcionar atrás de alguns proxies
+
+| **Polling**
+| Funciona em qualquer rede, Simples, Compatível
+| Maior latência, Mais requisições ao servidor
+|===
+
+[source,typescript]
+----
+// SSE (padrão): melhor latência
+const handle = kv.watch(
+  keys,
+  callback,
+  { mode: "sse" }
+);
+
+// Polling: melhor compatibilidade
+const handle = kv.watch(
+  keys,
+  callback,
+  {
+    mode: "polling",
+    pollInterval: 2000 // Verifica a cada 2 segundos
+  }
+);
+----
+
+TIP: Use SSE por padrão. Só mude para polling se tiver problemas de conexão (timeouts, proxies restritivos).
+
+==== Emitir Valor Inicial
+
+Por padrão, o watch emite o valor atual imediatamente quando você começa a observar:
+
+[source,typescript]
+----
+// Emite o valor atual + mudanças futuras (padrão)
+kv.watch(["users"], callback, { emitInitial: true });
+
+// Só notifica quando houver mudanças
+kv.watch(["users"], callback, { emitInitial: false });
+----
+
+==== Uso Prático
+
+[source,typescript]
+----
+// Cenário: Carregar e observar dados de um produto
+function ProductPage({ productId }) {
+  const [product, setProduct] = useState(null);
+
+  useEffect(() => {
+    // Com emitInitial: true, recebe o valor atual imediatamente
+    const handle = kv.watch(
+      ["products", productId],
+      (entries) => setProduct(entries[0].value),
+      { exact: true, emitInitial: true } // Chave exata + carrega valor inicial
+    );
+
+    return () => handle.stop();
+  }, [productId]);
+
+  // Sem emitInitial, você precisaria fazer get() separado
+}
+----
+
+==== Buffer e Backpressure
+
+Quando há muitas mudanças rápidas, o buffer evita perda de eventos:
+
+[source,typescript]
+----
+kv.watch(["users"], callback, {
+  bufferSize: 100,                  // Máximo de eventos no buffer
+  overflowStrategy: "drop-oldest"   // O que fazer se encher
+});
+----
+
+**Estratégias de overflow:**
+
+* `drop-oldest`: Remove eventos antigos (padrão)
+* `drop-newest`: Ignora novos eventos
+
+[source,typescript]
+----
+// Exemplo: Dashboard com alta frequência de atualizações
+kv.watch(
+  ["metrics"],
+  async (entries) => {
+    // Processar pode ser lento
+    await updateDashboard(entries);
+  },
+  {
+    bufferSize: 50,
+    overflowStrategy: "drop-oldest" // Manter sempre os mais recentes
+  }
+);
+----
+
+WARNING: Se o callback for muito lento, eventos podem se acumular. Configure o buffer adequadamente ou processe de forma assíncrona.
+
+=== Auto-cleanup com `using`
+
+JavaScript moderno suporta `using` para limpeza automática:
+
+[source,typescript]
+----
+async function monitorUser(userId: string) {
+  // Declarando com 'using', o .stop() é automático
+  using watcher = kv.watch(
+    ["users", userId],
+    (entries) => console.log("Mudou:", entries[0].value),
+    { exact: true }
+  );
+
+  await doSomething();
+
+  // Quando sair da função, watcher.stop() é chamado automaticamente
+}
+----
+
+==== Comparação: Com e Sem using
+
+[source,typescript]
+----
+// SEM using: você precisa lembrar de parar
+async function monitorA(userId: string) {
+  const watcher = kv.watch(["users", userId], callback, { exact: true });
+  try {
+    await doSomething();
+  } finally {
+    watcher.stop(); // Fácil esquecer
+  }
+}
+
+// COM using: cleanup automático
+async function monitorB(userId: string) {
+  using watcher = kv.watch(["users", userId], callback, { exact: true });
+  await doSomething();
+
+  // .stop() chamado automaticamente ao sair do escopo
+}
+----
+
+TIP: Sempre use `using` quando possível. Evita vazamento de recursos (conexões abertas).
+
+=== Casos de Uso Detalhados
+
+==== Sincronização de UI
+
+Manter a interface sempre sincronizada com o servidor:
+
+[source,typescript]
+----
+// React Hook para observar uma chave exata
+function useKvWatch<T>(key: KvKey): T | null {
+  const [value, setValue] = useState<T | null>(null);
+
+  useEffect(() => {
+    const handle = kv.watch<T>(
+      key,
+      (entries) => setValue(entries[0].value),
+      { exact: true, emitInitial: true } // Chave exata + carrega valor inicial
+    );
+
+    // Cleanup ao desmontar componente
+    return () => handle.stop();
+  }, [JSON.stringify(key)]); // Re-watch se chave mudar
+
+  return value;
+}
+
+// Uso no componente
+function UserProfile({ userId }) {
+  const user = useKvWatch<User>(["users", userId]);
+
+  if (!user) return <Loading />;
+
+  return (
+    <div>
+      <h1>{user.name}</h1>
+      <p>{user.email}</p>
+      {/* Atualiza automaticamente quando dados mudarem */}
+    </div>
+  );
+}
+----
+
+==== Sistema de Notificações
+
+Sistema de notificações que reage instantaneamente:
+
+[source,typescript]
+----
+// Servidor: Gera notificação quando algo acontece
+async function createOrder(order: Order) {
+  // Salva o pedido
+  await kv.set(["orders", order.id], order);
+
+  // Cria notificação para o vendedor
+  await kv.set(
+    ["notifications", order.sellerId, crypto.randomUUID()],
+    {
+      type: "new_order",
+      orderId: order.id,
+      message: `Novo pedido #${order.id}`,
+      timestamp: Date.now()
+    }
+  );
+}
+
+// Cliente: Observa notificações do usuário
+function NotificationSystem({ userId }) {
+  useEffect(() => {
+    const handle = kv.watch(
+      ["notifications", userId],
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.value) {
+            showToast(entry.value.message); // Mostra notificação
+            playSound(); // Toca som
+          }
+        }
+      },
+      { emitInitial: false } // Só notificações novas
+    );
+
+    return () => handle.stop();
+  }, [userId]);
+
+  return <NotificationBadge />;
+}
+----
+
+==== Dashboard de Métricas
+
+Dashboard que atualiza métricas em tempo real:
+
+[source,typescript]
+----
+// Estrutura de métricas: ["metrics", metricName, timestamp]
+function LiveDashboard() {
+  const [metrics, setMetrics] = useState({
+    activeUsers: 0,
+    requestsPerSecond: 0,
+    errorRate: 0
+  });
+
+  useEffect(() => {
+    const handle = kv.watch(
+      ["metrics", "current"], // Observa métricas atuais
+      (entries) => {
+        const updated = { ...metrics };
+
+        for (const entry of entries) {
+          const metricName = entry.key[2];
+          updated[metricName] = entry.value;
+        }
+
+        setMetrics(updated);
+      },
+      { emitInitial: true }
+    );
+
+    return () => handle.stop();
+  }, []);
+
+  return (
+    <Dashboard>
+      <MetricCard title="Usuários Ativos" value={metrics.activeUsers} />
+      <MetricCard title="Req/s" value={metrics.requestsPerSecond} />
+      <MetricCard title="Taxa de Erro" value={metrics.errorRate} />
+    </Dashboard>
+  );
+}
+----
+
+==== Sincronização Entre Abas
+
+Sincronizar estado entre múltiplas abas do navegador:
+
+[source,typescript]
+----
+// Chave compartilhada entre tabs: ["app-state", sessionId]
+const sessionId = getOrCreateSessionId();
+
+// Tab 1: Atualiza estado
+async function updateAppState(newState: AppState) {
+  await kv.set(["app-state", sessionId], newState);
+}
+
+// Tab 2: Recebe atualização automaticamente
+function useSharedAppState() {
+  const [appState, setAppState] = useState(null);
+
+  useEffect(() => {
+    const handle = kv.watch(
+      ["app-state", sessionId],
+      (entries) => setAppState(entries[0].value),
+      { exact: true, emitInitial: true }
+    );
+
+    return () => handle.stop();
+  }, []);
+
+  return appState;
+}
+
+// Exemplo: Carrinho de compras sincronizado entre tabs
+function ShoppingCart() {
+  const cart = useSharedAppState();
+
+  // Se adicionar item em uma tab, aparece em todas
+  return <CartItems items={cart?.items || []} />;
+}
+----
+
+==== Presença de Usuários Online
+
+Ver quem está online em tempo real:
+
+[source,typescript]
+----
+const PRESENCE_TTL = 30000; // 30 segundos
+
+// Cliente: Marcar como online
+async function markOnline(userId: string) {
+  await kv.set(
+    ["presence", userId],
+    { userId, lastSeen: Date.now() },
+    { expireIn: PRESENCE_TTL }
+  );
+}
+
+// Cliente: Heartbeat para manter online
+function usePresence(userId: string) {
+  useEffect(() => {
+    // Marcar online imediatamente
+    markOnline(userId);
+
+    // Enviar heartbeat a cada 10 segundos
+    const interval = setInterval(() => {
+      markOnline(userId);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [userId]);
+}
+
+// Servidor/Cliente: Observar usuários online
+function OnlineUsersList() {
+  const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
+
+  useEffect(() => {
+    const handle = kv.watch(
+      ["presence"],
+      (entries) => {
+        // Filtrar usuários que ainda estão online
+        const users = entries
+          .filter(e => e.value !== null)
+          .map(e => e.value.userId);
+
+        setOnlineUsers(users);
+      },
+      { emitInitial: true }
+    );
+
+    return () => handle.stop();
+  }, []);
+
+  return (
+    <div>
+      <h3>Usuários Online ({onlineUsers.length})</h3>
+      <ul>
+        {onlineUsers.map(userId => (
+          <li key={userId}>
+            <OnlineBadge /> {userId}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+----
+
+NOTE: O TTL (Time To Live) faz com que a chave expire automaticamente se o heartbeat parar. Isso detecta quando usuários saem sem fazer logout.
+
+==== Cache Invalidation
+
+Invalidar cache automaticamente quando dados mudam:
+
+[source,typescript]
+----
+// Cache em memória
+const cache = new Map<string, unknown>();
+
+// Observar mudanças nos produtos
+kv.watch(
+  ["products"],
+  (entries) => {
+    for (const entry of entries) {
+      const productId = entry.key[1] as string;
+      const cacheKey = `product:${productId}`;
+
+      if (entry.value === null) {
+        // Produto deletado
+        cache.delete(cacheKey);
+        console.log("Cache removido:", cacheKey);
+      } else {
+        // Produto atualizado - invalidar para forçar reload
+        cache.delete(cacheKey);
+        console.log("Cache invalidado:", cacheKey);
+      }
+    }
+  },
+  { emitInitial: false } // Só invalidar em mudanças reais
+);
+
+// Função que usa o cache
+async function getProduct(id: string): Promise<Product | null> {
+  const cacheKey = `product:${id}`;
+
+  // Tentar cache primeiro
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    console.log("Cache hit:", cacheKey);
+    return cached as Product;
+  }
+
+  // Cache miss: buscar do KeyVal
+  console.log("Cache miss:", cacheKey);
+  const entry = await kv.get<Product>(["products", id]);
+
+  if (entry.value) {
+    cache.set(cacheKey, entry.value);
+  }
+
+  return entry.value;
+}
+----
+
+==== Pub/Sub Distribuído
+
+Sistema de mensagens distribuído:
+
+[source,typescript]
+----
+// Estrutura: ["pubsub", channel, eventId]
+
+// Publicar mensagem em um canal
+async function publish(channel: string, message: unknown): Promise<void> {
+  const eventId = crypto.randomUUID();
+
+  await kv.set(
+    ["pubsub", channel, eventId],
+    {
+      message,
+      timestamp: Date.now(),
+      id: eventId
+    },
+    { expireIn: 60000 } // Eventos expiram em 1 minuto
+  );
+}
+
+// Subscrever a um canal
+function subscribe(
+  channel: string,
+  callback: (message: unknown) => void
+): WatchHandle {
+  return kv.watch(
+    ["pubsub", channel],
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.value) {
+          callback(entry.value.message);
+        }
+      }
+    },
+    { emitInitial: false } // Só mensagens novas
+  );
+}
+
+// Exemplo: Sistema de notificações
+const notificationHandle = subscribe("notifications", (message) => {
+  console.log("Nova notificação:", message);
+  showToast(message);
+});
+
+// Publicar de qualquer lugar
+await publish("notifications", {
+  type: "alert",
+  title: "Novo pedido!",
+  text: "Você recebeu um novo pedido #1234"
+});
+
+// Cleanup
+notificationHandle.stop();
+----
+
+==== Leader Election
+
+Eleger um líder entre múltiplas instâncias:
+
+[source,typescript]
+----
+const instanceId = crypto.randomUUID();
+const LEADER_KEY = ["system", "leader"];
+const HEARTBEAT_INTERVAL = 5000;
+const LEADER_TTL = 15000;
+
+// Tentar se tornar líder
+async function tryBecomeLeader(): Promise<boolean> {
+  const result = await kv.atomic()
+    .check({ key: LEADER_KEY, versionstamp: null }) // Só se não houver líder
+    .set(LEADER_KEY, { instanceId, timestamp: Date.now() }, {
+      expireIn: LEADER_TTL
+    })
+    .commit();
+
+  return result.ok;
+}
+
+// Manter liderança com heartbeats
+async function maintainLeadership(): Promise<boolean> {
+  const entry = await kv.get(LEADER_KEY);
+
+  // Verificar se ainda somos o líder
+  if (entry.value?.instanceId !== instanceId) {
+    return false;
+  }
+
+  // Renovar o TTL
+  await kv.set(LEADER_KEY, { instanceId, timestamp: Date.now() }, {
+    expireIn: LEADER_TTL
+  });
+
+  return true;
+}
+
+// Observar mudanças de líder
+const leaderWatcher = kv.watch(
+  LEADER_KEY,
+  (entries) => {
+    const leader = entries[0].value;
+
+    if (!leader) {
+      console.log("Sem líder - tentando assumir...");
+      tryBecomeLeader();
+    } else if (leader.instanceId === instanceId) {
+      console.log("Somos o líder!");
+      startLeaderTasks();
+    } else {
+      console.log("Outro líder ativo:", leader.instanceId);
+      stopLeaderTasks();
+    }
+  },
+  { exact: true, emitInitial: true }
+);
+
+// Sistema de heartbeat
+async function runLeaderLoop() {
+  while (true) {
+    const isLeader = await maintainLeadership();
+
+    if (!isLeader) {
+      await tryBecomeLeader();
+    }
+
+    await new Promise(resolve => setTimeout(resolve, HEARTBEAT_INTERVAL));
+  }
+}
+----
+
+NOTE: Leader election é útil para garantir que apenas uma instância execute tarefas críticas (ex: processar filas, enviar emails agendados).
+
+=== Integração com SSE/WebSocket
+
+O watch do KeyVal pode ser usado junto com SSE/WebSocket para entregar eventos ao navegador:
+
+==== Servidor com SSE
+
+[source,typescript]
+----
+import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
+
+const app = new Hono();
+
+// Endpoint SSE que transmite mudanças do KeyVal para o cliente
+app.get("/events/:userId", (c) => {
+  const userId = c.req.param("userId");
+
+  return streamSSE(c, async (stream) => {
+    // Observar notificações do usuário
+    using watcher = kv.watch(
+      ["notifications", userId],
+      async (entries) => {
+        for (const entry of entries) {
+          if (entry.value) {
+            // Enviar evento SSE para o navegador
+            await stream.writeSSE({
+              data: JSON.stringify(entry.value),
+              event: "notification"
+            });
+          }
+        }
+      },
+      { emitInitial: false }
+    );
+
+    // Manter conexão aberta
+    await stream.sleep(Number.MAX_SAFE_INTEGER);
+
+    // Auto-cleanup pelo 'using'
+  });
+});
+----
+
+==== Cliente Navegador
+
+[source,typescript]
+----
+// Cliente conecta ao SSE
+const eventSource = new EventSource(`/events/${userId}`);
+
+eventSource.addEventListener("notification", (event) => {
+  const notification = JSON.parse(event.data);
+  showNotification(notification);
+});
+
+eventSource.onerror = () => {
+  console.error("Conexão SSE perdida");
+  // Reconectar automaticamente
+};
+
+// Cleanup
+window.addEventListener("beforeunload", () => {
+  eventSource.close();
+});
+----
+
+==== Servidor com WebSocket
+
+[source,typescript]
+----
+import { Hono } from "hono";
+
+const app = new Hono();
+
+app.get("/ws", (c) => {
+  const { socket, response } = Bun.upgradeWebSocket(c.req.raw);
+
+  socket.onopen = () => {
+    // Quando cliente conecta, iniciar watch
+    const handle = kv.watch(
+      ["events"],
+      (entries) => {
+        for (const entry of entries) {
+          socket.send(JSON.stringify({
+            type: "event",
+            data: entry.value
+          }));
+        }
+      }
+    );
+
+    // Guardar handle para cleanup
+    socket.data = { watchHandle: handle };
+  };
+
+  socket.onclose = () => {
+    // Parar watch quando desconectar
+    socket.data?.watchHandle?.stop();
+  };
+
+  return response;
+});
+----
+
+=== Boas Práticas
+
+==== Sempre Fazer Cleanup
+
+[source,typescript]
+----
+// ERRADO: Sem cleanup
+function badExample() {
+  kv.watch(["users", 123], callback);
+  // Handle perdido - vazamento de conexão!
+}
+
+// CORRETO: Com cleanup
+function goodExample() {
+  const handle = kv.watch(["users", 123], callback);
+
+  // Em algum momento...
+  handle.stop();
+}
+
+// MELHOR: Usando 'using'
+function bestExample() {
+  using handle = kv.watch(["users", 123], callback);
+  // Auto-cleanup!
+}
+----
+
+==== Callbacks Devem Ser Rápidos
+
+[source,typescript]
+----
+// ERRADO: Callback bloqueante
+kv.watch(keys, async (entries) => {
+  // Processar pode demorar muito
+  await heavyProcessing(entries);
+  await sendEmails(entries);
+  await updateDatabase(entries);
+});
+
+// CORRETO: Enfileira para processar depois
+const queue: KvEntry[] = [];
+
+kv.watch(keys, (entries) => {
+  // Callback rápido - só adiciona na fila
+  queue.push(...entries);
+});
+
+// Worker separado processa a fila
+async function processQueue() {
+  while (true) {
+    const entry = queue.shift();
+
+    if (entry) {
+      await heavyProcessing(entry);
+    } else {
+      await sleep(100);
+    }
+  }
+}
+----
+
+WARNING: Se o callback for lento, eventos podem se acumular no buffer e serem descartados (baseado na `overflowStrategy`).
+
+==== Use Prefixo em Vez de Muitos Watchers
+
+[source,typescript]
+----
+// ERRADO: Muitos watchers para chaves exatas
+for (const userId of userIds) {
+  kv.watch(["users", userId], callback, { exact: true });
+}
+
+// CORRETO: Um único watcher com prefixo
+kv.watch(["users"], (entries) => {
+  // Filtra os usuários que você quer
+  const relevant = entries.filter(e => userIds.includes(e.key[1]));
+  callback(relevant);
+});
+----
+
+==== Reconexão Automática
+
+[source,typescript]
+----
+function createResilientWatcher(
+  key: KvKey,
+  callback: WatchCallback,
+  options?: WatchOptions
+) {
+  let handle: WatchHandle | null = null;
+  let stopped = false;
+
+  function start() {
+    if (stopped) return;
+
+    try {
+      handle = kv.watch(key, callback, {
+        ...options,
+        onError: (error) => {
+          console.error("Watch error:", error);
+
+          // Tentar reconectar após 5 segundos
+          setTimeout(() => {
+            if (!stopped) {
+              console.log("Reconectando...");
+              start();
+            }
+          }, 5000);
+        }
+      });
+    } catch (error) {
+      console.error("Falha ao iniciar watch:", error);
+      setTimeout(start, 5000);
+    }
+  }
+
+  start();
+
+  return {
+    stop() {
+      stopped = true;
+      handle?.stop();
+    }
+  };
+}
+
+// Uso
+const resilientWatcher = createResilientWatcher(
+  ["users", userId],
+  (entries) => console.log("Update:", entries)
+);
+----
+
+==== Debounce para Alta Frequência
+
+[source,typescript]
+----
+import { debounce } from "es-toolkit/function";
+
+// Se houver muitas atualizações rápidas, debounce pode ajudar
+const debouncedUpdate = debounce((entries: KvEntry[]) => {
+  updateUI(entries);
+}, 300); // Aguarda 300ms de "silêncio"
+
+kv.watch(
+  ["metrics"],
+  (entries) => {
+    // Callback é chamado toda vez, mas UI só atualiza após debounce
+    debouncedUpdate(entries);
+  }
+);
+----
+
+==== Filtrar Eventos Relevantes
+
+[source,typescript]
+----
+// Nem sempre você quer processar TODAS as mudanças
+kv.watch(
+  ["orders"],
+  (entries) => {
+    // Só processar pedidos com status "pending"
+    const pendingOrders = entries.filter(e => {
+      return e.value?.status === "pending";
+    });
+
+    if (pendingOrders.length > 0) {
+      notifyVendors(pendingOrders);
+    }
+  }
+);
+----
+
+==== Use emitInitial Apropriadamente
+
+[source,typescript]
+----
+// Quando carregar dados iniciais
+kv.watch(["users"], callback, {
+  emitInitial: true // Útil para inicializar UI
+});
+
+// Quando só quer notificações de mudanças
+kv.watch(["users"], callback, {
+  emitInitial: false // Útil para pub/sub, notificações
+});
+----
+
+=== Considerações de Performance
+
+[cols="1,2,2"]
+|===
+| Cenário | Problema | Solução
+
+| Observando muitas chaves
+| Muitos watchers consomem memória
+| Use prefixos para agrupar
+
+| Alta frequência de updates
+| Buffer pode transbordar
+| Configure `bufferSize` e `overflowStrategy`
+
+| Callback lento
+| Eventos se acumulam
+| Processe de forma assíncrona (fila)
+
+| Proxies/Firewalls
+| SSE pode ser bloqueado
+| Use `mode: "polling"`
+
+| Múltiplos clientes
+| Muitas conexões SSE
+| Considere WebSocket ou agregar no servidor
+
+| Watchers não limpos
+| Vazamento de conexões/memória
+| Sempre use `handle.stop()` ou `using`
+|===
+
+==== Exemplo: Otimizar Processamento
+
+[source,typescript]
+----
+// Sistema de fila para processar eventos de forma eficiente
+class EventProcessor {
+  private queue: KvEntry[] = [];
+  private processing = false;
+
+  constructor(private batchSize = 10) {
+    this.startProcessing();
+  }
+
+  enqueue(entries: KvEntry[]) {
+    this.queue.push(...entries);
+  }
+
+  private async startProcessing() {
+    this.processing = true;
+
+    while (this.processing) {
+      if (this.queue.length === 0) {
+        await sleep(100);
+        continue;
+      }
+
+      // Processar em lotes
+      const batch = this.queue.splice(0, this.batchSize);
+      await this.processBatch(batch);
+    }
+  }
+
+  private async processBatch(entries: KvEntry[]) {
+    // Processar múltiplos eventos de uma vez
+    await Promise.all(entries.map(e => this.processEntry(e)));
+  }
+
+  private async processEntry(entry: KvEntry) {
+    // Lógica de processamento pesado
+    await heavyComputation(entry);
+  }
+
+  stop() {
+    this.processing = false;
+  }
+}
+
+// Uso
+const processor = new EventProcessor(20);
+
+kv.watch(
+  ["events"],
+  (entries) => {
+    // Callback rápido - só enfileira
+    processor.enqueue(entries);
+  },
+  {
+    bufferSize: 100,
+    overflowStrategy: "drop-oldest"
+  }
+);
+----
+
+=== Limitações
+
+==== Não Persistente
+
+* Se o cliente desconectar, perde eventos que aconteceram durante a desconexão
+* Não há histórico de eventos passados
+* Watch começa a observar a partir de agora
+
+[source,typescript]
+----
+// Não funciona assim
+const handle = kv.watch([["orders", 123]], callback);
+
+// ... cliente desconecta por 5 minutos ...
+
+// Quando reconectar, NÃO receberá eventos dos últimos 5 minutos
+----
+
+TIP: Para garantias de entrega, use **filas** (`enqueue`) em vez de watch.
+
+==== Sem Garantia de Ordem
+
+* Eventos de diferentes chaves podem chegar fora de ordem
+* Se a ordem importa, use **timestamps** ou **versionstamp**
+
+[source,typescript]
+----
+kv.watch(["orders"], (entries) => {
+  // Ordenar por timestamp se necessário
+  const sorted = entries.sort((a, b) => {
+    return (a.value?.timestamp || 0) - (b.value?.timestamp || 0);
+  });
+
+  for (const entry of sorted) {
+    processInOrder(entry);
+  }
+});
+----
+
+==== Consumo de Recursos
+
+* Cada watcher consome:
+  - **Conexão SSE**: mantida aberta
+  - **Memória no servidor**: para rastrear observadores
+  - **CPU**: para detectar mudanças
+
+* Muitos watchers simultâneos podem sobrecarregar
+
+WARNING: Evite criar centenas de watchers no mesmo servidor. Prefira agregar usando prefixos.
+
+==== Latência
+
+[cols="1,1,2"]
+|===
+| Modo | Latência | Observação
+
+| SSE
+| ~10-100ms
+| Quase instantâneo
+
+| Polling (1s)
+| ~500ms (média)
+| Média de meio intervalo
+
+| Polling (5s)
+| ~2.5s (média)
+| Maior latência
+|===
+
+==== Comparação: Watch vs Queue
+
+[cols="1,2,2"]
+|===
+| Aspecto | Watch | Queue (enqueue)
+
+| Persistência
+| Não persiste
+| Persiste até processar
+
+| Garantia de entrega
+| Pode perder se desconectar
+| Garante entrega
+
+| Ordem
+| Não garantida
+| FIFO garantido
+
+| Latência
+| Tempo real (~ms)
+| Assíncrono (depende do worker)
+
+| Caso de uso
+| UI sync, notificações
+| Processamento confiável, tarefas
+|===
+
+TIP: Use **watch** para UI e notificações. Use **queue** para processamento crítico (ex: pagamentos, emails).
+

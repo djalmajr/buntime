@@ -1,0 +1,19 @@
+{
+  "name": "todos",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workerConfig": {
+    "idleTimeout": 30,
+    "lowMemory": false,
+    "maxRequests": 100,
+    "timeout": 30,
+    "ttl": 60
+  },
+  "scripts": {
+    "dev": "bunx browser-sync --port 5000 --no-ui --no-open --single --watch",
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "lint": "bun run lint:format && bun run lint:types"
+  }
+}

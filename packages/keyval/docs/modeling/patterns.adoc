@@ -1,0 +1,947 @@
+== Padrões de Modelagem
+
+Padrões de modelagem para casos de uso comuns em KeyVal.
+
+=== Convenções de Nomenclatura
+
+==== Formato da Chave
+
+[source,typescript]
+----
+// Padrão: [entidade, id, sub-entidade?, sub-id?]
+["users", "usr_001"]                    // Usuário
+["users", "usr_001", "profile"]         // Sub-recurso único
+["users", "usr_001", "posts", "pst_01"] // Sub-recurso com ID
+----
+
+==== Convenções de Nomenclatura
+
+[cols="1,2,2"]
+|===
+| Parte | Convenção | Exemplo
+
+| Entidade
+| Plural, snake_case
+| `users`, `blog_posts`, `order_items`
+
+| ID
+| Prefixo descritivo + UUID curto
+| `usr_abc123`, `pst_xyz789`
+
+| Sub-recurso
+| Plural se múltiplos, singular se único
+| `posts` (muitos), `profile` (um)
+
+| Índice
+| `{entidade}_by_{campo}`
+| `users_by_email`, `posts_by_date`
+|===
+
+==== Por que Prefixos em IDs?
+
+[source,typescript]
+----
+// Sem prefixo: impossível saber o que é
+"abc123xyz"  // Usuário? Post? Produto?
+
+// Com prefixo: auto-documentado
+"usr_abc123"  // Claramente um usuário
+"pst_xyz789"  // Claramente um post
+"ord_def456"  // Claramente um pedido
+
+// Facilita debugging em logs
+console.log(`Processando ${id}`);
+// "Processando usr_abc123" vs "Processando abc123xyz"
+----
+
+=== Entidade Simples com Metadados
+
+O caso mais básico, com campos de auditoria.
+
+[source,typescript]
+----
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+async function createUser(data: Omit<User, "id" | "createdAt" | "updatedAt">): Promise<User> {
+  const id = `usr_${crypto.randomUUID().slice(0, 8)}`;
+  const now = Date.now();
+
+  const user: User = {
+    ...data,
+    id,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  await kv.set(["users", id], user);
+  return user;
+}
+
+async function updateUser(id: string, data: Partial<Omit<User, "id" | "createdAt">>): Promise<User> {
+  return await kv.transaction(async (tx) => {
+    const entry = await tx.get<User>(["users", id]);
+    if (!entry.value) throw new Error("Usuário não encontrado");
+
+    const updated: User = {
+      ...entry.value,
+      ...data,
+      updatedAt: Date.now()
+    };
+
+    tx.set(["users", id], updated);
+    return updated;
+  }).then(r => {
+    if (!r.ok) throw new Error("Conflito");
+    return r.value;
+  });
+}
+----
+
+=== Documento com Sub-recursos Embutidos
+
+Quando dados relacionados são sempre acessados juntos.
+
+[source,typescript]
+----
+interface Order {
+  id: string;
+  customerId: string;
+  status: "pending" | "paid" | "shipped" | "delivered";
+  items: OrderItem[];      // Embutido - sempre junto
+  shipping: ShippingInfo;  // Embutido - sempre junto
+  totals: {
+    subtotal: number;
+    shipping: number;
+    tax: number;
+    total: number;
+  };
+  createdAt: number;
+}
+
+interface OrderItem {
+  productId: string;
+  productName: string;  // Denormalizado para evitar lookup
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
+// Uma leitura traz tudo necessário
+const order = await kv.get<Order>(["orders", orderId]);
+console.log(order.value.items);     // Itens já disponíveis
+console.log(order.value.totals);    // Totais já calculados
+----
+
+=== Hierarquia para Agregação
+
+Quando você quer listar ou deletar tudo de um "dono".
+
+[source,typescript]
+----
+// Estrutura hierárquica
+["organizations", orgId]                                    → { name }
+["organizations", orgId, "members", oderId]                 → { role }
+["organizations", orgId, "projects", projectId]             → { name }
+["organizations", orgId, "projects", projectId, "tasks", taskId] → { title }
+
+// Listar tudo de uma organização
+for await (const entry of kv.list(["organizations", orgId])) {
+  console.log(entry.key);
+}
+// ["organizations", orgId]
+// ["organizations", orgId, "members", "usr_1"]
+// ["organizations", orgId, "projects", "prj_1"]
+// ["organizations", orgId, "projects", "prj_1", "tasks", "tsk_1"]
+
+// Deletar organização e TUDO relacionado
+await kv.delete(["organizations", orgId]);
+// Remove: org, members, projects, tasks - tudo em uma operação
+----
+
+=== Contadores Atômicos
+
+Para métricas que atualizam frequentemente.
+
+[source,typescript]
+----
+// Estrutura
+["stats", "global", "page_views"]              → bigint
+["stats", "posts", postId, "views"]            → bigint
+["stats", "posts", postId, "likes"]            → bigint
+["stats", "users", oderId, "posts_count"]      → bigint
+
+// Incrementar views (sem race condition!)
+await kv.atomic()
+  .sum(["stats", "posts", postId, "views"], 1n)
+  .commit();
+
+// Incrementar múltiplos contadores atomicamente
+await kv.atomic()
+  .sum(["stats", "global", "page_views"], 1n)
+  .sum(["stats", "posts", postId, "views"], 1n)
+  .commit();
+
+// Decrementar (quando post é deletado)
+await kv.atomic()
+  .sum(["stats", "users", authorId, "posts_count"], -1n)
+  .commit();
+
+// Ler contador
+const views = await kv.get<bigint>(["stats", "posts", postId, "views"]);
+console.log(`Views: ${views.value ?? 0n}`);
+----
+
+IMPORTANT: Contadores usam `bigint` (termine com `n`).
+
+=== Agregações Pré-computadas
+
+KeyVal não tem `GROUP BY` ou funções de agregação como SQL. A solução é **pré-computar** estatísticas durante a escrita.
+
+==== Por que Pré-computar?
+
+[source,typescript]
+----
+// Abordagem ingênua: calcular sob demanda
+// O(n) - precisa ler TODOS os produtos!
+async function getStats() {
+  let count = 0;
+  let totalPrice = 0;
+  let maxPrice = 0;
+
+  for await (const e of kv.list<Product>(["products"])) {
+    count++;
+    totalPrice += e.value.price;
+    maxPrice = Math.max(maxPrice, e.value.price);
+  }
+
+  return { count, avgPrice: totalPrice / count, maxPrice };
+}
+// Com 100.000 produtos = lento!
+
+// Abordagem pré-computada: O(1)
+const stats = await kv.get(["stats", "products"]);
+// Instantâneo, independente do número de produtos
+----
+
+==== Estrutura de Estatísticas
+
+[source,typescript]
+----
+// Estatísticas globais
+["stats", "products", "count"]           → bigint  // Total de produtos
+["stats", "products", "total_value"]     → bigint  // Soma de preços (centavos)
+["stats", "products", "max_price"]       → bigint  // Maior preço
+
+// Estatísticas por categoria
+["stats", "products", "by_category", "electronics", "count"]       → bigint
+["stats", "products", "by_category", "electronics", "total_value"] → bigint
+
+// Estatísticas por período
+["stats", "sales", "2024", "count"]      → bigint
+["stats", "sales", "2024", "12", "count"] → bigint  // Por mês
+["stats", "sales", "2024", "12", "15", "count"] → bigint  // Por dia
+----
+
+==== Atualizando Estatísticas Atomicamente
+
+[source,typescript]
+----
+interface Product {
+  id: string;
+  name: string;
+  category: string;
+  price: number;  // em centavos
+  createdAt: number;
+}
+
+async function createProduct(data: Omit<Product, "id" | "createdAt">): Promise<Product> {
+  const id = `prod_${crypto.randomUUID().slice(0, 8)}`;
+  const product: Product = { ...data, id, createdAt: Date.now() };
+
+  await kv.atomic()
+    // Dados do produto
+    .set(["products", id], product)
+    // Índice por categoria
+    .set(["products_by_category", data.category, id], id)
+    // Estatísticas globais
+    .sum(["stats", "products", "count"], 1n)
+    .sum(["stats", "products", "total_value"], BigInt(data.price))
+    .max(["stats", "products", "max_price"], BigInt(data.price))
+    // Estatísticas por categoria
+    .sum(["stats", "products", "by_category", data.category, "count"], 1n)
+    .sum(["stats", "products", "by_category", data.category, "total_value"], BigInt(data.price))
+    .commit();
+
+  return product;
+}
+
+async function deleteProduct(id: string): Promise<void> {
+  const entry = await kv.get<Product>(["products", id]);
+  if (!entry.value) return;
+
+  const product = entry.value;
+
+  await kv.atomic()
+    // Remove produto
+    .delete(["products", id])
+    .delete(["products_by_category", product.category, id])
+    // Decrementa estatísticas globais
+    .sum(["stats", "products", "count"], -1n)
+    .sum(["stats", "products", "total_value"], BigInt(-product.price))
+    // Decrementa estatísticas por categoria
+    .sum(["stats", "products", "by_category", product.category, "count"], -1n)
+    .sum(["stats", "products", "by_category", product.category, "total_value"], BigInt(-product.price))
+    .commit();
+}
+
+async function updateProductPrice(id: string, newPrice: number): Promise<void> {
+  const result = await kv.transaction(async (tx) => {
+    const entry = await tx.get<Product>(["products", id]);
+    if (!entry.value) throw new Error("Produto não encontrado");
+
+    const oldPrice = entry.value.price;
+    const priceDiff = newPrice - oldPrice;
+    const updated = { ...entry.value, price: newPrice };
+
+    tx.set(["products", id], updated);
+
+    // Ajusta estatísticas com a diferença
+    tx.sum(["stats", "products", "total_value"], BigInt(priceDiff));
+    tx.sum(["stats", "products", "by_category", updated.category, "total_value"], BigInt(priceDiff));
+
+    // max_price pode precisar recalcular se deletamos o maior
+    // Para simplificar, apenas atualizamos se o novo é maior
+    tx.max(["stats", "products", "max_price"], BigInt(newPrice));
+
+    return updated;
+  });
+
+  if (!result.ok) throw new Error("Conflito");
+}
+----
+
+==== Lendo Estatísticas
+
+[source,typescript]
+----
+interface ProductStats {
+  count: number;
+  avgPrice: number;
+  maxPrice: number;
+  totalValue: number;
+}
+
+async function getProductStats(category?: string): Promise<ProductStats> {
+  const prefix = category
+    ? ["stats", "products", "by_category", category]
+    : ["stats", "products"];
+
+  const [countEntry, totalEntry, maxEntry] = await kv.getMany([
+    [...prefix, "count"],
+    [...prefix, "total_value"],
+    [...prefix, "max_price"],
+  ]);
+
+  const count = Number(countEntry.value ?? 0n);
+  const totalValue = Number(totalEntry.value ?? 0n);
+  const maxPrice = Number(maxEntry.value ?? 0n);
+
+  return {
+    count,
+    totalValue,
+    maxPrice,
+    avgPrice: count > 0 ? totalValue / count : 0,
+  };
+}
+
+// Uso
+const globalStats = await getProductStats();
+console.log(`Total: ${globalStats.count} produtos`);
+console.log(`Preço médio: R$ ${(globalStats.avgPrice / 100).toFixed(2)}`);
+
+const electronicsStats = await getProductStats("electronics");
+console.log(`Eletrônicos: ${electronicsStats.count} produtos`);
+----
+
+==== Estatísticas por Período
+
+[source,typescript]
+----
+interface Sale {
+  id: string;
+  productId: string;
+  amount: number;
+  createdAt: number;
+}
+
+async function recordSale(productId: string, amount: number): Promise<Sale> {
+  const id = `sale_${crypto.randomUUID().slice(0, 8)}`;
+  const now = new Date();
+  const year = now.getFullYear().toString();
+  const month = (now.getMonth() + 1).toString().padStart(2, "0");
+  const day = now.getDate().toString().padStart(2, "0");
+
+  const sale: Sale = { id, productId, amount, createdAt: Date.now() };
+
+  await kv.atomic()
+    .set(["sales", id], sale)
+    // Estatísticas por ano
+    .sum(["stats", "sales", year, "count"], 1n)
+    .sum(["stats", "sales", year, "total"], BigInt(amount))
+    // Estatísticas por mês
+    .sum(["stats", "sales", year, month, "count"], 1n)
+    .sum(["stats", "sales", year, month, "total"], BigInt(amount))
+    // Estatísticas por dia
+    .sum(["stats", "sales", year, month, day, "count"], 1n)
+    .sum(["stats", "sales", year, month, day, "total"], BigInt(amount))
+    .commit();
+
+  return sale;
+}
+
+// Relatório mensal
+async function getMonthlySalesReport(year: string, month: string) {
+  const [countEntry, totalEntry] = await kv.getMany([
+    ["stats", "sales", year, month, "count"],
+    ["stats", "sales", year, month, "total"],
+  ]);
+
+  return {
+    period: `${year}-${month}`,
+    count: Number(countEntry.value ?? 0n),
+    total: Number(totalEntry.value ?? 0n),
+  };
+}
+
+// Comparativo de vendas por mês
+async function getYearlyComparison(year: string) {
+  const months = [];
+  for (let m = 1; m <= 12; m++) {
+    const month = m.toString().padStart(2, "0");
+    months.push(await getMonthlySalesReport(year, month));
+  }
+  return months;
+}
+----
+
+==== Lidando com min/max em Deleções
+
+[source,typescript]
+----
+// Problema: ao deletar o produto mais caro, max_price fica incorreto
+// Solução 1: Aceitar inconsistência temporária (max só aumenta, nunca diminui)
+// Solução 2: Recalcular periodicamente
+
+async function recalculateMaxPrice(): Promise<void> {
+  let maxPrice = 0n;
+
+  for await (const entry of kv.list<Product>(["products"])) {
+    if (BigInt(entry.value.price) > maxPrice) {
+      maxPrice = BigInt(entry.value.price);
+    }
+  }
+
+  await kv.set(["stats", "products", "max_price"], maxPrice);
+}
+
+// Executar em job periódico (ex: diário)
+// Ou após deleção de produto com preço >= max_price atual
+----
+
+==== Quando Usar
+
+[cols="1,1"]
+|===
+| Usar pré-computação | Calcular sob demanda
+
+| Queries frequentes
+| Queries raras
+
+| Datasets grandes (>1000)
+| Datasets pequenos (<100)
+
+| Métricas em dashboards
+| Relatórios ad-hoc
+
+| Latência crítica
+| Batch processing
+
+| count, sum, max, min
+| Agregações complexas (percentis, mediana)
+|===
+
+=== Dados Temporários com TTL
+
+Para sessões, tokens, cache.
+
+[source,typescript]
+----
+// Sessão com expiração de 24 horas
+interface Session {
+  userId: string;
+  deviceInfo: string;
+  createdAt: number;
+}
+
+async function createSession(oderId: string, deviceInfo: string): Promise<string> {
+  const sessionId = crypto.randomUUID();
+
+  await kv.set(
+    ["sessions", sessionId],
+    { userId: oderId, deviceInfo, createdAt: Date.now() },
+    { expireIn: 24 * 60 * 60 * 1000 }  // 24 horas
+  );
+
+  return sessionId;
+}
+
+// Cache de API com 5 minutos
+async function getCachedWeather(city: string): Promise<Weather> {
+  const cached = await kv.get<Weather>(["cache", "weather", city]);
+
+  if (cached.value) {
+    return cached.value;
+  }
+
+  const weather = await fetchWeatherAPI(city);
+
+  await kv.set(
+    ["cache", "weather", city],
+    weather,
+    { expireIn: 5 * 60 * 1000 }  // 5 minutos
+  );
+
+  return weather;
+}
+----
+
+=== Rate Limiting
+
+Para limitar requisições por usuário/IP.
+
+[source,typescript]
+----
+interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  resetAt: number;
+}
+
+async function checkRateLimit(
+  identifier: string,
+  limit: number = 100,
+  windowMs: number = 60_000
+): Promise<RateLimitResult> {
+  // Janela atual (minuto atual para window de 1 min)
+  const window = Math.floor(Date.now() / windowMs);
+  const key: KvKey = ["rate_limit", identifier, window];
+
+  const entry = await kv.get<number>(key);
+  const current = entry.value ?? 0;
+
+  if (current >= limit) {
+    return {
+      allowed: false,
+      remaining: 0,
+      resetAt: (window + 1) * windowMs
+    };
+  }
+
+  // Incrementa contador
+  await kv.atomic()
+    .sum(key, 1n)
+    .commit();
+
+  // Se primeira requisição da janela, configura TTL
+  if (current === 0) {
+    await kv.set(key, 1, { expireIn: windowMs * 2 });
+  }
+
+  return {
+    allowed: true,
+    remaining: limit - current - 1,
+    resetAt: (window + 1) * windowMs
+  };
+}
+
+// Uso em middleware
+async function rateLimitMiddleware(c: Context, next: Next) {
+  const ip = c.req.header("x-forwarded-for") ?? "unknown";
+  const result = await checkRateLimit(ip);
+
+  if (!result.allowed) {
+    return c.json({ error: "Too many requests" }, 429);
+  }
+
+  c.header("X-RateLimit-Remaining", String(result.remaining));
+  c.header("X-RateLimit-Reset", String(result.resetAt));
+
+  await next();
+}
+----
+
+=== Feature Flags
+
+Para controlar features por usuário ou globalmente.
+
+[source,typescript]
+----
+interface FeatureFlag {
+  enabled: boolean;
+  enabledFor?: string[];  // Lista de user IDs
+  percentage?: number;    // Rollout gradual
+}
+
+// Estrutura
+["features", featureName] → FeatureFlag
+
+// Verificar feature
+async function isFeatureEnabled(
+  featureName: string,
+  oderId?: string
+): Promise<boolean> {
+  const flag = await kv.get<FeatureFlag>(["features", featureName]);
+
+  if (!flag.value) return false;
+  if (!flag.value.enabled) return false;
+
+  // Habilitado para todos
+  if (!flag.value.enabledFor && !flag.value.percentage) {
+    return true;
+  }
+
+  // Habilitado para usuários específicos
+  if (flag.value.enabledFor && oderId) {
+    return flag.value.enabledFor.includes(oderId);
+  }
+
+  // Rollout por porcentagem (baseado no hash do userId)
+  if (flag.value.percentage && oderId) {
+    const hash = simpleHash(oderId);
+    return (hash % 100) < flag.value.percentage;
+  }
+
+  return false;
+}
+
+// Uso
+if (await isFeatureEnabled("dark_mode", user.id)) {
+  // Mostra dark mode
+}
+----
+
+=== Audit Log (Imutável)
+
+Para registro de ações que não devem ser alteradas.
+
+[source,typescript]
+----
+interface AuditEntry {
+  id: string;
+  timestamp: number;
+  action: string;
+  actorId: string;
+  targetType: string;
+  targetId: string;
+  changes?: Record<string, { from: unknown; to: unknown }>;
+  metadata?: Record<string, unknown>;
+}
+
+async function logAuditEvent(
+  action: string,
+  actorId: string,
+  target: { type: string; id: string },
+  changes?: AuditEntry["changes"]
+): Promise<void> {
+  const id = crypto.randomUUID();
+  const timestamp = Date.now();
+
+  const entry: AuditEntry = {
+    id,
+    timestamp,
+    action,
+    actorId,
+    targetType: target.type,
+    targetId: target.id,
+    changes
+  };
+
+  // Indexação tripla para queries diferentes
+  await kv.atomic()
+    // Por timestamp (log geral)
+    .set(["audit", "by_time", timestamp, id], entry)
+    // Por ator (o que este usuário fez?)
+    .set(["audit", "by_actor", actorId, timestamp, id], entry)
+    // Por alvo (o que aconteceu com este recurso?)
+    .set(["audit", "by_target", target.type, target.id, timestamp, id], entry)
+    .commit();
+}
+
+// Uso ao atualizar usuário
+await logAuditEvent(
+  "user.update",
+  currentUserId,
+  { type: "user", id: targetUserId },
+  {
+    email: { from: oldEmail, to: newEmail },
+    name: { from: oldName, to: newName }
+  }
+);
+
+// Query: ações de um usuário
+async function getActorHistory(actorId: string, limit = 50): Promise<AuditEntry[]> {
+  const entries: AuditEntry[] = [];
+  for await (const e of kv.list<AuditEntry>(
+    ["audit", "by_actor", actorId],
+    { reverse: true, limit }
+  )) {
+    entries.push(e.value);
+  }
+  return entries;
+}
+----
+
+=== Estado de Workflow
+
+Para processos com múltiplos estados.
+
+[source,typescript]
+----
+type OrderStatus = "created" | "payment_pending" | "paid" | "preparing" | "shipped" | "delivered" | "cancelled";
+
+interface Order {
+  id: string;
+  status: OrderStatus;
+  statusHistory: Array<{
+    status: OrderStatus;
+    timestamp: number;
+    reason?: string;
+  }>;
+  // ... outros campos
+}
+
+async function transitionOrderStatus(
+  orderId: string,
+  newStatus: OrderStatus,
+  reason?: string
+): Promise<void> {
+  // Transições válidas
+  const validTransitions: Record<OrderStatus, OrderStatus[]> = {
+    created: ["payment_pending", "cancelled"],
+    payment_pending: ["paid", "cancelled"],
+    paid: ["preparing", "cancelled"],
+    preparing: ["shipped"],
+    shipped: ["delivered"],
+    delivered: [],
+    cancelled: []
+  };
+
+  const result = await kv.transaction(async (tx) => {
+    const entry = await tx.get<Order>(["orders", orderId]);
+    if (!entry.value) throw new Error("Pedido não encontrado");
+
+    const order = entry.value;
+
+    // Validar transição
+    if (!validTransitions[order.status].includes(newStatus)) {
+      throw new Error(`Transição inválida: ${order.status} → ${newStatus}`);
+    }
+
+    // Atualizar
+    const updated: Order = {
+      ...order,
+      status: newStatus,
+      statusHistory: [
+        ...order.statusHistory,
+        { status: newStatus, timestamp: Date.now(), reason }
+      ]
+    };
+
+    tx.set(["orders", orderId], updated);
+
+    // Atualizar índice por status
+    tx.delete(["orders_by_status", order.status, orderId]);
+    tx.set(["orders_by_status", newStatus, orderId], orderId);
+
+    return updated;
+  });
+
+  if (!result.ok) {
+    throw new Error("Conflito ao atualizar pedido");
+  }
+}
+----
+
+=== Soft Delete
+
+Para "deletar" sem perder dados.
+
+[source,typescript]
+----
+interface SoftDeletable {
+  deletedAt?: number;
+  deletedBy?: string;
+}
+
+interface User extends SoftDeletable {
+  id: string;
+  name: string;
+  email: string;
+}
+
+async function softDeleteUser(oderId: string, deletedBy: string): Promise<void> {
+  const result = await kv.transaction(async (tx) => {
+    const entry = await tx.get<User>(["users", oderId]);
+    if (!entry.value) throw new Error("Usuário não encontrado");
+    if (entry.value.deletedAt) throw new Error("Já deletado");
+
+    const updated: User = {
+      ...entry.value,
+      deletedAt: Date.now(),
+      deletedBy
+    };
+
+    tx.set(["users", oderId], updated);
+
+    // Remove dos índices ativos
+    tx.delete(["users_by_email", entry.value.email]);
+
+    // Adiciona ao índice de deletados (para possível restore)
+    tx.set(["deleted_users", oderId], updated);
+  });
+
+  if (!result.ok) {
+    throw new Error("Conflito");
+  }
+}
+
+// Listar apenas ativos
+async function getActiveUsers(): Promise<User[]> {
+  const users: User[] = [];
+  for await (const entry of kv.list<User>(["users"])) {
+    if (!entry.value.deletedAt) {
+      users.push(entry.value);
+    }
+  }
+  return users;
+}
+
+// Restaurar
+async function restoreUser(oderId: string): Promise<void> {
+  const result = await kv.transaction(async (tx) => {
+    const entry = await tx.get<User>(["users", oderId]);
+    if (!entry.value) throw new Error("Usuário não encontrado");
+    if (!entry.value.deletedAt) throw new Error("Não está deletado");
+
+    const restored: User = {
+      ...entry.value,
+      deletedAt: undefined,
+      deletedBy: undefined
+    };
+
+    tx.set(["users", oderId], restored);
+    tx.set(["users_by_email", restored.email], oderId);
+    tx.delete(["deleted_users", oderId]);
+  });
+
+  if (!result.ok) {
+    throw new Error("Conflito");
+  }
+}
+----
+
+=== Anti-padrões a Evitar
+
+==== Chaves Muito Profundas
+
+[source,typescript]
+----
+// Ruim: difícil de manter e query
+["org", orgId, "dept", deptId, "team", teamId, "member", oderId, "perm", permId]
+
+// Melhor: entidades separadas com referências
+["permissions", permId] → { userId, teamId, orgId, ... }
+["users", oderId, "permissions"] → [permId1, permId2]
+----
+
+==== Esquecer de Atualizar Índices
+
+[source,typescript]
+----
+// Ruim: atualiza usuário, esquece índice
+await kv.set(["users", id], { ...user, email: newEmail });
+// users_by_email ainda aponta para email antigo!
+
+// Correto: sempre em atomic
+await kv.atomic()
+  .set(["users", id], { ...user, email: newEmail })
+  .delete(["users_by_email", oldEmail])
+  .set(["users_by_email", newEmail], id)
+  .commit();
+----
+
+==== Abuso de Denormalização
+
+[source,typescript]
+----
+// Ruim: dados que mudam frequentemente
+["posts", postId] → {
+  authorId,
+  authorName,      // Muda quando autor edita perfil
+  authorAvatar,    // Muda frequentemente
+  authorBio,       // Muda às vezes
+  authorFollowers  // Muda constantemente!
+}
+
+// Melhor: apenas dados estáveis ou referência
+["posts", postId] → {
+  authorId,
+  authorName       // OK se nome raramente muda
+}
+----
+
+=== Referência Rápida
+
+[cols="2,3"]
+|===
+| Padrão | Quando Usar
+
+| Entidade simples
+| Caso básico, CRUD padrão
+
+| Documento embutido
+| Dados sempre acessados juntos
+
+| Hierarquia
+| Parent-child com delete em cascata
+
+| Contadores atômicos
+| Métricas de alta frequência
+
+| Agregações pré-computadas
+| Dashboards, estatísticas, count/sum/max
+
+| TTL
+| Sessões, cache, tokens
+
+| Rate limiting
+| Proteção de APIs
+
+| Feature flags
+| Deploy gradual, A/B testing
+
+| Audit log
+| Conformidade, debugging
+
+| Workflow
+| Processos com estados
+
+| Soft delete
+| Recuperação, conformidade
+|===

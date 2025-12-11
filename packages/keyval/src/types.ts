@@ -67,10 +67,6 @@ export interface KvListOptions {
    */
   limit?: number;
   /**
-   * Key prefix to filter by
-   */
-  prefix?: KvKey;
-  /**
    * Return entries in reverse order
    * @default false
    */
@@ -79,6 +75,93 @@ export interface KvListOptions {
    * Start key (inclusive)
    */
   start?: KvKey;
+  /**
+   * Filter to apply when listing entries
+   * Only entries matching the filter will be returned
+   *
+   * Use `kv.now()` for server-side timestamp comparison to avoid
+   * client/server time discrepancies.
+   *
+   * @example
+   * ```typescript
+   * // List active users
+   * for await (const entry of kv.list(["users"], {
+   *   where: { status: { $eq: "active" } }
+   * })) {
+   *   console.log(entry);
+   * }
+   *
+   * // List users older than 18 in SP
+   * for await (const entry of kv.list(["users"], {
+   *   where: {
+   *     age: { $gt: 18 },
+   *     city: { $eq: "SP" }
+   *   }
+   * })) {
+   *   console.log(entry);
+   * }
+   *
+   * // List sessions not yet expired (using server time)
+   * for await (const entry of kv.list(["sessions"], {
+   *   where: { expiresAt: { $gt: kv.now() } }
+   * })) {
+   *   console.log(entry);
+   * }
+   * ```
+   */
+  where?: KvWhereFilter;
+}
+
+/**
+ * Options for paginate operation (cursor-based pagination)
+ */
+export interface KvPaginateOptions {
+  /**
+   * Cursor from previous page (base64-encoded key)
+   */
+  cursor?: string;
+  /**
+   * Maximum number of entries to return
+   * @default 100
+   */
+  limit?: number;
+  /**
+   * Return entries in reverse order
+   * @default false
+   */
+  reverse?: boolean;
+}
+
+/**
+ * Result of paginate operation
+ */
+export interface KvPaginateResult<T = unknown> {
+  /**
+   * Entries in this page
+   */
+  entries: KvEntry<T>[];
+  /**
+   * Cursor to use for next page (null if no more pages)
+   */
+  cursor: string | null;
+  /**
+   * Whether there are more entries after this page
+   */
+  hasMore: boolean;
+}
+
+/**
+ * Result of delete operation
+ */
+export interface KvDeleteResult {
+  /**
+   * Whether the operation succeeded
+   */
+  success: boolean;
+  /**
+   * Number of entries deleted (including children)
+   */
+  deletedCount: number;
 }
 
 /**
@@ -216,6 +299,26 @@ export interface KvWatchOptions {
    */
   emitInitial?: boolean;
   /**
+   * If true, watch only the exact key(s) without children
+   * If false (default), watch the key(s) as prefix(es), including all children
+   * @default false
+   *
+   * @example
+   * ```typescript
+   * // Watch ["users", 123] and all children (profile, settings, etc.)
+   * kv.watch(["users", 123], callback);
+   *
+   * // Watch only ["users", 123] without children
+   * kv.watch(["users", 123], callback, { exact: true });
+   * ```
+   */
+  exact?: boolean;
+  /**
+   * Maximum number of entries to fetch per poll (only for prefix mode)
+   * @default 100
+   */
+  limit?: number;
+  /**
    * Connection mode
    * - "sse": Server-Sent Events (default, lower latency)
    * - "polling": HTTP polling (more compatible with proxies)
@@ -310,4 +413,497 @@ export type KvKeyWithVersionstamp = KvKeyPartWithVersionstamp[];
  */
 export function createCommitVersionstamp(): KvCommitVersionstamp {
   return { [COMMIT_VERSIONSTAMP_SYMBOL]: true };
+}
+
+// ============================================================================
+// Transaction Types
+// ============================================================================
+
+/**
+ * Options for transaction operation
+ */
+export interface KvTransactionOptions {
+  /**
+   * Maximum number of retries on commit failure
+   * @default 0
+   */
+  maxRetries?: number;
+  /**
+   * Base delay in milliseconds between retries (multiplied by attempt number)
+   * @default 10
+   */
+  retryDelay?: number;
+}
+
+/**
+ * Result of a successful transaction
+ */
+export interface KvTransactionResult<T> {
+  ok: true;
+  value: T;
+  versionstamp: string;
+}
+
+/**
+ * Result of a failed transaction
+ */
+export interface KvTransactionError {
+  ok: false;
+}
+
+// ============================================================================
+// DLQ Types
+// ============================================================================
+
+/**
+ * A message in the dead letter queue
+ */
+export interface KvDlqMessage<T = unknown> {
+  /**
+   * DLQ message ID
+   */
+  id: string;
+  /**
+   * Original queue message ID
+   */
+  originalId: string;
+  /**
+   * The message value
+   */
+  value: T;
+  /**
+   * Error message from last failed attempt
+   */
+  errorMessage: string | null;
+  /**
+   * Number of delivery attempts before moving to DLQ
+   */
+  attempts: number;
+  /**
+   * Original message creation timestamp (ms since epoch)
+   */
+  originalCreatedAt: number;
+  /**
+   * Timestamp when message was moved to DLQ (ms since epoch)
+   */
+  failedAt: number;
+}
+
+/**
+ * Options for listing DLQ messages
+ */
+export interface KvDlqListOptions {
+  /**
+   * Maximum number of messages to return
+   * @default 100
+   */
+  limit?: number;
+  /**
+   * Number of messages to skip
+   * @default 0
+   */
+  offset?: number;
+}
+
+// ============================================================================
+// Queue Stats Types
+// ============================================================================
+
+/**
+ * Queue statistics
+ */
+export interface KvQueueStats {
+  /**
+   * Number of messages waiting to be processed
+   */
+  pending: number;
+  /**
+   * Number of messages currently being processed
+   */
+  processing: number;
+  /**
+   * Number of messages in dead letter queue
+   */
+  dlq: number;
+  /**
+   * Total number of messages (pending + processing + dlq)
+   */
+  total: number;
+}
+
+// ============================================================================
+// Metrics Types
+// ============================================================================
+
+/**
+ * Operation metrics
+ */
+export interface KvOperationMetrics {
+  /**
+   * Total number of operations
+   */
+  count: number;
+  /**
+   * Number of failed operations
+   */
+  errors: number;
+  /**
+   * Average latency in milliseconds
+   */
+  avgLatencyMs: number;
+}
+
+/**
+ * Storage statistics
+ */
+export interface KvStorageStats {
+  /**
+   * Total number of entries
+   */
+  entries: number;
+  /**
+   * Total size in bytes
+   */
+  sizeBytes: number;
+}
+
+/**
+ * Full metrics response
+ */
+export interface KvMetrics {
+  /**
+   * Metrics for each operation type
+   */
+  operations: Record<string, KvOperationMetrics>;
+  /**
+   * Queue statistics
+   */
+  queue: KvQueueStats;
+  /**
+   * Storage statistics
+   */
+  storage: KvStorageStats;
+}
+
+// ============================================================================
+// FTS (Full-Text Search) Types
+// ============================================================================
+
+/**
+ * Tokenizer for FTS indexes
+ * - "unicode61": Unicode tokenizer (default, handles most languages)
+ * - "porter": Porter stemming for English
+ * - "ascii": ASCII-only tokenizer
+ */
+export type KvFtsTokenizer = "ascii" | "porter" | "unicode61";
+
+/**
+ * Options for creating a full-text search index
+ */
+export interface KvCreateIndexOptions {
+  /**
+   * Fields to index for full-text search
+   * Supports nested fields with dot notation (e.g., "user.name")
+   */
+  fields: string[];
+  /**
+   * Tokenizer to use
+   * @default "unicode61"
+   */
+  tokenize?: KvFtsTokenizer;
+}
+
+/**
+ * Options for search operation
+ * Extends list options with same filtering capabilities
+ */
+export interface KvSearchOptions extends KvListOptions {}
+
+/**
+ * A full-text search index
+ */
+export interface KvIndex {
+  /**
+   * Fields that are indexed
+   */
+  fields: string[];
+  /**
+   * Prefix key that this index covers
+   */
+  prefix: KvKey;
+  /**
+   * Tokenizer used for this index
+   */
+  tokenize: string;
+}
+
+// ============================================================================
+// Filter Types (for delete with where)
+// ============================================================================
+
+/**
+ * Symbol used to identify now() placeholders
+ * This placeholder is resolved server-side to the current timestamp
+ */
+export const NOW_SYMBOL = Symbol.for("kv.now");
+
+/**
+ * Placeholder for current server timestamp
+ * Created by kv.now() and resolved server-side to Date.now()
+ *
+ * @example
+ * ```typescript
+ * // Delete expired sessions using server time
+ * await kv.delete(["sessions"], {
+ *   where: { expiresAt: { $lt: kv.now() } }
+ * });
+ * ```
+ */
+export interface KvNow {
+  [NOW_SYMBOL]: true;
+}
+
+/**
+ * Primitive value for filter comparisons
+ */
+export type KvFilterValue = bigint | boolean | null | number | string;
+
+/**
+ * Filter operators for where clauses
+ * Inspired by Strapi/Prisma query syntax
+ *
+ * Comparison operators ($gt, $gte, $lt, $lte) accept:
+ * - number or string for static values
+ * - KvNow ($now) for server-side current timestamp
+ */
+export interface KvFilterOperators {
+  // ============================================================================
+  // Comparison operators
+  // ============================================================================
+
+  /**
+   * Equal to
+   * @example { status: { $eq: "active" } }
+   */
+  $eq?: KvFilterValue;
+  /**
+   * Not equal to
+   * @example { status: { $ne: "deleted" } }
+   */
+  $ne?: KvFilterValue;
+  /**
+   * Greater than
+   * @example { age: { $gt: 18 } }
+   * @example { createdAt: { $gt: kv.now() } } // Server timestamp
+   */
+  $gt?: KvNow | number | string;
+  /**
+   * Greater than or equal
+   * @example { age: { $gte: 18 } }
+   * @example { validFrom: { $gte: kv.now() } } // Server timestamp
+   */
+  $gte?: KvNow | number | string;
+  /**
+   * Less than
+   * @example { price: { $lt: 100 } }
+   * @example { expiresAt: { $lt: kv.now() } } // Server timestamp
+   */
+  $lt?: KvNow | number | string;
+  /**
+   * Less than or equal
+   * @example { price: { $lte: 100 } }
+   * @example { deadline: { $lte: kv.now() } } // Server timestamp
+   */
+  $lte?: KvNow | number | string;
+  /**
+   * Between two values (inclusive)
+   * @example { amount: { $between: [100, 500] } }
+   * @example { createdAt: { $between: ["2024-01-01", "2024-12-31"] } }
+   */
+  $between?: [number | string, number | string];
+
+  // ============================================================================
+  // Array operators
+  // ============================================================================
+
+  /**
+   * Value is in array
+   * @example { status: { $in: ["active", "pending"] } }
+   */
+  $in?: KvFilterValue[];
+  /**
+   * Value is not in array
+   * @example { status: { $nin: ["deleted", "banned"] } }
+   */
+  $nin?: KvFilterValue[];
+
+  // ============================================================================
+  // String operators (case-sensitive)
+  // ============================================================================
+
+  /**
+   * Contains substring (case-sensitive)
+   * @example { name: { $contains: "Silva" } }
+   */
+  $contains?: string;
+  /**
+   * Does not contain substring (case-sensitive)
+   * @example { email: { $notContains: "@temp" } }
+   */
+  $notContains?: string;
+  /**
+   * Starts with prefix (case-sensitive)
+   * @example { code: { $startsWith: "BR_" } }
+   */
+  $startsWith?: string;
+  /**
+   * Ends with suffix (case-sensitive)
+   * @example { email: { $endsWith: "@company.com" } }
+   */
+  $endsWith?: string;
+
+  // ============================================================================
+  // String operators (case-insensitive)
+  // ============================================================================
+
+  /**
+   * Contains substring (case-insensitive)
+   * @example { name: { $containsi: "silva" } }
+   */
+  $containsi?: string;
+  /**
+   * Does not contain substring (case-insensitive)
+   * @example { name: { $notContainsi: "test" } }
+   */
+  $notContainsi?: string;
+  /**
+   * Starts with prefix (case-insensitive)
+   * @example { code: { $startsWithi: "br_" } }
+   */
+  $startsWithi?: string;
+  /**
+   * Ends with suffix (case-insensitive)
+   * @example { domain: { $endsWithi: ".com.br" } }
+   */
+  $endsWithi?: string;
+
+  // ============================================================================
+  // Existence operators
+  // ============================================================================
+
+  /**
+   * Value is null (true) or not null (false)
+   * @example { deletedAt: { $null: true } }
+   */
+  $null?: boolean;
+  /**
+   * Value is empty (empty string, empty array, or null)
+   * @example { tags: { $empty: true } }
+   */
+  $empty?: boolean;
+  /**
+   * Value is not empty
+   * @example { description: { $notEmpty: true } }
+   */
+  $notEmpty?: boolean;
+}
+
+/**
+ * Where filter for delete operations
+ *
+ * Keys are field paths (supports nested with dot notation and array access)
+ * Values are filter operators or direct values (shorthand for $eq)
+ *
+ * @example
+ * ```typescript
+ * // Simple field
+ * { status: { $eq: "inactive" } }
+ *
+ * // Nested field
+ * { "profile.verified": { $eq: true } }
+ *
+ * // Array access
+ * { "items[0].price": { $gt: 100 } }
+ *
+ * // Shorthand for $eq
+ * { status: "active" }
+ *
+ * // Logical operators
+ * {
+ *   $or: [
+ *     { status: { $eq: "expired" } },
+ *     { expiresAt: { $lt: kv.now() } }
+ *   ]
+ * }
+ * ```
+ */
+export interface KvWhereFilter {
+  /**
+   * All conditions must be true
+   */
+  $and?: KvWhereFilter[];
+  /**
+   * At least one condition must be true
+   */
+  $or?: KvWhereFilter[];
+  /**
+   * Inverts the condition
+   */
+  $not?: KvWhereFilter;
+  /**
+   * Field path to filter value/operators
+   */
+  [fieldPath: string]:
+    | KvFilterOperators
+    | KvFilterValue
+    | KvWhereFilter[]
+    | KvWhereFilter
+    | undefined;
+}
+
+/**
+ * Options for delete operation
+ */
+export interface KvDeleteOptions {
+  /**
+   * If true, delete only the exact key(s) without children
+   * If false (default), delete the key(s) as prefix(es), including all children
+   * @default false
+   *
+   * @example
+   * ```typescript
+   * // Delete ["users", 123] and all children (profile, settings, etc.)
+   * await kv.delete(["users", 123]);
+   *
+   * // Delete only ["users", 123] without children
+   * await kv.delete(["users", 123], { exact: true });
+   * ```
+   */
+  exact?: boolean;
+  /**
+   * Filter to apply before deleting
+   * Only entries matching the filter will be deleted
+   *
+   * Use `kv.now()` for server-side timestamp comparison to avoid
+   * client/server time discrepancies.
+   *
+   * @example
+   * ```typescript
+   * // Delete expired sessions (using server time)
+   * await kv.delete(["sessions"], {
+   *   where: { expiresAt: { $lt: kv.now() } }
+   * });
+   *
+   * // Delete inactive users
+   * await kv.delete(["users"], {
+   *   where: {
+   *     $and: [
+   *       { status: { $eq: "inactive" } },
+   *       { lastLogin: { $lt: kv.now() } }
+   *     ]
+   *   }
+   * });
+   * ```
+   */
+  where?: KvWhereFilter;
 }

@@ -299,7 +299,7 @@ describe("AtomicOperation", () => {
 
       // Find the index entry
       const entries = [];
-      for await (const entry of kv.list({ prefix: ["posts_by_time"] })) {
+      for await (const entry of kv.list(["posts_by_time"])) {
         entries.push(entry);
       }
 
@@ -324,12 +324,12 @@ describe("AtomicOperation", () => {
       if (!result.ok) return;
 
       const entries1 = [];
-      for await (const entry of kv.list({ prefix: ["index1"] })) {
+      for await (const entry of kv.list(["index1"])) {
         entries1.push(entry);
       }
 
       const entries2 = [];
-      for await (const entry of kv.list({ prefix: ["index2"] })) {
+      for await (const entry of kv.list(["index2"])) {
         entries2.push(entry);
       }
 

@@ -1,0 +1,211 @@
+== Modelo de Dados
+
+=== Trade-offs
+
+==== Bancos Relacionais
+
+* **Schema rígido**: Toda mudança estrutural (adicionar coluna, mudar tipo) requer uma migration. Em produção com milhões de linhas, `ALTER TABLE` pode travar a tabela por minutos ou exigir downtime planejado.
+
+* **JOINs têm custo em escala**: Combinar dados de múltiplas tabelas funciona bem com milhares de registros, mas com milhões o custo cresce. Cada JOIN multiplica o trabalho, e planos de execução podem variar de forma imprevisível.
+
+* **Sharding é complexo**: Quando um servidor não aguenta, você distribui dados em múltiplos servidores. Mas isso quebra JOINs cross-shard, complica transações distribuídas, e escolher a chave de sharding errada cria hot spots.
+
+* **Múltiplos roundtrips**: Para carregar dados relacionados, você faz N queries separadas ou um JOIN que duplica dados. Cada roundtrip adiciona latência de rede.
+
+==== KeyVal
+
+* **Flexibilidade**: Sem schema definido. Adicionar um campo novo? Simplesmente salve-o — registros antigos continuam funcionando. Evolução gradual sem migrations.
+
+* **Performance previsível**: Acesso por chave é O(1). Não importa se você tem 1.000 ou 1.000.000.000 de registros — buscar por chave exata tem o mesmo custo.
+
+* **Escalabilidade nativa**: Dados naturalmente particionados por prefixo. `["users", 123]` e `["users", 456]` podem estar em shards diferentes sem você precisar pensar nisso.
+
+* **Real-time nativo**: Watch integrado. Mudanças propagadas instantaneamente para clientes interessados, sem polling ou infraestrutura adicional.
+
+=== SQL vs KeyVal
+
+==== SQL: Tabelas com Schema
+
+No SQL, **tabelas** com **linhas** e **colunas**:
+
+[source,sql]
+----
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com');
+SELECT * FROM users WHERE id = 1;
+----
+
+* Schema definido antes de inserir dados
+* Banco valida tipos e constraints
+* Queries declarativas (WHERE, JOIN, GROUP BY)
+
+==== KeyVal: Chaves Hierárquicas
+
+No KeyVal, **chaves hierárquicas** que apontam para **valores JSON**:
+
+
+[source,typescript]
+----
+// Sem schema - você decide a estrutura
+await kv.set(["users", "usr_001"], {
+  name: "Alice",
+  email: "alice@example.com",
+  createdAt: Date.now()
+});
+
+const entry = await kv.get(["users", "usr_001"]);
+console.log(entry.value); // { name: "Alice", ... }
+----
+
+**Principais diferenças**:
+
+* Sem schema — estrutura implícita nos dados
+* Validação é responsabilidade da aplicação (Zod, TypeBox, etc.)
+* Queries por prefixo ou chave exata
+
+=== A Chave é o Índice
+
+Esta é a mudança mental mais importante:
+
+[IMPORTANT]
+====
+Em SQL, você cria índices para acelerar queries.
+Em KeyVal, **a estrutura da chave É o índice**.
+====
+
+Se você quer buscar usuários por email:
+
+**SQL**: Cria índice, banco otimiza automaticamente
+[source,sql]
+----
+CREATE INDEX idx_users_email ON users(email);
+SELECT * FROM users WHERE email = 'alice@example.com';
+-- Banco usa o índice automaticamente
+----
+
+**KeyVal**: Você cria e mantém o índice manualmente
+[source,typescript]
+----
+// Ao criar usuário, salva em dois lugares
+await kv.atomic()
+  .set(["users", id], user)                    // Dado principal
+  .set(["users_by_email", user.email], id)     // Índice manual
+  .commit();
+
+// Buscar por email
+const ref = await kv.get(["users_by_email", "alice@example.com"]);
+const user = await kv.get(["users", ref.value]);
+----
+
+==== Exceção: Índices de Busca Textual (FTS)
+
+Diferente de índices secundários (que você mantém manualmente), índices FTS são gerenciados automaticamente pelo KeyVal.
+
+Para buscas por conteúdo, o KeyVal oferece índices FTS5:
+
+[source,typescript]
+----
+// Criar índice nos campos title e content
+await kv.createIndex(["posts"], {
+  fields: ["title", "content"]
+});
+
+// set/delete mantêm o índice automaticamente
+await kv.set(["posts", postId], { title: "...", content: "..." });
+
+// Buscar por texto
+const results = await kv.search(["posts"], "typescript tutorial");
+
+// Mesmas options de list()
+const results = await kv.search(["posts"], "typescript", {
+  limit: 20,
+  where: { status: "published" }
+});
+----
+
+Índices FTS combinam a performance de full-text search com a flexibilidade do KeyVal.
+
+=== Agregados
+
+Em DDD (Domain-Driven Design), um **agregado** é um cluster de objetos tratados como uma unidade. KeyVal funciona naturalmente com agregados.
+
+**SQL**: Dados espalhados em várias tabelas
+[source,sql]
+----
+-- Pedido em 3 tabelas
+SELECT * FROM orders WHERE id = 1;
+SELECT * FROM order_items WHERE order_id = 1;
+SELECT * FROM order_shipping WHERE order_id = 1;
+----
+
+**KeyVal**: Agregado em uma chave (ou hierarquia)
+[source,typescript]
+----
+// Opção 1: Documento único
+await kv.set(["orders", orderId], {
+  items: [...],
+  shipping: {...},
+  total: 150.00
+});
+
+// Opção 2: Hierarquia de chaves
+await kv.set(["orders", orderId], { total: 150.00 });
+await kv.set(["orders", orderId, "items"], [...]);
+await kv.set(["orders", orderId, "shipping"], {...});
+
+// Deletar o pedido remove tudo
+await kv.delete(["orders", orderId]);
+----
+
+=== Quando Usar Cada Modelo
+
+[cols="1,1"]
+|===
+| SQL | KeyVal
+
+| Queries ad-hoc complexas, JOINs
+| Acesso por chave/prefixo previsível
+
+| Agregações (SUM, AVG, GROUP BY)
+| Contadores pré-calculados
+
+| Relatórios complexos
+| Sessões, cache, filas, full-text search
+
+| Dados altamente relacionais
+| Dados hierárquicos, real-time
+|===
+
+=== Resumo
+
+[cols="1,1"]
+|===
+| SQL | KeyVal
+
+| Tabelas com schema fixo
+| Chaves hierárquicas flexíveis
+
+| Queries declarativas (WHERE, JOIN)
+| Acesso por chave ou prefixo
+
+| Índices automáticos
+| Índices manuais (você mantém)
+
+| Transações pessimistas (locks)
+| Transações otimistas (retry)
+
+| Agregações em tempo de query
+| Agregações pré-calculadas
+
+| Schema migrations
+| Evolução gradual
+
+| Normalização (3FN)
+| Desnormalização estratégica
+|===

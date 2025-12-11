@@ -1,0 +1,740 @@
+== Deployment
+
+=== Docker Compose com libSQL
+
+O KeyVal usa libSQL (sqld) como backend de armazenamento. O sqld é o servidor HTTP/WebSocket do libSQL, adequado tanto para desenvolvimento quanto produção.
+
+[source,yaml]
+----
+# docker-compose.yml
+services:
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8880:8080"
+    volumes:
+      - libsql-data:/var/lib/sqld
+    environment:
+      - SQLD_NODE=primary
+
+volumes:
+  libsql-data:
+----
+
+Inicie o servidor:
+
+[source,bash]
+----
+docker compose up -d libsql
+docker compose logs -f libsql
+----
+
+Configure o plugin no `buntime.jsonc`:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    [
+      "@buntime/plugin-keyval",
+      {
+        "libsqlUrl": "http://localhost:8880"
+      }
+    ]
+  ]
+}
+----
+
+==== Testando a Conexão
+
+Verifique se o plugin está funcionando:
+
+[source,bash]
+----
+# Health check
+curl http://localhost:4000/_/plugin-keyval/health
+
+# Set value
+curl -X POST http://localhost:4000/_/plugin-keyval/set \
+  -H "Content-Type: application/json" \
+  -d '{"key": "test", "value": "hello"}'
+
+# Get value
+curl http://localhost:4000/_/plugin-keyval/get/test
+----
+
+=== Produção com libSQL Self-Hosted
+
+==== Configuração Segura
+
+Em produção, o libSQL não deve ser exposto diretamente. O plugin-keyval atua como camada de abstração e segurança:
+
+[source]
+----
+┌─────────────────┐      ┌──────────────────────┐      ┌─────────────────┐
+│   Clients       │─────▶│  plugin-keyval       │─────▶│  libSQL (sqld)  │
+│                 │ HTTP │  (/_/plugin-keyval)  │ HTTP │  (rede interna) │
+└─────────────────┘      └──────────────────────┘      └─────────────────┘
+----
+
+Configure o Docker Compose para isolar o libSQL:
+
+[source,yaml]
+----
+# docker-compose.yml
+services:
+  buntime:
+    build: .
+    ports:
+      - "4000:4000"  # Apenas o runner é exposto
+    environment:
+      - LIBSQL_URL=http://libsql:8080
+    networks:
+      - internal
+    depends_on:
+      - libsql
+
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    # SEM ports: expostos publicamente!
+    volumes:
+      - libsql-data:/var/lib/sqld
+    environment:
+      - SQLD_NODE=primary
+    networks:
+      - internal
+
+networks:
+  internal:
+    internal: true  # Rede isolada, não acessível externamente
+
+volumes:
+  libsql-data:
+----
+
+==== Autenticação do sqld
+
+Para adicionar autenticação ao sqld, configure um token JWT:
+
+[source,yaml]
+----
+services:
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    environment:
+      - SQLD_NODE=primary
+      - SQLD_AUTH_JWT_KEY=${LIBSQL_JWT_KEY}  # Chave para validar tokens
+----
+
+Gere um token JWT para o plugin:
+
+[source,bash]
+----
+# Gerar chave (guarde em local seguro)
+openssl rand -base64 32 > libsql-jwt-key.txt
+
+# Configurar no ambiente
+export LIBSQL_JWT_KEY=$(cat libsql-jwt-key.txt)
+export LIBSQL_TOKEN=$(jwt encode --secret $LIBSQL_JWT_KEY '{}')
+----
+
+Configure o plugin com o token:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    [
+      "@buntime/plugin-keyval",
+      {
+        "libsqlUrl": "http://libsql:8080",
+        "libsqlToken": "${LIBSQL_TOKEN}"
+      }
+    ]
+  ]
+}
+----
+
+TIP: Para mais detalhes sobre autenticação do sqld, consulte https://github.com/tursodatabase/libsql/blob/main/docs/AUTH.md[documentação oficial].
+
+=== Configuração de Replicação
+
+==== Arquitetura Primary + Replica
+
+libSQL suporta replicação para escalar leituras:
+
+[source]
+----
+┌──────────────┐         ┌──────────────┐
+│   Primary    │────────▶│   Replica 1  │
+│  (Writes)    │         │   (Reads)    │
+└──────────────┘         └──────────────┘
+       │
+       │                 ┌──────────────┐
+       └────────────────▶│   Replica 2  │
+                         │   (Reads)    │
+                         └──────────────┘
+----
+
+- **Primary**: Único escritor, recebe todas as escritas
+- **Replicas**: Apenas leitura, sincronizam do primary
+
+==== Docker Compose com Replicação
+
+[source,yaml]
+----
+# docker-compose.yml
+services:
+  libsql-primary:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8880:8080"
+    volumes:
+      - libsql-primary-data:/var/lib/sqld
+    environment:
+      - SQLD_NODE=primary
+
+  libsql-replica:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8881:8080"
+    volumes:
+      - libsql-replica-data:/var/lib/sqld
+    environment:
+      - SQLD_NODE=replica
+      - SQLD_PRIMARY_URL=http://libsql-primary:8080
+    depends_on:
+      - libsql-primary
+
+volumes:
+  libsql-primary-data:
+  libsql-replica-data:
+----
+
+Configure no `buntime.jsonc`:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    [
+      "@buntime/plugin-keyval",
+      {
+        "libsqlUrl": "http://localhost:8880",           // Primary
+        "libsqlReplicaUrl": "http://localhost:8881"    // Replica
+      }
+    ]
+  ]
+}
+----
+
+TIP: Coloque réplicas próximas aos usuários finais para reduzir latência de leitura.
+
+=== Considerações de Escala
+
+==== libSQL é Single-Writer
+
+O libSQL herda a arquitetura single-writer do SQLite:
+
+- **1 escritor**: Apenas o primary aceita writes
+- **N leitores**: Réplicas escalam leituras horizontalmente
+- **Serialização**: Writes são serializadas no primary
+
+[cols="1,2"]
+|===
+| Operação | Onde Executa
+
+| `set()`, `delete()`
+| Primary (write)
+
+| `get()`, `list()`, `watch()`
+| Replica se disponível, senão Primary
+
+| Transações (`atomic()`)
+| Primary (write)
+
+| Índices secundários
+| Replica (read)
+|===
+
+==== Escala de Leituras via Réplicas
+
+Para workloads read-heavy:
+
+1. **Adicione réplicas** em regiões geográficas
+2. **Configure DNS** para rotear tráfego à réplica mais próxima
+3. **Use CDN** para cache de valores raramente alterados
+
+Exemplo de distribuição:
+
+[source]
+----
+┌─────────────────────────────────────────────────────────┐
+│                      Load Balancer                      │
+│                   (geolocation routing)                 │
+└─────────────────────────────────────────────────────────┘
+            │                    │                    │
+            ▼                    ▼                    ▼
+   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+   │  Replica US  │    │ Replica EU   │    │ Replica APAC │
+   │   (Reads)    │    │  (Reads)     │    │   (Reads)    │
+   └──────────────┘    └──────────────┘    └──────────────┘
+            │                    │                    │
+            └────────────────────┼────────────────────┘
+                                 ▼
+                         ┌──────────────┐
+                         │   Primary    │
+                         │   (Writes)   │
+                         └──────────────┘
+----
+
+==== Limites de Conexão
+
+O sqld gerencia conexões internas automaticamente. Para workloads de alta concorrência:
+
+1. **Connection pooling**: O plugin usa HTTP client (stateless)
+2. **Cache local**: Considere adicionar Redis na frente
+3. **Sharding**: Particione dados em múltiplos databases
+
+==== Quando Considerar Sharding
+
+Considere sharding quando:
+
+- **Writes > 1000/s**: Primary não escala verticalmente
+- **Storage > 100 GB**: SQLite tem limite prático ~1 TB
+- **Hot keys**: Algumas chaves recebem muito tráfego
+
+Estratégias de sharding:
+
+[source,typescript]
+----
+// Sharding por hash do key
+const shard = hashCode(key) % NUM_SHARDS;
+const kv = getKVForShard(shard);
+await kv.set(key, value);
+
+// Sharding por prefixo
+const shard = key.split(":")[0]; // Ex: "user:123" → shard "user"
+const kv = getKVForShard(shard);
+await kv.set(key, value);
+----
+
+=== Backup e Recuperação
+
+==== Backup de Arquivo libSQL
+
+Para self-hosted, faça backup do arquivo `.db`:
+
+[source,bash]
+----
+# Backup manual
+cp /var/lib/sqld/data.db /backups/data-$(date +%Y%m%d).db
+
+# Backup automático (cron diário)
+0 2 * * * cp /var/lib/sqld/data.db /backups/data-$(date +\%Y\%m\%d).db
+----
+
+TIP: Use `VACUUM INTO` para criar backup consistente sem travar writes:
+
+[source,sql]
+----
+VACUUM INTO '/backups/data.db';
+----
+
+==== Restauração de Backup
+
+Para restaurar de um backup:
+
+[source,bash]
+----
+# 1. Pare o sqld
+docker compose stop libsql
+
+# 2. Restaure o arquivo
+cp /backups/data-20250115.db /var/lib/sqld/data.db
+
+# 3. Reinicie
+docker compose start libsql
+
+# 4. Valide os dados
+curl http://localhost:4000/_/plugin-keyval/keys/count
+----
+
+WARNING: Restauração sobrescreve dados atuais. Sempre valide em ambiente separado antes.
+
+=== Monitoramento em Produção
+
+==== Prometheus Scraping
+
+O plugin expõe métricas no endpoint `/metrics/prometheus`:
+
+[source,yaml]
+----
+# prometheus.yml
+scrape_configs:
+  - job_name: 'buntime-keyval'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['localhost:4000']
+    metrics_path: '/_/plugin-metrics/prometheus'
+----
+
+Métricas disponíveis:
+
+[source]
+----
+# Latência de operações (P50, P95, P99)
+keyval_operation_duration_ms{operation="get",percentile="p95"}
+
+# Taxa de erro
+keyval_operation_errors_total{operation="set",error="conflict"}
+
+# Tamanho da DLQ
+keyval_dlq_size
+
+# Queue processing
+keyval_queue_processing_duration_ms
+keyval_queue_items_processed_total
+----
+
+==== Health Check Endpoint
+
+Configure health checks no load balancer:
+
+[source,bash]
+----
+# Health check básico
+curl http://localhost:4000/_/plugin-keyval/health
+
+# Resposta OK:
+{"status":"ok","timestamp":"2025-01-15T10:30:00Z"}
+
+# Resposta com erro:
+{"status":"error","error":"Connection refused","timestamp":"2025-01-15T10:30:00Z"}
+----
+
+Configure no Kubernetes:
+
+[source,yaml]
+----
+livenessProbe:
+  httpGet:
+    path: /_/plugin-keyval/health
+    port: 4000
+  initialDelaySeconds: 10
+  periodSeconds: 30
+
+readinessProbe:
+  httpGet:
+    path: /_/plugin-keyval/health
+    port: 4000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+----
+
+==== Thresholds de Alerta
+
+Configure alertas no Prometheus:
+
+[source,yaml]
+----
+# alerts.yml
+groups:
+  - name: keyval
+    interval: 30s
+    rules:
+      # DLQ está crescendo (possível backlog)
+      - alert: KeyValDLQHigh
+        expr: keyval_dlq_size > 100
+        for: 5m
+        annotations:
+          summary: "DLQ size is {{ $value }}"
+          description: "Dead Letter Queue has {{ $value }} items"
+
+      # Latência P95 alta
+      - alert: KeyValHighLatency
+        expr: keyval_operation_duration_ms{percentile="p95"} > 100
+        for: 5m
+        annotations:
+          summary: "P95 latency is {{ $value }}ms"
+
+      # Taxa de erro alta
+      - alert: KeyValHighErrorRate
+        expr: rate(keyval_operation_errors_total[5m]) > 0.01
+        for: 2m
+        annotations:
+          summary: "Error rate is {{ $value }}/s"
+
+      # Database unreachable
+      - alert: KeyValDatabaseDown
+        expr: up{job="buntime-keyval"} == 0
+        for: 1m
+        annotations:
+          summary: "KeyVal database is unreachable"
+----
+
+==== Dashboards no Grafana
+
+Métricas úteis para dashboard:
+
+1. **Operações por segundo** (QPS):
++
+[source,promql]
+----
+rate(keyval_operations_total[5m])
+----
+
+2. **Latência (P50, P95, P99)**:
++
+[source,promql]
+----
+keyval_operation_duration_ms{percentile=~"p50|p95|p99"}
+----
+
+3. **Taxa de erro**:
++
+[source,promql]
+----
+rate(keyval_operation_errors_total[5m]) / rate(keyval_operations_total[5m])
+----
+
+4. **Tamanho da DLQ**:
++
+[source,promql]
+----
+keyval_dlq_size
+----
+
+5. **Queue processing rate**:
++
+[source,promql]
+----
+rate(keyval_queue_items_processed_total[5m])
+----
+
+=== Opções de Configuração
+
+==== Todas as Opções do buntime.jsonc
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    [
+      "@buntime/plugin-keyval",
+      {
+        // === Conexão ===
+        "libsqlUrl": "${LIBSQL_URL}",
+        "libsqlToken": "${LIBSQL_TOKEN}",
+        "libsqlReplicaUrl": "${LIBSQL_REPLICA_URL}",
+
+        // === Queue ===
+        "queue": {
+          // Intervalo de limpeza de itens antigos (ms)
+          "cleanupInterval": 60000,      // Padrão: 1 minuto
+
+          // Idade máxima dos itens processados (ms)
+          "maxAge": 3600000,             // Padrão: 1 hora
+
+          // Duração do lock de processamento (ms)
+          "lockDuration": 30000          // Padrão: 30 segundos
+        },
+
+        // === Métricas ===
+        "metrics": {
+          // Persistir métricas no database
+          "persistent": true,            // Padrão: false
+
+          // Intervalo de flush das métricas (ms)
+          "flushInterval": 10000         // Padrão: 10 segundos
+        }
+      }
+    ]
+  ]
+}
+----
+
+==== queue.cleanupInterval
+
+Controla com que frequência o plugin remove itens antigos da queue.
+
+[cols="1,2"]
+|===
+| Valor | Comportamento
+
+| `60000` (padrão)
+| Cleanup a cada 1 minuto
+
+| `300000`
+| Cleanup a cada 5 minutos (menos overhead)
+
+| `10000`
+| Cleanup a cada 10 segundos (mais agressivo)
+|===
+
+TIP: Use valores maiores (5-10 minutos) em produção para reduzir carga no database.
+
+==== queue.maxAge
+
+Define quanto tempo itens processados são mantidos antes de serem deletados.
+
+[cols="1,2"]
+|===
+| Valor | Comportamento
+
+| `3600000` (padrão)
+| Manter por 1 hora (para debugging)
+
+| `86400000`
+| Manter por 24 horas (auditoria)
+
+| `0`
+| Deletar imediatamente após processar
+|===
+
+WARNING: Valores muito altos aumentam o storage usado. Itens antigos são apenas para debugging.
+
+==== queue.lockDuration
+
+Tempo máximo que um worker pode processar um item antes de liberar o lock.
+
+[cols="1,2"]
+|===
+| Valor | Comportamento
+
+| `30000` (padrão)
+| Lock de 30 segundos (tarefas rápidas)
+
+| `300000`
+| Lock de 5 minutos (tarefas longas)
+
+| `5000`
+| Lock de 5 segundos (tarefas muito rápidas)
+|===
+
+Escolha baseado na duração esperada do processamento:
+
+[source,typescript]
+----
+// Tarefa rápida (< 5s) → lockDuration: 10000
+kv.enqueue("send-email", { to: "user@example.com" });
+
+// Tarefa longa (> 1min) → lockDuration: 300000
+kv.enqueue("generate-report", { year: 2025 });
+----
+
+IMPORTANT: Se o processamento exceder `lockDuration`, outro worker pode pegar o mesmo item (duplicação).
+
+==== metrics.persistent
+
+Define se métricas são persistidas no database ou mantidas apenas em memória.
+
+[cols="1,2"]
+|===
+| Valor | Comportamento
+
+| `false` (padrão)
+| Métricas apenas em memória (perdidas ao reiniciar)
+
+| `true`
+| Métricas persistidas no database (sobrevivem reinícios)
+|===
+
+Quando usar `persistent: true`:
+
+- **Ambiente de produção**: Para não perder métricas ao fazer deploy
+- **Análise histórica**: Para manter métricas de longo prazo
+- **Compliance**: Quando logs/métricas são requeridos por auditoria
+
+Quando usar `persistent: false`:
+
+- **Desenvolvimento**: Menos overhead, mais rápido
+- **High-throughput**: Evita writes extras no database
+- **Prometheus/Grafana**: Se métricas já são coletadas externamente
+
+==== metrics.flushInterval
+
+Controla com que frequência métricas em memória são persistidas no database (se `persistent: true`).
+
+[cols="1,2"]
+|===
+| Valor | Comportamento
+
+| `10000` (padrão)
+| Flush a cada 10 segundos
+
+| `60000`
+| Flush a cada 1 minuto (menos writes)
+
+| `1000`
+| Flush a cada 1 segundo (mais granular)
+|===
+
+Trade-offs:
+
+- **Intervalo menor**: Métricas mais atualizadas, mais carga no database
+- **Intervalo maior**: Menos carga, risco de perder métricas em crash
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    [
+      "@buntime/plugin-keyval",
+      {
+        "metrics": {
+          "persistent": true,
+          "flushInterval": 30000  // Flush a cada 30s (balanceado)
+        }
+      }
+    ]
+  ]
+}
+----
+
+TIP: Para produção, use `flushInterval: 30000` (30 segundos) como compromisso entre granularidade e performance.
+
+=== Exemplo de Configuração Completa em Produção
+
+[source,jsonc]
+----
+{
+  "required": ["@buntime/plugin-metrics", "@buntime/plugin-keyval"],
+  "plugins": [
+    "@buntime/plugin-metrics",
+    [
+      "@buntime/plugin-keyval",
+      {
+        // Conexão libSQL
+        "libsqlUrl": "${LIBSQL_URL}",
+        "libsqlToken": "${LIBSQL_TOKEN}",
+        "libsqlReplicaUrl": "${LIBSQL_REPLICA_URL}",
+
+        // Queue otimizada para produção
+        "queue": {
+          "cleanupInterval": 300000,     // 5 minutos
+          "maxAge": 86400000,            // 24 horas (auditoria)
+          "lockDuration": 60000          // 1 minuto (tarefas médias)
+        },
+
+        // Métricas persistentes
+        "metrics": {
+          "persistent": true,
+          "flushInterval": 30000         // 30 segundos
+        }
+      }
+    ]
+  ]
+}
+----
+
+[source,bash]
+----
+# Variáveis de ambiente
+export LIBSQL_URL="http://libsql:8080"
+export LIBSQL_TOKEN="seu-token-jwt"
+export LIBSQL_REPLICA_URL="http://libsql-replica:8080"
+
+# Iniciar runner
+bun run apps/runner/src/index.ts
+----

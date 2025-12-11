@@ -1,0 +1,722 @@
+== Troubleshooting
+
+Este documento lista problemas comuns e suas soluções.
+
+=== Problemas de Conexão
+
+==== "SQLITE_BUSY: database is locked"
+
+*Sintoma*:
+[source,text]
+----
+Error: SQLITE_BUSY: database is locked
+----
+
+*Causas*:
+
+1. Múltiplos processos tentando escrever simultaneamente
+2. Transação longa bloqueando outras
+3. WAL mode não habilitado
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Verificar se há múltiplos processos
+ps aux | grep buntime
+
+// 2. Habilitar WAL mode (deve estar habilitado por padrão)
+await adapter.execute("PRAGMA journal_mode=WAL");
+
+// 3. Reduzir timeout de transações
+await adapter.execute("PRAGMA busy_timeout=5000");
+
+// 4. Se usando arquivo local, usar URL única
+// Errado: cada worker abre conexão diferente
+// Correto: usar libSQL server HTTP
+----
+
+==== "Connection refused" / "ECONNREFUSED"
+
+*Sintoma*:
+[source,text]
+----
+Error: connect ECONNREFUSED 127.0.0.1:8880
+----
+
+*Causas*:
+
+1. libSQL server não está rodando
+2. Porta incorreta
+3. Firewall bloqueando
+
+*Soluções*:
+
+[source,bash]
+----
+# 1. Verificar se libSQL está rodando
+docker ps | grep libsql
+
+# 2. Verificar porta
+curl -v http://localhost:8880/health
+
+# 3. Verificar logs do container
+docker logs libsql 2>&1 | tail -50
+
+# 4. Reiniciar container
+docker compose restart libsql
+----
+
+==== "Authentication failed" / "Invalid token"
+
+*Sintoma*:
+[source,text]
+----
+Error: Authentication failed
+Error: Invalid auth token
+----
+
+*Causas*:
+
+1. Token expirado
+2. Token incorreto
+3. libSQL configurado sem auth mas enviando token
+
+*Soluções*:
+
+[source,bash]
+----
+# 1. Verificar variável de ambiente
+echo $LIBSQL_TOKEN
+
+# 2. Desenvolvimento local: desabilitar auth
+# docker-compose.yml
+environment:
+  SQLD_DISABLE_AUTH: "true"
+
+# 3. Testar conexão
+curl -H "Authorization: Bearer $LIBSQL_TOKEN" \
+  "http://localhost:8880/v2/pipeline" \
+  -d '{"requests":[{"type":"execute","stmt":"SELECT 1"}]}'
+
+# 4. Gerar novo JWT token (ver docs do libSQL)
+# https://github.com/tursodatabase/libsql/tree/main/docs
+----
+
+=== Problemas de Transação
+
+==== Conflito em atomic().commit()
+
+*Sintoma*:
+[source,typescript]
+----
+const result = await kv.atomic()
+  .check({ key, versionstamp })
+  .set(key, value)
+  .commit();
+// result.ok === false
+----
+
+*Causas*:
+
+1. Outro processo modificou a chave entre leitura e escrita
+2. Versionstamp incorreto
+3. Chave foi deletada
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Implementar retry
+async function atomicWithRetry(
+  fn: () => Promise<{ ok: boolean }>,
+  maxRetries = 3
+): Promise<void> {
+  for (let i = 0; i < maxRetries; i++) {
+    const result = await fn();
+    if (result.ok) return;
+    await sleep(100 * Math.pow(2, i));
+  }
+  throw new Error('Max retries exceeded');
+}
+
+// 2. Usar sum/max/min para contadores (sem check)
+await kv.atomic()
+  .sum(["counter"], 1n)  // Sempre sucede
+  .commit();
+
+// 3. Verificar se dado foi deletado
+const entry = await kv.get(key);
+if (entry.value === null) {
+  // Dado não existe mais, criar novo
+}
+----
+
+==== Transação nunca completa
+
+*Sintoma*:
+[source,typescript]
+----
+await kv.transaction(async (tx) => {
+  // Código nunca retorna ou fica preso
+});
+----
+
+*Causas*:
+
+1. Promise nunca resolvida dentro da transação
+2. Deadlock lógico (esperando por si mesmo)
+3. Operação bloqueante
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Adicionar timeout
+const result = await Promise.race([
+  kv.transaction(async (tx) => { ... }),
+  sleep(30000).then(() => { throw new Error('Transaction timeout') })
+]);
+
+// 2. Verificar chamadas async
+await kv.transaction(async (tx) => {
+  const a = await tx.get(keyA);  // await
+  const b = tx.get(keyB);        // Faltou await!
+  // ...
+});
+
+// 3. Evitar I/O externo dentro de transação
+// Errado
+await kv.transaction(async (tx) => {
+  const data = await fetch("https://api.example.com/slow");
+  tx.set(key, data);
+});
+
+// Correto
+const data = await fetch("https://api.example.com/slow");
+await kv.transaction(async (tx) => {
+  tx.set(key, data);
+});
+----
+
+=== Problemas de Fila
+
+==== Mensagens travadas em "processing"
+
+*Sintoma*:
+[source,sql]
+----
+SELECT * FROM kv_queue WHERE status = 'processing';
+-- Mensagens antigas ainda em processing
+----
+
+*Causas*:
+
+1. Worker crashou sem fazer nack
+2. Lock duration muito longo
+3. Cleanup não está rodando
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Forçar reset manual
+await adapter.execute(`
+  UPDATE kv_queue
+  SET status = 'pending',
+      locked_until = NULL
+  WHERE status = 'processing'
+    AND locked_until < ?
+`, [Date.now()]);
+
+// 2. Reduzir lock duration
+const kv = new Kv(adapter, {
+  queueCleanup: {
+    lockDuration: 10_000  // 10 segundos em vez de 30
+  }
+});
+
+// 3. Verificar cleanup
+// Logs devem mostrar cleanup a cada 60s
+----
+
+==== DLQ crescendo indefinidamente
+
+*Sintoma*:
+[source,sql]
+----
+SELECT COUNT(*) FROM kv_dlq;
+-- Milhares de mensagens
+----
+
+*Causas*:
+
+1. Handler sempre falhando
+2. Sem cleanup de DLQ
+3. Mensagens poison (sempre falham)
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Implementar cleanup de DLQ
+setInterval(async () => {
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  await adapter.execute(
+    "DELETE FROM kv_dlq WHERE failed_at < ?",
+    [weekAgo]
+  );
+}, 24 * 60 * 60 * 1000);
+
+// 2. Investigar por que mensagens falham
+const dlq = await kv.queue.listDlq({ limit: 10 });
+for (const msg of dlq) {
+  console.log('Failed:', msg.errorMessage, msg.value);
+}
+
+// 3. Reprocessar mensagens específicas
+await kv.queue.requeueDlq(messageId);
+
+// 4. Purgar DLQ se mensagens são irrecuperáveis
+await kv.queue.purgeDlq();
+----
+
+==== Mensagens duplicadas
+
+*Sintoma*:
+[source,text]
+----
+Mesma mensagem processada mais de uma vez
+----
+
+*Causas*:
+
+1. Ack falhou mas processamento completou
+2. Lock expirou durante processamento longo
+3. Múltiplos listeners para mesma fila
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Implementar idempotência no handler
+kv.queue.listen({
+  handler: async (msg) => {
+    // Verificar se já processado
+    const processed = await kv.get(["processed", msg.id]);
+    if (processed.value) return;
+
+    // Processar
+    await processMessage(msg);
+
+    // Marcar como processado
+    await kv.set(["processed", msg.id], true, { expireIn: 86400000 });
+  }
+});
+
+// 2. Aumentar lock duration
+const kv = new Kv(adapter, {
+  queueCleanup: {
+    lockDuration: 60_000  // 60 segundos
+  }
+});
+
+// 3. Verificar concurrency
+kv.queue.listen({
+  concurrency: 1,  // Um por vez garante ordem
+  handler: async (msg) => { ... }
+});
+----
+
+=== Problemas de Performance
+
+==== Queries lentas
+
+*Sintoma*:
+[source,text]
+----
+Operações demorando >100ms
+Metrics mostrando latência alta
+----
+
+*Causas*:
+
+1. Falta de índices
+2. Scan de prefixo grande
+3. Latência de rede
+4. libSQL sobrecarregado
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Verificar métricas
+const metrics = kv.metrics.toJSON();
+console.log(metrics);
+
+// 2. Limitar resultados
+// Scan completo
+for await (const e of kv.list(["logs"])) {}
+
+// Com limite
+for await (const e of kv.list(["logs"], { limit: 100 })) {}
+
+// 3. Usar prefixos mais específicos
+// Genérico
+["events"]
+
+// Específico
+["events", "2024", "01", "15"]
+
+// 4. Batch operations
+// N queries
+for (const id of ids) {
+  await kv.get(["users", id]);
+}
+
+// 1 query
+await kv.getMany(ids.map(id => ["users", id]));
+----
+
+==== Alta CPU no watch
+
+*Sintoma*:
+[source,text]
+----
+CPU usage alto
+Muitas queries por segundo
+----
+
+*Causas*:
+
+1. Muitas chaves sendo watched
+2. Poll interval muito baixo
+3. Watchers não cancelados
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Limitar número de watchers
+if (activeWatchers.size > 50) {
+  throw new Error('Too many active watchers');
+}
+
+// 2. Cancelar watchers não utilizados
+const cancel = kv.watch([key], { ... });
+// Quando não precisar mais:
+cancel();
+
+// 3. Usar polling manual para muitas chaves
+// Em vez de watch para 1000 chaves:
+setInterval(async () => {
+  const entries = await kv.list(["monitored"], { limit: 1000 });
+  // Processar todas de uma vez
+}, 5000);
+
+// 4. Usar triggers para mutations locais
+kv.addTrigger({
+  prefix: ["data"],
+  handler: async (event) => {
+    // Reage a mudanças sem polling
+  }
+});
+----
+
+==== Memória crescendo
+
+*Sintoma*:
+[source,text]
+----
+Memory usage aumentando ao longo do tempo
+OOM errors
+----
+
+*Causas*:
+
+1. Watchers acumulando
+2. Métricas crescendo
+3. Listeners não cancelados
+4. Valores grandes em memória
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Cancelar watchers
+// Guardar referência e cancelar quando não precisar
+const cancelWatch = kv.watch([key], handler);
+onCleanup(() => cancelWatch());
+
+// 2. Resetar métricas periodicamente (se não persistente)
+setInterval(() => {
+  kv.metrics.reset();
+}, 3600000);  // A cada hora
+
+// 3. Limitar cache de transação
+// Transações longas acumulam reads em memória
+await kv.transaction(async (tx) => {
+  // Não ler milhares de chaves em uma transação
+  // Dividir em batches menores
+});
+
+// 4. Stream valores grandes
+// Em vez de carregar tudo em memória
+const entries = kv.list(prefix, { limit: 100 });
+for await (const entry of entries) {
+  await processAndDiscard(entry);  // Libera memória
+}
+----
+
+=== Problemas de Dados
+
+==== Dados expirados não deletados
+
+*Sintoma*:
+[source,sql]
+----
+SELECT COUNT(*) FROM kv_entries WHERE expires_at < unixepoch();
+-- Milhares de entradas expiradas
+----
+
+*Causas*:
+
+1. Cleanup não está rodando
+2. Cleanup travado
+3. Muitas entradas para deletar
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Verificar se cleanup está rodando
+// Deve haver log a cada 60s
+
+// 2. Rodar cleanup manual
+await adapter.execute(`
+  DELETE FROM kv_entries
+  WHERE expires_at IS NOT NULL
+    AND expires_at <= unixepoch()
+  LIMIT 10000  -- Em batches para não travar
+`);
+
+// 3. Rodar em loop para muitas entradas
+let deleted;
+do {
+  const result = await adapter.execute(`
+    DELETE FROM kv_entries
+    WHERE expires_at IS NOT NULL
+      AND expires_at <= unixepoch()
+    LIMIT 1000
+  `);
+  deleted = result.rowsAffected;
+  if (deleted > 0) await sleep(100);  // Evitar sobrecarga
+} while (deleted > 0);
+----
+
+==== Índice secundário desatualizado
+
+*Sintoma*:
+[source,typescript]
+----
+const byEmail = await kv.get(["users_by_email", "old@email.com"]);
+// Retorna userId, mas user tem email diferente agora
+----
+
+*Causas*:
+
+1. Update sem atualizar índice
+2. Atomic parcialmente falhou
+3. Índice nunca foi criado
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Sempre atualizar índices atomicamente
+await kv.atomic()
+  .delete(["users_by_email", oldEmail])
+  .set(["users_by_email", newEmail], userId)
+  .set(["users", userId], { ...user, email: newEmail })
+  .commit();
+
+// 2. Rebuild de índice
+for await (const entry of kv.list(["users"])) {
+  const user = entry.value;
+  await kv.set(["users_by_email", user.email], entry.key[1]);
+}
+
+// 3. Validar consistência
+async function validateIndex(prefix: KvKey) {
+  for await (const entry of kv.list(prefix)) {
+    const userId = entry.value;
+    const user = await kv.get(["users", userId]);
+    const expectedEmail = entry.key[1];
+
+    if (user.value?.email !== expectedEmail) {
+      console.error('Index mismatch:', entry.key, user.value?.email);
+    }
+  }
+}
+----
+
+==== Valores corrompidos
+
+*Sintoma*:
+[source,text]
+----
+SyntaxError: Unexpected token in JSON
+Error: Invalid BigInt encoding
+----
+
+*Causas*:
+
+1. Escrita interrompida
+2. Bug de serialização
+3. Migração incompleta
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Identificar valores corrompidos
+for await (const entry of kv.list([])) {
+  try {
+    JSON.parse(entry.value);
+  } catch (err) {
+    console.error('Corrupted:', entry.key, entry.value);
+  }
+}
+
+// 2. Deletar valores corrompidos
+await kv.delete(corruptedKey);
+
+// 3. Restaurar de backup (via sqlite3 CLI)
+sqlite3 production.db "ATTACH 'backup.db' AS backup"
+sqlite3 production.db "INSERT INTO kv_entries SELECT * FROM backup.kv_entries WHERE key = X'...'"
+----
+
+=== Problemas de Deploy
+
+==== Schema não criado
+
+*Sintoma*:
+[source,text]
+----
+Error: no such table: kv_entries
+----
+
+*Causas*:
+
+1. initSchema não executou
+2. Banco diferente do configurado
+3. Permissões insuficientes
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Executar schema manualmente
+import { initSchema } from "@buntime/plugin-keyval/schema";
+await initSchema(adapter);
+
+// 2. Verificar banco correto
+console.log('Database URL:', process.env.LIBSQL_URL);
+
+// 3. Verificar tabelas existentes
+const tables = await adapter.execute(`
+  SELECT name FROM sqlite_master WHERE type='table'
+`);
+console.log('Tables:', tables);
+----
+
+==== Migração falhou
+
+*Sintoma*:
+[source,text]
+----
+Error durante upgrade de versão
+----
+
+*Causas*:
+
+1. Versão incompatível
+2. Dados em formato antigo
+3. Migração parcial
+
+*Soluções*:
+
+[source,typescript]
+----
+// 1. Backup antes de migrar
+sqlite3 production.db ".backup backup-$(date +%Y%m%d).db"
+
+// 2. Verificar versão atual
+const version = await adapter.executeOne(
+  "SELECT value FROM kv_meta WHERE key = 'schema_version'"
+);
+
+// 3. Rollback se necessário
+sqlite3 production.db < backup.sql
+----
+
+=== Logs e Debug
+
+==== Habilitar logs detalhados
+
+[source,bash]
+----
+# Runner logs
+DEBUG=buntime:* bun run apps/runner/src/index.ts
+
+# libSQL server logs
+docker logs -f libsql
+
+# Queries SQL (se implementado)
+DEBUG=keyval:sql bun run ...
+----
+
+==== Inspecionar banco diretamente
+
+[source,bash]
+----
+# SQLite CLI (conectar ao arquivo do banco)
+sqlite3 /path/to/data.db
+
+# Ou via HTTP API do sqld
+curl -X POST "http://localhost:8880/v2/pipeline" \
+  -H "Content-Type: application/json" \
+  -d '{"requests":[{"type":"execute","stmt":{"sql":"SELECT COUNT(*) FROM kv_entries"}}]}'
+
+# Queries úteis (via sqlite3 CLI)
+.tables
+.schema kv_entries
+SELECT COUNT(*) FROM kv_entries;
+SELECT * FROM kv_entries LIMIT 10;
+SELECT * FROM kv_queue WHERE status = 'processing';
+SELECT * FROM kv_dlq ORDER BY failed_at DESC LIMIT 10;
+----
+
+==== Métricas de diagnóstico
+
+[source,bash]
+----
+# Endpoint de métricas
+curl http://localhost:4000/_/plugin-keyval/metrics
+
+# Prometheus format
+curl http://localhost:4000/_/plugin-keyval/metrics?format=prometheus
+
+# Queue stats
+curl http://localhost:4000/_/plugin-keyval/queue/stats
+----
+
+=== Contato e Suporte
+
+Se o problema persistir:
+
+1. Verificar documentação atualizada
+2. Buscar issues existentes no GitHub
+3. Criar issue com reprodução mínima
+4. Incluir versões (Bun, plugin, libSQL)
+5. Incluir logs e métricas relevantes

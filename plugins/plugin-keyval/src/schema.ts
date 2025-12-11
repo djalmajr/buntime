@@ -85,5 +85,15 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
               ON kv_metrics(operation)`,
       args: [],
     },
+    // FTS indexes metadata table
+    {
+      sql: `CREATE TABLE IF NOT EXISTS kv_indexes (
+          prefix BLOB PRIMARY KEY,
+          fields TEXT NOT NULL,
+          tokenize TEXT DEFAULT 'unicode61',
+          created_at INTEGER NOT NULL
+        )`,
+      args: [],
+    },
   ]);
 }

@@ -1,0 +1,751 @@
+== Listagem e Paginação
+
+=== list: Iterando por Prefixo
+
+O método `list()` retorna um **async iterator** sobre todas as entradas que começam com um prefixo:
+
+[source,typescript]
+----
+// Lista todos os usuários
+for await (const entry of kv.list<User>(["users"])) {
+  console.log(entry.key, entry.value);
+}
+----
+
+==== Async Iterator
+
+O async iterator permite:
+
+* **Streaming**: Processa uma entrada por vez, sem carregar tudo em memória
+* **Early exit**: Pode parar a qualquer momento com `break`
+* **Backpressure**: Busca mais dados conforme você processa
+
+[source,typescript]
+----
+// Processar todos
+for await (const entry of kv.list(["logs"])) {
+  await processLog(entry.value);
+}
+
+// Parar quando encontrar algo
+for await (const entry of kv.list<User>(["users"])) {
+  if (entry.value.email === "admin@example.com") {
+    console.log("Encontrou admin:", entry.value);
+    break; // Para de buscar mais dados
+  }
+}
+----
+
+==== Coletando em Array
+
+Se você precisa de todos os resultados em um array:
+
+[source,typescript]
+----
+// Forma manual
+const users: User[] = [];
+for await (const entry of kv.list<User>(["users"])) {
+  users.push(entry.value);
+}
+
+// Ou use paginate() para isso
+const page = await kv.paginate<User>(["users"], { limit: 1000 });
+const users = page.entries.map(e => e.value);
+----
+
+=== Opções de list
+
+==== limit: Máximo de Resultados
+
+[source,typescript]
+----
+// Apenas os primeiros 10
+for await (const entry of kv.list(["users"], { limit: 10 })) {
+  console.log(entry.value);
+}
+----
+
+==== reverse: Ordem Inversa
+
+[source,typescript]
+----
+// Do último para o primeiro
+for await (const entry of kv.list(["posts"], { reverse: true })) {
+  console.log(entry.value); // Posts mais recentes primeiro (se IDs são ordenáveis)
+}
+----
+
+==== start e end: Range de Chaves
+
+[source,typescript]
+----
+// Apenas chaves entre start (inclusive) e end (exclusive)
+for await (const entry of kv.list(["events"], {
+  start: ["events", "2024-01-01"],
+  end: ["events", "2024-02-01"]
+})) {
+  console.log(entry.value);
+}
+----
+
+==== consistency: Modo de Leitura
+
+[source,typescript]
+----
+// Leitura de réplica (eventual consistency)
+for await (const entry of kv.list(["metrics"], {
+  consistency: "eventual"
+})) {
+  // Pode estar alguns ms desatualizado
+}
+----
+
+=== paginate: Paginação com Cursor
+
+Para interfaces com paginação (tabelas, infinite scroll), use `paginate()`:
+
+[source,typescript]
+----
+// Primeira página
+const page1 = await kv.paginate<User>(["users"], { limit: 20 });
+
+console.log(page1.entries);   // Primeiros 20 usuários
+console.log(page1.cursor);    // Cursor para próxima página
+console.log(page1.hasMore);   // true se há mais páginas
+
+// Segunda página
+if (page1.hasMore) {
+  const page2 = await kv.paginate<User>(["users"], {
+    limit: 20,
+    cursor: page1.cursor
+  });
+}
+----
+
+==== Cursor vs Offset
+
+**Problemas do offset:**
+
+[source,typescript]
+----
+// Offset tradicional
+// Página 1: LIMIT 20 OFFSET 0
+// Página 2: LIMIT 20 OFFSET 20
+// Página 100: LIMIT 20 OFFSET 1980
+
+// Problemas:
+// 1. Performance: banco lê e descarta 1980 registros
+// 2. Inconsistência: se dados mudarem entre páginas, pode pular ou repetir itens
+----
+
+**Cursor resolve isso:**
+
+[source,typescript]
+----
+// Cursor é a última chave da página anterior
+// Sempre começa da posição exata, sem ler dados desnecessários
+
+// Performance constante O(1) independente da página
+// Consistente mesmo com inserções/deleções
+----
+
+==== Implementando Paginação Completa
+
+[source,typescript]
+----
+interface PaginatedResponse<T> {
+  data: T[];
+  cursor: string | null;
+  hasMore: boolean;
+  total?: number;
+}
+
+async function getUsers(cursor?: string, limit = 20): Promise<PaginatedResponse<User>> {
+  const page = await kv.paginate<User>(["users"], { limit, cursor });
+
+  return {
+    data: page.entries.map(e => e.value),
+    cursor: page.cursor,
+    hasMore: page.hasMore
+  };
+}
+
+// Uso em API
+app.get("/users", async (c) => {
+  const cursor = c.req.query("cursor");
+  const limit = parseInt(c.req.query("limit") ?? "20");
+
+  const result = await getUsers(cursor, Math.min(limit, 100));
+
+  return c.json(result);
+});
+----
+
+==== Iterando Todas as Páginas
+
+[source,typescript]
+----
+async function* getAllUsers(): AsyncGenerator<User> {
+  let cursor: string | undefined;
+
+  do {
+    const page = await kv.paginate<User>(["users"], { limit: 100, cursor });
+
+    for (const entry of page.entries) {
+      yield entry.value;
+    }
+
+    cursor = page.hasMore ? page.cursor : undefined;
+  } while (cursor);
+}
+
+// Uso
+for await (const user of getAllUsers()) {
+  console.log(user.name);
+}
+----
+
+=== count: Contando Entradas
+
+O método `count()` retorna o número de entradas sob um prefixo:
+
+[source,typescript]
+----
+const totalUsers = await kv.count(["users"]);
+console.log(`Total de usuários: ${totalUsers}`);
+
+// Count com filtro - precisa iterar
+let activeCount = 0;
+for await (const e of kv.list<User>(["users"])) {
+  if (e.value.status === "active") {
+    activeCount++;
+  }
+}
+----
+
+==== Otimização com Contadores
+
+Para counts frequentes, mantenha contadores:
+
+[source,typescript]
+----
+// Ao criar usuário, incrementa contador
+await kv.atomic()
+  .set(["users", id], user)
+  .sum(["stats", "users", "total"], 1n)
+  .sum(["stats", "users", "by_status", user.status], 1n)
+  .commit();
+
+// Count instantâneo O(1)
+const total = await kv.get<bigint>(["stats", "users", "total"]);
+console.log(`Total: ${total.value}`);
+----
+
+=== Filtragem com where
+
+O método `list()` suporta filtros no servidor usando a opção `where`:
+
+[source,typescript]
+----
+// Filtrar usuários ativos
+for await (const entry of kv.list<User>(["users"], {
+  where: { status: { $eq: "active" } }
+})) {
+  console.log(entry.value);
+}
+
+// Filtrar com múltiplas condições
+for await (const entry of kv.list<User>(["users"], {
+  where: {
+    age: { $gt: 18 },
+    plan: { $eq: "premium" },
+    status: { $eq: "active" }
+  }
+})) {
+  console.log(entry.value);
+}
+----
+
+==== Operadores de Comparação
+
+[cols="1,2,2"]
+|===
+| Operador | Descrição | Exemplo
+
+| `$eq`
+| Igual a
+| `{ status: { $eq: "active" } }`
+
+| `$ne`
+| Diferente de
+| `{ status: { $ne: "deleted" } }`
+
+| `$gt`
+| Maior que
+| `{ age: { $gt: 18 } }`
+
+| `$gte`
+| Maior ou igual
+| `{ age: { $gte: 18 } }`
+
+| `$lt`
+| Menor que
+| `{ price: { $lt: 100 } }`
+
+| `$lte`
+| Menor ou igual
+| `{ price: { $lte: 100 } }`
+
+| `$between`
+| Entre dois valores (inclusive)
+| `{ amount: { $between: [100, 500] } }`
+|===
+
+==== Operadores de Array
+
+[cols="1,2,2"]
+|===
+| Operador | Descrição | Exemplo
+
+| `$in`
+| Valor está no array
+| `{ status: { $in: ["active", "pending"] } }`
+
+| `$nin`
+| Valor não está no array
+| `{ status: { $nin: ["deleted", "banned"] } }`
+|===
+
+==== Operadores de String (case-sensitive)
+
+[cols="1,2,2"]
+|===
+| Operador | Descrição | Exemplo
+
+| `$contains`
+| Contém substring
+| `{ name: { $contains: "Silva" } }`
+
+| `$notContains`
+| Não contém substring
+| `{ email: { $notContains: "@temp" } }`
+
+| `$startsWith`
+| Começa com
+| `{ code: { $startsWith: "BR_" } }`
+
+| `$endsWith`
+| Termina com
+| `{ email: { $endsWith: "@company.com" } }`
+|===
+
+==== Operadores de String (case-insensitive)
+
+[cols="1,2,2"]
+|===
+| Operador | Descrição | Exemplo
+
+| `$containsi`
+| Contém (ignora maiúsculas)
+| `{ name: { $containsi: "silva" } }`
+
+| `$notContainsi`
+| Não contém (ignora maiúsculas)
+| `{ name: { $notContainsi: "test" } }`
+
+| `$startsWithi`
+| Começa com (ignora maiúsculas)
+| `{ code: { $startsWithi: "br_" } }`
+
+| `$endsWithi`
+| Termina com (ignora maiúsculas)
+| `{ domain: { $endsWithi: ".com.br" } }`
+|===
+
+==== Operadores de Existência
+
+[cols="1,2,2"]
+|===
+| Operador | Descrição | Exemplo
+
+| `$null`
+| Valor é null (true) ou não (false)
+| `{ deletedAt: { $null: true } }`
+
+| `$empty`
+| Valor é vazio (string vazia, array vazio, ou null)
+| `{ tags: { $empty: true } }`
+
+| `$notEmpty`
+| Valor não é vazio
+| `{ description: { $notEmpty: true } }`
+|===
+
+==== Operadores Lógicos
+
+[source,typescript]
+----
+// $or - pelo menos uma condição verdadeira
+for await (const entry of kv.list<User>(["users"], {
+  where: {
+    $or: [
+      { status: { $eq: "active" } },
+      { status: { $eq: "pending" } }
+    ]
+  }
+})) {
+  console.log(entry.value);
+}
+
+// $and - todas as condições verdadeiras
+for await (const entry of kv.list<User>(["users"], {
+  where: {
+    $and: [
+      { age: { $gte: 18 } },
+      { age: { $lte: 65 } }
+    ]
+  }
+})) {
+  console.log(entry.value);
+}
+
+// $not - inverte a condição
+for await (const entry of kv.list<User>(["users"], {
+  where: {
+    $not: { status: { $eq: "deleted" } }
+  }
+})) {
+  console.log(entry.value);
+}
+----
+
+==== Campos Aninhados
+
+Suporta dot notation para campos aninhados:
+
+[source,typescript]
+----
+// Filtrar por campo aninhado
+for await (const entry of kv.list<User>(["users"], {
+  where: { "profile.verified": { $eq: true } }
+})) {
+  console.log(entry.value);
+}
+
+// Acesso a array por índice
+for await (const entry of kv.list(["orders"], {
+  where: { "items[0].price": { $gt: 100 } }
+})) {
+  console.log(entry.value);
+}
+----
+
+==== Timestamp do Servidor
+
+Use `kv.now()` para comparações de tempo usando o timestamp do servidor:
+
+[source,typescript]
+----
+// Sessões não expiradas (usando tempo do servidor)
+for await (const entry of kv.list(["sessions"], {
+  where: { expiresAt: { $gt: kv.now() } }
+})) {
+  console.log(entry.value);
+}
+
+// Tarefas atrasadas
+for await (const entry of kv.list(["tasks"], {
+  where: {
+    $and: [
+      { status: { $eq: "pending" } },
+      { dueDate: { $lt: kv.now() } }
+    ]
+  }
+})) {
+  console.log("Tarefa atrasada:", entry.value);
+}
+----
+
+NOTE: `kv.now()` é resolvido no servidor, evitando problemas de diferença de relógio entre cliente e servidor.
+
+=== Filtragem no Código (Legado)
+
+Para filtros muito complexos ou quando `where` não atende, você ainda pode filtrar no código:
+
+[source,typescript]
+----
+// Filtrar no código (mais flexível, menos eficiente)
+const premiumAdults: User[] = [];
+for await (const entry of kv.list<User>(["users"])) {
+  const u = entry.value;
+  if (u.age >= 18 && u.plan === "premium" && u.status === "active") {
+    premiumAdults.push(u);
+  }
+}
+----
+
+==== Limitações da Filtragem no Código
+
+[WARNING]
+====
+Filtrar no código lê todos os dados do prefixo. Para prefixos grandes:
+
+* É lento (muitos dados transferidos)
+* Consome memória
+* Não escala
+
+Soluções:
+1. **Use `where`**: Filtra no servidor, menos dados transferidos
+2. **Índices secundários**: Crie chaves que refletem os filtros
+3. **Estrutura hierárquica**: Organize as chaves para filtrar pelo prefixo
+====
+
+[source,typescript]
+----
+// Preferível: filtra no servidor
+for await (const e of kv.list(["users"], {
+  where: { city: { $eq: "São Paulo" } }
+})) {
+  results.push(e.value);
+}
+
+// Alternativa: índice secundário (para queries muito frequentes)
+for await (const e of kv.list(["users_by_city", "São Paulo"])) {
+  const user = await kv.get(["users", e.value]);
+  results.push(user.value);
+}
+----
+
+=== Ordenação
+
+KeyVal ordena por chave lexicograficamente. Para outras ordenações:
+
+==== Ordenação na Chave
+
+[source,typescript]
+----
+// Posts ordenados por timestamp (estruture a chave assim)
+await kv.set(["posts_by_date", timestamp, postId], postId);
+
+// Listar mais recentes primeiro
+for await (const e of kv.list(["posts_by_date"], { reverse: true })) {
+  const post = await kv.get(["posts", e.value]);
+  console.log(post.value);
+}
+----
+
+==== Ordenação no Código
+
+[source,typescript]
+----
+// Para datasets pequenos, ordene no código
+const page = await kv.paginate<Product>(["products"], { limit: 100 });
+const sorted = page.entries
+  .map(e => e.value)
+  .sort((a, b) => b.price - a.price); // Maior preço primeiro
+----
+
+==== Timestamp Invertido
+
+Para "mais recentes primeiro" sem usar `reverse`:
+
+[source,typescript]
+----
+// Timestamp invertido
+const invertedTs = Number.MAX_SAFE_INTEGER - Date.now();
+await kv.set(["events", invertedTs, eventId], event);
+
+// list() natural retorna mais recentes primeiro
+for await (const e of kv.list(["events"])) {
+  console.log(e.value); // Mais recente primeiro
+}
+----
+
+=== Padrões Comuns
+
+==== Buscar por IDs Conhecidos
+
+[source,typescript]
+----
+// Dado: lista de IDs
+const userIds = ["usr_001", "usr_002", "usr_003"];
+
+// Usar getMany (uma requisição)
+const entries = await kv.getMany(userIds.map(id => ["users", id]));
+const users = entries.map(e => e.value).filter(Boolean);
+----
+
+==== Listar com Lookup de Relacionamento
+
+[source,typescript]
+----
+// Listar posts com nome do autor
+const postsWithAuthors = [];
+
+for await (const entry of kv.list<Post>(["posts"], { limit: 10 })) {
+  const post = entry.value;
+  const author = await kv.get<User>(["users", post.authorId]);
+
+  postsWithAuthors.push({
+    ...post,
+    authorName: author.value?.name ?? "Desconhecido"
+  });
+}
+----
+
+==== Busca em Múltiplos Prefixos
+
+[source,typescript]
+----
+// Buscar em vários lugares
+async function searchAll(query: string): Promise<SearchResult[]> {
+  const results: SearchResult[] = [];
+
+  // Buscar em usuários
+  for await (const e of kv.list<User>(["users"])) {
+    if (e.value.name.toLowerCase().includes(query.toLowerCase())) {
+      results.push({ type: "user", data: e.value });
+    }
+  }
+
+  // Buscar em posts
+  for await (const e of kv.list<Post>(["posts"])) {
+    if (e.value.title.toLowerCase().includes(query.toLowerCase())) {
+      results.push({ type: "post", data: e.value });
+    }
+  }
+
+  return results;
+}
+----
+
+=== Busca Textual com FTS
+
+Para buscas por conteúdo, use Full-Text Search (FTS) em vez de filtros manuais.
+
+==== Criando Índice FTS
+
+[source,typescript]
+----
+interface Article {
+  title: string;
+  content: string;
+  author: string;
+  tags: string[];
+}
+
+// Criar índice nos campos title e content
+await kv.createIndex(["articles"], {
+  fields: ["title", "content"]
+});
+----
+
+==== Buscando com search()
+
+[source,typescript]
+----
+// Busca simples
+for await (const entry of kv.search<Article>(["articles"], "typescript tutorial")) {
+  console.log(entry.value.title);
+  console.log(entry.value.content);
+}
+
+// Busca com paginação
+const page = await kv.searchPaginated<Article>(["articles"], "react hooks", {
+  limit: 20
+});
+
+console.log(page.entries);
+console.log(page.cursor);
+console.log(page.hasMore);
+----
+
+==== Combinando com Filtros
+
+A busca FTS pode ser combinada com filtros `where`:
+
+[source,typescript]
+----
+// Buscar "typescript" apenas em artigos publicados
+for await (const entry of kv.search<Article>(["articles"], "typescript", {
+  where: { status: { $eq: "published" } }
+})) {
+  console.log(entry.value);
+}
+
+// Buscar com múltiplas condições
+for await (const entry of kv.search<Article>(["articles"], "react", {
+  where: {
+    status: { $eq: "published" },
+    "author.verified": { $eq: true }
+  },
+  limit: 10
+})) {
+  console.log(entry.value);
+}
+----
+
+==== Operadores de Busca FTS
+
+O FTS5 suporta operadores avançados:
+
+[source,typescript]
+----
+// Operador AND (implícito)
+kv.search(["articles"], "typescript tutorial")
+// Retorna: artigos com "typescript" E "tutorial"
+
+// Operador OR
+kv.search(["articles"], "typescript OR javascript")
+// Retorna: artigos com "typescript" OU "javascript"
+
+// Operador NOT
+kv.search(["articles"], "typescript NOT beginner")
+// Retorna: artigos com "typescript" mas SEM "beginner"
+
+// Frase exata (aspas)
+kv.search(["articles"], '"react hooks"')
+// Retorna: artigos com a frase exata "react hooks"
+
+// Proximidade (NEAR)
+kv.search(["articles"], "NEAR(typescript tutorial, 5)")
+// Retorna: "typescript" e "tutorial" separados por no máximo 5 palavras
+----
+
+==== Removendo Índice FTS
+
+[source,typescript]
+----
+// Remover índice quando não for mais necessário
+await kv.dropIndex(["articles"]);
+----
+
+==== Quando Usar FTS vs Filtros
+
+[cols="1,1"]
+|===
+| Use FTS quando: | Use `where` quando:
+
+| Buscar por texto livre
+| Filtrar por campos exatos
+
+| Buscar em múltiplos campos
+| Comparações numéricas
+
+| Necessita ranking de relevância
+| Filtrar por status, tipo, categoria
+
+| Busca por conteúdo longo (artigos, documentos)
+| Filtrar por timestamps, flags booleanos
+|===
+
+==== Limitações do FTS
+
+[WARNING]
+====
+- Índices FTS aumentam o tamanho do banco de dados
+- Cada prefixo pode ter apenas um índice FTS
+- Apenas strings são indexadas (números e booleanos são ignorados)
+- Índice não é atualizado retroativamente (precisa reindexar dados existentes)
+====
+

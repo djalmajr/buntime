@@ -1,0 +1,252 @@
+== Consistência de Dados
+
+O KeyVal oferece dois modos de consistência configuráveis por operação: strong (padrão) e eventual.
+
+=== Trade-off
+
+* **Consistência forte**: Lê o dado mais recente do nó primário
+* **Latência baixa**: Resposta rápida de réplicas, possivelmente desatualizada
+
+=== Strong Consistency (Padrão)
+
+Toda leitura vai para o nó primário:
+
+[source,typescript]
+----
+const entry = await kv.get(["users", oderId]);
+
+// Explicitamente strong (mesmo comportamento)
+const entry = await kv.get(["users", oderId], { consistency: "strong" });
+----
+
+**Garantias:**
+
+* Sempre retorna o valor mais recente
+* Linearizabilidade: escritas completadas são visíveis imediatamente
+* Sem valores desatualizados
+
+**Custo:**
+
+* Todas as leituras direcionadas ao primário
+* Latência maior em ambientes geograficamente distribuídos
+* Primário pode se tornar gargalo
+
+=== Eventual Consistency
+
+Leituras podem ser direcionadas a réplicas:
+
+[source,typescript]
+----
+const entry = await kv.get(["users", oderId], { consistency: "eventual" });
+----
+
+**Garantias:**
+
+* Convergência eventual: todas as réplicas alcançam o mesmo valor
+* Latência de replicação típica: < 100ms
+* Pode retornar valores desatualizados dentro da janela de replicação
+
+**Benefícios:**
+
+* Latência reduzida (réplicas geograficamente distribuídas)
+* Distribuição de carga
+* Maior disponibilidade
+
+=== Quando Usar Cada Modo
+
+==== Use Strong Consistency para:
+
+[cols="1,2"]
+|===
+| Caso | Por quê
+
+| Operações financeiras
+| Saldo precisa estar correto
+
+| Autenticação/autorização
+| Permissões devem ser atuais
+
+| Dados que mudam frequentemente
+| Evita decisões baseadas em dados velhos
+
+| Antes de operações atômicas
+| Versionstamp deve ser atual para check()
+
+| Qualquer "read-then-write"
+| Precisa do valor atual para modificar
+|===
+
+[source,typescript]
+----
+const account = await kv.get<Account>(
+  ["accounts", accountId],
+  { consistency: "strong" }
+);
+
+if (account.value.balance < amount) {
+  throw new Error("Saldo insuficiente");
+}
+----
+
+==== Use Eventual Consistency para:
+
+[cols="1,2"]
+|===
+| Caso | Por quê
+
+| Dashboards e métricas
+| Alguns ms de atraso não importam
+
+| Dados de perfil (nome, avatar)
+| Raramente mudam
+
+| Configurações e feature flags
+| Tolerável ver config antiga por segundos
+
+| Caches
+| Por definição, podem estar desatualizados
+
+| Listagens não-críticas
+| Catálogo de produtos, posts, etc.
+|===
+
+[source,typescript]
+----
+const metrics = await kv.get<Metrics>(
+  ["metrics", "dashboard"],
+  { consistency: "eventual" }
+);
+----
+
+=== Configuração de Réplica
+
+Eventual consistency requer configuração de réplica:
+
+==== buntime.jsonc
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-keyval", {
+      "libsqlUrl": "${LIBSQL_URL}",           // Primário
+      "libsqlReplicaUrl": "${LIBSQL_REPLICA_URL}" // Réplica
+    }]
+  ]
+}
+----
+
+==== Sem Réplica Configurada
+
+Sem réplica, todas as leituras usam o primário (fallback automático):
+
+[source,typescript]
+----
+await kv.get(key);                                    // → primário
+await kv.get(key, { consistency: "eventual" });       // → primário (fallback)
+----
+
+=== Escritas São Sempre Strong
+
+Todas as escritas são direcionadas ao primário:
+
+[source,typescript]
+----
+await kv.set(key, value);           // → primário
+await kv.delete(key);               // → primário
+await kv.atomic()...commit();       // → primário
+----
+
+Garantias:
+
+* Sem conflitos de escrita
+* Versionstamp único e ordenado
+* Replicação unidirecional: primário → réplicas
+
+=== Padrão Híbrido
+
+Combine modos conforme os requisitos de cada operação:
+
+[source,typescript]
+----
+interface Product {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+}
+
+async function getProductForPurchase(productId: string) {
+  // Eventual: dados raramente mutáveis
+  const product = await kv.get<Product>(
+    ["products", productId],
+    { consistency: "eventual" }
+  );
+
+  // Strong: dados críticos e frequentemente mutáveis
+  const [price, stock] = await kv.getMany([
+    ["products", productId, "price"],
+    ["products", productId, "stock"],
+  ]);
+
+  return {
+    ...product.value,
+    currentPrice: price.value,
+    currentStock: stock.value,
+  };
+}
+----
+
+=== Armadilhas Comuns
+
+==== Eventual + check
+
+[source,typescript]
+----
+// ERRADO - versionstamp pode estar desatualizado
+const entry = await kv.get(key, { consistency: "eventual" });
+await kv.atomic()
+  .check(entry)
+  .set(key, newValue)
+  .commit();
+
+// CORRETO
+const entry = await kv.get(key, { consistency: "strong" });
+await kv.atomic()
+  .check(entry)
+  .set(key, newValue)
+  .commit();
+----
+
+==== Leituras relacionadas
+
+[source,typescript]
+----
+// PROBLEMÁTICO - dados de versões diferentes
+const user = await kv.get(["users", oderId], { consistency: "eventual" });
+const settings = await kv.get(["settings", oderId], { consistency: "eventual" });
+
+// CORRETO - snapshot consistente
+const [user, settings] = await kv.getMany([
+  ["users", oderId],
+  ["settings", oderId],
+]);
+----
+
+=== Latência de Replicação
+
+Latência típica por cenário:
+
+[cols="1,1"]
+|===
+| Cenário | Latência
+
+| Mesmo host (dev)
+| < 1ms
+
+| Mesma região
+| 1-5ms
+
+| Cross-region
+| 50-200ms
+|===

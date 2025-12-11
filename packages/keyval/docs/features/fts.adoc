@@ -1,0 +1,853 @@
+== Full-Text Search (FTS)
+
+O KeyVal oferece busca textual completa usando índices FTS5 do SQLite, permitindo buscas eficientes em campos de texto.
+
+=== Visão Geral
+
+Diferente de índices secundários (que você mantém manualmente), índices FTS são gerenciados automaticamente pelo KeyVal. Quando você cria um índice FTS e usa `set()` ou `delete()`, o índice é atualizado automaticamente.
+
+[source,typescript]
+----
+// Criar índice
+await kv.createIndex(["articles"], {
+  fields: ["title", "content"]
+});
+
+// set/delete mantêm o índice automaticamente
+await kv.set(["articles", articleId], {
+  title: "Guia de TypeScript",
+  content: "Tutorial completo sobre TypeScript...",
+  author: "João Silva"
+});
+
+// Buscar
+for await (const entry of kv.search(["articles"], "typescript")) {
+  console.log(entry.value.title);
+}
+----
+
+=== Criando Índices
+
+==== createIndex: Criar Índice FTS
+
+[source,typescript]
+----
+interface CreateIndexOptions {
+  fields: string[];  // Campos a serem indexados
+}
+
+await kv.createIndex(prefix: KvKey, options: CreateIndexOptions): Promise<void>
+----
+
+**Exemplo:**
+
+[source,typescript]
+----
+interface Post {
+  id: string;
+  title: string;
+  content: string;
+  excerpt: string;
+  author: string;
+  tags: string[];
+  createdAt: number;
+}
+
+// Indexar title e content
+await kv.createIndex(["posts"], {
+  fields: ["title", "content"]
+});
+
+// Indexar múltiplos campos
+await kv.createIndex(["posts"], {
+  fields: ["title", "content", "excerpt"]
+});
+----
+
+NOTE: Cada prefixo pode ter apenas um índice FTS. Chamar `createIndex()` novamente substitui o índice anterior.
+
+==== Campos Aninhados
+
+Suporta dot notation para campos aninhados:
+
+[source,typescript]
+----
+interface Article {
+  metadata: {
+    title: string;
+    description: string;
+  };
+  author: {
+    name: string;
+    bio: string;
+  };
+}
+
+await kv.createIndex(["articles"], {
+  fields: ["metadata.title", "metadata.description", "author.name"]
+});
+----
+
+=== Buscando
+
+==== search: Busca com Iterator
+
+[source,typescript]
+----
+kv.search<T>(
+  prefix: KvKey,
+  query: string,
+  options?: ListOptions
+): AsyncIterableIterator<KvEntry<T>>
+----
+
+**Exemplo:**
+
+[source,typescript]
+----
+// Busca simples
+for await (const entry of kv.search<Post>(["posts"], "typescript")) {
+  console.log(entry.value.title);
+}
+
+// Com limite
+for await (const entry of kv.search<Post>(["posts"], "typescript", {
+  limit: 10
+})) {
+  console.log(entry.value);
+}
+
+// Com filtros
+for await (const entry of kv.search<Post>(["posts"], "typescript", {
+  where: { status: { $eq: "published" } },
+  limit: 20
+})) {
+  console.log(entry.value);
+}
+----
+
+==== searchPaginated: Busca com Paginação
+
+[source,typescript]
+----
+kv.searchPaginated<T>(
+  prefix: KvKey,
+  query: string,
+  options?: ListOptions & { cursor?: string }
+): Promise<KvPage<T>>
+----
+
+**Exemplo:**
+
+[source,typescript]
+----
+// Primeira página
+const page1 = await kv.searchPaginated<Post>(["posts"], "react hooks", {
+  limit: 20
+});
+
+console.log(page1.entries);   // Primeiros 20 resultados
+console.log(page1.cursor);    // Cursor para próxima página
+console.log(page1.hasMore);   // true se há mais resultados
+
+// Segunda página
+if (page1.hasMore) {
+  const page2 = await kv.searchPaginated<Post>(["posts"], "react hooks", {
+    limit: 20,
+    cursor: page1.cursor
+  });
+}
+----
+
+==== Todas as Opções de list()
+
+A busca FTS suporta todas as opções de `list()`:
+
+[source,typescript]
+----
+interface ListOptions {
+  limit?: number;                    // Máximo de resultados
+  reverse?: boolean;                 // Ordem inversa
+  consistency?: "strong" | "eventual"; // Modo de leitura
+  where?: WhereClause;               // Filtros adicionais
+  cursor?: string;                   // Para paginação
+}
+----
+
+**Exemplo:**
+
+[source,typescript]
+----
+// Busca com filtros complexos
+for await (const entry of kv.search<Post>(["posts"], "typescript", {
+  where: {
+    $and: [
+      { status: { $eq: "published" } },
+      { createdAt: { $gt: kv.now() - 30 * 24 * 60 * 60 * 1000 } } // Últimos 30 dias
+    ]
+  },
+  limit: 50,
+  consistency: "eventual"
+})) {
+  console.log(entry.value);
+}
+----
+
+=== Operadores de Busca
+
+O FTS5 suporta operadores avançados para queries complexas.
+
+==== AND (Implícito)
+
+Termos separados por espaço são combinados com AND:
+
+[source,typescript]
+----
+// Busca: "typescript" AND "tutorial"
+kv.search(["articles"], "typescript tutorial")
+// Retorna: artigos que contêm ambos os termos
+----
+
+==== OR
+
+[source,typescript]
+----
+// Busca: "typescript" OR "javascript"
+kv.search(["articles"], "typescript OR javascript")
+// Retorna: artigos que contêm qualquer um dos termos
+----
+
+==== NOT
+
+[source,typescript]
+----
+// Busca: "typescript" NOT "beginner"
+kv.search(["articles"], "typescript NOT beginner")
+// Retorna: artigos com "typescript" mas sem "beginner"
+----
+
+==== Frase Exata
+
+Use aspas para buscar frases exatas:
+
+[source,typescript]
+----
+// Busca: frase exata "react hooks"
+kv.search(["articles"], '"react hooks"')
+// Retorna: artigos com a sequência exata "react hooks"
+----
+
+==== Proximidade (NEAR)
+
+Busca termos próximos um do outro:
+
+[source,typescript]
+----
+// Busca: "typescript" e "tutorial" separados por no máximo 5 palavras
+kv.search(["articles"], "NEAR(typescript tutorial, 5)")
+// Retorna: artigos onde os termos estão próximos
+----
+
+==== Prefixo (*)
+
+[source,typescript]
+----
+// Busca: palavras começando com "react"
+kv.search(["articles"], "react*")
+// Retorna: artigos com "react", "reactive", "reactjs", etc.
+----
+
+==== Combinações
+
+[source,typescript]
+----
+// Busca complexa
+kv.search(["articles"], '"typescript tutorial" OR (react* NOT beginner)')
+// Retorna: artigos com frase exata "typescript tutorial" OU
+//          (qualquer palavra começando com "react" mas sem "beginner")
+----
+
+=== Removendo Índices
+
+==== dropIndex: Remover Índice FTS
+
+[source,typescript]
+----
+await kv.dropIndex(prefix: KvKey): Promise<void>
+----
+
+**Exemplo:**
+
+[source,typescript]
+----
+// Remover índice
+await kv.dropIndex(["posts"]);
+----
+
+IMPORTANT: Remover o índice não afeta os dados, apenas remove a capacidade de busca FTS naquele prefixo.
+
+=== Casos de Uso
+
+==== Blog/CMS
+
+[source,typescript]
+----
+interface BlogPost {
+  slug: string;
+  title: string;
+  content: string;
+  excerpt: string;
+  status: "draft" | "published";
+  publishedAt: number;
+}
+
+// Criar índice
+await kv.createIndex(["blog", "posts"], {
+  fields: ["title", "content", "excerpt"]
+});
+
+// Buscar posts publicados
+async function searchPosts(query: string, page = 0, limit = 10) {
+  const offset = page * limit;
+
+  const results = await kv.searchPaginated<BlogPost>(
+    ["blog", "posts"],
+    query,
+    {
+      where: { status: { $eq: "published" } },
+      limit,
+      // Usar cursor em vez de offset para melhor performance
+    }
+  );
+
+  return {
+    posts: results.entries.map(e => e.value),
+    hasMore: results.hasMore,
+    cursor: results.cursor,
+  };
+}
+----
+
+==== Base de Conhecimento
+
+[source,typescript]
+----
+interface Article {
+  id: string;
+  title: string;
+  content: string;
+  category: string;
+  tags: string[];
+  views: number;
+  helpful: number;
+}
+
+// Índice nos campos principais
+await kv.createIndex(["kb", "articles"], {
+  fields: ["title", "content"]
+});
+
+// Busca com ranking por relevância (views e helpful)
+async function searchKB(query: string) {
+  const results: Array<Article & { score: number }> = [];
+
+  for await (const entry of kv.search<Article>(["kb", "articles"], query, {
+    where: { category: { $ne: "archived" } }
+  })) {
+    // Calcular score de relevância
+    const article = entry.value;
+    const score = article.views * 0.1 + article.helpful * 2;
+    results.push({ ...article, score });
+  }
+
+  // Ordenar por score
+  return results.sort((a, b) => b.score - a.score);
+}
+----
+
+==== Sistema de Tickets
+
+[source,typescript]
+----
+interface Ticket {
+  id: string;
+  title: string;
+  description: string;
+  status: "open" | "closed" | "pending";
+  priority: "low" | "medium" | "high";
+  assignee?: string;
+  createdAt: number;
+}
+
+// Índice para buscar em título e descrição
+await kv.createIndex(["tickets"], {
+  fields: ["title", "description"]
+});
+
+// Buscar tickets abertos
+async function searchOpenTickets(query: string) {
+  const tickets: Ticket[] = [];
+
+  for await (const entry of kv.search<Ticket>(["tickets"], query, {
+    where: {
+      status: { $in: ["open", "pending"] }
+    }
+  })) {
+    tickets.push(entry.value);
+  }
+
+  // Ordenar por prioridade
+  const priorityOrder = { high: 0, medium: 1, low: 2 };
+  return tickets.sort((a, b) =>
+    priorityOrder[a.priority] - priorityOrder[b.priority]
+  );
+}
+----
+
+==== E-commerce: Busca de Produtos
+
+[source,typescript]
+----
+interface Product {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  price: number;
+  stock: number;
+  tags: string[];
+}
+
+// Índice nos campos name e description
+await kv.createIndex(["products"], {
+  fields: ["name", "description"]
+});
+
+// Busca de produtos com filtros
+async function searchProducts(
+  query: string,
+  minPrice?: number,
+  maxPrice?: number,
+  category?: string
+) {
+  const where: WhereClause = {
+    stock: { $gt: 0 } // Apenas produtos em estoque
+  };
+
+  if (minPrice !== undefined && maxPrice !== undefined) {
+    where.price = { $between: [minPrice, maxPrice] };
+  }
+
+  if (category) {
+    where.category = { $eq: category };
+  }
+
+  const products: Product[] = [];
+
+  for await (const entry of kv.search<Product>(["products"], query, {
+    where,
+    limit: 50
+  })) {
+    products.push(entry.value);
+  }
+
+  return products;
+}
+----
+
+=== Performance
+
+==== Velocidade de Busca
+
+Índices FTS5 são otimizados para busca rápida em grandes volumes de texto:
+
+[source,typescript]
+----
+// Cenário: 100.000 artigos, cada um com ~5KB de texto
+
+// Sem FTS (filtro manual no código) - LENTO
+// - Lê todos os 100.000 registros (500MB transferidos)
+// - Filtra no cliente
+// - Tempo: ~10-30 segundos
+
+// Com FTS - RÁPIDO
+// - Usa índice FTS5
+// - Retorna apenas resultados relevantes
+// - Tempo: ~50-200ms
+const results = await kv.searchPaginated(["articles"], "typescript tutorial", {
+  limit: 20
+});
+----
+
+==== Tamanho dos Índices
+
+Índices FTS adicionam overhead ao banco de dados:
+
+[source]
+----
+Tamanho dos dados:  1MB
+Tamanho do índice:  ~300-500KB (30-50% dos dados)
+
+Tamanho total: ~1.5MB
+----
+
+O overhead varia conforme:
+
+- Número de campos indexados (mais campos = maior índice)
+- Tamanho do texto (mais texto = maior índice)
+- Complexidade do texto (mais palavras únicas = maior índice)
+
+==== Reindexação
+
+Índices FTS não são aplicados retroativamente a dados existentes:
+
+[source,typescript]
+----
+// 1. Dados já existem
+await kv.set(["posts", 1], { title: "Post 1", content: "..." });
+await kv.set(["posts", 2], { title: "Post 2", content: "..." });
+
+// 2. Criar índice (NÃO indexa dados existentes)
+await kv.createIndex(["posts"], { fields: ["title", "content"] });
+
+// 3. Busca não encontra posts 1 e 2
+for await (const entry of kv.search(["posts"], "post")) {
+  // Nenhum resultado
+}
+
+// 4. Solução: Reindexar dados existentes
+for await (const entry of kv.list(["posts"])) {
+  // Re-salvar para acionar indexação
+  await kv.set(entry.key, entry.value);
+}
+
+// 5. Agora a busca funciona
+for await (const entry of kv.search(["posts"], "post")) {
+  console.log(entry.value); // Encontra posts 1 e 2
+}
+----
+
+**Helper para reindexação:**
+
+[source,typescript]
+----
+async function reindex(prefix: KvKey): Promise<number> {
+  let count = 0;
+
+  for await (const entry of kv.list(prefix)) {
+    await kv.set(entry.key, entry.value);
+    count++;
+  }
+
+  return count;
+}
+
+// Uso
+const count = await reindex(["posts"]);
+console.log(`Reindexados ${count} registros`);
+----
+
+=== Limitações
+
+==== Um Índice por Prefixo
+
+Cada prefixo pode ter apenas um índice FTS:
+
+[source,typescript]
+----
+// Criar índice em title e content
+await kv.createIndex(["posts"], {
+  fields: ["title", "content"]
+});
+
+// Criar outro índice SUBSTITUI o anterior
+await kv.createIndex(["posts"], {
+  fields: ["title", "content", "excerpt"]  // Agora tem 3 campos
+});
+
+// Solução: Incluir todos os campos necessários no índice
+await kv.createIndex(["posts"], {
+  fields: ["title", "content", "excerpt", "author.name"]
+});
+----
+
+==== Apenas Strings São Indexadas
+
+Apenas campos de tipo string são indexados. Números, booleanos e objetos são ignorados:
+
+[source,typescript]
+----
+interface Product {
+  name: string;        // Indexado
+  description: string; // Indexado
+  price: number;       // IGNORADO
+  available: boolean;  // IGNORADO
+  metadata: object;    // IGNORADO
+}
+
+await kv.createIndex(["products"], {
+  fields: ["name", "description", "price"] // price não terá efeito
+});
+
+// Para buscar por preço, use filtros where
+for await (const entry of kv.search(["products"], "notebook", {
+  where: { price: { $lt: 3000 } }  // Filtro, não busca textual
+})) {
+  console.log(entry.value);
+}
+----
+
+==== Sem Atualização Retroativa
+
+Índices não são aplicados a dados existentes:
+
+[source,typescript]
+----
+// Dados existem antes do índice
+await kv.set(["posts", 1], { title: "Post 1" });
+
+// Criar índice
+await kv.createIndex(["posts"], { fields: ["title"] });
+
+// Busca NÃO encontra post 1 (foi salvo antes do índice)
+// Solução: reindexar (ver seção Performance)
+----
+
+==== Overhead de Armazenamento
+
+Índices FTS aumentam o tamanho do banco:
+
+[source]
+----
+Dados sem índice:    10MB
+Dados com índice:    13-15MB (30-50% overhead)
+----
+
+Considere criar índices apenas nos prefixos que realmente precisam de busca textual.
+
+=== Comparação: FTS vs Filtros vs Índices Secundários
+
+[cols="1,1,1,1"]
+|===
+| Aspecto | FTS | where (filtros) | Índices Secundários
+
+| Tipo de busca
+| Texto livre, palavras-chave
+| Valores exatos, ranges
+| Valores exatos
+
+| Manutenção
+| Automática
+| Sem manutenção
+| Manual
+
+| Performance
+| Rápida para texto
+| Rápida para valores exatos
+| Mais rápida (O(1))
+
+| Flexibilidade
+| Alta (operadores, frases, proximity)
+| Média (operadores limitados)
+| Baixa (apenas lookup)
+
+| Overhead
+| 30-50% de espaço
+| Nenhum
+| Duplicação de dados
+
+| Casos de uso
+| Busca em artigos, documentos
+| Filtrar por status, data, flags
+| Lookup por email, username
+|===
+
+**Quando usar cada um:**
+
+[source,typescript]
+----
+// FTS: Busca por conteúdo
+kv.search(["articles"], "typescript tutorial")
+
+// where: Filtrar por campos exatos
+kv.list(["users"], { where: { status: { $eq: "active" } } })
+
+// Índice secundário: Lookup rápido por valor único
+const userId = await kv.get(["users_by_email", "alice@example.com"]);
+const user = await kv.get(["users", userId.value]);
+----
+
+=== Boas Práticas
+
+==== Escolha Campos Relevantes
+
+Não indexe campos desnecessários:
+
+[source,typescript]
+----
+// Mal: Indexar campos irrelevantes
+await kv.createIndex(["users"], {
+  fields: ["name", "email", "id", "createdAt"] // id e createdAt são inúteis para FTS
+});
+
+// Bem: Apenas campos onde busca textual faz sentido
+await kv.createIndex(["users"], {
+  fields: ["name", "email"]
+});
+----
+
+==== Combine FTS com where
+
+Use FTS para busca textual e `where` para filtros:
+
+[source,typescript]
+----
+// Buscar artigos sobre "typescript" apenas publicados nos últimos 30 dias
+const thirtyDaysAgo = kv.now() - 30 * 24 * 60 * 60 * 1000;
+
+for await (const entry of kv.search(["articles"], "typescript", {
+  where: {
+    $and: [
+      { status: { $eq: "published" } },
+      { publishedAt: { $gt: thirtyDaysAgo } }
+    ]
+  }
+})) {
+  console.log(entry.value);
+}
+----
+
+==== Planeje a Reindexação
+
+Se você criar índices após inserir dados, planeje a reindexação:
+
+[source,typescript]
+----
+// Durante deploy/migração
+async function migrateToFTS() {
+  console.log("Criando índice...");
+  await kv.createIndex(["posts"], {
+    fields: ["title", "content"]
+  });
+
+  console.log("Reindexando dados existentes...");
+  let count = 0;
+  for await (const entry of kv.list(["posts"])) {
+    await kv.set(entry.key, entry.value);
+    count++;
+    if (count % 100 === 0) {
+      console.log(`Reindexados ${count} posts...`);
+    }
+  }
+
+  console.log(`Migração completa! ${count} posts reindexados.`);
+}
+----
+
+==== Monitore o Tamanho do Banco
+
+Índices FTS aumentam o tamanho do banco. Monitore e remova índices não utilizados:
+
+[source,typescript]
+----
+// Remover índice não utilizado
+await kv.dropIndex(["old_prefix"]);
+----
+
+=== Exemplos Completos
+
+==== Sistema de Documentação
+
+[source,typescript]
+----
+interface Doc {
+  id: string;
+  title: string;
+  content: string;
+  category: string;
+  tags: string[];
+  version: string;
+  updatedAt: number;
+}
+
+// Setup
+await kv.createIndex(["docs"], {
+  fields: ["title", "content"]
+});
+
+// Busca com highlighting (simples)
+async function searchDocs(query: string) {
+  const results: Array<Doc & { preview: string }> = [];
+
+  for await (const entry of kv.search<Doc>(["docs"], query, {
+    where: { version: { $eq: "latest" } },
+    limit: 20
+  })) {
+    const doc = entry.value;
+
+    // Criar preview destacando o termo buscado
+    const lowerContent = doc.content.toLowerCase();
+    const lowerQuery = query.toLowerCase();
+    const index = lowerContent.indexOf(lowerQuery);
+
+    let preview = "";
+    if (index !== -1) {
+      const start = Math.max(0, index - 50);
+      const end = Math.min(doc.content.length, index + query.length + 50);
+      preview = "..." + doc.content.slice(start, end) + "...";
+    } else {
+      preview = doc.content.slice(0, 100) + "...";
+    }
+
+    results.push({ ...doc, preview });
+  }
+
+  return results;
+}
+
+// API endpoint
+app.get("/api/search", async (c) => {
+  const query = c.req.query("q");
+
+  if (!query || query.length < 2) {
+    return c.json({ error: "Query muito curta" }, 400);
+  }
+
+  const results = await searchDocs(query);
+  return c.json({ results, count: results.length });
+});
+----
+
+==== Autocomplete/Sugestões
+
+[source,typescript]
+----
+interface Product {
+  name: string;
+  sku: string;
+  category: string;
+}
+
+await kv.createIndex(["products"], {
+  fields: ["name"]
+});
+
+// Autocomplete usando prefixo
+async function autocomplete(query: string, limit = 5) {
+  const suggestions: string[] = [];
+
+  // Usar prefixo * para buscar palavras começando com query
+  for await (const entry of kv.search<Product>(
+    ["products"],
+    `${query}*`,
+    { limit }
+  )) {
+    suggestions.push(entry.value.name);
+  }
+
+  return suggestions;
+}
+
+// Exemplo de uso
+const suggestions = await autocomplete("note"); // ["Notebook", "Notepad", ...]
+----

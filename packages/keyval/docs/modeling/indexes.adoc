@@ -1,0 +1,682 @@
+== Índices Secundários
+
+Em bancos relacionais, índices são criados com `CREATE INDEX` e gerenciados automaticamente. No KeyVal, **índices são manuais** — oferecendo controle total, mas exigindo disciplina na manutenção.
+
+=== Fundamentos
+
+==== O Problema: KeyVal Só Ordena por Chave
+
+KeyVal armazena dados ordenados pela **chave primária**. Quando você faz `list()`, ele percorre essa ordenação.
+
+[source,typescript]
+----
+["users", "usr_001"] → { name: "Alice", email: "alice@ex.com", city: "São Paulo" }
+["users", "usr_002"] → { name: "Bob", email: "bob@ex.com", city: "Rio" }
+["users", "usr_003"] → { name: "Carol", email: "carol@ex.com", city: "São Paulo" }
+----
+
+Para encontrar um usuário **por email**, não há atalho:
+
+[source,typescript]
+----
+// Sem índice: precisa varrer TODOS os usuários
+async function findByEmail(email: string): Promise<User | null> {
+  for await (const entry of kv.list<User>(["users"])) {
+    if (entry.value.email === email) {
+      return entry.value;
+    }
+  }
+  return null;
+}
+// Complexidade: O(n) - lento para milhões de registros
+----
+
+==== A Solução: Criar Estrutura Adicional
+
+Um índice é simplesmente outra chave que aponta para o dado original.
+
+[source,typescript]
+----
+// Índice: email → ID
+["users_by_email", "alice@ex.com"] → "usr_001"
+["users_by_email", "bob@ex.com"] → "usr_002"
+["users_by_email", "carol@ex.com"] → "usr_003"
+
+// Busca com índice: duas operações O(1)
+async function findByEmail(email: string): Promise<User | null> {
+  const ref = await kv.get(["users_by_email", email]);
+  if (!ref.value) return null;
+
+  const user = await kv.get<User>(["users", ref.value]);
+  return user.value;
+}
+// Complexidade: O(1) - constante, não importa quantos usuários
+----
+
+=== Tipos de Índice
+
+==== Índice Único
+
+Para campos que **não podem repetir**: email, CPF, username.
+
+[source,typescript]
+----
+// Estrutura
+["users", oderId]               → { name, email, ... }
+["users_by_email", email]       → oderId
+["users_by_cpf", cpf]           → oderId
+----
+
+**Criar usuário com índice único:**
+
+[source,typescript]
+----
+async function createUser(data: NewUser): Promise<string> {
+  const id = crypto.randomUUID();
+
+  // Verifica se email já existe
+  const existing = await kv.get(["users_by_email", data.email]);
+  if (existing.value) {
+    throw new Error("Email já cadastrado");
+  }
+
+  // Cria atomicamente (evita race condition)
+  const result = await kv.atomic()
+    .check({ key: ["users_by_email", data.email], versionstamp: null })
+    .set(["users", id], { ...data, id, createdAt: Date.now() })
+    .set(["users_by_email", data.email], id)
+    .commit();
+
+  if (!result.ok) {
+    throw new Error("Email já cadastrado (race condition)");
+  }
+
+  return id;
+}
+----
+
+O `check({ versionstamp: null })` garante que a chave não existe no momento do commit.
+
+==== Índice Não-Único
+
+Para campos que **podem repetir**: cidade, status, categoria.
+
+A diferença é que você precisa incluir o ID na chave para evitar colisões:
+
+[source,typescript]
+----
+// ERRADO: sem ID, segunda pessoa de SP sobrescreve a primeira
+["users_by_city", "São Paulo"] → "usr_001"
+["users_by_city", "São Paulo"] → "usr_003"  // Sobrescreveu!
+
+// CORRETO: ID na chave evita colisão
+["users_by_city", "São Paulo", "usr_001"] → "usr_001"
+["users_by_city", "São Paulo", "usr_003"] → "usr_003"
+----
+
+**Criar com índice não-único:**
+
+[source,typescript]
+----
+await kv.atomic()
+  .set(["users", id], user)
+  .set(["users_by_city", user.city, id], id)
+  .commit();
+----
+
+**Listar por cidade:**
+
+[source,typescript]
+----
+async function getUsersByCity(city: string): Promise<User[]> {
+  const userIds: string[] = [];
+
+  for await (const entry of kv.list(["users_by_city", city])) {
+    userIds.push(entry.value);
+  }
+
+  // Busca em batch para eficiência
+  const entries = await kv.getMany<User>(userIds.map(id => ["users", id]));
+  return entries.map(e => e.value).filter(Boolean) as User[];
+}
+----
+
+==== Índice Composto
+
+Para queries com **múltiplos campos**: "produtos da categoria X ordenados por preço".
+
+[source,typescript]
+----
+// Estrutura: campos na ordem da query
+["products", productId] → { name, category, price }
+["products_by_cat_price", category, price, productId] → productId
+----
+
+A ordem dos campos na chave determina a ordenação:
+
+[source,typescript]
+----
+// Dados:
+["products_by_cat_price", "eletrônicos", 99, "prod_1"] → "prod_1"
+["products_by_cat_price", "eletrônicos", 199, "prod_2"] → "prod_2"
+["products_by_cat_price", "eletrônicos", 599, "prod_3"] → "prod_3"
+["products_by_cat_price", "roupas", 49, "prod_4"] → "prod_4"
+
+// list(["products_by_cat_price", "eletrônicos"]) retorna:
+// prod_1 (R$99), prod_2 (R$199), prod_3 (R$599) - ordenados por preço!
+----
+
+**Query com range de preço:**
+
+[source,typescript]
+----
+async function getCheapProducts(category: string, maxPrice: number) {
+  const productIds: string[] = [];
+
+  for await (const entry of kv.list(["products_by_cat_price", category], {
+    start: ["products_by_cat_price", category, 0],
+    end: ["products_by_cat_price", category, maxPrice + 0.01]
+  })) {
+    productIds.push(entry.value);
+  }
+
+  const entries = await kv.getMany<Product>(productIds.map(id => ["products", id]));
+  return entries.map(e => e.value).filter(Boolean);
+}
+----
+
+==== Índice Temporal
+
+Para ordenar por data/hora: "eventos mais recentes", "logs do último dia".
+
+[source,typescript]
+----
+// Opção 1: Timestamp numérico
+["events_by_time", timestamp, eventId] → eventId
+
+// Opção 2: Usar versionstamp do commit (ordenação perfeita)
+const vs = kv.commitVersionstamp();
+await kv.atomic()
+  .set(["events", id], event)
+  .set(["events_by_time", vs, id], id)
+  .commit();
+----
+
+**Eventos mais recentes:**
+
+[source,typescript]
+----
+async function getRecentEvents(limit = 10): Promise<Event[]> {
+  const eventIds: string[] = [];
+
+  // reverse: true = mais recentes primeiro
+  for await (const entry of kv.list(["events_by_time"], { reverse: true, limit })) {
+    eventIds.push(entry.value);
+  }
+
+  const entries = await kv.getMany<Event>(eventIds.map(id => ["events", id]));
+  return entries.map(e => e.value).filter(Boolean) as Event[];
+}
+----
+
+**Eventos em um período:**
+
+[source,typescript]
+----
+async function getEventsBetween(start: Date, end: Date): Promise<Event[]> {
+  const eventIds: string[] = [];
+
+  for await (const entry of kv.list(["events_by_time"], {
+    start: ["events_by_time", start.getTime()],
+    end: ["events_by_time", end.getTime()]
+  })) {
+    eventIds.push(entry.value);
+  }
+
+  const entries = await kv.getMany<Event>(eventIds.map(id => ["events", id]));
+  return entries.map(e => e.value).filter(Boolean) as Event[];
+}
+----
+
+==== Índice Invertido (Tags)
+
+Para relações N:N onde você precisa buscar em ambas direções.
+
+[source,typescript]
+----
+// Post tem múltiplas tags
+["posts", postId] → { title, tags: ["typescript", "tutorial"] }
+
+// Índice: tag → posts
+["tags", "typescript", "post_1"] → "post_1"
+["tags", "typescript", "post_2"] → "post_2"
+["tags", "tutorial", "post_1"] → "post_1"
+----
+
+**Criar post com tags:**
+
+[source,typescript]
+----
+async function createPost(data: NewPost): Promise<string> {
+  const id = crypto.randomUUID();
+
+  const atomic = kv.atomic()
+    .set(["posts", id], { ...data, id });
+
+  for (const tag of data.tags) {
+    atomic.set(["tags", tag, id], id);
+  }
+
+  await atomic.commit();
+  return id;
+}
+----
+
+**Buscar posts por tag:**
+
+[source,typescript]
+----
+async function getPostsByTag(tag: string): Promise<Post[]> {
+  const postIds: string[] = [];
+
+  for await (const entry of kv.list(["tags", tag])) {
+    postIds.push(entry.value);
+  }
+
+  const entries = await kv.getMany<Post>(postIds.map(id => ["posts", id]));
+  return entries.map(e => e.value).filter(Boolean) as Post[];
+}
+----
+
+=== Manutenção de Índices
+
+O maior desafio de índices manuais é **mantê-los sincronizados** com os dados.
+
+==== Atualizar Campo Indexado
+
+Quando o valor indexado muda, você precisa atualizar o índice:
+
+[source,typescript]
+----
+async function updateUserEmail(oderId: string, newEmail: string): Promise<void> {
+  const user = await kv.get<User>(["users", oderId]);
+  if (!user.value) throw new Error("Usuário não encontrado");
+
+  const oldEmail = user.value.email;
+
+  // Se email não mudou, não precisa atualizar índice
+  if (oldEmail === newEmail) {
+    return;
+  }
+
+  // Verifica se novo email já existe
+  const existing = await kv.get(["users_by_email", newEmail]);
+  if (existing.value && existing.value !== oderId) {
+    throw new Error("Email já em uso");
+  }
+
+  // Atualiza atomicamente: usuário + índice antigo + índice novo
+  const result = await kv.atomic()
+    .check(user)  // Garante que usuário não mudou
+    .check({ key: ["users_by_email", newEmail], versionstamp: null })
+    .set(["users", oderId], { ...user.value, email: newEmail })
+    .delete(["users_by_email", oldEmail])  // Remove índice antigo
+    .set(["users_by_email", newEmail], oderId)  // Cria índice novo
+    .commit();
+
+  if (!result.ok) {
+    throw new Error("Conflito - tente novamente");
+  }
+}
+----
+
+==== Atualizar Tags (N:N)
+
+[source,typescript]
+----
+async function updatePostTags(postId: string, newTags: string[]): Promise<void> {
+  const post = await kv.get<Post>(["posts", postId]);
+  if (!post.value) throw new Error("Post não encontrado");
+
+  const oldTags = new Set(post.value.tags);
+  const newTagSet = new Set(newTags);
+
+  const atomic = kv.atomic()
+    .check(post)
+    .set(["posts", postId], { ...post.value, tags: newTags });
+
+  // Remover índices de tags removidas
+  for (const tag of oldTags) {
+    if (!newTagSet.has(tag)) {
+      atomic.delete(["tags", tag, postId]);
+    }
+  }
+
+  // Adicionar índices de tags novas
+  for (const tag of newTagSet) {
+    if (!oldTags.has(tag)) {
+      atomic.set(["tags", tag, postId], postId);
+    }
+  }
+
+  await atomic.commit();
+}
+----
+
+==== Deletar com Índices
+
+Não esqueça de remover os índices ao deletar:
+
+[source,typescript]
+----
+async function deleteUser(oderId: string): Promise<void> {
+  const user = await kv.get<User>(["users", oderId]);
+  if (!user.value) return;
+
+  await kv.atomic()
+    .delete(["users", oderId])
+    .delete(["users_by_email", user.value.email])
+    .delete(["users_by_cpf", user.value.cpf])
+    .delete(["users_by_city", user.value.city, oderId])
+    .commit();
+}
+----
+
+=== Reconstrução de Índices
+
+Se um índice ficar inconsistente (bug, migração), você pode reconstruí-lo:
+
+[source,typescript]
+----
+async function rebuildEmailIndex(): Promise<void> {
+  console.log("Limpando índice antigo...");
+  await kv.delete(["users_by_email"]);
+
+  console.log("Reconstruindo índice...");
+  let count = 0;
+
+  for await (const entry of kv.list<User>(["users"])) {
+    const user = entry.value;
+    await kv.set(["users_by_email", user.email], user.id);
+    count++;
+
+    if (count % 1000 === 0) {
+      console.log(`Processados: ${count}`);
+    }
+  }
+
+  console.log(`Índice reconstruído: ${count} entradas`);
+}
+----
+
+Para volumes grandes, processe em batches:
+
+[source,typescript]
+----
+async function rebuildIndexBatched(): Promise<void> {
+  const BATCH_SIZE = 100;
+  let processed = 0;
+  let batch: Array<{ key: KvKey; value: string }> = [];
+
+  for await (const entry of kv.list<User>(["users"])) {
+    batch.push({
+      key: ["users_by_email", entry.value.email],
+      value: entry.value.id
+    });
+
+    if (batch.length >= BATCH_SIZE) {
+      const atomic = kv.atomic();
+      for (const item of batch) {
+        atomic.set(item.key, item.value);
+      }
+      await atomic.commit();
+
+      processed += batch.length;
+      console.log(`Processados: ${processed}`);
+      batch = [];
+    }
+  }
+
+  // Processa resto
+  if (batch.length > 0) {
+    const atomic = kv.atomic();
+    for (const item of batch) {
+      atomic.set(item.key, item.value);
+    }
+    await atomic.commit();
+  }
+}
+----
+
+=== Denormalização no Índice
+
+Para evitar lookup adicional, armazene dados no índice:
+
+[source,typescript]
+----
+// Em vez de apenas ID...
+["users_by_city", "São Paulo", oderId] → oderId
+
+// ...armazene dados frequentemente usados
+["users_by_city", "São Paulo", oderId] → {
+  id: oderId,
+  name: "Alice",
+  email: "alice@ex.com"
+}
+----
+
+**Vantagem:** Lista sem lookup adicional.
+
+[source,typescript]
+----
+async function getUsersByCity(city: string): Promise<UserPreview[]> {
+  const users: UserPreview[] = [];
+
+  for await (const entry of kv.list<UserPreview>(["users_by_city", city])) {
+    users.push(entry.value);  // Já tem os dados!
+  }
+
+  return users;
+}
+// 1 query apenas!
+----
+
+WARNING: Dados denormalizados podem ficar desatualizados. Use apenas para dados que mudam raramente.
+
+=== Referência Rápida
+
+[cols="2,2,3"]
+|===
+| Caso de Uso | Tipo de Índice | Estrutura da Chave
+
+| Email único, CPF
+| Único
+| `["users_by_email", email] → id`
+
+| Usuários por cidade
+| Não-único
+| `["users_by_city", city, id] → id`
+
+| Produtos por categoria + preço
+| Composto
+| `["products_by_cat_price", cat, price, id] → id`
+
+| Posts por tag
+| Invertido
+| `["tags", tag, postId] → postId`
+
+| Eventos recentes
+| Temporal
+| `["events_by_time", timestamp, id] → id`
+
+| Autocomplete
+| Prefixo
+| `["users_by_name", prefix, id] → {id, name}`
+|===
+
+=== Exceção: Índices de Busca Textual (FTS)
+
+Os índices descritos acima são **manuais** — você os cria e mantém no código. Porém, para **busca textual** (full-text search), o KeyVal oferece uma exceção: índices FTS gerenciados pelo servidor.
+
+==== O que é FTS?
+
+Full-Text Search (FTS) é uma técnica de busca que permite encontrar documentos baseado no **conteúdo textual**, não apenas em correspondências exatas. Diferente de um `LIKE '%termo%'` que faz varredura sequencial, FTS usa estruturas de dados otimizadas (índices invertidos) para buscas eficientes.
+
+[source,typescript]
+----
+// Sem FTS: varredura completa, lento
+for await (const entry of kv.list<Post>(["posts"])) {
+  if (entry.value.content.toLowerCase().includes("typescript")) {
+    results.push(entry.value);
+  }
+}
+// O(n) - precisa ler TODOS os posts
+
+// Com FTS: busca indexada, rápido
+const results = await kv.ftsSearch("posts_content", "typescript");
+// O(log n) - usa índice invertido
+----
+
+==== Recursos do FTS
+
+O FTS do KeyVal (baseado em SQLite FTS5) oferece:
+
+- **Tokenização:** Quebra texto em palavras para indexação
+- **Stemming:** "correndo" encontra "correr" (em inglês por padrão)
+- **Ranking:** Resultados ordenados por relevância (BM25)
+- **Operadores booleanos:** `typescript AND tutorial`, `react OR vue`
+- **Busca por prefixo:** `type*` encontra "typescript", "types", "typing"
+- **Busca por frase:** `"full text search"` encontra a frase exata
+- **Highlight/Snippet:** Trechos com termos destacados
+
+==== Quando Usar FTS
+
+**Use FTS para:**
+
+- Busca em conteúdo de texto livre (posts, comentários, documentos)
+- Autocomplete com múltiplas palavras
+- Busca com tolerância a variações (plural, conjugação)
+- Casos onde ranking por relevância é importante
+
+**Não use FTS para:**
+
+- Campos estruturados (email, CPF, ID) — use índices manuais
+- Correspondências exatas — use `get()` ou índice único
+- Filtros por range numérico — use índice composto
+- Dados que mudam muito frequentemente — overhead de reindexação
+
+==== Criando Índices FTS
+
+[source,typescript]
+----
+// Criar índice FTS para conteúdo de posts
+await kv.ftsCreate("posts_content", {
+  fields: ["title", "content"],  // Campos a indexar
+  prefix: ["posts"]              // Prefixo das chaves a monitorar
+});
+----
+
+O índice é **atualizado automaticamente** quando você faz `set()` ou `delete()` em chaves com o prefixo configurado.
+
+==== Buscando com FTS
+
+[source,typescript]
+----
+// Busca simples
+const results = await kv.ftsSearch("posts_content", "typescript tutorial");
+
+// Com opções
+const results = await kv.ftsSearch("posts_content", "typescript", {
+  limit: 20,
+  offset: 0,
+  highlight: true,  // Inclui trechos com termos destacados
+  order: "rank"     // Ordena por relevância
+});
+
+// Resultado
+// [
+//   { key: ["posts", "post_123"], rank: 2.5, highlights: { title: "Intro to <b>TypeScript</b>" } },
+//   { key: ["posts", "post_456"], rank: 1.8, highlights: { content: "...using <b>TypeScript</b> for..." } }
+// ]
+----
+
+==== Sintaxe de Query FTS
+
+[cols="1,2,2"]
+|===
+| Operador | Exemplo | Descrição
+
+| AND (implícito)
+| `typescript tutorial`
+| Ambos os termos
+
+| OR
+| `react OR vue`
+| Um ou outro
+
+| NOT
+| `javascript NOT typescript`
+| Exclui termo
+
+| Prefixo
+| `type*`
+| Começa com "type"
+
+| Frase
+| `"full text search"`
+| Frase exata
+
+| Campo específico
+| `title:typescript`
+| Busca apenas no campo title
+|===
+
+==== Vantagens e Desvantagens
+
+**Vantagens:**
+
+- Performance muito superior a varredura manual
+- Suporte a stemming e ranking automático
+- Sintaxe de query poderosa
+- Índice mantido automaticamente pelo servidor
+- Integrado ao modelo transacional do KeyVal
+
+**Desvantagens:**
+
+- Overhead de armazenamento (índice adicional)
+- Overhead de escrita (reindexação a cada update)
+- Limitado a texto (não indexa números, datas)
+- Stemming em inglês por padrão (português requer configuração)
+- Não substitui índices para queries estruturadas
+
+==== Considerações de Uso
+
+**Tamanho do índice:** FTS pode dobrar ou triplicar o espaço de armazenamento dependendo do volume de texto. Monitore o crescimento.
+
+**Frequência de escrita:** Cada `set()` em dados indexados dispara reindexação. Para imports em massa, considere desabilitar temporariamente o índice.
+
+**Idioma:** O tokenizer padrão funciona bem para inglês. Para português, considere configurar um tokenizer customizado ou usar busca por prefixo para contornar limitações de stemming.
+
+**Queries complexas:** FTS é otimizado para busca textual, não para filtros combinados. Para "posts de TypeScript na categoria X do usuário Y", use FTS para o texto e filtre os resultados com índices manuais.
+
+[source,typescript]
+----
+// Combinar FTS com filtros manuais
+async function searchUserPosts(userId: string, query: string): Promise<Post[]> {
+  // 1. Busca textual
+  const ftsResults = await kv.ftsSearch("posts_content", query, { limit: 100 });
+
+  // 2. Filtra por usuário (lookup nos dados)
+  const posts: Post[] = [];
+  for (const result of ftsResults) {
+    const post = await kv.get<Post>(result.key);
+    if (post.value?.userId === userId) {
+      posts.push(post.value);
+    }
+  }
+
+  return posts;
+}
+----
+
+TIP: Para filtros frequentes combinados com FTS, crie índices FTS separados por categoria: `posts_content_typescript`, `posts_content_react`, etc.

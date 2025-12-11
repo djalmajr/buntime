@@ -1,0 +1,577 @@
+== Expiração de Dados (TTL)
+
+=== O que é TTL?
+
+TTL (Time-To-Live) é o tempo de vida de um dado. Quando você define um TTL, está dizendo: "este dado só é válido por X tempo, depois disso pode ser apagado".
+
+Pense em exemplos do mundo real:
+
+* **Bilhete de ônibus**: válido apenas no dia da compra
+* **Cupom de desconto**: expira em 7 dias
+* **Senha temporária**: válida por 15 minutos
+
+No KeyVal, TTL funciona da mesma forma: você define quanto tempo um dado deve "viver" no banco antes de expirar.
+
+=== Por que usar TTL?
+
+==== Limpeza Automática
+
+Sem TTL, você precisa lembrar de apagar dados manualmente:
+
+[source,typescript]
+----
+// Você precisa lembrar de limpar depois
+await kv.set(["session", sessionId], userData);
+
+// Depois de 24h, você precisa fazer:
+await kv.delete(["session", sessionId]); // Fácil esquecer!
+----
+
+Com TTL, a remoção é automática:
+
+[source,typescript]
+----
+// Expira automaticamente em 24h
+await kv.set(["session", sessionId], userData, { expireIn: "24h" });
+// Você não precisa fazer mais nada!
+----
+
+==== Economia de Espaço
+
+Dados que não são mais necessários ocupam espaço. TTL garante que o banco não fique cheio de "lixo".
+
+==== Conformidade com Requisitos
+
+Alguns tipos de dado DEVEM ser apagados após um tempo:
+
+* **LGPD/GDPR**: dados temporários de usuários
+* **PCI-DSS**: tokens de pagamento
+* **Segurança**: senhas temporárias, códigos de verificação
+
+=== Como Funciona a Expiração
+
+==== Definindo TTL na Criação
+
+Use a opção `expireIn` ao criar um dado:
+
+[source,typescript]
+----
+import { Keyval } from "@buntime/keyval";
+
+const kv = new Keyval({ libsqlUrl: "..." });
+
+// Expira em 1 hora
+await kv.set(["temp", "data"], { value: 123 }, { expireIn: "1h" });
+
+// Expira em 30 minutos
+await kv.set(["cache", "result"], data, { expireIn: "30m" });
+
+// Expira em 7 dias
+await kv.set(["token", userId], token, { expireIn: "7d" });
+----
+
+==== Sintaxe do `expireIn`
+
+O `expireIn` aceita strings no formato:
+
+[cols="1,2,1"]
+|===
+| Formato | Descrição | Exemplo
+
+| `Ns`
+| N segundos
+| `"30s"` = 30 segundos
+
+| `Nm`
+| N minutos
+| `"15m"` = 15 minutos
+
+| `Nh`
+| N horas
+| `"2h"` = 2 horas
+
+| `Nd`
+| N dias
+| `"7d"` = 7 dias
+|===
+
+Você também pode combinar unidades:
+
+[source,typescript]
+----
+// 1 dia e 12 horas
+await kv.set(key, value, { expireIn: "1d 12h" });
+
+// 2 horas e 30 minutos
+await kv.set(key, value, { expireIn: "2h 30m" });
+
+// 1 hora, 15 minutos e 30 segundos
+await kv.set(key, value, { expireIn: "1h 15m 30s" });
+----
+
+TIP: Use unidades maiores quando possível: `"1h"` é mais legível que `"3600s"`.
+
+==== Comportamento na Expiração
+
+Quando o TTL expira:
+
+1. O dado é marcado como expirado
+2. `get()` retorna `null`
+3. O dado é removido em background
+
+[source,typescript]
+----
+// Criar dado com TTL de 5 segundos
+await kv.set(["temp"], "value", { expireIn: "5s" });
+
+// Imediatamente após criar
+const result1 = await kv.get(["temp"]);
+console.log(result1.value); // "value"
+
+// Esperar 6 segundos
+await new Promise(resolve => setTimeout(resolve, 6000));
+
+// Após expirar
+const result2 = await kv.get(["temp"]);
+console.log(result2.value); // null
+----
+
+=== Casos de Uso Comuns
+
+==== Sessões de Usuário
+
+Sessões devem expirar após um período de inatividade:
+
+[source,typescript]
+----
+interface SessionData {
+  userId: string;
+  email: string;
+  roles: string[];
+}
+
+async function createSession(userId: string, data: SessionData) {
+  const sessionId = crypto.randomUUID();
+
+  // Sessão expira em 7 dias
+  await kv.set(["session", sessionId], data, { expireIn: "7d" });
+
+  return sessionId;
+}
+
+async function getSession(sessionId: string) {
+  const result = await kv.get<SessionData>(["session", sessionId]);
+
+  if (!result.value) {
+    throw new Error("Sessão expirada ou inválida");
+  }
+
+  return result.value;
+}
+----
+
+==== Cache de Resultados
+
+Armazene resultados de operações caras por tempo limitado:
+
+[source,typescript]
+----
+async function getUserProfile(userId: string) {
+  const cacheKey = ["cache", "profile", userId];
+
+  // Tentar buscar do cache
+  const cached = await kv.get<UserProfile>(cacheKey);
+  if (cached.value) {
+    console.log("Cache HIT");
+    return cached.value;
+  }
+
+  // Cache MISS: buscar do banco de dados
+  console.log("Cache MISS");
+  const profile = await db.users.findById(userId);
+
+  // Salvar no cache por 1 hora
+  await kv.set(cacheKey, profile, { expireIn: "1h" });
+
+  return profile;
+}
+----
+
+==== Rate Limiting
+
+Controle quantas requisições um usuário pode fazer:
+
+[source,typescript]
+----
+async function checkRateLimit(userId: string): Promise<boolean> {
+  const key = ["ratelimit", userId];
+
+  // Verificar contador atual
+  const result = await kv.get<number>(key);
+  const count = result.value || 0;
+
+  // Limite: 100 requisições por hora
+  if (count >= 100) {
+    return false; // Bloqueado
+  }
+
+  // Incrementar contador
+  await kv.set(key, count + 1, { expireIn: "1h" });
+
+  return true; // Permitido
+}
+----
+
+NOTE: Para rate limiting mais sofisticado, use o plugin `@buntime/plugin-gateway`.
+
+==== Tokens Temporários
+
+Códigos de verificação, reset de senha, etc:
+
+[source,typescript]
+----
+async function createPasswordResetToken(email: string) {
+  const token = crypto.randomUUID();
+
+  // Token válido por 15 minutos
+  await kv.set(
+    ["reset-token", token],
+    { email, createdAt: Date.now() },
+    { expireIn: "15m" }
+  );
+
+  return token;
+}
+
+async function validateResetToken(token: string) {
+  const result = await kv.get<{ email: string }>(["reset-token", token]);
+
+  if (!result.value) {
+    throw new Error("Token inválido ou expirado");
+  }
+
+  return result.value.email;
+}
+
+async function useResetToken(token: string) {
+  const email = await validateResetToken(token);
+
+  // Invalidar token após uso
+  await kv.delete(["reset-token", token]);
+
+  return email;
+}
+----
+
+==== Locks Distribuídos
+
+Garantir que apenas um processo execute uma tarefa:
+
+[source,typescript]
+----
+async function acquireLock(
+  resource: string,
+  ttl: string = "30s"
+): Promise<boolean> {
+  const key = ["lock", resource];
+  const lockId = crypto.randomUUID();
+
+  // Tentar criar lock (atomic set)
+  const result = await kv.atomic()
+    .check({ key, versionstamp: null }) // Só cria se não existir
+    .set(key, lockId, { expireIn: ttl })
+    .commit();
+
+  return result.ok;
+}
+
+async function withLock<T>(
+  resource: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  // Tentar adquirir lock
+  const acquired = await acquireLock(resource);
+
+  if (!acquired) {
+    throw new Error(`Recurso "${resource}" está bloqueado`);
+  }
+
+  try {
+    return await fn();
+  } finally {
+    // Liberar lock
+    await kv.delete(["lock", resource]);
+  }
+}
+
+// Uso
+await withLock("process-payments", async () => {
+  // Apenas um worker executará este código por vez
+  await processPayments();
+});
+----
+
+=== Renovando TTL
+
+==== Estendendo Tempo de Vida
+
+Para renovar o TTL de um dado existente, você precisa re-salvá-lo:
+
+[source,typescript]
+----
+async function extendSession(sessionId: string) {
+  const key = ["session", sessionId];
+
+  // Buscar dados atuais
+  const result = await kv.get<SessionData>(key);
+
+  if (!result.value) {
+    throw new Error("Sessão não encontrada");
+  }
+
+  // Re-salvar com novo TTL
+  await kv.set(key, result.value, { expireIn: "7d" });
+}
+----
+
+WARNING: Não há método `extend()` nativo. Você sempre precisa fazer `get()` + `set()`.
+
+==== Renovação Automática em Sessões
+
+Renove automaticamente quando o usuário estiver ativo:
+
+[source,typescript]
+----
+async function getSessionAndRenew(sessionId: string) {
+  const key = ["session", sessionId];
+  const result = await kv.get<SessionData>(key);
+
+  if (!result.value) {
+    return null;
+  }
+
+  // Renovar TTL a cada acesso (sliding expiration)
+  await kv.set(key, result.value, { expireIn: "7d" });
+
+  return result.value;
+}
+----
+
+==== Padrão: Sliding vs Absolute Expiration
+
+[cols="1,2,2"]
+|===
+| Tipo | Comportamento | Quando Usar
+
+| **Sliding**
+| TTL renova a cada acesso
+| Sessões de usuário (enquanto ativo, mantém logado)
+
+| **Absolute**
+| TTL fixo, não renova
+| Tokens temporários (código expira em 15min, independente de uso)
+|===
+
+Exemplo de Absolute Expiration:
+
+[source,typescript]
+----
+async function createVerificationCode(email: string) {
+  const code = Math.random().toString().slice(2, 8);
+
+  await kv.set(
+    ["verify", email],
+    { code, expiresAt: Date.now() + 15 * 60 * 1000 },
+    { expireIn: "15m" }
+  );
+
+  return code;
+}
+
+async function verifyCode(email: string, code: string) {
+  const result = await kv.get<{ code: string; expiresAt: number }>(
+    ["verify", email]
+  );
+
+  if (!result.value) {
+    throw new Error("Código expirado");
+  }
+
+  // Verificar expiração absoluta
+  if (Date.now() > result.value.expiresAt) {
+    await kv.delete(["verify", email]);
+    throw new Error("Código expirado");
+  }
+
+  if (result.value.code !== code) {
+    throw new Error("Código inválido");
+  }
+
+  // NÃO renovar - é absolute expiration
+  await kv.delete(["verify", email]);
+  return true;
+}
+----
+
+=== Limpeza de Dados Expirados
+
+==== Limpeza Automática
+
+O KeyVal remove dados expirados automaticamente em background:
+
+* Verificação periódica de dados expirados
+* Remoção física do banco de dados
+* Sem impacto na performance de operações normais
+
+==== Limpeza Manual (Opcional)
+
+Para forçar limpeza imediata:
+
+[source,typescript]
+----
+async function cleanupExpired() {
+  const now = Date.now();
+
+  // Buscar todos expirados
+  const expired = await kv.list([], {
+    where: { expiresAt: { $lt: now } }
+  });
+
+  // Remover em lote
+  const tx = kv.atomic();
+  for (const entry of expired) {
+    tx.delete(entry.key);
+  }
+  await tx.commit();
+}
+----
+
+TIP: Implementação manual só é necessária para requisitos específicos. A limpeza automática é suficiente para a maioria dos casos.
+
+==== Verificando Dados Expirados
+
+Para listar dados expirados (debug/monitoramento):
+
+[source,typescript]
+----
+async function listExpiredSessions() {
+  const now = Date.now();
+
+  const result = await kv.list(["session"], {
+    where: {
+      expiresAt: { $lt: now }
+    }
+  });
+
+  console.log(`Encontradas ${result.length} sessões expiradas`);
+  return result;
+}
+----
+
+=== Armadilhas Comuns
+
+==== Esqueceu de Definir TTL
+
+[source,typescript]
+----
+// Cache sem expiração = vazamento de memória
+await kv.set(["cache", userId], data);
+
+// Sempre defina TTL para dados temporários
+await kv.set(["cache", userId], data, { expireIn: "1h" });
+----
+
+WARNING: Se um dado deve ser temporário, SEMPRE defina `expireIn`. Dados sem TTL ficam no banco para sempre.
+
+==== TTL Muito Curto
+
+[source,typescript]
+----
+// Cache inútil: expira antes de ser usado
+await kv.set(["cache", "expensive-query"], result, { expireIn: "1s" });
+
+// TTL adequado ao padrão de acesso
+await kv.set(["cache", "expensive-query"], result, { expireIn: "5m" });
+----
+
+TIP: Analise quanto tempo o dado permanece válido e útil antes de definir o TTL.
+
+==== TTL Muito Longo
+
+[source,typescript]
+----
+// Código de verificação válido por 7 dias = risco de segurança
+await kv.set(["verify", email], code, { expireIn: "7d" });
+
+// Códigos de verificação devem expirar rápido
+await kv.set(["verify", email], code, { expireIn: "15m" });
+----
+
+IMPORTANT: Dados sensíveis (tokens, códigos) devem ter TTL curto por segurança.
+
+==== Não Tratar Expiração
+
+[source,typescript]
+----
+// Não verifica se sessão expirou
+const session = await kv.get(["session", sessionId]);
+return session.value.userId; // Pode ser null!
+
+// Sempre verifique se o dado existe
+const session = await kv.get(["session", sessionId]);
+if (!session.value) {
+  throw new Error("Sessão expirada");
+}
+return session.value.userId;
+----
+
+==== Renovação Desnecessária
+
+[source,typescript]
+----
+// Renova cache a cada leitura = trabalho desnecessário
+const cached = await kv.get(cacheKey);
+if (cached.value) {
+  await kv.set(cacheKey, cached.value, { expireIn: "1h" });
+  return cached.value;
+}
+
+// Cache não precisa de renovação (não é sessão)
+const cached = await kv.get(cacheKey);
+if (cached.value) {
+  return cached.value;
+}
+----
+
+NOTE: Apenas sessões e dados "ativos" precisam de sliding expiration. Cache deve usar absolute expiration.
+
+==== Usar TTL como Validação
+
+[source,typescript]
+----
+// Confiar apenas no TTL para validação
+const token = await kv.get(["token", tokenId]);
+if (token.value) {
+  // Assumir que token é válido só porque existe
+  return token.value;
+}
+
+// Validar lógica de negócio além do TTL
+const token = await kv.get<TokenData>(["token", tokenId]);
+if (!token.value) {
+  throw new Error("Token expirado");
+}
+
+// Validações adicionais
+if (token.value.used) {
+  throw new Error("Token já foi usado");
+}
+if (token.value.userId !== currentUserId) {
+  throw new Error("Token não pertence a este usuário");
+}
+
+return token.value;
+----
+
+IMPORTANT: TTL garante que o dado será removido, mas não substitui validações de negócio.
+

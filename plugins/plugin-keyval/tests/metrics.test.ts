@@ -63,7 +63,7 @@ describe("KvMetrics integration", () => {
       kv.metrics.reset();
 
       const entries = [];
-      for await (const entry of kv.list({ prefix: ["list"] })) {
+      for await (const entry of kv.list(["list"])) {
         entries.push(entry);
       }
 

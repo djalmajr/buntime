@@ -97,18 +97,6 @@ function RedirectsListPage() {
       cell: ({ row }) => {
         const isReadonly = row.original.readonly;
 
-        const editButton = (
-          <Button
-            className="size-8"
-            disabled={isReadonly}
-            size="icon"
-            variant="ghost"
-            onClick={() => handleEditClick(row.original)}
-          >
-            <Icon className="size-4.5" icon="lucide:pencil" />
-          </Button>
-        );
-
         const deleteButton = (
           <Button
             className="size-8"
@@ -121,29 +109,26 @@ function RedirectsListPage() {
           </Button>
         );
 
-        if (isReadonly) {
-          return (
-            <div className="flex items-center justify-end gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="cursor-not-allowed">{editButton}</span>
-                </TooltipTrigger>
-                <TooltipContent>{t("list.readonlyHint")}</TooltipContent>
-              </Tooltip>
+        return (
+          <div className="flex items-center justify-end gap-1">
+            <Button
+              className="size-8"
+              size="icon"
+              variant="ghost"
+              onClick={() => handleEditClick(row.original)}
+            >
+              <Icon className="size-4.5" icon={isReadonly ? "lucide:eye" : "lucide:pencil"} />
+            </Button>
+            {isReadonly ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="cursor-not-allowed">{deleteButton}</span>
                 </TooltipTrigger>
                 <TooltipContent>{t("list.readonlyHint")}</TooltipContent>
               </Tooltip>
-            </div>
-          );
-        }
-
-        return (
-          <div className="flex items-center justify-end gap-1">
-            {editButton}
-            {deleteButton}
+            ) : (
+              deleteButton
+            )}
           </div>
         );
       },
@@ -168,6 +153,7 @@ function RedirectsListPage() {
 
       <RedirectDrawer
         open={drawerOpen}
+        readonly={editingRedirect?.readonly}
         redirect={editingRedirect}
         onOpenChange={setDrawerOpen}
         onSave={handleSave}

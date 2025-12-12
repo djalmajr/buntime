@@ -1,0 +1,37 @@
+{
+  "clearAll": {
+    "button": "Clear All Cache",
+    "cancelButton": "Cancel",
+    "confirmButton": "Yes, Clear All",
+    "confirmMessage": "Are you sure you want to clear all cache entries? This action cannot be undone.",
+    "description": "Remove all cached entries. Use with caution.",
+    "title": "Clear All Cache"
+  },
+  "error": {
+    "title": "Error"
+  },
+  "invalidateKey": {
+    "button": "Invalidate by Key",
+    "description": "Remove a specific cache entry by its exact key",
+    "keyLabel": "Cache Key",
+    "keyPlaceholder": "e.g., /api/users/123",
+    "title": "Invalidate by Key"
+  },
+  "invalidatePattern": {
+    "button": "Invalidate by Pattern",
+    "description": "Remove all cache entries matching a pattern (supports wildcards)",
+    "patternLabel": "Pattern",
+    "patternPlaceholder": "e.g., /api/users/*",
+    "title": "Invalidate by Pattern"
+  },
+  "result": {
+    "allInvalidated": "All cache entries have been cleared",
+    "countInvalidated": "{{count}} cache entry invalidated",
+    "countInvalidated_other": "{{count}} cache entries invalidated",
+    "title": "Success"
+  },
+  "title": {
+    "subtitle": "Manage cached responses",
+    "title": "Cache Management"
+  }
+}

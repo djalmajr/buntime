@@ -1,0 +1,50 @@
+{
+  "create": {
+    "fields": {
+      "deny": "Negar",
+      "description": "Descrição",
+      "effect": "Efeito",
+      "id": "ID da Política",
+      "name": "Nome",
+      "permit": "Permitir",
+      "priority": "Prioridade"
+    },
+    "placeholders": {
+      "path": "/api/users/*",
+      "role": "admin"
+    },
+    "preview": {
+      "subtitle": "Representação JSON da política",
+      "title": "Pré-visualização da Política"
+    },
+    "save": "Salvar Política",
+    "sections": {
+      "actions": "Ações",
+      "resources": "Recursos",
+      "subjects": "Sujeitos"
+    },
+    "subtitle": "Defina uma nova política de autorização",
+    "title": "Criar Política"
+  },
+  "list": {
+    "confirmDelete": "Tem certeza que deseja excluir esta política?",
+    "loading": "Carregando políticas...",
+    "noPolicies": "Nenhuma política encontrada. Crie uma para começar.",
+    "policies": "Políticas",
+    "policiesDescription": "Todas as políticas do sistema",
+    "refresh": "Atualizar",
+    "subtitle": "Gerencie políticas de autorização",
+    "table": {
+      "actions": "Ações",
+      "effect": "Efeito",
+      "id": "ID",
+      "name": "Nome",
+      "priority": "Prioridade"
+    },
+    "title": "Políticas"
+  },
+  "tabs": {
+    "create": "Criar",
+    "list": "Listar"
+  }
+}

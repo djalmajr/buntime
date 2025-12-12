@@ -1,4 +1,7 @@
+import { Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { Icon } from "~/components/icon";
+import { Button } from "~/components/ui/button";
 import { useHeader } from "~/contexts/header-context";
 
 export interface CrudLayoutProps {
@@ -9,21 +12,33 @@ export interface CrudLayoutProps {
 }
 
 export function CrudLayout({ addButtonLink, addButtonText, children, onAddItem }: CrudLayoutProps) {
-  const { setAction } = useHeader();
+  const { setHeader } = useHeader();
 
   useEffect(() => {
     if (addButtonText) {
-      setAction({
-        href: addButtonLink,
-        label: addButtonText,
-        onClick: onAddItem,
+      setHeader({
+        actions: (
+          <Button asChild={!!addButtonLink} size="sm" onClick={onAddItem}>
+            {addButtonLink ? (
+              <Link to={addButtonLink}>
+                <Icon className="size-4" icon="lucide:plus" />
+                <span>{addButtonText}</span>
+              </Link>
+            ) : (
+              <>
+                <Icon className="size-4" icon="lucide:plus" />
+                <span>{addButtonText}</span>
+              </>
+            )}
+          </Button>
+        ),
       });
     }
 
     return () => {
-      setAction(null);
+      setHeader(null);
     };
-  }, [addButtonText, addButtonLink, onAddItem, setAction]);
+  }, [addButtonText, addButtonLink, onAddItem, setHeader]);
 
   return <div className="flex flex-1 flex-col gap-4 overflow-hidden">{children}</div>;
 }

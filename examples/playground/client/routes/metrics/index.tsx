@@ -1,204 +1,227 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Icon } from "~/components/icon";
 import { Badge } from "~/components/ui/badge";
-import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
-import { kv } from "~/helpers/kv";
+import { ScrollArea } from "~/components/ui/scroll-area";
+import { metricsApi, type StatsResponse } from "~/helpers/metrics-api";
 import { PageHeader } from "~/routes/-components/page-header";
 
-interface KvOperationMetrics {
-  avgLatencyMs: number;
-  count: number;
-  errors: number;
+function formatUptime(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${secs}s`;
+  }
+  return `${secs}s`;
 }
 
-interface KvMetrics {
-  operations: {
-    operations: Record<string, KvOperationMetrics>;
-    totals: { errors: number; operations: number };
-  };
-  queue: { dlq: number; pending: number; processing: number; total: number };
-  storage: { entries: number; sizeBytes: number };
-}
-
-function MetricsPage() {
+function MetricsDashboard() {
   const { t } = useTranslation("metrics");
-  const [metrics, setMetrics] = useState<KvMetrics | null>(null);
-  const [prometheus, setPrometheus] = useState("");
-  const [autoRefresh, setAutoRefresh] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  const loadMetrics = useCallback(async () => {
-    setLoading(true);
-    try {
-      const jsonMetrics = (await kv.metrics()) as unknown as KvMetrics;
-      setMetrics(jsonMetrics);
-    } catch (error) {
-      console.error("Metrics error:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const loadPrometheus = useCallback(async () => {
-    setLoading(true);
-    try {
-      const text = (await kv.metrics("prometheus")) as string;
-      setPrometheus(text);
-    } catch (error) {
-      console.error("Prometheus error:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    loadMetrics();
-  }, [loadMetrics]);
+    setConnected(false);
+    const es = metricsApi.createSSEConnection((data) => {
+      setStats(data);
+      setConnected(true);
+    });
 
-  useEffect(() => {
-    if (!autoRefresh) return;
+    es.addEventListener("open", () => {
+      setConnected(true);
+    });
 
-    const interval = setInterval(() => {
-      loadMetrics();
-    }, 5000);
+    es.addEventListener("error", () => {
+      setConnected(false);
+    });
 
-    return () => clearInterval(interval);
-  }, [autoRefresh, loadMetrics]);
+    return () => {
+      es.close();
+      setConnected(false);
+    };
+  }, []);
 
-  const totalOperations = metrics?.operations.totals.operations ?? 0;
-  const totalErrors = metrics?.operations.totals.errors ?? 0;
+  const connectionStatus = connected ? "connected" : "connecting";
 
   return (
-    <div className="space-y-6">
-      <PageHeader description={t("description")} title={t("title")} />
+    <ScrollArea className="h-full">
+      <div className="m-4 space-y-4">
+        <PageHeader description={t("dashboard.description")} title={t("dashboard.title")} />
 
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+        {/* Connection Status */}
         <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{t("stats.totalKeys")}</CardDescription>
-            <CardTitle className="text-2xl">{metrics?.storage.entries ?? "-"}</CardTitle>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">{t("realtime.title")}</CardTitle>
+              <Badge variant={connected ? "default" : "secondary"}>
+                {connected ? (
+                  <Icon className="mr-1 size-3" icon="lucide:wifi" />
+                ) : (
+                  <Icon className="mr-1 size-3 animate-pulse" icon="lucide:wifi-off" />
+                )}
+                {t(`realtime.${connectionStatus}`)}
+              </Badge>
+            </div>
           </CardHeader>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{t("stats.queueMessages")}</CardDescription>
-            <CardTitle className="text-2xl">{metrics?.queue.total ?? "-"}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{t("stats.operations")}</CardDescription>
-            <CardTitle className="text-2xl">{totalOperations}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{t("stats.errors")}</CardDescription>
-            <CardTitle className="text-2xl">{totalErrors}</CardTitle>
-          </CardHeader>
-        </Card>
-      </div>
 
-      <Tabs defaultValue="json">
-        <TabsList>
-          <TabsTrigger value="json">
-            <Icon className="size-4" icon="lucide:braces" />
-            {t("tabs.json")}
-          </TabsTrigger>
-          <TabsTrigger value="prometheus">
-            <Icon className="size-4" icon="lucide:activity" />
-            {t("tabs.prometheus")}
-          </TabsTrigger>
-        </TabsList>
+        {stats && (
+          <>
+            {/* Quick Stats Cards */}
+            <div className="grid gap-4 md:grid-cols-3">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">{t("quickStats.workers")}</CardTitle>
+                  <Icon className="size-4 text-muted-foreground" icon="lucide:users" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{stats.pool.activeWorkers}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.pool.idleWorkers} {t("poolStats.idleWorkers").toLowerCase()}
+                  </p>
+                </CardContent>
+              </Card>
 
-        <TabsContent className="space-y-4" value="json">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>{t("json.title")}</CardTitle>
-                  <CardDescription>{t("json.description")}</CardDescription>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant={autoRefresh ? "default" : "outline"}
-                    onClick={() => setAutoRefresh(!autoRefresh)}
-                  >
-                    {autoRefresh ? (
-                      <>
-                        <Icon className="size-4 animate-pulse" icon="lucide:radio" />
-                        {t("json.autoRefreshOn")}
-                      </>
-                    ) : (
-                      <>
-                        <Icon className="size-4" icon="lucide:radio" />
-                        {t("json.autoRefreshOff")}
-                      </>
-                    )}
-                  </Button>
-                  <Button disabled={loading} size="sm" onClick={loadMetrics}>
-                    {loading ? (
-                      <Icon className="size-4 animate-spin" icon="lucide:loader-2" />
-                    ) : (
-                      <Icon className="size-4" icon="lucide:refresh-cw" />
-                    )}
-                    {t("json.refresh")}
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {autoRefresh && (
-                <div className="mb-4">
-                  <Badge variant="default">
-                    <Icon className="size-3 animate-pulse" icon="lucide:radio" />
-                    {t("json.refreshing")}
-                  </Badge>
-                </div>
-              )}
-              <pre className="max-h-96 overflow-auto rounded-lg bg-muted p-4 text-sm">
-                {metrics ? JSON.stringify(metrics, null, 2) : t("json.loading")}
-              </pre>
-            </CardContent>
-          </Card>
-        </TabsContent>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">{t("quickStats.requests")}</CardTitle>
+                  <Icon className="size-4 text-muted-foreground" icon="lucide:activity" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{stats.pool.totalRequests}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.pool.pendingRequests} pending
+                  </p>
+                </CardContent>
+              </Card>
 
-        <TabsContent className="space-y-4" value="prometheus">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>{t("prometheus.title")}</CardTitle>
-                  <CardDescription>{t("prometheus.description")}</CardDescription>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">{t("quickStats.errors")}</CardTitle>
+                  <Icon className="size-4 text-muted-foreground" icon="lucide:alert-circle" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{stats.pool.totalErrors}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.pool.totalErrors > 0
+                      ? `${((stats.pool.totalErrors / stats.pool.totalRequests) * 100).toFixed(2)}% error rate`
+                      : "No errors"}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Pool Statistics */}
+            <Card>
+              <CardHeader>
+                <CardTitle>{t("poolStats.title")}</CardTitle>
+                <CardDescription>{t("dashboard.subtitle")}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium leading-none">
+                      {t("poolStats.activeWorkers")}
+                    </p>
+                    <p className="text-2xl font-bold">{stats.pool.activeWorkers}</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium leading-none">{t("poolStats.idleWorkers")}</p>
+                    <p className="text-2xl font-bold">{stats.pool.idleWorkers}</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium leading-none">
+                      {t("poolStats.pendingRequests")}
+                    </p>
+                    <p className="text-2xl font-bold">{stats.pool.pendingRequests}</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium leading-none">
+                      {t("poolStats.totalRequests")}
+                    </p>
+                    <p className="text-2xl font-bold">{stats.pool.totalRequests}</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium leading-none">{t("poolStats.totalErrors")}</p>
+                    <p className="text-2xl font-bold">{stats.pool.totalErrors}</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium leading-none">{t("poolStats.uptime")}</p>
+                    <p className="text-2xl font-bold">{formatUptime(stats.pool.uptime)}</p>
+                  </div>
                 </div>
-                <Button disabled={loading} size="sm" onClick={loadPrometheus}>
-                  {loading ? (
-                    <Icon className="size-4 animate-spin" icon="lucide:loader-2" />
-                  ) : (
-                    <Icon className="size-4" icon="lucide:refresh-cw" />
+              </CardContent>
+            </Card>
+
+            {/* Active Workers Summary */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Active Workers</CardTitle>
+                <CardDescription>
+                  Currently running workers ({stats.workers.length})
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {stats.workers.map((worker) => (
+                    <div
+                      key={worker.id}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon className="size-4 text-primary" icon="lucide:box" />
+                        <div>
+                          <p className="text-sm font-medium">Worker {worker.id}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Uptime: {formatUptime(worker.uptime)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 text-right">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Requests</p>
+                          <p className="text-sm font-medium">{worker.requests}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Errors</p>
+                          <p className="text-sm font-medium">{worker.errors}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {stats.workers.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No active workers</p>
                   )}
-                  {t("prometheus.fetch")}
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <pre className="max-h-96 overflow-auto rounded-lg bg-muted p-4 text-sm font-mono">
-                {prometheus || t("prometheus.placeholder")}
-              </pre>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
+
+        {!stats && connected && (
+          <Card>
+            <CardContent className="flex items-center justify-center py-8">
+              <p className="text-muted-foreground">Waiting for metrics data...</p>
             </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
+        )}
+      </div>
+    </ScrollArea>
   );
 }
 
 export const Route = createFileRoute("/metrics/")({
-  component: MetricsPage,
+  component: MetricsDashboard,
 });

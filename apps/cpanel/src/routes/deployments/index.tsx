@@ -36,7 +36,7 @@ interface FileEntry {
 
 function DeploymentsPage() {
   const { t } = useTranslation("deployments");
-  const { setAction } = useHeader();
+  const { setHeader } = useHeader();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -61,15 +61,19 @@ function DeploymentsPage() {
 
   // Set header action button
   useEffect(() => {
-    setAction({
-      label: t("actions.newFolder"),
-      onClick: () => setNewFolderOpen(true),
+    setHeader({
+      actions: (
+        <Button size="sm" onClick={() => setNewFolderOpen(true)}>
+          <Icon className="size-4" icon="lucide:plus" />
+          <span>{t("actions.newFolder")}</span>
+        </Button>
+      ),
     });
 
     return () => {
-      setAction(null);
+      setHeader(null);
     };
-  }, [setAction, t]);
+  }, [setHeader, t]);
 
   const entries$ = useQuery({
     queryFn: async () => {

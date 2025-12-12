@@ -33,6 +33,7 @@ interface RedirectDrawerProps {
   onOpenChange: (open: boolean) => void;
   onSave: (redirect: RedirectData) => void;
   open: boolean;
+  readonly?: boolean;
   redirect: RedirectData | null;
 }
 
@@ -49,13 +50,20 @@ const initFormData: RedirectData = {
   ws: true,
 };
 
-export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: RedirectDrawerProps) {
+export function RedirectDrawer({
+  onOpenChange,
+  onSave,
+  open,
+  readonly,
+  redirect,
+}: RedirectDrawerProps) {
   const { t } = useTranslation("redirects");
   const [formData, setFormData] = useState<RedirectData>(structuredClone(initFormData));
   const [hasHeaders, setHasHeaders] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
 
   const isEditMode = !!redirect;
+  const isViewMode = !!readonly;
   const headers = formData.headers || {};
   const headersEntries = Object.entries(headers);
 
@@ -130,15 +138,26 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
     <Drawer direction="right" onOpenChange={onOpenChange} open={open}>
       <DrawerContent className="h-full w-[640px]">
         <DrawerHeader>
-          <DrawerTitle>{isEditMode ? t("drawer.editTitle") : t("drawer.title")}</DrawerTitle>
+          <DrawerTitle>
+            {isViewMode
+              ? t("drawer.viewTitle")
+              : isEditMode
+                ? t("drawer.editTitle")
+                : t("drawer.title")}
+          </DrawerTitle>
           <DrawerDescription>
-            {isEditMode ? t("drawer.editDescription") : t("drawer.description")}
+            {isViewMode
+              ? t("drawer.viewDescription")
+              : isEditMode
+                ? t("drawer.editDescription")
+                : t("drawer.description")}
           </DrawerDescription>
         </DrawerHeader>
         <div className="space-y-6 overflow-y-auto px-4">
           <div className="space-y-2">
             <Label htmlFor="name">{t("form.name")}</Label>
             <Input
+              disabled={isViewMode}
               id="name"
               placeholder={t("form.namePlaceholder")}
               required
@@ -152,6 +171,7 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
           <div className="space-y-2">
             <Label htmlFor="pattern">{t("form.pattern")}</Label>
             <Input
+              disabled={isViewMode}
               id="pattern"
               placeholder={t("form.patternPlaceholder")}
               required
@@ -166,6 +186,7 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
           <div className="space-y-2">
             <Label htmlFor="target">{t("form.target")}</Label>
             <Input
+              disabled={isViewMode}
               id="target"
               placeholder={t("form.targetPlaceholder")}
               required
@@ -180,6 +201,7 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
           <div className="space-y-2">
             <Label htmlFor="rewrite">{t("form.rewrite")}</Label>
             <Input
+              disabled={isViewMode}
               id="rewrite"
               placeholder={t("form.rewritePlaceholder")}
               value={formData.rewrite ?? ""}
@@ -190,6 +212,7 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
           <div className="space-y-2">
             <Label htmlFor="base">{t("form.base")}</Label>
             <Input
+              disabled={isViewMode}
               id="base"
               placeholder={t("form.basePlaceholder")}
               value={formData.base ?? ""}
@@ -204,6 +227,7 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
             </div>
             <Switch
               checked={formData.relativePaths ?? false}
+              disabled={isViewMode}
               id="relativePaths"
               onCheckedChange={(checked) => setField("relativePaths", checked)}
             />
@@ -216,6 +240,7 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
               </div>
               <Switch
                 checked={hasHeaders}
+                disabled={isViewMode}
                 id="hasHeaders"
                 onCheckedChange={(checked) => {
                   setHasHeaders(checked);
@@ -231,24 +256,28 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
                       <div className="flex gap-2" key={idx}>
                         <Input
                           className="flex-1"
+                          disabled={isViewMode}
                           placeholder={t("form.headerName")}
                           value={key}
                           onChange={(evt) => updateHeaderKey(key, evt.target.value, value)}
                         />
                         <Input
                           className="flex-1"
+                          disabled={isViewMode}
                           placeholder={t("form.headerValue")}
                           value={value}
                           onChange={(evt) => updateHeaderValue(key, evt.target.value)}
                         />
-                        <Button
-                          size="icon"
-                          type="button"
-                          variant="ghost"
-                          onClick={() => removeHeader(key)}
-                        >
-                          <Icon className="size-4" icon="lucide:x" />
-                        </Button>
+                        {!isViewMode && (
+                          <Button
+                            size="icon"
+                            type="button"
+                            variant="ghost"
+                            onClick={() => removeHeader(key)}
+                          >
+                            <Icon className="size-4" icon="lucide:x" />
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -257,16 +286,18 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
                     {t("form.emptyHeaders")}
                   </div>
                 )}
-                <Button
-                  className="w-full"
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                  onClick={addHeader}
-                >
-                  <Icon className="mr-1 size-4" icon="lucide:plus" />
-                  {t("form.addHeader")}
-                </Button>
+                {!isViewMode && (
+                  <Button
+                    className="w-full"
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={addHeader}
+                  >
+                    <Icon className="mr-1 size-4" icon="lucide:plus" />
+                    {t("form.addHeader")}
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -277,6 +308,7 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
             </div>
             <Switch
               checked={formData.changeOrigin ?? false}
+              disabled={isViewMode}
               id="changeOrigin"
               onCheckedChange={(checked) => setField("changeOrigin", checked)}
             />
@@ -288,6 +320,7 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
             </div>
             <Switch
               checked={formData.secure ?? false}
+              disabled={isViewMode}
               id="secure"
               onCheckedChange={(checked) => setField("secure", checked)}
             />
@@ -299,6 +332,7 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
             </div>
             <Switch
               checked={formData.ws ?? true}
+              disabled={isViewMode}
               id="ws"
               onCheckedChange={(checked) => setField("ws", checked)}
             />
@@ -307,11 +341,15 @@ export function RedirectDrawer({ onOpenChange, onSave, open, redirect }: Redirec
         <DrawerFooter>
           <div className="flex items-center justify-end gap-2">
             <DrawerClose asChild>
-              <Button variant="outline">{t("actions.cancel")}</Button>
+              <Button variant="outline">
+                {isViewMode ? t("actions.close") : t("actions.cancel")}
+              </Button>
             </DrawerClose>
-            <Button onClick={handleSave}>
-              {isEditMode ? t("actions.save") : t("actions.create")}
-            </Button>
+            {!isViewMode && (
+              <Button onClick={handleSave}>
+                {isEditMode ? t("actions.save") : t("actions.create")}
+              </Button>
+            )}
           </div>
         </DrawerFooter>
       </DrawerContent>

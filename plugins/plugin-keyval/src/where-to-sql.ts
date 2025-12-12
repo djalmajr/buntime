@@ -170,26 +170,29 @@ function operatorsToSql(field: string, operators: KvFilterOperators, params: unk
 
   // ============================================================================
   // String operators (case-sensitive)
+  // Using instr() for case-sensitive operations since SQLite LIKE is case-insensitive
   // ============================================================================
 
   if (operators.$contains !== undefined) {
-    params.push(`%${escapeLikePattern(operators.$contains)}%`);
-    conditions.push(`${jsonField} LIKE ? ESCAPE '\\'`);
+    params.push(operators.$contains);
+    conditions.push(`instr(${jsonField}, ?) > 0`);
   }
 
   if (operators.$notContains !== undefined) {
-    params.push(`%${escapeLikePattern(operators.$notContains)}%`);
-    conditions.push(`${jsonField} NOT LIKE ? ESCAPE '\\'`);
+    params.push(operators.$notContains);
+    conditions.push(`instr(${jsonField}, ?) = 0`);
   }
 
   if (operators.$startsWith !== undefined) {
-    params.push(`${escapeLikePattern(operators.$startsWith)}%`);
-    conditions.push(`${jsonField} LIKE ? ESCAPE '\\'`);
+    params.push(operators.$startsWith);
+    const len = operators.$startsWith.length;
+    conditions.push(`substr(${jsonField}, 1, ${len}) = ?`);
   }
 
   if (operators.$endsWith !== undefined) {
-    params.push(`%${escapeLikePattern(operators.$endsWith)}`);
-    conditions.push(`${jsonField} LIKE ? ESCAPE '\\'`);
+    params.push(operators.$endsWith);
+    const len = operators.$endsWith.length;
+    conditions.push(`substr(${jsonField}, -${len}) = ?`);
   }
 
   // ============================================================================
@@ -231,13 +234,15 @@ function operatorsToSql(field: string, operators: KvFilterOperators, params: unk
 
   if (operators.$empty !== undefined) {
     // Empty means: null, empty string, or empty array
+    // Note: json_array_length only works on valid JSON arrays, so we wrap it in CASE
+    // Using COALESCE to handle non-array types safely
     if (operators.$empty) {
       conditions.push(
-        `(${jsonField} IS NULL OR ${jsonField} = '' OR ${jsonField} = '[]' OR json_array_length(${jsonField}) = 0)`,
+        `(${jsonField} IS NULL OR ${jsonField} = '' OR (json_valid(${jsonField}) AND json_type(${jsonField}) = 'array' AND json_array_length(${jsonField}) = 0))`,
       );
     } else {
       conditions.push(
-        `(${jsonField} IS NOT NULL AND ${jsonField} != '' AND ${jsonField} != '[]' AND (json_type(${jsonField}) != 'array' OR json_array_length(${jsonField}) > 0))`,
+        `(${jsonField} IS NOT NULL AND ${jsonField} != '' AND (NOT json_valid(${jsonField}) OR json_type(${jsonField}) != 'array' OR json_array_length(${jsonField}) > 0))`,
       );
     }
   }
@@ -246,11 +251,11 @@ function operatorsToSql(field: string, operators: KvFilterOperators, params: unk
     // $notEmpty is the inverse of $empty
     if (operators.$notEmpty) {
       conditions.push(
-        `(${jsonField} IS NOT NULL AND ${jsonField} != '' AND ${jsonField} != '[]' AND (json_type(${jsonField}) != 'array' OR json_array_length(${jsonField}) > 0))`,
+        `(${jsonField} IS NOT NULL AND ${jsonField} != '' AND (NOT json_valid(${jsonField}) OR json_type(${jsonField}) != 'array' OR json_array_length(${jsonField}) > 0))`,
       );
     } else {
       conditions.push(
-        `(${jsonField} IS NULL OR ${jsonField} = '' OR ${jsonField} = '[]' OR json_array_length(${jsonField}) = 0)`,
+        `(${jsonField} IS NULL OR ${jsonField} = '' OR (json_valid(${jsonField}) AND json_type(${jsonField}) = 'array' AND json_array_length(${jsonField}) = 0))`,
       );
     }
   }

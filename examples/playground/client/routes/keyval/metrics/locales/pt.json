@@ -1,0 +1,29 @@
+{
+  "description": "Monitorar métricas de operação e armazenamento do KeyVal",
+  "json": {
+    "autoRefreshOff": "Atualização Automática Desligada",
+    "autoRefreshOn": "Atualização Automática Ligada",
+    "description": "Formato JSON com estatísticas de operações, fila e armazenamento",
+    "loading": "Carregando métricas...",
+    "refresh": "Atualizar",
+    "refreshing": "Atualizando automaticamente a cada 5s",
+    "title": "Métricas JSON"
+  },
+  "prometheus": {
+    "description": "Formato de exposição Prometheus para sistemas de monitoramento",
+    "fetch": "Buscar",
+    "placeholder": "Clique em 'Buscar' para carregar métricas Prometheus",
+    "title": "Métricas Prometheus"
+  },
+  "stats": {
+    "errors": "Erros",
+    "operations": "Operações",
+    "queueMessages": "Mensagens na Fila",
+    "totalKeys": "Total de Chaves"
+  },
+  "tabs": {
+    "json": "JSON",
+    "prometheus": "Prometheus"
+  },
+  "title": "Métricas"
+}

@@ -1,29 +1,35 @@
 {
-  "description": "Monitor KeyVal operation and storage metrics",
-  "json": {
-    "autoRefreshOff": "Auto-refresh Off",
-    "autoRefreshOn": "Auto-refresh On",
-    "description": "JSON format with operations, queue, and storage stats",
-    "loading": "Loading metrics...",
-    "refresh": "Refresh",
-    "refreshing": "Auto-refreshing every 5s",
-    "title": "JSON Metrics"
+  "dashboard": {
+    "description": "Real-time pool metrics and worker statistics",
+    "subtitle": "Monitor pool performance and worker health",
+    "title": "Metrics Dashboard"
   },
-  "prometheus": {
-    "description": "Prometheus exposition format for monitoring systems",
-    "fetch": "Fetch",
-    "placeholder": "Click 'Fetch' to load Prometheus metrics",
-    "title": "Prometheus Metrics"
+  "nav": {
+    "dashboard": "Dashboard",
+    "metrics": "Metrics",
+    "prometheus": "Prometheus",
+    "workers": "Workers"
   },
-  "stats": {
+  "poolStats": {
+    "activeWorkers": "Active Workers",
+    "idleWorkers": "Idle Workers",
+    "pendingRequests": "Pending Requests",
+    "title": "Pool Statistics",
+    "totalErrors": "Total Errors",
+    "totalRequests": "Total Requests",
+    "uptime": "Uptime"
+  },
+  "quickStats": {
     "errors": "Errors",
-    "operations": "Operations",
-    "queueMessages": "Queue Messages",
-    "totalKeys": "Total Keys"
+    "requests": "Requests",
+    "title": "Quick Stats",
+    "workers": "Workers"
   },
-  "tabs": {
-    "json": "JSON",
-    "prometheus": "Prometheus"
+  "realtime": {
+    "connected": "Connected",
+    "connecting": "Connecting...",
+    "disconnected": "Disconnected",
+    "title": "Real-time Updates"
   },
-  "title": "Metrics"
+  "refresh": "Refresh"
 }

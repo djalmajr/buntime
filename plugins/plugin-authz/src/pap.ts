@@ -8,7 +8,7 @@ export class PolicyAdministrationPoint {
   private policies: Map<string, Policy> = new Map();
   private filePath?: string;
 
-  constructor(store: "memory" | "file" = "memory", filePath?: string) {
+  constructor(_store: "memory" | "file" = "memory", filePath?: string) {
     this.filePath = filePath;
   }
 

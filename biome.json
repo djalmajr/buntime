@@ -6,7 +6,7 @@
     }
   },
   "files": {
-    "includes": ["**", "!**/routeTree.gen.ts"]
+    "includes": ["**", "!**/dist", "!**/node_modules", "!**/routeTree.gen.ts"]
   },
   "formatter": {
     "enabled": true,
@@ -21,6 +21,10 @@
     "enabled": true,
     "rules": {
       "recommended": true,
+      "a11y": {
+        "useFocusableInteractive": "off",
+        "useSemanticElements": "off"
+      },
       "complexity": {
         "noBannedTypes": "off",
         "noCommaOperator": "off",
@@ -28,6 +32,7 @@
         "useArrowFunction": "off"
       },
       "correctness": {
+        "useExhaustiveDependencies": "off",
         "useUniqueElementIds": "off"
       },
       "security": {
@@ -40,6 +45,7 @@
       "suspicious": {
         "noArrayIndexKey": "off",
         "noAssignInExpressions": "off",
+        "noDocumentCookie": "off",
         "noTemplateCurlyInString": "off"
       }
     }

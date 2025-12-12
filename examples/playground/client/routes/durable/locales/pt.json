@@ -1,0 +1,37 @@
+{
+  "detail": {
+    "backToList": "Voltar à Lista",
+    "confirmDelete": "Tem certeza que deseja excluir este objeto durável?",
+    "delete": "Excluir",
+    "description": "Gerenciar instância de objeto durável",
+    "info": {
+      "className": "Nome da Classe",
+      "createdAt": "Criado Em",
+      "description": "Metadados e informações do objeto",
+      "id": "ID do Objeto",
+      "lastActiveAt": "Última Atividade Em",
+      "title": "Informações do Objeto"
+    },
+    "notFound": "Objeto Não Encontrado",
+    "notFoundDescription": "O objeto durável que você procura não existe ou foi excluído.",
+    "title": "Objeto Durável"
+  },
+  "list": {
+    "confirmDelete": "Tem certeza que deseja excluir este objeto durável?",
+    "description": "Visualizar e gerenciar objetos duráveis",
+    "refresh": "Atualizar",
+    "table": {
+      "actions": "Ações",
+      "className": "Nome da Classe",
+      "createdAt": "Criado Em",
+      "empty": "Nenhum objeto durável encontrado. Objetos aparecerão aqui quando criados.",
+      "id": "ID",
+      "lastActiveAt": "Última Atividade Em"
+    },
+    "title": "Objetos Duráveis"
+  },
+  "nav": {
+    "detail": "Detalhe",
+    "durable": "Durable"
+  }
+}

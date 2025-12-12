@@ -9,113 +9,336 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from "./routes/__root"
+import { Route as MetricsRouteRouteImport } from "./routes/metrics/route"
+import { Route as KeyvalRouteRouteImport } from "./routes/keyval/route"
+import { Route as GatewayRouteRouteImport } from "./routes/gateway/route"
+import { Route as DurableRouteRouteImport } from "./routes/durable/route"
+import { Route as AuthzRouteRouteImport } from "./routes/authz/route"
 import { Route as IndexRouteImport } from "./routes/index"
-import { Route as WatchIndexRouteImport } from "./routes/watch/index"
-import { Route as SearchIndexRouteImport } from "./routes/search/index"
-import { Route as QueueIndexRouteImport } from "./routes/queue/index"
 import { Route as MetricsIndexRouteImport } from "./routes/metrics/index"
-import { Route as KeysIndexRouteImport } from "./routes/keys/index"
-import { Route as AtomicIndexRouteImport } from "./routes/atomic/index"
+import { Route as KeyvalIndexRouteImport } from "./routes/keyval/index"
+import { Route as GatewayIndexRouteImport } from "./routes/gateway/index"
+import { Route as DurableIndexRouteImport } from "./routes/durable/index"
+import { Route as AuthzIndexRouteImport } from "./routes/authz/index"
+import { Route as MetricsWorkersIndexRouteImport } from "./routes/metrics/workers/index"
+import { Route as MetricsPrometheusIndexRouteImport } from "./routes/metrics/prometheus/index"
+import { Route as KeyvalWatchIndexRouteImport } from "./routes/keyval/watch/index"
+import { Route as KeyvalSearchIndexRouteImport } from "./routes/keyval/search/index"
+import { Route as KeyvalQueueIndexRouteImport } from "./routes/keyval/queue/index"
+import { Route as KeyvalMetricsIndexRouteImport } from "./routes/keyval/metrics/index"
+import { Route as KeyvalEntriesIndexRouteImport } from "./routes/keyval/entries/index"
+import { Route as KeyvalAtomicIndexRouteImport } from "./routes/keyval/atomic/index"
+import { Route as GatewayCacheIndexRouteImport } from "./routes/gateway/cache/index"
+import { Route as DurableIdIndexRouteImport } from "./routes/durable/$id/index"
+import { Route as AuthzPoliciesIndexRouteImport } from "./routes/authz/policies/index"
+import { Route as AuthzEvaluateIndexRouteImport } from "./routes/authz/evaluate/index"
 
+const MetricsRouteRoute = MetricsRouteRouteImport.update({
+  id: "/metrics",
+  path: "/metrics",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KeyvalRouteRoute = KeyvalRouteRouteImport.update({
+  id: "/keyval",
+  path: "/keyval",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GatewayRouteRoute = GatewayRouteRouteImport.update({
+  id: "/gateway",
+  path: "/gateway",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DurableRouteRoute = DurableRouteRouteImport.update({
+  id: "/durable",
+  path: "/durable",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthzRouteRoute = AuthzRouteRouteImport.update({
+  id: "/authz",
+  path: "/authz",
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: "/",
   path: "/",
   getParentRoute: () => rootRouteImport,
 } as any)
-const WatchIndexRoute = WatchIndexRouteImport.update({
+const MetricsIndexRoute = MetricsIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => MetricsRouteRoute,
+} as any)
+const KeyvalIndexRoute = KeyvalIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => KeyvalRouteRoute,
+} as any)
+const GatewayIndexRoute = GatewayIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => GatewayRouteRoute,
+} as any)
+const DurableIndexRoute = DurableIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => DurableRouteRoute,
+} as any)
+const AuthzIndexRoute = AuthzIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => AuthzRouteRoute,
+} as any)
+const MetricsWorkersIndexRoute = MetricsWorkersIndexRouteImport.update({
+  id: "/workers/",
+  path: "/workers/",
+  getParentRoute: () => MetricsRouteRoute,
+} as any)
+const MetricsPrometheusIndexRoute = MetricsPrometheusIndexRouteImport.update({
+  id: "/prometheus/",
+  path: "/prometheus/",
+  getParentRoute: () => MetricsRouteRoute,
+} as any)
+const KeyvalWatchIndexRoute = KeyvalWatchIndexRouteImport.update({
   id: "/watch/",
   path: "/watch/",
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => KeyvalRouteRoute,
 } as any)
-const SearchIndexRoute = SearchIndexRouteImport.update({
+const KeyvalSearchIndexRoute = KeyvalSearchIndexRouteImport.update({
   id: "/search/",
   path: "/search/",
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => KeyvalRouteRoute,
 } as any)
-const QueueIndexRoute = QueueIndexRouteImport.update({
+const KeyvalQueueIndexRoute = KeyvalQueueIndexRouteImport.update({
   id: "/queue/",
   path: "/queue/",
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => KeyvalRouteRoute,
 } as any)
-const MetricsIndexRoute = MetricsIndexRouteImport.update({
+const KeyvalMetricsIndexRoute = KeyvalMetricsIndexRouteImport.update({
   id: "/metrics/",
   path: "/metrics/",
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => KeyvalRouteRoute,
 } as any)
-const KeysIndexRoute = KeysIndexRouteImport.update({
-  id: "/keys/",
-  path: "/keys/",
-  getParentRoute: () => rootRouteImport,
+const KeyvalEntriesIndexRoute = KeyvalEntriesIndexRouteImport.update({
+  id: "/entries/",
+  path: "/entries/",
+  getParentRoute: () => KeyvalRouteRoute,
 } as any)
-const AtomicIndexRoute = AtomicIndexRouteImport.update({
+const KeyvalAtomicIndexRoute = KeyvalAtomicIndexRouteImport.update({
   id: "/atomic/",
   path: "/atomic/",
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => KeyvalRouteRoute,
+} as any)
+const GatewayCacheIndexRoute = GatewayCacheIndexRouteImport.update({
+  id: "/cache/",
+  path: "/cache/",
+  getParentRoute: () => GatewayRouteRoute,
+} as any)
+const DurableIdIndexRoute = DurableIdIndexRouteImport.update({
+  id: "/$id/",
+  path: "/$id/",
+  getParentRoute: () => DurableRouteRoute,
+} as any)
+const AuthzPoliciesIndexRoute = AuthzPoliciesIndexRouteImport.update({
+  id: "/policies/",
+  path: "/policies/",
+  getParentRoute: () => AuthzRouteRoute,
+} as any)
+const AuthzEvaluateIndexRoute = AuthzEvaluateIndexRouteImport.update({
+  id: "/evaluate/",
+  path: "/evaluate/",
+  getParentRoute: () => AuthzRouteRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute
-  "/atomic": typeof AtomicIndexRoute
-  "/keys": typeof KeysIndexRoute
-  "/metrics": typeof MetricsIndexRoute
-  "/queue": typeof QueueIndexRoute
-  "/search": typeof SearchIndexRoute
-  "/watch": typeof WatchIndexRoute
+  "/authz": typeof AuthzRouteRouteWithChildren
+  "/durable": typeof DurableRouteRouteWithChildren
+  "/gateway": typeof GatewayRouteRouteWithChildren
+  "/keyval": typeof KeyvalRouteRouteWithChildren
+  "/metrics": typeof MetricsRouteRouteWithChildren
+  "/authz/": typeof AuthzIndexRoute
+  "/durable/": typeof DurableIndexRoute
+  "/gateway/": typeof GatewayIndexRoute
+  "/keyval/": typeof KeyvalIndexRoute
+  "/metrics/": typeof MetricsIndexRoute
+  "/authz/evaluate": typeof AuthzEvaluateIndexRoute
+  "/authz/policies": typeof AuthzPoliciesIndexRoute
+  "/durable/$id": typeof DurableIdIndexRoute
+  "/gateway/cache": typeof GatewayCacheIndexRoute
+  "/keyval/atomic": typeof KeyvalAtomicIndexRoute
+  "/keyval/entries": typeof KeyvalEntriesIndexRoute
+  "/keyval/metrics": typeof KeyvalMetricsIndexRoute
+  "/keyval/queue": typeof KeyvalQueueIndexRoute
+  "/keyval/search": typeof KeyvalSearchIndexRoute
+  "/keyval/watch": typeof KeyvalWatchIndexRoute
+  "/metrics/prometheus": typeof MetricsPrometheusIndexRoute
+  "/metrics/workers": typeof MetricsWorkersIndexRoute
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute
-  "/atomic": typeof AtomicIndexRoute
-  "/keys": typeof KeysIndexRoute
+  "/authz": typeof AuthzIndexRoute
+  "/durable": typeof DurableIndexRoute
+  "/gateway": typeof GatewayIndexRoute
+  "/keyval": typeof KeyvalIndexRoute
   "/metrics": typeof MetricsIndexRoute
-  "/queue": typeof QueueIndexRoute
-  "/search": typeof SearchIndexRoute
-  "/watch": typeof WatchIndexRoute
+  "/authz/evaluate": typeof AuthzEvaluateIndexRoute
+  "/authz/policies": typeof AuthzPoliciesIndexRoute
+  "/durable/$id": typeof DurableIdIndexRoute
+  "/gateway/cache": typeof GatewayCacheIndexRoute
+  "/keyval/atomic": typeof KeyvalAtomicIndexRoute
+  "/keyval/entries": typeof KeyvalEntriesIndexRoute
+  "/keyval/metrics": typeof KeyvalMetricsIndexRoute
+  "/keyval/queue": typeof KeyvalQueueIndexRoute
+  "/keyval/search": typeof KeyvalSearchIndexRoute
+  "/keyval/watch": typeof KeyvalWatchIndexRoute
+  "/metrics/prometheus": typeof MetricsPrometheusIndexRoute
+  "/metrics/workers": typeof MetricsWorkersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   "/": typeof IndexRoute
-  "/atomic/": typeof AtomicIndexRoute
-  "/keys/": typeof KeysIndexRoute
+  "/authz": typeof AuthzRouteRouteWithChildren
+  "/durable": typeof DurableRouteRouteWithChildren
+  "/gateway": typeof GatewayRouteRouteWithChildren
+  "/keyval": typeof KeyvalRouteRouteWithChildren
+  "/metrics": typeof MetricsRouteRouteWithChildren
+  "/authz/": typeof AuthzIndexRoute
+  "/durable/": typeof DurableIndexRoute
+  "/gateway/": typeof GatewayIndexRoute
+  "/keyval/": typeof KeyvalIndexRoute
   "/metrics/": typeof MetricsIndexRoute
-  "/queue/": typeof QueueIndexRoute
-  "/search/": typeof SearchIndexRoute
-  "/watch/": typeof WatchIndexRoute
+  "/authz/evaluate/": typeof AuthzEvaluateIndexRoute
+  "/authz/policies/": typeof AuthzPoliciesIndexRoute
+  "/durable/$id/": typeof DurableIdIndexRoute
+  "/gateway/cache/": typeof GatewayCacheIndexRoute
+  "/keyval/atomic/": typeof KeyvalAtomicIndexRoute
+  "/keyval/entries/": typeof KeyvalEntriesIndexRoute
+  "/keyval/metrics/": typeof KeyvalMetricsIndexRoute
+  "/keyval/queue/": typeof KeyvalQueueIndexRoute
+  "/keyval/search/": typeof KeyvalSearchIndexRoute
+  "/keyval/watch/": typeof KeyvalWatchIndexRoute
+  "/metrics/prometheus/": typeof MetricsPrometheusIndexRoute
+  "/metrics/workers/": typeof MetricsWorkersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | "/"
-    | "/atomic"
-    | "/keys"
+    | "/authz"
+    | "/durable"
+    | "/gateway"
+    | "/keyval"
     | "/metrics"
-    | "/queue"
-    | "/search"
-    | "/watch"
+    | "/authz/"
+    | "/durable/"
+    | "/gateway/"
+    | "/keyval/"
+    | "/metrics/"
+    | "/authz/evaluate"
+    | "/authz/policies"
+    | "/durable/$id"
+    | "/gateway/cache"
+    | "/keyval/atomic"
+    | "/keyval/entries"
+    | "/keyval/metrics"
+    | "/keyval/queue"
+    | "/keyval/search"
+    | "/keyval/watch"
+    | "/metrics/prometheus"
+    | "/metrics/workers"
   fileRoutesByTo: FileRoutesByTo
-  to: "/" | "/atomic" | "/keys" | "/metrics" | "/queue" | "/search" | "/watch"
+  to:
+    | "/"
+    | "/authz"
+    | "/durable"
+    | "/gateway"
+    | "/keyval"
+    | "/metrics"
+    | "/authz/evaluate"
+    | "/authz/policies"
+    | "/durable/$id"
+    | "/gateway/cache"
+    | "/keyval/atomic"
+    | "/keyval/entries"
+    | "/keyval/metrics"
+    | "/keyval/queue"
+    | "/keyval/search"
+    | "/keyval/watch"
+    | "/metrics/prometheus"
+    | "/metrics/workers"
   id:
     | "__root__"
     | "/"
-    | "/atomic/"
-    | "/keys/"
+    | "/authz"
+    | "/durable"
+    | "/gateway"
+    | "/keyval"
+    | "/metrics"
+    | "/authz/"
+    | "/durable/"
+    | "/gateway/"
+    | "/keyval/"
     | "/metrics/"
-    | "/queue/"
-    | "/search/"
-    | "/watch/"
+    | "/authz/evaluate/"
+    | "/authz/policies/"
+    | "/durable/$id/"
+    | "/gateway/cache/"
+    | "/keyval/atomic/"
+    | "/keyval/entries/"
+    | "/keyval/metrics/"
+    | "/keyval/queue/"
+    | "/keyval/search/"
+    | "/keyval/watch/"
+    | "/metrics/prometheus/"
+    | "/metrics/workers/"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AtomicIndexRoute: typeof AtomicIndexRoute
-  KeysIndexRoute: typeof KeysIndexRoute
-  MetricsIndexRoute: typeof MetricsIndexRoute
-  QueueIndexRoute: typeof QueueIndexRoute
-  SearchIndexRoute: typeof SearchIndexRoute
-  WatchIndexRoute: typeof WatchIndexRoute
+  AuthzRouteRoute: typeof AuthzRouteRouteWithChildren
+  DurableRouteRoute: typeof DurableRouteRouteWithChildren
+  GatewayRouteRoute: typeof GatewayRouteRouteWithChildren
+  KeyvalRouteRoute: typeof KeyvalRouteRouteWithChildren
+  MetricsRouteRoute: typeof MetricsRouteRouteWithChildren
 }
 
 declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
+    "/metrics": {
+      id: "/metrics"
+      path: "/metrics"
+      fullPath: "/metrics"
+      preLoaderRoute: typeof MetricsRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/keyval": {
+      id: "/keyval"
+      path: "/keyval"
+      fullPath: "/keyval"
+      preLoaderRoute: typeof KeyvalRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/gateway": {
+      id: "/gateway"
+      path: "/gateway"
+      fullPath: "/gateway"
+      preLoaderRoute: typeof GatewayRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/durable": {
+      id: "/durable"
+      path: "/durable"
+      fullPath: "/durable"
+      preLoaderRoute: typeof DurableRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/authz": {
+      id: "/authz"
+      path: "/authz"
+      fullPath: "/authz"
+      preLoaderRoute: typeof AuthzRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     "/": {
       id: "/"
       path: "/"
@@ -123,59 +346,219 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/watch/": {
-      id: "/watch/"
-      path: "/watch"
-      fullPath: "/watch"
-      preLoaderRoute: typeof WatchIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    "/search/": {
-      id: "/search/"
-      path: "/search"
-      fullPath: "/search"
-      preLoaderRoute: typeof SearchIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    "/queue/": {
-      id: "/queue/"
-      path: "/queue"
-      fullPath: "/queue"
-      preLoaderRoute: typeof QueueIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     "/metrics/": {
       id: "/metrics/"
-      path: "/metrics"
-      fullPath: "/metrics"
+      path: "/"
+      fullPath: "/metrics/"
       preLoaderRoute: typeof MetricsIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof MetricsRouteRoute
     }
-    "/keys/": {
-      id: "/keys/"
-      path: "/keys"
-      fullPath: "/keys"
-      preLoaderRoute: typeof KeysIndexRouteImport
-      parentRoute: typeof rootRouteImport
+    "/keyval/": {
+      id: "/keyval/"
+      path: "/"
+      fullPath: "/keyval/"
+      preLoaderRoute: typeof KeyvalIndexRouteImport
+      parentRoute: typeof KeyvalRouteRoute
     }
-    "/atomic/": {
-      id: "/atomic/"
+    "/gateway/": {
+      id: "/gateway/"
+      path: "/"
+      fullPath: "/gateway/"
+      preLoaderRoute: typeof GatewayIndexRouteImport
+      parentRoute: typeof GatewayRouteRoute
+    }
+    "/durable/": {
+      id: "/durable/"
+      path: "/"
+      fullPath: "/durable/"
+      preLoaderRoute: typeof DurableIndexRouteImport
+      parentRoute: typeof DurableRouteRoute
+    }
+    "/authz/": {
+      id: "/authz/"
+      path: "/"
+      fullPath: "/authz/"
+      preLoaderRoute: typeof AuthzIndexRouteImport
+      parentRoute: typeof AuthzRouteRoute
+    }
+    "/metrics/workers/": {
+      id: "/metrics/workers/"
+      path: "/workers"
+      fullPath: "/metrics/workers"
+      preLoaderRoute: typeof MetricsWorkersIndexRouteImport
+      parentRoute: typeof MetricsRouteRoute
+    }
+    "/metrics/prometheus/": {
+      id: "/metrics/prometheus/"
+      path: "/prometheus"
+      fullPath: "/metrics/prometheus"
+      preLoaderRoute: typeof MetricsPrometheusIndexRouteImport
+      parentRoute: typeof MetricsRouteRoute
+    }
+    "/keyval/watch/": {
+      id: "/keyval/watch/"
+      path: "/watch"
+      fullPath: "/keyval/watch"
+      preLoaderRoute: typeof KeyvalWatchIndexRouteImport
+      parentRoute: typeof KeyvalRouteRoute
+    }
+    "/keyval/search/": {
+      id: "/keyval/search/"
+      path: "/search"
+      fullPath: "/keyval/search"
+      preLoaderRoute: typeof KeyvalSearchIndexRouteImport
+      parentRoute: typeof KeyvalRouteRoute
+    }
+    "/keyval/queue/": {
+      id: "/keyval/queue/"
+      path: "/queue"
+      fullPath: "/keyval/queue"
+      preLoaderRoute: typeof KeyvalQueueIndexRouteImport
+      parentRoute: typeof KeyvalRouteRoute
+    }
+    "/keyval/metrics/": {
+      id: "/keyval/metrics/"
+      path: "/metrics"
+      fullPath: "/keyval/metrics"
+      preLoaderRoute: typeof KeyvalMetricsIndexRouteImport
+      parentRoute: typeof KeyvalRouteRoute
+    }
+    "/keyval/entries/": {
+      id: "/keyval/entries/"
+      path: "/entries"
+      fullPath: "/keyval/entries"
+      preLoaderRoute: typeof KeyvalEntriesIndexRouteImport
+      parentRoute: typeof KeyvalRouteRoute
+    }
+    "/keyval/atomic/": {
+      id: "/keyval/atomic/"
       path: "/atomic"
-      fullPath: "/atomic"
-      preLoaderRoute: typeof AtomicIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      fullPath: "/keyval/atomic"
+      preLoaderRoute: typeof KeyvalAtomicIndexRouteImport
+      parentRoute: typeof KeyvalRouteRoute
+    }
+    "/gateway/cache/": {
+      id: "/gateway/cache/"
+      path: "/cache"
+      fullPath: "/gateway/cache"
+      preLoaderRoute: typeof GatewayCacheIndexRouteImport
+      parentRoute: typeof GatewayRouteRoute
+    }
+    "/durable/$id/": {
+      id: "/durable/$id/"
+      path: "/$id"
+      fullPath: "/durable/$id"
+      preLoaderRoute: typeof DurableIdIndexRouteImport
+      parentRoute: typeof DurableRouteRoute
+    }
+    "/authz/policies/": {
+      id: "/authz/policies/"
+      path: "/policies"
+      fullPath: "/authz/policies"
+      preLoaderRoute: typeof AuthzPoliciesIndexRouteImport
+      parentRoute: typeof AuthzRouteRoute
+    }
+    "/authz/evaluate/": {
+      id: "/authz/evaluate/"
+      path: "/evaluate"
+      fullPath: "/authz/evaluate"
+      preLoaderRoute: typeof AuthzEvaluateIndexRouteImport
+      parentRoute: typeof AuthzRouteRoute
     }
   }
 }
 
+interface AuthzRouteRouteChildren {
+  AuthzIndexRoute: typeof AuthzIndexRoute
+  AuthzEvaluateIndexRoute: typeof AuthzEvaluateIndexRoute
+  AuthzPoliciesIndexRoute: typeof AuthzPoliciesIndexRoute
+}
+
+const AuthzRouteRouteChildren: AuthzRouteRouteChildren = {
+  AuthzIndexRoute: AuthzIndexRoute,
+  AuthzEvaluateIndexRoute: AuthzEvaluateIndexRoute,
+  AuthzPoliciesIndexRoute: AuthzPoliciesIndexRoute,
+}
+
+const AuthzRouteRouteWithChildren = AuthzRouteRoute._addFileChildren(
+  AuthzRouteRouteChildren,
+)
+
+interface DurableRouteRouteChildren {
+  DurableIndexRoute: typeof DurableIndexRoute
+  DurableIdIndexRoute: typeof DurableIdIndexRoute
+}
+
+const DurableRouteRouteChildren: DurableRouteRouteChildren = {
+  DurableIndexRoute: DurableIndexRoute,
+  DurableIdIndexRoute: DurableIdIndexRoute,
+}
+
+const DurableRouteRouteWithChildren = DurableRouteRoute._addFileChildren(
+  DurableRouteRouteChildren,
+)
+
+interface GatewayRouteRouteChildren {
+  GatewayIndexRoute: typeof GatewayIndexRoute
+  GatewayCacheIndexRoute: typeof GatewayCacheIndexRoute
+}
+
+const GatewayRouteRouteChildren: GatewayRouteRouteChildren = {
+  GatewayIndexRoute: GatewayIndexRoute,
+  GatewayCacheIndexRoute: GatewayCacheIndexRoute,
+}
+
+const GatewayRouteRouteWithChildren = GatewayRouteRoute._addFileChildren(
+  GatewayRouteRouteChildren,
+)
+
+interface KeyvalRouteRouteChildren {
+  KeyvalIndexRoute: typeof KeyvalIndexRoute
+  KeyvalAtomicIndexRoute: typeof KeyvalAtomicIndexRoute
+  KeyvalEntriesIndexRoute: typeof KeyvalEntriesIndexRoute
+  KeyvalMetricsIndexRoute: typeof KeyvalMetricsIndexRoute
+  KeyvalQueueIndexRoute: typeof KeyvalQueueIndexRoute
+  KeyvalSearchIndexRoute: typeof KeyvalSearchIndexRoute
+  KeyvalWatchIndexRoute: typeof KeyvalWatchIndexRoute
+}
+
+const KeyvalRouteRouteChildren: KeyvalRouteRouteChildren = {
+  KeyvalIndexRoute: KeyvalIndexRoute,
+  KeyvalAtomicIndexRoute: KeyvalAtomicIndexRoute,
+  KeyvalEntriesIndexRoute: KeyvalEntriesIndexRoute,
+  KeyvalMetricsIndexRoute: KeyvalMetricsIndexRoute,
+  KeyvalQueueIndexRoute: KeyvalQueueIndexRoute,
+  KeyvalSearchIndexRoute: KeyvalSearchIndexRoute,
+  KeyvalWatchIndexRoute: KeyvalWatchIndexRoute,
+}
+
+const KeyvalRouteRouteWithChildren = KeyvalRouteRoute._addFileChildren(
+  KeyvalRouteRouteChildren,
+)
+
+interface MetricsRouteRouteChildren {
+  MetricsIndexRoute: typeof MetricsIndexRoute
+  MetricsPrometheusIndexRoute: typeof MetricsPrometheusIndexRoute
+  MetricsWorkersIndexRoute: typeof MetricsWorkersIndexRoute
+}
+
+const MetricsRouteRouteChildren: MetricsRouteRouteChildren = {
+  MetricsIndexRoute: MetricsIndexRoute,
+  MetricsPrometheusIndexRoute: MetricsPrometheusIndexRoute,
+  MetricsWorkersIndexRoute: MetricsWorkersIndexRoute,
+}
+
+const MetricsRouteRouteWithChildren = MetricsRouteRoute._addFileChildren(
+  MetricsRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AtomicIndexRoute: AtomicIndexRoute,
-  KeysIndexRoute: KeysIndexRoute,
-  MetricsIndexRoute: MetricsIndexRoute,
-  QueueIndexRoute: QueueIndexRoute,
-  SearchIndexRoute: SearchIndexRoute,
-  WatchIndexRoute: WatchIndexRoute,
+  AuthzRouteRoute: AuthzRouteRouteWithChildren,
+  DurableRouteRoute: DurableRouteRouteWithChildren,
+  GatewayRouteRoute: GatewayRouteRouteWithChildren,
+  KeyvalRouteRoute: KeyvalRouteRouteWithChildren,
+  MetricsRouteRoute: MetricsRouteRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

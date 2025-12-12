@@ -1,0 +1,319 @@
+== Pagination API
+
+O KeyVal oferece paginação baseada em cursor para navegação eficiente em grandes conjuntos de dados. Diferente de offset-based pagination, cursors garantem consistência mesmo quando dados são adicionados/removidos durante a navegação.
+
+=== Conceitos
+
+==== Cursor vs Offset
+
+[cols="1,2,2"]
+|===
+| Aspecto | Offset (LIMIT/OFFSET) | Cursor
+
+| Performance
+| O(n) - degrada com offset alto
+| O(log n) - constante
+
+| Consistência
+| Pode pular/duplicar itens se dados mudam
+| Sempre consistente
+
+| Uso
+| `?page=3&limit=10`
+| `?cursor=abc123&limit=10`
+|===
+
+==== Como Funciona
+
+O cursor é a chave codificada em base64 do último item retornado:
+
+[source]
+----
+Página 1: [item1, item2, item3]  → cursor: base64(key de item3)
+Página 2: [item4, item5, item6]  → cursor: base64(key de item6)
+Página 3: [item7, item8]         → cursor: null (fim)
+----
+
+=== Uso Básico
+
+==== Primeira Página
+
+[source,typescript]
+----
+const page1 = await kv.paginate(["users"], { limit: 10 });
+
+console.log(page1.entries);    // Array de KvEntry
+console.log(page1.hasMore);    // true se há mais páginas
+console.log(page1.cursor);     // string ou null
+----
+
+==== Próxima Página
+
+[source,typescript]
+----
+if (page1.hasMore && page1.cursor) {
+  const page2 = await kv.paginate(["users"], {
+    limit: 10,
+    cursor: page1.cursor
+  });
+}
+----
+
+==== Iterando Todas as Páginas
+
+[source,typescript]
+----
+async function* getAllUsers() {
+  let cursor: string | undefined = undefined;
+
+  do {
+    const page = await kv.paginate(["users"], {
+      limit: 100,
+      cursor
+    });
+
+    for (const entry of page.entries) {
+      yield entry;
+    }
+
+    cursor = page.cursor ?? undefined;
+  } while (cursor);
+}
+
+// Uso
+for await (const user of getAllUsers()) {
+  console.log(user.value);
+}
+----
+
+=== Opções de Paginação
+
+[source,typescript]
+----
+interface KvPaginateOptions {
+  // Cursor da página anterior
+  cursor?: string;
+
+  // Itens por página (default: 100, max: 1000)
+  limit?: number;
+
+  // Ordem reversa
+  reverse?: boolean;
+}
+----
+
+==== Paginação Reversa
+
+[source,typescript]
+----
+// Últimos 10 usuários primeiro
+const page = await kv.paginate(["users"], {
+  limit: 10,
+  reverse: true
+});
+
+// page.entries[0] é o último usuário adicionado
+----
+
+=== Resultado da Paginação
+
+[source,typescript]
+----
+interface KvPaginateResult<T> {
+  // Entries desta página
+  entries: KvEntry<T>[];
+
+  // Cursor para próxima página (null se não há mais)
+  cursor: string | null;
+
+  // true se há mais entries após esta página
+  hasMore: boolean;
+}
+----
+
+=== Exemplos Práticos
+
+==== API REST com Paginação
+
+[source,typescript]
+----
+app.get("/api/users", async (c) => {
+  const cursor = c.req.query("cursor");
+  const limit = parseInt(c.req.query("limit") ?? "20");
+
+  const page = await kv.paginate<User>(["users"], {
+    cursor,
+    limit: Math.min(limit, 100) // Cap em 100
+  });
+
+  return c.json({
+    users: page.entries.map(e => e.value),
+    nextCursor: page.cursor,
+    hasMore: page.hasMore
+  });
+});
+----
+
+==== React Query com Infinite Scroll
+
+[source,typescript]
+----
+function useUsers() {
+  return useInfiniteQuery({
+    queryKey: ["users"],
+    queryFn: async ({ pageParam }) => {
+      const res = await fetch(`/api/users?cursor=${pageParam ?? ""}`);
+      return res.json();
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: undefined
+  });
+}
+
+function UserList() {
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useUsers();
+
+  return (
+    <div>
+      {data?.pages.flatMap(page =>
+        page.users.map(user => <UserCard key={user.id} user={user} />)
+      )}
+
+      {hasNextPage && (
+        <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+          {isFetchingNextPage ? "Carregando..." : "Carregar mais"}
+        </button>
+      )}
+    </div>
+  );
+}
+----
+
+==== Processamento em Lote
+
+[source,typescript]
+----
+async function processAllOrders() {
+  let cursor: string | undefined;
+  let processed = 0;
+
+  do {
+    const page = await kv.paginate<Order>(["orders"], {
+      limit: 100,
+      cursor
+    });
+
+    // Processa em paralelo
+    await Promise.all(
+      page.entries.map(async (entry) => {
+        await processOrder(entry.value);
+        processed++;
+      })
+    );
+
+    console.log(`Processados: ${processed}`);
+    cursor = page.cursor ?? undefined;
+  } while (cursor);
+
+  console.log(`Total processado: ${processed}`);
+}
+----
+
+=== HTTP API
+
+==== GET /keys/list/:prefix
+
+[source,bash]
+----
+# Primeira página
+curl "http://localhost:4000/_/plugin-keyval/keys/list/users?limit=10"
+
+# Próxima página
+curl "http://localhost:4000/_/plugin-keyval/keys/list/users?limit=10&cursor=abc123"
+
+# Ordem reversa
+curl "http://localhost:4000/_/plugin-keyval/keys/list/users?limit=10&reverse=true"
+----
+
+**Resposta:**
+
+[source,json]
+----
+{
+  "entries": [
+    {
+      "key": ["users", 1],
+      "value": {"name": "Alice"},
+      "versionstamp": "01234567890123456789"
+    }
+  ],
+  "cursor": "AQJ1c2VycwEDAAAAAAAAAQA",
+  "hasMore": true
+}
+----
+
+=== list vs paginate
+
+[cols="1,2,2"]
+|===
+| Aspecto | `list()` | `paginate()`
+
+| Retorno
+| `AsyncIterableIterator`
+| `Promise<KvPaginateResult>`
+
+| Uso
+| Streaming/processamento sequencial
+| APIs REST, infinite scroll
+
+| Memória
+| Baixa (processa um por vez)
+| Proporcional ao `limit`
+
+| Cursor
+| Interno (não exposto)
+| Exposto para cliente
+|===
+
+==== Quando Usar Cada Um
+
+**Use `list()`:**
+- Processamento de todos os dados
+- Exportação/migração
+- Streaming de dados
+- Quando não precisa expor cursor
+
+**Use `paginate()`:**
+- APIs REST paginadas
+- Infinite scroll no frontend
+- Quando precisa persistir posição
+- Interfaces de usuário com "próxima página"
+
+=== Considerações
+
+==== Limites
+
+[cols="1,1,2"]
+|===
+| Parâmetro | Limite | Nota
+
+| `limit`
+| 1-1000
+| Default: 100
+
+| Cursor
+| N/A
+| Válido até dados mudarem estruturalmente
+|===
+
+==== Comportamento com Dados Mutáveis
+
+WARNING: Se itens são deletados durante paginação, o cursor permanece válido mas pode pular o item deletado.
+
+TIP: Para consistência máxima em exports, considere usar `list()` em uma única operação ou criar um snapshot dos IDs primeiro.
+
+==== Performance
+
+- Paginação usa índice B-tree da chave
+- Performance constante independente da página
+- Não há "salto" para página N - deve-se percorrer sequencialmente

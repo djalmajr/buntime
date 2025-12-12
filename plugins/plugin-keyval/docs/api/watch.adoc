@@ -1,0 +1,398 @@
+== Watch API
+
+A Watch API permite observar mudanças em chaves em tempo real. Útil para sincronização de dados, invalidação de cache e interfaces reativas.
+
+=== Conceitos
+
+==== Mecanismo de Watch
+
+O KeyVal usa polling com detecção de versionstamp:
+
+[source]
+----
+┌─────────┐     poll (100ms)      ┌─────────────┐
+│ Client  │ ◄─────────────────────│   KeyVal    │
+│         │                       │   Server    │
+│ watch() │ ──────────────────────▶             │
+└─────────┘   compare versionstamp└─────────────┘
+                    │
+                    ▼
+         Se versionstamp mudou → emit entry
+----
+
+==== SSE vs Polling
+
+[cols="1,2,2"]
+|===
+| Modo | Vantagem | Uso
+
+| SSE (Server-Sent Events)
+| Conexão persistente, baixa latência
+| Browsers, conexões longas
+
+| Polling (SDK)
+| Simples, funciona em qualquer ambiente
+| Workers, scripts
+|===
+
+=== Uso Básico
+
+==== Watch de Chave Única
+
+[source,typescript]
+----
+const controller = new AbortController();
+
+for await (const entries of kv.watch([["config"]], {
+  signal: controller.signal
+})) {
+  const config = entries[0];
+  console.log("Config atualizada:", config?.value);
+}
+
+// Para parar o watch
+controller.abort();
+----
+
+==== Watch de Múltiplas Chaves
+
+[source,typescript]
+----
+for await (const entries of kv.watch([
+  ["users", userId],
+  ["notifications", userId],
+  ["settings", userId]
+], { signal })) {
+  const [user, notifications, settings] = entries;
+
+  console.log("User:", user?.value);
+  console.log("Notifications:", notifications?.value);
+  console.log("Settings:", settings?.value);
+}
+----
+
+==== Watch por Prefixo
+
+[source,typescript]
+----
+// Observa todas as mudanças em ["users", *]
+for await (const entry of kv.watchPrefix(["users"], { signal })) {
+  console.log("Mudança em usuário:", entry.key, entry.value);
+}
+----
+
+=== Opções
+
+[source,typescript]
+----
+interface WatchOptions {
+  // AbortSignal para cancelar o watch
+  signal?: AbortSignal;
+}
+----
+
+=== Exemplos Práticos
+
+==== Sincronização de Configuração
+
+[source,typescript]
+----
+class ConfigManager {
+  private config: AppConfig | null = null;
+  private controller = new AbortController();
+
+  async start() {
+    // Carrega config inicial
+    const entry = await kv.get<AppConfig>(["config"]);
+    this.config = entry.value;
+
+    // Observa mudanças
+    this.watchConfig();
+  }
+
+  private async watchConfig() {
+    try {
+      for await (const entries of kv.watch([["config"]], {
+        signal: this.controller.signal
+      })) {
+        const entry = entries[0];
+        if (entry?.value) {
+          this.config = entry.value as AppConfig;
+          console.log("Config recarregada");
+        }
+      }
+    } catch (err: any) {
+      if (err.name !== "AbortError") throw err;
+    }
+  }
+
+  stop() {
+    this.controller.abort();
+  }
+
+  getConfig() {
+    return this.config;
+  }
+}
+----
+
+==== Invalidação de Cache
+
+[source,typescript]
+----
+const cache = new Map<string, any>();
+
+async function startCacheInvalidation() {
+  const controller = new AbortController();
+
+  // Observa todas as chaves do cache
+  for await (const entry of kv.watchPrefix(["products"], {
+    signal: controller.signal
+  })) {
+    const cacheKey = entry.key.join(":");
+
+    if (entry.value === null) {
+      // Deletado
+      cache.delete(cacheKey);
+    } else {
+      // Atualizado
+      cache.set(cacheKey, entry.value);
+    }
+
+    console.log(`Cache invalidado: ${cacheKey}`);
+  }
+}
+----
+
+==== Dashboard em Tempo Real
+
+[source,typescript]
+----
+// Backend - SSE endpoint
+app.get("/api/dashboard/stream", async (c) => {
+  const controller = new AbortController();
+
+  // Cleanup quando cliente desconecta
+  c.req.raw.signal.addEventListener("abort", () => {
+    controller.abort();
+  });
+
+  return new Response(
+    new ReadableStream({
+      async start(streamController) {
+        try {
+          for await (const entries of kv.watch([
+            ["metrics", "users"],
+            ["metrics", "revenue"],
+            ["metrics", "orders"]
+          ], { signal: controller.signal })) {
+            const data = {
+              users: entries[0]?.value,
+              revenue: entries[1]?.value,
+              orders: entries[2]?.value,
+              timestamp: Date.now()
+            };
+
+            streamController.enqueue(
+              `data: ${JSON.stringify(data)}\n\n`
+            );
+          }
+        } catch {
+          // Closed
+        } finally {
+          streamController.close();
+        }
+      }
+    }),
+    {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive"
+      }
+    }
+  );
+});
+
+// Frontend - React hook
+function useDashboard() {
+  const [metrics, setMetrics] = useState(null);
+
+  useEffect(() => {
+    const eventSource = new EventSource("/api/dashboard/stream");
+
+    eventSource.onmessage = (event) => {
+      setMetrics(JSON.parse(event.data));
+    };
+
+    return () => eventSource.close();
+  }, []);
+
+  return metrics;
+}
+----
+
+==== Notificações em Tempo Real
+
+[source,typescript]
+----
+async function watchUserNotifications(userId: string, onNotification: (n: Notification) => void) {
+  const controller = new AbortController();
+
+  const watchPromise = (async () => {
+    try {
+      for await (const entry of kv.watchPrefix(
+        ["notifications", userId],
+        { signal: controller.signal }
+      )) {
+        if (entry.value && !entry.value.read) {
+          onNotification(entry.value);
+        }
+      }
+    } catch (err: any) {
+      if (err.name !== "AbortError") throw err;
+    }
+  })();
+
+  return {
+    stop: () => controller.abort(),
+    promise: watchPromise
+  };
+}
+
+// Uso
+const { stop } = await watchUserNotifications("user123", (notification) => {
+  toast.show(notification.message);
+});
+
+// Cleanup
+onCleanup(() => stop());
+----
+
+=== HTTP API
+
+==== GET /watch
+
+Watch por chaves específicas via SSE:
+
+[source,bash]
+----
+curl -N "http://localhost:4000/_/plugin-keyval/watch?keys=config&keys=settings"
+----
+
+**Parâmetros:**
+
+[cols="1,1,2"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `keys`
+| string[]
+| Chaves para observar (formato: `part1/part2`)
+|===
+
+**Resposta (SSE):**
+
+[source]
+----
+event: change
+data: {"entries":[{"key":["config"],"value":{"theme":"dark"},"versionstamp":"abc123"}]}
+
+event: change
+data: {"entries":[{"key":["config"],"value":{"theme":"light"},"versionstamp":"def456"}]}
+----
+
+==== GET /watch/prefix/:prefix
+
+Watch por prefixo via SSE:
+
+[source,bash]
+----
+curl -N "http://localhost:4000/_/plugin-keyval/watch/prefix/users"
+----
+
+**Resposta (SSE):**
+
+[source]
+----
+event: change
+data: {"key":["users","123"],"value":{"name":"Updated"},"versionstamp":"abc123"}
+----
+
+=== Considerações
+
+==== Performance
+
+WARNING: Cada chave observada gera uma query a cada 100ms. Observe o número de watches ativos.
+
+[cols="1,1,1"]
+|===
+| Chaves Observadas | Queries/segundo | Impacto
+
+| 10
+| 100
+| Baixo
+
+| 100
+| 1.000
+| Médio
+
+| 1.000
+| 10.000
+| Alto
+|===
+
+==== Boas Práticas
+
+1. **Limite o número de watches**: Prefira `watchPrefix` quando possível
+2. **Use AbortSignal**: Sempre forneça um signal para cleanup
+3. **Trate erros**: Implemente reconexão para SSE
+4. **Cleanup**: Aborte watches quando não precisar mais
+
+==== Reconexão SSE
+
+[source,typescript]
+----
+function createResilientWatch(keys: string[]) {
+  let eventSource: EventSource | null = null;
+  let retries = 0;
+  const maxRetries = 5;
+
+  function connect() {
+    const url = `/api/watch?${keys.map(k => `keys=${k}`).join("&")}`;
+    eventSource = new EventSource(url);
+
+    eventSource.onopen = () => {
+      retries = 0;
+    };
+
+    eventSource.onerror = () => {
+      eventSource?.close();
+
+      if (retries < maxRetries) {
+        retries++;
+        const delay = Math.min(1000 * 2 ** retries, 30000);
+        setTimeout(connect, delay);
+      }
+    };
+
+    eventSource.onmessage = (event) => {
+      // Handle message
+    };
+  }
+
+  connect();
+
+  return () => eventSource?.close();
+}
+----
+
+==== Detecção de Mudanças
+
+O watch detecta mudanças comparando versionstamps:
+
+- Novo versionstamp → emit entry com novo valor
+- Versionstamp null → entry foi deletada (value: null)
+- Versionstamp igual → sem mudança (não emite)
+
+NOTE: O intervalo de polling é 100ms, então mudanças muito rápidas podem ser agrupadas em um único evento.

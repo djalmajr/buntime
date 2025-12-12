@@ -1,6 +1,7 @@
 {
   "actions": {
     "cancel": "Cancelar",
+    "close": "Fechar",
     "create": "Criar Redirect",
     "delete": "Excluir",
     "edit": "Editar",
@@ -16,7 +17,9 @@
     "description": "Configure as opções do redirect abaixo.",
     "editDescription": "Atualize as opções do redirect abaixo.",
     "editTitle": "Editar Redirect",
-    "title": "Novo Redirect"
+    "title": "Novo Redirect",
+    "viewDescription": "Visualize a configuração do redirect (somente leitura).",
+    "viewTitle": "Visualizar Redirect"
   },
   "form": {
     "addHeader": "Adicionar Header",

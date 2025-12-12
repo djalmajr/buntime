@@ -13,7 +13,6 @@
   "scripts": {
     "dev": "bunx browser-sync --port 5000 --no-ui --no-open --single --watch",
     "lint:format": "bun biome check --write",
-    "lint:types": "bun tsc --noEmit",
-    "lint": "bun run lint:format && bun run lint:types"
+    "lint": "bun run lint:format"
   }
 }

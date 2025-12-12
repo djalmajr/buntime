@@ -1,0 +1,37 @@
+{
+  "dashboard": {
+    "cache": {
+      "description": "HTTP response cache statistics",
+      "entries": "Entries",
+      "hits": "Hits",
+      "misses": "Misses",
+      "size": "Size",
+      "title": "Cache"
+    },
+    "cors": {
+      "description": "Cross-Origin Resource Sharing configuration",
+      "disabled": "Disabled",
+      "enabled": "Enabled",
+      "status": "Status",
+      "title": "CORS"
+    },
+    "error": {
+      "title": "Error Loading Stats"
+    },
+    "rateLimit": {
+      "description": "Request rate limiting configuration",
+      "disabled": "Disabled",
+      "enabled": "Enabled",
+      "status": "Status",
+      "title": "Rate Limit"
+    },
+    "refresh": "Refresh",
+    "subtitle": "Monitor and manage gateway features",
+    "title": "Gateway Dashboard"
+  },
+  "nav": {
+    "cache": "Cache",
+    "dashboard": "Dashboard",
+    "gateway": "Gateway"
+  }
+}

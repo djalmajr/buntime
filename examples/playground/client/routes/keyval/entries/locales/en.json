@@ -1,0 +1,37 @@
+{
+  "browse": {
+    "description": "List entries by prefix",
+    "list": "List",
+    "prefixPlaceholder": "Prefix (e.g., users or users, 123)",
+    "title": "Browse Entries"
+  },
+  "description": "CRUD operations, listing, pagination, and filters",
+  "get": {
+    "description": "Get a single entry by key",
+    "fetch": "Get",
+    "keyPlaceholder": "Key (e.g., users, 123)",
+    "title": "Get Entry"
+  },
+  "set": {
+    "description": "Create or update an entry",
+    "keyLabel": "Key",
+    "keyPlaceholder": "Key parts (e.g., users, 123)",
+    "save": "Save",
+    "title": "Set Entry",
+    "valueLabel": "Value (JSON)",
+    "valuePlaceholder": "{\"name\": \"Alice\"}"
+  },
+  "table": {
+    "actions": "Actions",
+    "empty": "No entries found. Try listing with a different prefix.",
+    "key": "Key",
+    "value": "Value",
+    "versionstamp": "Version"
+  },
+  "tabs": {
+    "browse": "Browse",
+    "get": "Get",
+    "set": "Set"
+  },
+  "title": "Entries"
+}

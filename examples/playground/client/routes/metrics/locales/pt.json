@@ -1,29 +1,35 @@
 {
-  "description": "Monitorar métricas de operação e armazenamento do KeyVal",
-  "json": {
-    "autoRefreshOff": "Atualização Automática Desligada",
-    "autoRefreshOn": "Atualização Automática Ligada",
-    "description": "Formato JSON com estatísticas de operações, fila e armazenamento",
-    "loading": "Carregando métricas...",
-    "refresh": "Atualizar",
-    "refreshing": "Atualizando automaticamente a cada 5s",
-    "title": "Métricas JSON"
+  "dashboard": {
+    "description": "Métricas do pool em tempo real e estatísticas dos workers",
+    "subtitle": "Monitore o desempenho do pool e a saúde dos workers",
+    "title": "Painel de Métricas"
   },
-  "prometheus": {
-    "description": "Formato de exposição Prometheus para sistemas de monitoramento",
-    "fetch": "Buscar",
-    "placeholder": "Clique em 'Buscar' para carregar métricas Prometheus",
-    "title": "Métricas Prometheus"
+  "nav": {
+    "dashboard": "Painel",
+    "metrics": "Métricas",
+    "prometheus": "Prometheus",
+    "workers": "Workers"
   },
-  "stats": {
+  "poolStats": {
+    "activeWorkers": "Workers Ativos",
+    "idleWorkers": "Workers Ociosos",
+    "pendingRequests": "Requisições Pendentes",
+    "title": "Estatísticas do Pool",
+    "totalErrors": "Total de Erros",
+    "totalRequests": "Total de Requisições",
+    "uptime": "Tempo Ativo"
+  },
+  "quickStats": {
     "errors": "Erros",
-    "operations": "Operações",
-    "queueMessages": "Mensagens na Fila",
-    "totalKeys": "Total de Chaves"
+    "requests": "Requisições",
+    "title": "Estatísticas Rápidas",
+    "workers": "Workers"
   },
-  "tabs": {
-    "json": "JSON",
-    "prometheus": "Prometheus"
+  "realtime": {
+    "connected": "Conectado",
+    "connecting": "Conectando...",
+    "disconnected": "Desconectado",
+    "title": "Atualizações em Tempo Real"
   },
-  "title": "Métricas"
+  "refresh": "Atualizar"
 }

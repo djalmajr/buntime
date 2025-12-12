@@ -277,7 +277,6 @@ export class PolicyDecisionPoint {
         return { effect: this.defaultEffect, reason: "No permit or deny decision" };
       }
 
-      case "first-applicable":
       default: {
         const applicable = results.find(
           (r) => r.decision.effect === "permit" || r.decision.effect === "deny",

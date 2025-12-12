@@ -369,7 +369,7 @@ async function loadDynamicRules(): Promise<void> {
   if (!kv) return;
 
   const rules: StoredRule[] = [];
-  for await (const entry of kv.list<StoredRule>({ prefix: KV_PREFIX })) {
+  for await (const entry of kv.list<StoredRule>(KV_PREFIX)) {
     if (entry.value) {
       rules.push(entry.value);
     }

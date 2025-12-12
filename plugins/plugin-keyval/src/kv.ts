@@ -375,25 +375,35 @@ export class Kv {
       const encodedKey = encodeKey(prefix);
       const range = encodePrefixRange(prefix);
 
-      let sql: string;
+      let countSql: string;
+      let deleteSql: string;
       let args: unknown[];
 
       if (options?.where) {
         // Delete with filter: uses json_extract for filtering
         const whereResult = whereToSql(options.where);
-        sql = `DELETE FROM kv_entries
-               WHERE (key = ? OR (key >= ? AND key < ?))
+        const whereClause = `(key = ? OR (key >= ? AND key < ?))
                AND (expires_at IS NULL OR expires_at > unixepoch())
                AND ${whereResult.sql}`;
+        countSql = `SELECT COUNT(*) as count FROM kv_entries WHERE ${whereClause}`;
+        deleteSql = `DELETE FROM kv_entries WHERE ${whereClause}`;
         args = [encodedKey, range.start, range.end, ...whereResult.params];
       } else {
         // Delete without filter: delete exact key and all children
-        sql = `DELETE FROM kv_entries WHERE key = ? OR (key >= ? AND key < ?)`;
+        const whereClause = `key = ? OR (key >= ? AND key < ?)`;
+        countSql = `SELECT COUNT(*) as count FROM kv_entries WHERE ${whereClause}`;
+        deleteSql = `DELETE FROM kv_entries WHERE ${whereClause}`;
         args = [encodedKey, range.start, range.end];
       }
 
-      const result = await this.adapter.execute<{ changes: number }>(sql, args);
-      const deletedCount = (result as unknown as { changes?: number })?.changes ?? 0;
+      // Count rows to be deleted (since adapter.execute doesn't return rowsAffected)
+      const countResult = await this.adapter.execute<{ count: number }>(countSql, args);
+      const deletedCount = countResult[0]?.count ?? 0;
+
+      // Actually delete
+      if (deletedCount > 0) {
+        await this.adapter.execute(deleteSql, args);
+      }
 
       // Remove from FTS index if there's a matching index
       const index = await this.fts.getMatchingIndex(prefix);

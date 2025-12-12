@@ -1,0 +1,29 @@
+{
+  "description": "Detailed statistics for all active workers",
+  "lastUpdate": "Last update",
+  "refresh": "Refresh",
+  "status": {
+    "error": "Error",
+    "healthy": "Healthy"
+  },
+  "summary": {
+    "activeWorkers": "Active Workers",
+    "idleWorkers": "Idle Workers",
+    "totalRequests": "Total Requests",
+    "totalWorkers": "Total Workers"
+  },
+  "table": {
+    "columns": {
+      "errorRate": "Error Rate",
+      "errors": "Errors",
+      "id": "Worker ID",
+      "requests": "Requests",
+      "status": "Status",
+      "uptime": "Uptime"
+    },
+    "description": "Statistics for each worker in the pool",
+    "empty": "No workers are currently running",
+    "title": "Worker Statistics"
+  },
+  "title": "Workers"
+}

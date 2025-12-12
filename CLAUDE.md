@@ -12,6 +12,10 @@
 
 @.claude/rules/packages/bun-plugins.md
 
+## Development
+
+@.claude/rules/development/testing-ports.md
+
 ## Code Conventions
 
 @.claude/rules/code-conventions/no-barrel-files.md

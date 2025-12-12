@@ -68,7 +68,7 @@ export class FileTransport implements LogTransport {
     this.buffer = [];
 
     // Write all lines at once
-    await appendFile(this.path, lines.join("\n") + "\n");
+    await appendFile(this.path, `${lines.join("\n")}\n`);
   }
 
   write(entry: LogEntry): void {

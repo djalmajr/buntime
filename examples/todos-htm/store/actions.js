@@ -2,7 +2,7 @@ import { getFiltered } from "./selectors.js";
 
 export const actions = () => ({
   addTodo(state, text = "") {
-    const uid = new Date().toJSON().replace(/[^\w]/g, "");
+    const uid = crypto.randomUUID();
     const todo = { uid, text, completed: false };
     return { ...state, todos: { ...state.todos, [uid]: todo } };
   },

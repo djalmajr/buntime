@@ -24,7 +24,7 @@ i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
-    defaultNS: "common",
+    defaultNS: "keyval",
     detection: {
       caches: ["localStorage"],
       lookupLocalStorage: "keyval-playground:language",
@@ -32,7 +32,25 @@ i18n
     },
     fallbackLng: "en",
     interpolation: { escapeValue: false },
-    ns: ["common"],
+    ns: [
+      "authz",
+      "authz.evaluate",
+      "authz.policies",
+      "durable",
+      "durable.details",
+      "gateway",
+      "gateway.cache",
+      "keyval",
+      "keyval.atomic",
+      "keyval.keys",
+      "keyval.metrics",
+      "keyval.queue",
+      "keyval.search",
+      "keyval.watch",
+      "metrics",
+      "metrics.prometheus",
+      "metrics.workers",
+    ],
     nonExplicitSupportedLngs: true,
     partialBundledLanguages: true,
     react: { useSuspense: false },

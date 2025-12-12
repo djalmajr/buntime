@@ -63,20 +63,61 @@ export function validateKeyPath(path: string): KvKey {
 }
 
 /**
+ * Get a human-readable type name for error messages
+ */
+function getTypeName(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (Array.isArray(value)) return "array";
+  if (value instanceof Uint8Array) return "Uint8Array";
+  return typeof value;
+}
+
+/**
+ * Format a value for display in error messages (truncated if too long)
+ */
+function formatValue(value: unknown, maxLength = 50): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+
+  let str: string;
+  if (typeof value === "string") {
+    str = `"${value}"`;
+  } else if (typeof value === "object") {
+    try {
+      str = JSON.stringify(value);
+    } catch {
+      str = String(value);
+    }
+  } else {
+    str = String(value);
+  }
+
+  if (str.length > maxLength) {
+    return `${str.substring(0, maxLength - 3)}...`;
+  }
+  return str;
+}
+
+/**
  * Validates a key from JSON body
  */
 export function validateKey(key: unknown): KvKey {
   if (!Array.isArray(key)) {
-    throw new HTTPException(400, { message: "Key must be an array" });
+    throw new HTTPException(400, {
+      message: `Key must be an array of (string | number | bigint | boolean | Uint8Array), received ${getTypeName(key)}: ${formatValue(key)}`,
+    });
   }
 
   if (key.length === 0) {
-    throw new HTTPException(400, { message: "Key cannot be empty" });
+    throw new HTTPException(400, {
+      message: "Key cannot be empty. Provide at least one key part, e.g. [\"users\", 123]",
+    });
   }
 
   if (key.length > MAX_KEY_DEPTH) {
     throw new HTTPException(400, {
-      message: `Key too deep (max ${MAX_KEY_DEPTH} parts)`,
+      message: `Key too deep: ${key.length} parts (max ${MAX_KEY_DEPTH}). Consider flattening your key structure.`,
     });
   }
 
@@ -90,19 +131,19 @@ export function validateKey(key: unknown): KvKey {
       !(part instanceof Uint8Array)
     ) {
       throw new HTTPException(400, {
-        message: `Invalid key part at index ${i}: must be string, number, bigint, boolean, or Uint8Array`,
+        message: `Invalid key part at index ${i}: expected (string | number | bigint | boolean | Uint8Array), received ${getTypeName(part)}: ${formatValue(part)}`,
       });
     }
 
     if (typeof part === "string" && part.length > MAX_KEY_PART_LENGTH) {
       throw new HTTPException(400, {
-        message: `Key part at index ${i} too long (max ${MAX_KEY_PART_LENGTH} chars)`,
+        message: `Key part at index ${i} too long: ${part.length} chars (max ${MAX_KEY_PART_LENGTH}). Value: ${formatValue(part)}`,
       });
     }
 
     if (part instanceof Uint8Array && part.length > MAX_KEY_PART_BYTES) {
       throw new HTTPException(400, {
-        message: `Key part at index ${i} too large (max ${MAX_KEY_PART_BYTES} bytes)`,
+        message: `Key part at index ${i} too large: ${part.length} bytes (max ${MAX_KEY_PART_BYTES})`,
       });
     }
   }
@@ -115,16 +156,20 @@ export function validateKey(key: unknown): KvKey {
  */
 export function validateKeys(keys: unknown): KvKey[] {
   if (!Array.isArray(keys)) {
-    throw new HTTPException(400, { message: "Keys must be an array" });
+    throw new HTTPException(400, {
+      message: `Keys must be an array of key arrays, received ${getTypeName(keys)}: ${formatValue(keys)}`,
+    });
   }
 
   if (keys.length === 0) {
-    throw new HTTPException(400, { message: "Keys array cannot be empty" });
+    throw new HTTPException(400, {
+      message: "Keys array cannot be empty. Provide at least one key, e.g. [[\"users\", 123]]",
+    });
   }
 
   if (keys.length > MAX_BATCH_SIZE) {
     throw new HTTPException(400, {
-      message: `Too many keys (max ${MAX_BATCH_SIZE})`,
+      message: `Too many keys: ${keys.length} (max ${MAX_BATCH_SIZE}). Split into smaller batches.`,
     });
   }
 
@@ -153,7 +198,7 @@ export function validateBigInt(value: unknown, fieldName = "value"): bigint {
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
       throw new HTTPException(400, {
-        message: `${fieldName} must be a finite number`,
+        message: `${fieldName} must be a finite number, received ${value}`,
       });
     }
     return BigInt(Math.trunc(value));
@@ -164,13 +209,13 @@ export function validateBigInt(value: unknown, fieldName = "value"): bigint {
       return BigInt(value);
     } catch {
       throw new HTTPException(400, {
-        message: `${fieldName} is not a valid integer`,
+        message: `${fieldName} is not a valid integer: "${value}". Expected a numeric string like "123"`,
       });
     }
   }
 
   throw new HTTPException(400, {
-    message: `${fieldName} must be a number, bigint, or numeric string`,
+    message: `${fieldName} must be a number, bigint, or numeric string, received ${getTypeName(value)}: ${formatValue(value)}`,
   });
 }
 
@@ -184,7 +229,7 @@ export function validateExpireIn(value: unknown): number | undefined {
 
   if (typeof value !== "number" && typeof value !== "string") {
     throw new HTTPException(400, {
-      message: "expireIn must be a number (milliseconds)",
+      message: `expireIn must be a number (milliseconds), received ${getTypeName(value)}: ${formatValue(value)}`,
     });
   }
 
@@ -192,7 +237,7 @@ export function validateExpireIn(value: unknown): number | undefined {
 
   if (!Number.isFinite(num) || num <= 0) {
     throw new HTTPException(400, {
-      message: "expireIn must be a positive number",
+      message: `expireIn must be a positive number (milliseconds), received ${num}. Note: minimum effective TTL is 1000ms (1 second)`,
     });
   }
 
@@ -211,9 +256,14 @@ export function validateLimit(value: unknown, defaultValue = 100, maxValue = 100
 
   if (!Number.isFinite(num) || num <= 0) {
     throw new HTTPException(400, {
-      message: "limit must be a positive number",
+      message: `limit must be a positive number, received ${formatValue(value)}`,
     });
   }
 
-  return Math.min(num, maxValue);
+  if (num > maxValue) {
+    // Not an error, just cap it - but we could warn
+    return maxValue;
+  }
+
+  return num;
 }

@@ -310,46 +310,46 @@ describe("whereToSql", () => {
   });
 
   describe("string operators (case-sensitive)", () => {
-    it("should handle $contains", () => {
+    it("should handle $contains using instr for case-sensitivity", () => {
       const result = whereToSql({ name: { $contains: "Silva" } });
 
-      expect(result.sql).toBe("json_extract(value, '$.name') LIKE ? ESCAPE '\\'");
-      expect(result.params).toEqual(["%Silva%"]);
+      expect(result.sql).toBe("instr(json_extract(value, '$.name'), ?) > 0");
+      expect(result.params).toEqual(["Silva"]);
     });
 
-    it("should handle $notContains", () => {
+    it("should handle $notContains using instr", () => {
       const result = whereToSql({ email: { $notContains: "@temp" } });
 
-      expect(result.sql).toBe("json_extract(value, '$.email') NOT LIKE ? ESCAPE '\\'");
-      expect(result.params).toEqual(["%@temp%"]);
+      expect(result.sql).toBe("instr(json_extract(value, '$.email'), ?) = 0");
+      expect(result.params).toEqual(["@temp"]);
     });
 
-    it("should handle $startsWith", () => {
+    it("should handle $startsWith using substr", () => {
       const result = whereToSql({ code: { $startsWith: "BR-" } });
 
-      expect(result.sql).toBe("json_extract(value, '$.code') LIKE ? ESCAPE '\\'");
-      expect(result.params).toEqual(["BR-%"]);
+      expect(result.sql).toBe("substr(json_extract(value, '$.code'), 1, 3) = ?");
+      expect(result.params).toEqual(["BR-"]);
     });
 
-    it("should handle $endsWith", () => {
+    it("should handle $endsWith using substr", () => {
       const result = whereToSql({ email: { $endsWith: "@company.com" } });
 
-      expect(result.sql).toBe("json_extract(value, '$.email') LIKE ? ESCAPE '\\'");
-      expect(result.params).toEqual(["%@company.com"]);
+      expect(result.sql).toBe("substr(json_extract(value, '$.email'), -12) = ?");
+      expect(result.params).toEqual(["@company.com"]);
     });
 
-    it("should escape LIKE special characters in $contains", () => {
+    it("should handle special characters in $contains (no escaping needed)", () => {
       const result = whereToSql({ pattern: { $contains: "100%" } });
 
-      expect(result.sql).toBe("json_extract(value, '$.pattern') LIKE ? ESCAPE '\\'");
-      expect(result.params).toEqual(["%100\\%%"]);
+      expect(result.sql).toBe("instr(json_extract(value, '$.pattern'), ?) > 0");
+      expect(result.params).toEqual(["100%"]);
     });
 
-    it("should escape underscore in $startsWith", () => {
+    it("should handle special characters in $startsWith", () => {
       const result = whereToSql({ name: { $startsWith: "user_" } });
 
-      expect(result.sql).toBe("json_extract(value, '$.name') LIKE ? ESCAPE '\\'");
-      expect(result.params).toEqual(["user\\_%"]);
+      expect(result.sql).toBe("substr(json_extract(value, '$.name'), 1, 5) = ?");
+      expect(result.params).toEqual(["user_"]);
     });
   });
 
@@ -389,7 +389,8 @@ describe("whereToSql", () => {
 
       expect(result.sql).toContain("IS NULL");
       expect(result.sql).toContain("= ''");
-      expect(result.sql).toContain("= '[]'");
+      expect(result.sql).toContain("json_valid");
+      expect(result.sql).toContain("json_array_length");
       expect(result.params).toEqual([]);
     });
 

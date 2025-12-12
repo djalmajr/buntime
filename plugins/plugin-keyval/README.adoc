@@ -339,6 +339,12 @@ include::docs/fundamentals/future.adoc[leveloffset=+1]
 
 include::docs/api/http-api-spec.adoc[leveloffset=+1]
 
+include::docs/api/where-filters.adoc[leveloffset=+1]
+
+include::docs/api/pagination.adoc[leveloffset=+1]
+
+include::docs/api/watch.adoc[leveloffset=+1]
+
 include::docs/api/metrics.adoc[leveloffset=+1]
 
 == Deploy e Operações

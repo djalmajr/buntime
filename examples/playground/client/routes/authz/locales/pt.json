@@ -1,0 +1,21 @@
+{
+  "dashboard": {
+    "evaluate": {
+      "description": "Teste a avaliação de políticas com diferentes contextos",
+      "title": "Avaliar"
+    },
+    "policies": {
+      "description": "Crie e gerencie políticas de autorização",
+      "title": "Políticas"
+    },
+    "subtitle": "Teste todas as funcionalidades do SDK AuthZ interativamente",
+    "title": "AuthZ Playground"
+  },
+  "nav": {
+    "authz": "AuthZ"
+  },
+  "quickStart": {
+    "description": "Comece a usar o AuthZ na sua aplicação",
+    "title": "Início Rápido"
+  }
+}

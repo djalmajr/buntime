@@ -119,13 +119,19 @@ export class KvFts {
 
   /**
    * Index a document when it's set in KV
+   * First removes any existing document with the same key, then inserts the new one
    */
   async indexDocument(_prefix: KvKey, docKey: KvKey, value: unknown): Promise<void> {
     const index = await this.getMatchingIndex(docKey);
     if (!index) return;
 
+    const encodedDocKey = this.encodeDocKey(docKey);
+
+    // FTS5 doesn't have a primary key concept, so we need to delete first
+    await this.adapter.execute(`DELETE FROM ${index.tableName} WHERE doc_key = ?`, [encodedDocKey]);
+
     // Extract field values from document
-    const fieldValues: unknown[] = [this.encodeDocKey(docKey)];
+    const fieldValues: unknown[] = [encodedDocKey];
 
     for (const field of index.fields) {
       const fieldValue = this.extractField(value, field);
@@ -134,10 +140,7 @@ export class KvFts {
 
     // Insert into FTS table
     const placeholders = fieldValues.map(() => "?").join(", ");
-    await this.adapter.execute(
-      `INSERT OR REPLACE INTO ${index.tableName} VALUES (${placeholders})`,
-      fieldValues,
-    );
+    await this.adapter.execute(`INSERT INTO ${index.tableName} VALUES (${placeholders})`, fieldValues);
   }
 
   /**

@@ -1,0 +1,29 @@
+{
+  "description": "Estatísticas detalhadas de todos os workers ativos",
+  "lastUpdate": "Última atualização",
+  "refresh": "Atualizar",
+  "status": {
+    "error": "Erro",
+    "healthy": "Saudável"
+  },
+  "summary": {
+    "activeWorkers": "Workers Ativos",
+    "idleWorkers": "Workers Ociosos",
+    "totalRequests": "Total de Requisições",
+    "totalWorkers": "Total de Workers"
+  },
+  "table": {
+    "columns": {
+      "errorRate": "Taxa de Erro",
+      "errors": "Erros",
+      "id": "ID do Worker",
+      "requests": "Requisições",
+      "status": "Status",
+      "uptime": "Tempo Ativo"
+    },
+    "description": "Estatísticas de cada worker no pool",
+    "empty": "Nenhum worker está em execução no momento",
+    "title": "Estatísticas dos Workers"
+  },
+  "title": "Workers"
+}

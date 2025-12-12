@@ -1,6 +1,7 @@
 {
   "actions": {
     "cancel": "Cancel",
+    "close": "Close",
     "create": "Create Redirect",
     "delete": "Delete",
     "edit": "Edit",
@@ -16,7 +17,9 @@
     "description": "Configure the redirect settings below.",
     "editDescription": "Update the redirect settings below.",
     "editTitle": "Edit Redirect",
-    "title": "New Redirect"
+    "title": "New Redirect",
+    "viewDescription": "View the redirect configuration (read-only).",
+    "viewTitle": "View Redirect"
   },
   "form": {
     "addHeader": "Add Header",

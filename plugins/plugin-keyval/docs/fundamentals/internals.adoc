@@ -78,6 +78,60 @@ WHERE key >= ? AND key < ?
 ORDER BY key ASC
 ----
 
+==== Ordenação de Chaves Mistas
+
+Quando você tem chaves com diferentes profundidades sob o mesmo prefixo, elas são ordenadas pela sequência completa de bytes. Chaves mais curtas vêm antes de chaves mais longas com o mesmo prefixo:
+
+[source,typescript]
+----
+// Exemplo de ordenação real com chaves mistas:
+["users"]                              // 1º - prefixo base
+["users", "usr_001"]                   // 2º - primeiro usuário
+["users", "usr_001", "posts", "p1"]    // 3º - post do usuário
+["users", "usr_001", "posts", "p2"]    // 4º - outro post
+["users", "usr_001", "profile"]        // 5º - profile (vem depois de posts)
+["users", "usr_002"]                   // 6º - segundo usuário
+["users", "usr_002", "settings"]       // 7º - settings do segundo usuário
+----
+
+Isso significa que `list(["users"])` retorna **todas** as chaves que começam com `["users"]`, independente da profundidade:
+
+[source,typescript]
+----
+// list(["users"]) retorna TUDO:
+for await (const entry of kv.list(["users"])) {
+  console.log(entry.key);
+}
+// ["users"]
+// ["users", "usr_001"]
+// ["users", "usr_001", "posts", "p1"]
+// ["users", "usr_001", "posts", "p2"]
+// ["users", "usr_001", "profile"]
+// ["users", "usr_002"]
+// ...
+----
+
+**Para filtrar apenas um nível específico:**
+
+[source,typescript]
+----
+// Opção 1: Filtrar por tamanho da chave
+for await (const entry of kv.list(["users"])) {
+  if (entry.key.length === 2) {  // Apenas ["users", id]
+    // Processa apenas usuários, ignora posts/profiles
+  }
+}
+
+// Opção 2: Usar namespaces separados (recomendado)
+["users", id]           → { name, email }
+["user_posts", id, pid] → { title, content }
+["user_profiles", id]   → { bio, avatar }
+
+// Assim list(["users"]) retorna só usuários
+----
+
+NOTE: A ordenação hierárquica é útil para delete em cascata: `delete(["users", "usr_001"])` remove o usuário e todos os seus dados aninhados.
+
 === Serialização de Valores
 
 Valores são armazenados como JSON com suporte especial para BigInt:

@@ -435,7 +435,7 @@ async function createOrder(order: Order) {
       type: "new_order",
       orderId: order.id,
       message: `Novo pedido #${order.id}`,
-      timestamp: Date.now()
+      timestamp: kv.now()
     }
   );
 }
@@ -558,7 +558,7 @@ const PRESENCE_TTL = 30000; // 30 segundos
 async function markOnline(userId: string) {
   await kv.set(
     ["presence", userId],
-    { userId, lastSeen: Date.now() },
+    { userId, lastSeen: kv.now() },
     { expireIn: PRESENCE_TTL }
   );
 }
@@ -686,7 +686,7 @@ async function publish(channel: string, message: unknown): Promise<void> {
     ["pubsub", channel, eventId],
     {
       message,
-      timestamp: Date.now(),
+      timestamp: kv.now(),
       id: eventId
     },
     { expireIn: 60000 } // Eventos expiram em 1 minuto
@@ -743,7 +743,7 @@ const LEADER_TTL = 15000;
 async function tryBecomeLeader(): Promise<boolean> {
   const result = await kv.atomic()
     .check({ key: LEADER_KEY, versionstamp: null }) // Só se não houver líder
-    .set(LEADER_KEY, { instanceId, timestamp: Date.now() }, {
+    .set(LEADER_KEY, { instanceId, timestamp: kv.now() }, {
       expireIn: LEADER_TTL
     })
     .commit();
@@ -761,7 +761,7 @@ async function maintainLeadership(): Promise<boolean> {
   }
 
   // Renovar o TTL
-  await kv.set(LEADER_KEY, { instanceId, timestamp: Date.now() }, {
+  await kv.set(LEADER_KEY, { instanceId, timestamp: kv.now() }, {
     expireIn: LEADER_TTL
   });
 

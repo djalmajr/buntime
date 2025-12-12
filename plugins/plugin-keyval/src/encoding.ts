@@ -1,4 +1,5 @@
 import type { KvKey, KvKeyPart } from "./types";
+import { isNowPlaceholder } from "./types";
 
 /**
  * Type tags for key part encoding
@@ -317,11 +318,15 @@ export function encodePrefixRange(prefix: KvKey): { start: Uint8Array; end: Uint
 }
 
 /**
- * Custom JSON replacer to handle BigInt
+ * Custom JSON replacer to handle BigInt and $now placeholder
  */
 function jsonReplacer(_key: string, value: unknown): unknown {
   if (typeof value === "bigint") {
     return { __type: "bigint", value: value.toString() };
+  }
+  // Resolve $now placeholder to current server timestamp
+  if (isNowPlaceholder(value)) {
+    return Date.now();
   }
   return value;
 }

@@ -31,14 +31,38 @@ export class KvTransaction {
   constructor(private kv: Kv) {}
 
   /**
-   * Get a value by key with snapshot isolation
+   * Get value(s) by key(s) with snapshot isolation
    * Subsequent reads of the same key return the cached value
    */
-  async get<T = unknown>(key: KvKey): Promise<KvEntry<T>> {
+  async get<T = unknown>(keys: []): Promise<KvEntry<T>[]>;
+  async get<T = unknown>(key: KvKey): Promise<KvEntry<T>>;
+  async get<T = unknown>(keys: KvKey[]): Promise<KvEntry<T>[]>;
+  async get<T = unknown>(keys: KvKey | KvKey[]): Promise<KvEntry<T> | KvEntry<T>[]> {
     if (this.committed) {
       throw new Error("Transaction already committed");
     }
 
+    // Empty array - return empty result
+    if (Array.isArray(keys) && keys.length === 0) {
+      return [];
+    }
+
+    // Check if it's a nested array (multiple keys) vs single key
+    const isNestedArray = Array.isArray(keys) && keys.length > 0 && Array.isArray(keys[0]);
+
+    // Multiple keys - batch request
+    if (isNestedArray) {
+      return this.getBatch<T>(keys as KvKey[]);
+    }
+
+    // Single key
+    return this.getSingle<T>(keys as KvKey);
+  }
+
+  /**
+   * Get a single value by key (internal)
+   */
+  private async getSingle<T = unknown>(key: KvKey): Promise<KvEntry<T>> {
     const keyHex = Buffer.from(encodeKey(key)).toString("hex");
 
     // Return cached read if available
@@ -54,13 +78,9 @@ export class KvTransaction {
   }
 
   /**
-   * Get multiple values by keys with snapshot isolation
+   * Get multiple values by keys (internal)
    */
-  async getMany<T = unknown>(keys: KvKey[]): Promise<KvEntry<T>[]> {
-    if (this.committed) {
-      throw new Error("Transaction already committed");
-    }
-
+  private async getBatch<T = unknown>(keys: KvKey[]): Promise<KvEntry<T>[]> {
     const results: KvEntry<T>[] = [];
     const uncachedKeys: KvKey[] = [];
     const uncachedIndices: number[] = [];
@@ -83,7 +103,7 @@ export class KvTransaction {
 
     // Fetch uncached keys
     if (uncachedKeys.length > 0) {
-      const entries = await this.kv.getMany<T>(uncachedKeys);
+      const entries = await this.kv.get<T>(uncachedKeys);
 
       for (let j = 0; j < entries.length; j++) {
         const entry = entries[j];

@@ -12,7 +12,7 @@ Cada operação possui características de desempenho distintas:
 | O(1)
 | Lookup direto por chave primária. Acesso instantâneo via índice B-tree.
 
-| `getMany()`
+| `get()` (array)
 | O(k)
 | Busca múltiplas chaves em uma única query SQL usando `IN`. k = número de chaves.
 
@@ -45,7 +45,7 @@ Cada operação possui características de desempenho distintas:
 | Transação com snapshot isolation. Custo varia com número de operações e tentativas de retry.
 |===
 
-TIP: Para operações em massa, sempre prefira `getMany()` ou `atomic()` em vez de múltiplas chamadas individuais.
+TIP: Para operações em massa, sempre prefira `get()` com array de chaves ou `atomic()` em vez de múltiplas chamadas individuais.
 
 === Indexação
 
@@ -103,7 +103,7 @@ WARNING: Índices parciais (com `WHERE`) são mais eficientes pois indexam apena
 
 Operações em batch reduzem drasticamente a latência ao eliminar round-trips de rede:
 
-==== getMany()
+==== get() com Array de Chaves
 
 [source,typescript]
 ----
@@ -115,7 +115,7 @@ for (const id of userIds) {
 }
 
 // Rápido: 1 round-trip
-const entries = await kv.getMany(
+const entries = await kv.get(
   userIds.map(id => ["users", id])
 );
 ----
@@ -193,7 +193,7 @@ O plugin-keyval utiliza o `@buntime/plugin-database` para gerenciar conexões:
 | Depende da distância e qualidade da conexão
 |===
 
-TIP: Para ambientes de alta latência, maximize o uso de operações em batch como `getMany()` e `atomic()`.
+TIP: Para ambientes de alta latência, maximize o uso de operações em batch como `get()` com array de chaves e `atomic()`.
 
 === Limpeza de TTL
 
@@ -398,7 +398,7 @@ Sempre que possível, agrupe operações:
 [source,typescript]
 ----
 // Batch de leituras
-const entries = await kv.getMany(keys);
+const entries = await kv.get(keys);
 
 // Batch de escritas
 await kv.atomic()
@@ -544,7 +544,7 @@ Valores típicos em ambientes reais (baseado em libSQL local):
 | < 10ms
 | INSERT OR REPLACE + atualização de índices
 
-| `getMany()` (10 keys)
+| `get()` (10 keys)
 | < 10ms
 | Query única com IN clause
 
@@ -579,7 +579,7 @@ Valores típicos em ambientes reais (baseado em libSQL local):
 | < 100ms
 | + roundtrip para confirmar write
 
-| `getMany()` (10 keys)
+| `get()` (10 keys)
 | < 80ms
 | Batch reduz impacto da rede
 
@@ -598,7 +598,7 @@ Capacidade típica com libSQL local:
 
 * **Leituras**: ~10,000 ops/s (get simples)
 * **Escritas**: ~5,000 ops/s (set simples)
-* **Batch reads**: ~50,000 keys/s (getMany com 100 keys)
+* **Batch reads**: ~50,000 keys/s (get com array de 100 keys)
 * **Batch writes**: ~20,000 keys/s (atomic com 100 ops)
 
 WARNING: Valores reais dependem de hardware, configuração do libSQL, tamanho dos dados e concorrência. Sempre meça no seu ambiente específico.

@@ -294,6 +294,40 @@ describe("encoding", () => {
       expect(deserializeValue("string" as unknown)).toBe(null);
       expect(deserializeValue(123 as unknown)).toBe(null);
     });
+
+    it("should resolve $now placeholder to server timestamp", () => {
+      const before = Date.now();
+      const value = { createdAt: { $now: true }, name: "test" };
+      const serialized = serializeValue(value);
+      const after = Date.now();
+
+      const deserialized = deserializeValue<{ createdAt: number; name: string }>(serialized);
+      expect(deserialized?.name).toBe("test");
+      expect(deserialized?.createdAt).toBeGreaterThanOrEqual(before);
+      expect(deserialized?.createdAt).toBeLessThanOrEqual(after);
+    });
+
+    it("should resolve nested $now placeholders", () => {
+      const before = Date.now();
+      const value = {
+        metadata: {
+          createdAt: { $now: true },
+          updatedAt: { $now: true },
+        },
+        name: "test",
+      };
+      const serialized = serializeValue(value);
+      const after = Date.now();
+
+      const deserialized = deserializeValue<{
+        metadata: { createdAt: number; updatedAt: number };
+        name: string;
+      }>(serialized);
+      expect(deserialized?.metadata.createdAt).toBeGreaterThanOrEqual(before);
+      expect(deserialized?.metadata.createdAt).toBeLessThanOrEqual(after);
+      expect(deserialized?.metadata.updatedAt).toBeGreaterThanOrEqual(before);
+      expect(deserialized?.metadata.updatedAt).toBeLessThanOrEqual(after);
+    });
   });
 });
 

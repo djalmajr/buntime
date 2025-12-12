@@ -1,14 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { LibSqlAdapter } from "@buntime/plugin-database";
 import { Kv } from "../src/kv";
 import { initSchema } from "../src/schema";
+import { createTestAdapter } from "./helpers";
 
 describe("KvQueue", () => {
-  let adapter: LibSqlAdapter;
+  const adapter = createTestAdapter();
   let kv: Kv;
 
   beforeAll(async () => {
-    adapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
     await initSchema(adapter);
     kv = new Kv(adapter);
   });
@@ -383,7 +382,7 @@ describe("KvQueue", () => {
 
   describe("cleanup configuration", () => {
     it("should work with cleanup disabled", async () => {
-      const tempAdapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
+      const tempAdapter = createTestAdapter();
       await initSchema(tempAdapter);
       const tempKv = new Kv(tempAdapter, {
         queueCleanup: { cleanupInterval: 0 },
@@ -399,7 +398,7 @@ describe("KvQueue", () => {
     });
 
     it("should run periodic cleanup of old messages", async () => {
-      const tempAdapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
+      const tempAdapter = createTestAdapter();
       await initSchema(tempAdapter);
       const tempKv = new Kv(tempAdapter, {
         queueCleanup: {
@@ -429,7 +428,7 @@ describe("KvQueue", () => {
     });
 
     it("should reset stuck processing messages", async () => {
-      const tempAdapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
+      const tempAdapter = createTestAdapter();
       await initSchema(tempAdapter);
       const tempKv = new Kv(tempAdapter, {
         queueCleanup: {
@@ -587,7 +586,7 @@ describe("KvQueue", () => {
     });
 
     it("should close all listeners on kv.close()", async () => {
-      const tempAdapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
+      const tempAdapter = createTestAdapter();
       await initSchema(tempAdapter);
       const tempKv = new Kv(tempAdapter);
 

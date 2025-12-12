@@ -156,7 +156,7 @@ export class KvFts {
    *
    * @param prefix - Key prefix to search within
    * @param query - FTS5 query string (supports AND, OR, NOT, NEAR, etc.)
-   * @param options - Search options (limit, where filter, consistency)
+   * @param options - Search options (limit, where filter)
    *
    * @example
    * ```typescript

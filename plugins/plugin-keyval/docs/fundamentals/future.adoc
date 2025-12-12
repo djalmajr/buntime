@@ -114,7 +114,7 @@ return async (options?: { timeout?: number }) => {
 ----
 // Batch all watched keys in single query
 async function pollWatchedKeys(keys: KvKey[]): Promise<Map<string, KvEntry>> {
-  const entries = await kv.getMany(keys);  // 1 query para todas
+  const entries = await kv.get(keys);  // 1 query para todas
   return new Map(entries.map(e => [keyToString(e.key), e]));
 }
 ----

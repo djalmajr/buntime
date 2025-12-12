@@ -4,8 +4,6 @@ import type { FilterType, Todo } from "~/types";
 
 const kv = new Kv("/_/plugin-keyval");
 
-const generateId = () => new Date().toJSON().replace(/[^\w]/g, "");
-
 const getHashFilter = (): FilterType => {
   const str = (window.location.hash.match(/\w+/g) || [])[0];
   return str !== "completed" && str !== "active" ? "all" : str;
@@ -61,7 +59,7 @@ export function useTodos() {
 
   // Actions
   const addTodo = useCallback(async (text: string) => {
-    const uid = generateId();
+    const uid = crypto.randomUUID();
     const todo: Todo = { uid, text, completed: false };
     await kv.set(["todos", uid], todo);
     setTodos((prev) => ({ ...prev, [uid]: todo }));
@@ -88,7 +86,7 @@ export function useTodos() {
   }, []);
 
   const removeTodo = useCallback(async (uid: string) => {
-    await kv.delete(["todos", uid], { exact: true });
+    await kv.delete(["todos", uid]);
     setTodos((prev) => {
       const { [uid]: _, ...rest } = prev;
       return rest;

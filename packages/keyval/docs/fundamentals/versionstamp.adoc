@@ -32,7 +32,7 @@ const entry = await kv.get(["documents", docId]);
 
 console.log(entry.key);          // ["documents", "doc_001"]
 console.log(entry.value);        // { title: "Meu Doc", content: "..." }
-console.log(entry.versionstamp); // "00000000000000010042"
+console.log(entry.versionstamp); // "019234f0-1234-7abc-8def-0123456789ab" (UUIDv7)
 ----
 
 O versionstamp é:
@@ -56,18 +56,18 @@ Se houver modificação concorrente entre os passos 1 e 3, a operação falha.
 [source,typescript]
 ----
 // ERRADO - Pode perder atualizações
-const entry = await kv.get<User>(["users", oderId]);
-await kv.set(["users", oderId], {
+const entry = await kv.get<User>(["users", userId]);
+await kv.set(["users", userId], {
   ...entry.value,
   name: "Novo Nome"
 });
 // Se alguém modificou entre get e set, perdemos essa modificação!
 
 // CORRETO - Usa check para verificar versionstamp
-const entry = await kv.get<User>(["users", oderId]);
+const entry = await kv.get<User>(["users", userId]);
 const result = await kv.atomic()
   .check(entry)  // Verifica se versionstamp ainda é o mesmo
-  .set(["users", oderId], {
+  .set(["users", userId], {
     ...entry.value,
     name: "Novo Nome"
   })
@@ -86,22 +86,22 @@ O método `check()` recebe uma entrada (ou um objeto com `key` e `versionstamp`)
 [source,typescript]
 ----
 // Forma 1: Passa a entrada completa
-const entry = await kv.get(["users", oderId]);
+const entry = await kv.get(["users", userId]);
 await kv.atomic()
   .check(entry)
-  .set(["users", oderId], newValue)
+  .set(["users", userId], newValue)
   .commit();
 
 // Forma 2: Passa key + versionstamp
 await kv.atomic()
-  .check({ key: ["users", oderId], versionstamp: "00000000000000010042" })
-  .set(["users", oderId], newValue)
+  .check({ key: ["users", userId], versionstamp: "019234f0-1234-7abc-8def-0123456789ab" })
+  .set(["users", userId], newValue)
   .commit();
 
 // Forma 3: Verifica que NÃO existe (versionstamp null)
 await kv.atomic()
-  .check({ key: ["users", oderId], versionstamp: null })
-  .set(["users", oderId], newValue)
+  .check({ key: ["users", userId], versionstamp: null })
+  .set(["users", userId], newValue)
   .commit();
 // Falha se a chave já existir
 ----
@@ -161,17 +161,17 @@ O método `transaction()` implementa retry automático em caso de conflito:
 ----
 // transaction() faz o check automaticamente e retry se houver conflito
 const result = await kv.transaction(async (tx) => {
-  const user = await tx.get<User>(["users", oderId]);
+  const user = await tx.get<User>(["users", userId]);
 
   if (!user.value) {
     throw new Error("Usuário não encontrado");
   }
 
   // Modifica
-  tx.set(["users", oderId], {
+  tx.set(["users", userId], {
     ...user.value,
     loginCount: user.value.loginCount + 1,
-    lastLogin: Date.now()
+    lastLogin: kv.now()
   });
 
   return user.value.loginCount + 1;
@@ -206,45 +206,6 @@ A diferença entre `atomic()` e `transaction()`:
 | Operações simples, controle total
 | Read-modify-write complexo
 |===
-
-=== commitVersionstamp: Referências Consistentes
-
-Para criar referências entre entradas na mesma operação, o versionstamp não é conhecido até o commit.
-
-[source,typescript]
-----
-// Problema: indexar posts por data usando timestamp do cliente
-const postId = crypto.randomUUID();
-const timestamp = Date.now(); // Timestamp do cliente, sujeito a dessincronia
-
-await kv.atomic()
-  .set(["posts", postId], { title: "Hello" })
-  .set(["posts_by_date", timestamp, postId], postId)
-  .commit();
-// Timestamp pode não refletir a ordem real de commit
-----
-
-Solução com `kv.commitVersionstamp()`:
-
-[source,typescript]
-----
-const postId = crypto.randomUUID();
-const vs = kv.commitVersionstamp(); // Placeholder que será substituído
-
-await kv.atomic()
-  .set(["posts", postId], { title: "Hello" })
-  .set(["posts_by_date", vs, postId], postId)  // vs será o versionstamp real
-  .commit();
-
-// Resultado: ["posts_by_date", "00000000000000010042", "post_123"]
-// O versionstamp é garantidamente o mesmo do commit
-----
-
-Isso garante que:
-
-* O timestamp é do servidor, não do cliente
-* A ordem dos posts reflete a ordem real de criação
-* Não há race conditions no timestamp
 
 === Versionstamp vs Timestamp
 

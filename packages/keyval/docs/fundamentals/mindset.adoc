@@ -56,7 +56,7 @@ No KeyVal, **chaves hierárquicas** que apontam para **valores JSON**:
 await kv.set(["users", "usr_001"], {
   name: "Alice",
   email: "alice@example.com",
-  createdAt: Date.now()
+  createdAt: kv.now()
 });
 
 const entry = await kv.get(["users", "usr_001"]);
@@ -180,32 +180,4 @@ await kv.delete(["orders", orderId]);
 
 | Dados altamente relacionais
 | Dados hierárquicos, real-time
-|===
-
-=== Resumo
-
-[cols="1,1"]
-|===
-| SQL | KeyVal
-
-| Tabelas com schema fixo
-| Chaves hierárquicas flexíveis
-
-| Queries declarativas (WHERE, JOIN)
-| Acesso por chave ou prefixo
-
-| Índices automáticos
-| Índices manuais (você mantém)
-
-| Transações pessimistas (locks)
-| Transações otimistas (retry)
-
-| Agregações em tempo de query
-| Agregações pré-calculadas
-
-| Schema migrations
-| Evolução gradual
-
-| Normalização (3FN)
-| Desnormalização estratégica
 |===

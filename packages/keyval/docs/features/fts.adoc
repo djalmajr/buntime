@@ -126,51 +126,15 @@ for await (const entry of kv.search<Post>(["posts"], "typescript", {
 }
 ----
 
-==== searchPaginated: Busca com Paginação
+==== Opções de Busca
+
+A busca FTS suporta as seguintes opções:
 
 [source,typescript]
 ----
-kv.searchPaginated<T>(
-  prefix: KvKey,
-  query: string,
-  options?: ListOptions & { cursor?: string }
-): Promise<KvPage<T>>
-----
-
-**Exemplo:**
-
-[source,typescript]
-----
-// Primeira página
-const page1 = await kv.searchPaginated<Post>(["posts"], "react hooks", {
-  limit: 20
-});
-
-console.log(page1.entries);   // Primeiros 20 resultados
-console.log(page1.cursor);    // Cursor para próxima página
-console.log(page1.hasMore);   // true se há mais resultados
-
-// Segunda página
-if (page1.hasMore) {
-  const page2 = await kv.searchPaginated<Post>(["posts"], "react hooks", {
-    limit: 20,
-    cursor: page1.cursor
-  });
-}
-----
-
-==== Todas as Opções de list()
-
-A busca FTS suporta todas as opções de `list()`:
-
-[source,typescript]
-----
-interface ListOptions {
+interface SearchOptions {
   limit?: number;                    // Máximo de resultados
-  reverse?: boolean;                 // Ordem inversa
-  consistency?: "strong" | "eventual"; // Modo de leitura
   where?: WhereClause;               // Filtros adicionais
-  cursor?: string;                   // Para paginação
 }
 ----
 
@@ -186,94 +150,19 @@ for await (const entry of kv.search<Post>(["posts"], "typescript", {
       { createdAt: { $gt: kv.now() - 30 * 24 * 60 * 60 * 1000 } } // Últimos 30 dias
     ]
   },
-  limit: 50,
-  consistency: "eventual"
+  limit: 50
 })) {
   console.log(entry.value);
 }
 ----
 
-=== Operadores de Busca
-
-O FTS5 suporta operadores avançados para queries complexas.
-
-==== AND (Implícito)
-
-Termos separados por espaço são combinados com AND:
-
-[source,typescript]
-----
-// Busca: "typescript" AND "tutorial"
-kv.search(["articles"], "typescript tutorial")
-// Retorna: artigos que contêm ambos os termos
-----
-
-==== OR
-
-[source,typescript]
-----
-// Busca: "typescript" OR "javascript"
-kv.search(["articles"], "typescript OR javascript")
-// Retorna: artigos que contêm qualquer um dos termos
-----
-
-==== NOT
-
-[source,typescript]
-----
-// Busca: "typescript" NOT "beginner"
-kv.search(["articles"], "typescript NOT beginner")
-// Retorna: artigos com "typescript" mas sem "beginner"
-----
-
-==== Frase Exata
-
-Use aspas para buscar frases exatas:
-
-[source,typescript]
-----
-// Busca: frase exata "react hooks"
-kv.search(["articles"], '"react hooks"')
-// Retorna: artigos com a sequência exata "react hooks"
-----
-
-==== Proximidade (NEAR)
-
-Busca termos próximos um do outro:
-
-[source,typescript]
-----
-// Busca: "typescript" e "tutorial" separados por no máximo 5 palavras
-kv.search(["articles"], "NEAR(typescript tutorial, 5)")
-// Retorna: artigos onde os termos estão próximos
-----
-
-==== Prefixo (*)
-
-[source,typescript]
-----
-// Busca: palavras começando com "react"
-kv.search(["articles"], "react*")
-// Retorna: artigos com "react", "reactive", "reactjs", etc.
-----
-
-==== Combinações
-
-[source,typescript]
-----
-// Busca complexa
-kv.search(["articles"], '"typescript tutorial" OR (react* NOT beginner)')
-// Retorna: artigos com frase exata "typescript tutorial" OU
-//          (qualquer palavra começando com "react" mas sem "beginner")
-----
-
 === Removendo Índices
 
-==== dropIndex: Remover Índice FTS
+==== removeIndex: Remover Índice FTS
 
 [source,typescript]
 ----
-await kv.dropIndex(prefix: KvKey): Promise<void>
+await kv.removeIndex(prefix: KvKey): Promise<void>
 ----
 
 **Exemplo:**
@@ -281,7 +170,7 @@ await kv.dropIndex(prefix: KvKey): Promise<void>
 [source,typescript]
 ----
 // Remover índice
-await kv.dropIndex(["posts"]);
+await kv.removeIndex(["posts"]);
 ----
 
 IMPORTANT: Remover o índice não afeta os dados, apenas remove a capacidade de busca FTS naquele prefixo.
@@ -307,24 +196,21 @@ await kv.createIndex(["blog", "posts"], {
 });
 
 // Buscar posts publicados
-async function searchPosts(query: string, page = 0, limit = 10) {
-  const offset = page * limit;
+async function searchPosts(query: string, limit = 10) {
+  const posts: BlogPost[] = [];
 
-  const results = await kv.searchPaginated<BlogPost>(
+  for await (const entry of kv.search<BlogPost>(
     ["blog", "posts"],
     query,
     {
       where: { status: { $eq: "published" } },
       limit,
-      // Usar cursor em vez de offset para melhor performance
     }
-  );
+  )) {
+    posts.push(entry.value);
+  }
 
-  return {
-    posts: results.entries.map(e => e.value),
-    hasMore: results.hasMore,
-    cursor: results.cursor,
-  };
+  return posts;
 }
 ----
 
@@ -474,9 +360,11 @@ async function searchProducts(
 // - Usa índice FTS5
 // - Retorna apenas resultados relevantes
 // - Tempo: ~50-200ms
-const results = await kv.searchPaginated(["articles"], "typescript tutorial", {
+for await (const entry of kv.search(["articles"], "typescript tutorial", {
   limit: 20
-});
+})) {
+  console.log(entry.value);
+}
 ----
 
 ==== Tamanho dos Índices
@@ -548,6 +436,26 @@ console.log(`Reindexados ${count} registros`);
 ----
 
 === Limitações
+
+==== Apenas Busca Simples por Palavras
+
+A implementação atual suporta apenas busca simples por palavras. Operadores FTS5 avançados não são suportados:
+
+- OR, NOT → não funcionam
+- Frases exatas com aspas → não funcionam
+- NEAR (proximidade) → não funciona
+- Prefixo com `*` → não funciona
+
+[source,typescript]
+----
+// Funciona: busca simples (palavras são combinadas com AND por campo)
+kv.search(["articles"], "typescript tutorial")
+
+// NÃO funciona como esperado
+kv.search(["articles"], "typescript OR javascript")  // OR ignorado
+kv.search(["articles"], '"react hooks"')             // Aspas ignoradas
+kv.search(["articles"], "react*")                    // Prefixo ignorado
+----
 
 ==== Um Índice por Prefixo
 
@@ -647,7 +555,7 @@ Considere criar índices apenas nos prefixos que realmente precisam de busca tex
 | Mais rápida (O(1))
 
 | Flexibilidade
-| Alta (operadores, frases, proximity)
+| Busca por palavras
 | Média (operadores limitados)
 | Baixa (apenas lookup)
 
@@ -751,7 +659,7 @@ async function migrateToFTS() {
 [source,typescript]
 ----
 // Remover índice não utilizado
-await kv.dropIndex(["old_prefix"]);
+await kv.removeIndex(["old_prefix"]);
 ----
 
 === Exemplos Completos
@@ -818,36 +726,3 @@ app.get("/api/search", async (c) => {
 });
 ----
 
-==== Autocomplete/Sugestões
-
-[source,typescript]
-----
-interface Product {
-  name: string;
-  sku: string;
-  category: string;
-}
-
-await kv.createIndex(["products"], {
-  fields: ["name"]
-});
-
-// Autocomplete usando prefixo
-async function autocomplete(query: string, limit = 5) {
-  const suggestions: string[] = [];
-
-  // Usar prefixo * para buscar palavras começando com query
-  for await (const entry of kv.search<Product>(
-    ["products"],
-    `${query}*`,
-    { limit }
-  )) {
-    suggestions.push(entry.value.name);
-  }
-
-  return suggestions;
-}
-
-// Exemplo de uso
-const suggestions = await autocomplete("note"); // ["Notebook", "Notepad", ...]
-----

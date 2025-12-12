@@ -1,14 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { LibSqlAdapter } from "@buntime/plugin-database";
 import { Kv } from "../src/kv";
 import { initSchema } from "../src/schema";
+import { createTestAdapter } from "./helpers";
 
 describe("KvTransaction", () => {
-  let adapter: LibSqlAdapter;
+  const adapter = createTestAdapter();
   let kv: Kv;
 
   beforeAll(async () => {
-    adapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
     await initSchema(adapter);
     kv = new Kv(adapter);
   });
@@ -253,7 +252,7 @@ describe("KvTransaction", () => {
           return { done: true };
         });
 
-        return capturedTx;
+        return capturedTx!;
       })();
 
       // After commit, trying to use the transaction should throw
@@ -265,14 +264,14 @@ describe("KvTransaction", () => {
     });
   });
 
-  describe("getMany", () => {
+  describe("get with multiple keys", () => {
     it("should batch get multiple keys", async () => {
       await kv.set(["multi", "a"], 1);
       await kv.set(["multi", "b"], 2);
       await kv.set(["multi", "c"], 3);
 
       const result = await kv.transaction(async (tx) => {
-        const entries = await tx.getMany<number>([
+        const entries = await tx.get<number>([
           ["multi", "a"],
           ["multi", "b"],
           ["multi", "c"],
@@ -289,12 +288,12 @@ describe("KvTransaction", () => {
       }
     });
 
-    it("should cache getMany results", async () => {
+    it("should cache batch get results", async () => {
       await kv.set(["cache", "x"], 10);
 
       const result = await kv.transaction(async (tx) => {
-        // First access via getMany
-        await tx.getMany([["cache", "x"]]);
+        // First access via batch get
+        await tx.get([["cache", "x"]]);
 
         // Modify outside
         await kv.set(["cache", "x"], 20);

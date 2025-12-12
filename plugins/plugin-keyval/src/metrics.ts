@@ -9,7 +9,6 @@ export type KvOperationType =
   | "count"
   | "delete"
   | "get"
-  | "getMany"
   | "list"
   | "paginate"
   | "queue_ack"

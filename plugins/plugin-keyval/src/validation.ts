@@ -7,9 +7,14 @@ import type { KvKey, KvKeyPart } from "./types";
 const MAX_KEY_DEPTH = 20;
 
 /**
- * Maximum length for a single key part
+ * Maximum length for a single string key part (in characters)
  */
 const MAX_KEY_PART_LENGTH = 1024;
+
+/**
+ * Maximum size for a single Uint8Array key part (in bytes)
+ */
+const MAX_KEY_PART_BYTES = 1024;
 
 /**
  * Maximum number of keys in a batch operation
@@ -92,6 +97,12 @@ export function validateKey(key: unknown): KvKey {
     if (typeof part === "string" && part.length > MAX_KEY_PART_LENGTH) {
       throw new HTTPException(400, {
         message: `Key part at index ${i} too long (max ${MAX_KEY_PART_LENGTH} chars)`,
+      });
+    }
+
+    if (part instanceof Uint8Array && part.length > MAX_KEY_PART_BYTES) {
+      throw new HTTPException(400, {
+        message: `Key part at index ${i} too large (max ${MAX_KEY_PART_BYTES} bytes)`,
       });
     }
   }

@@ -119,7 +119,7 @@ Atualiza apenas se o novo valor for maior que o atual:
 ----
 // Atualizar highscore apenas se for maior
 await kv.atomic()
-  .max(["games", oderId, "highscore"], BigInt(newScore))
+  .max(["games", userId, "highscore"], BigInt(newScore))
   .commit();
 
 // Se highscore atual é 100 e newScore é 90, nada muda
@@ -134,7 +134,7 @@ Atualiza apenas se o novo valor for menor que o atual:
 ----
 // Atualizar menor tempo
 await kv.atomic()
-  .min(["races", oderId, "bestTime"], BigInt(raceTime))
+  .min(["races", userId, "bestTime"], BigInt(raceTime))
   .commit();
 ----
 
@@ -151,7 +151,7 @@ async function createUser(user: NewUser): Promise<string> {
     // Garante que email não existe
     .check({ key: ["users_by_email", user.email], versionstamp: null })
     // Cria usuário e índice atomicamente
-    .set(["users", id], { ...user, id, createdAt: Date.now() })
+    .set(["users", id], { ...user, id, createdAt: kv.now() })
     .set(["users_by_email", user.email], id)
     .sum(["stats", "users", "total"], 1n)
     .commit();
@@ -191,7 +191,7 @@ async function updateUser(id: string, updates: Partial<User>): Promise<void> {
 [source,typescript]
 ----
 async function updateEmail(userId: string, newEmail: string): Promise<void> {
-  const entry = await kv.get<User>(["users", oderId]);
+  const entry = await kv.get<User>(["users", userId]);
   const user = entry.value;
 
   if (!user) {
@@ -203,9 +203,9 @@ async function updateEmail(userId: string, newEmail: string): Promise<void> {
   const result = await kv.atomic()
     .check(entry)  // Usuário não mudou
     .check({ key: ["users_by_email", newEmail], versionstamp: null })  // Novo email não existe
-    .set(["users", oderId], { ...user, email: newEmail })
+    .set(["users", userId], { ...user, email: newEmail })
     .delete(["users_by_email", oldEmail])  // Remove índice antigo
-    .set(["users_by_email", newEmail], oderId)  // Cria índice novo
+    .set(["users_by_email", newEmail], userId)  // Cria índice novo
     .commit();
 
   if (!result.ok) {
@@ -239,7 +239,7 @@ async function deleteUser(id: string): Promise<void> {
 ----
 async function transfer(fromId: string, toId: string, amount: bigint): Promise<void> {
   // Verificar saldos antes
-  const [from, to] = await kv.getMany<Account>([
+  const [from, to] = await kv.get<Account>([
     ["accounts", fromId],
     ["accounts", toId],
   ]);
@@ -271,25 +271,6 @@ async function transfer(fromId: string, toId: string, amount: bigint): Promise<v
   }
 }
 ----
-
-=== commitVersionstamp: Referências Consistentes
-
-Às vezes você precisa usar o versionstamp do commit como parte de uma chave:
-
-[source,typescript]
-----
-const postId = crypto.randomUUID();
-const vs = kv.commitVersionstamp();  // Placeholder
-
-await kv.atomic()
-  .set(["posts", postId], { title: "Hello" })
-  .set(["posts_by_date", vs, postId], postId)  // vs será substituído
-  .commit();
-
-// Resultado: ["posts_by_date", "00000000000000010042", "post_123"]
-----
-
-Isso garante que a ordenação por versionstamp reflete a ordem exata de criação.
 
 === Limites
 

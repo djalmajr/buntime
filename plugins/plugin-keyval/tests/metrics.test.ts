@@ -1,16 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { LibSqlAdapter } from "@buntime/plugin-database";
 import { Kv } from "../src/kv";
 import { KvMetrics } from "../src/metrics";
 import { initSchema } from "../src/schema";
+import { createTestAdapter } from "./helpers";
 
 describe("KvMetrics integration", () => {
   describe("integrated with Kv", () => {
-    let adapter: LibSqlAdapter;
+    const adapter = createTestAdapter();
     let kv: Kv;
 
     beforeAll(async () => {
-      adapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
       await initSchema(adapter);
       kv = new Kv(adapter);
     });
@@ -75,12 +74,13 @@ describe("KvMetrics integration", () => {
       expect(entries.length).toBe(2);
     });
 
-    it("should record getMany operations", async () => {
+    it("should record batch get operations", async () => {
       await kv.set(["many", "1"], { v: 1 });
       await kv.set(["many", "2"], { v: 2 });
       kv.metrics.reset();
 
-      await kv.getMany([
+      // Batch get using get() with array of keys
+      await kv.get([
         ["many", "1"],
         ["many", "2"],
       ]);
@@ -89,7 +89,8 @@ describe("KvMetrics integration", () => {
         operations: Record<string, { count: number }>;
       };
 
-      expect(json.operations.getMany?.count).toBe(1);
+      // Batch get is recorded as "get"
+      expect(json.operations.get?.count).toBe(1);
     });
 
     it("should record atomic_commit operations", async () => {
@@ -151,11 +152,10 @@ describe("KvMetrics integration", () => {
   });
 
   describe("persistent metrics", () => {
-    let adapter: LibSqlAdapter;
+    const adapter = createTestAdapter();
     let metrics: KvMetrics;
 
     beforeAll(async () => {
-      adapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
       await initSchema(adapter);
     });
 
@@ -259,7 +259,7 @@ describe("KvMetrics integration", () => {
 
     it("should handle flush errors silently", async () => {
       // Create metrics with an adapter that will fail
-      const errorAdapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
+      const errorAdapter = createTestAdapter();
       await initSchema(errorAdapter);
 
       const errorMetrics = new KvMetrics({

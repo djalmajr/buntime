@@ -5,7 +5,6 @@ import { streamSSE } from "hono/streaming";
 import { Kv } from "./kv";
 import { initSchema } from "./schema";
 import type {
-  KvConsistency,
   KvCreateIndexOptions,
   KvDeleteOptions,
   KvKey,
@@ -67,13 +66,6 @@ export interface KeyValConfig extends BasePluginConfig {
 let adapter: DatabaseAdapter;
 let kv: Kv;
 let logger: PluginContext["logger"];
-
-function parseConsistency(value: string | undefined): KvConsistency | undefined {
-  if (value === "eventual" || value === "strong") {
-    return value;
-  }
-  return undefined;
-}
 
 async function getStorageStats(): Promise<{ entries: number; sizeBytes: number }> {
   const countResult = await adapter.execute<{ count: number }>(
@@ -164,11 +156,10 @@ const routes = new Hono()
   })
   // Batch get - single request for multiple keys
   .post("/keys/batch", async (ctx) => {
-    const body = await ctx.req.json<{ keys: unknown; consistency?: string }>();
+    const body = await ctx.req.json<{ keys: unknown }>();
     const keys = validateKeys(body.keys);
-    const consistency = parseConsistency(body.consistency);
 
-    const entries = await kv.getMany(keys, { consistency });
+    const entries = await kv.get(keys);
     return ctx.json(entries);
   })
   .get("/keys", async (ctx) => {
@@ -177,7 +168,6 @@ const routes = new Hono()
     const end = ctx.req.query("end");
     const limit = validateLimit(ctx.req.query("limit"), 100, 1000);
     const reverse = ctx.req.query("reverse") === "true";
-    const consistency = parseConsistency(ctx.req.query("consistency"));
 
     const entries = [];
     const prefixKey = prefix ? validateKeyPath(prefix) : [];
@@ -189,7 +179,6 @@ const routes = new Hono()
       end: endKey,
       limit,
       reverse,
-      consistency,
     })) {
       entries.push({
         key: entry.key,
@@ -208,7 +197,6 @@ const routes = new Hono()
       end?: KvKey;
       limit?: number;
       reverse?: boolean;
-      consistency?: string;
       where?: KvWhereFilter;
     }>();
 
@@ -218,14 +206,12 @@ const routes = new Hono()
     const endKey = body.end ? validateKey(body.end) : undefined;
     const limit = validateLimit(body.limit?.toString(), 100, 1000);
     const reverse = body.reverse ?? false;
-    const consistency = parseConsistency(body.consistency);
 
     for await (const entry of kv.list(prefixKey, {
       start: startKey,
       end: endKey,
       limit,
       reverse,
-      consistency,
       where: body.where,
     })) {
       entries.push({
@@ -265,9 +251,8 @@ const routes = new Hono()
   .get("/keys/*", async (ctx) => {
     const keyPath = ctx.req.path.replace(/.*\/keys\//, "");
     const key = validateKeyPath(keyPath);
-    const consistency = parseConsistency(ctx.req.query("consistency"));
 
-    const entry = await kv.get(key, { consistency });
+    const entry = await kv.get(key);
     if (entry.value === null) {
       return ctx.json({ error: "Key not found" }, 404);
     }
@@ -752,12 +737,8 @@ const routes = new Hono()
 
     const prefix = validateKeyPath(prefixParam);
     const limit = validateLimit(ctx.req.query("limit"), 100, 1000);
-    const consistency = parseConsistency(ctx.req.query("consistency"));
 
-    const results = await kv.fts.search(prefix, query, {
-      consistency,
-      limit,
-    });
+    const results = await kv.fts.search(prefix, query, { limit });
 
     return ctx.json(results);
   })
@@ -778,10 +759,8 @@ const routes = new Hono()
 
     const prefix = validateKey(body.prefix);
     const limit = validateLimit(body.options?.limit?.toString(), 100, 1000);
-    const consistency = parseConsistency(body.options?.consistency);
 
     const results = await kv.fts.search(prefix, body.query, {
-      consistency,
       limit,
       where: body.options?.where,
     });
@@ -869,12 +848,10 @@ export type {
   KvCommitError,
   KvCommitResult,
   KvCommitVersionstamp,
-  KvConsistency,
   KvCreateIndexOptions,
   KvEnqueueOptions,
   KvEntry,
   KvFtsTokenizer,
-  KvGetOptions,
   KvIndex,
   KvKey,
   KvKeyPart,

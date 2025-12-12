@@ -29,12 +29,12 @@ No KeyVal, você escolhe entre duas abordagens:
 [source,typescript]
 ----
 // Estratégia 1: Hierárquica (posts dentro de users)
-["users", oderId] → { name, email }
-["users", oderId, "posts", postId] → { title, content }
+["users", userId] → { name, email }
+["users", userId, "posts", postId] → { title, content }
 
 // Estratégia 2: Referência (posts separados)
-["users", oderId] → { name, email }
-["posts", postId] → { title, content, authorId: oderId }
+["users", userId] → { name, email }
+["posts", postId] → { title, content, authorId: userId }
 ----
 
 A escolha impacta como você consulta e deleta dados.
@@ -50,7 +50,7 @@ Se os dados são sempre acessados juntos, embuta no mesmo documento.
 [source,typescript]
 ----
 // Perfil embutido no usuário
-await kv.set(["users", oderId], {
+await kv.set(["users", userId], {
   name: "Alice",
   email: "alice@example.com",
   profile: {
@@ -61,7 +61,7 @@ await kv.set(["users", oderId], {
 });
 
 // Uma única leitura traz tudo
-const user = await kv.get(["users", oderId]);
+const user = await kv.get(["users", userId]);
 console.log(user.value.profile.bio);
 ----
 
@@ -83,19 +83,19 @@ Se os dados são acessados independentemente, separe.
 [source,typescript]
 ----
 // Usuário
-["users", oderId] → { name, email }
+["users", userId] → { name, email }
 
 // Perfil em chave separada
-["users", oderId, "profile"] → { bio, avatar, socialLinks }
+["users", userId, "profile"] → { bio, avatar, socialLinks }
 
 // Leituras separadas
-const user = await kv.get(["users", oderId]);
-const profile = await kv.get(["users", oderId, "profile"]);
+const user = await kv.get(["users", userId]);
+const profile = await kv.get(["users", userId, "profile"]);
 
 // Ou em uma única chamada
-const [user, profile] = await kv.getMany([
-  ["users", oderId],
-  ["users", oderId, "profile"]
+const [user, profile] = await kv.get([
+  ["users", userId],
+  ["users", userId, "profile"]
 ]);
 ----
 
@@ -120,10 +120,10 @@ Use a hierarquia da chave para agrupar dados relacionados.
 [source,typescript]
 ----
 // Usuário é o "pai"
-["users", oderId] → { name, email }
+["users", userId] → { name, email }
 
 // Posts são "filhos" hierárquicos
-["users", oderId, "posts", postId] → { title, content, createdAt }
+["users", userId, "posts", postId] → { title, content, createdAt }
 ----
 
 **Listar posts de um usuário:**
@@ -132,7 +132,7 @@ Use a hierarquia da chave para agrupar dados relacionados.
 ----
 // Simples: apenas o prefixo
 const posts: Post[] = [];
-for await (const entry of kv.list<Post>(["users", oderId, "posts"])) {
+for await (const entry of kv.list<Post>(["users", userId, "posts"])) {
   posts.push(entry.value);
 }
 ----
@@ -142,12 +142,12 @@ for await (const entry of kv.list<Post>(["users", oderId, "posts"])) {
 [source,typescript]
 ----
 // Deleta o usuário E todos os seus posts
-await kv.delete(["users", oderId]);
-// Tudo que começa com ["users", oderId] é removido:
-// - ["users", oderId]
-// - ["users", oderId, "posts", "post_1"]
-// - ["users", oderId, "posts", "post_2"]
-// - ["users", oderId, "profile"]
+await kv.delete(["users", userId]);
+// Tudo que começa com ["users", userId] é removido:
+// - ["users", userId]
+// - ["users", userId, "posts", "post_1"]
+// - ["users", userId, "posts", "post_2"]
+// - ["users", userId, "profile"]
 // - etc.
 ----
 
@@ -158,11 +158,11 @@ Quando os "filhos" precisam existir independentemente.
 [source,typescript]
 ----
 // Entidades separadas
-["users", oderId] → { name, email }
-["posts", postId] → { title, content, authorId: oderId }
+["users", userId] → { name, email }
+["posts", postId] → { title, content, authorId: userId }
 
 // Índice para encontrar posts por autor
-["posts_by_author", oderId, postId] → postId
+["posts_by_author", userId, postId] → post
 ----
 
 **Listar posts de um usuário:**
@@ -171,12 +171,12 @@ Quando os "filhos" precisam existir independentemente.
 ----
 // Passo 1: Encontrar IDs dos posts
 const postIds: string[] = [];
-for await (const entry of kv.list(["posts_by_author", oderId])) {
+for await (const entry of kv.list(["posts_by_author", userId])) {
   postIds.push(entry.value);
 }
 
 // Passo 2: Buscar posts (batch para eficiência)
-const posts = await kv.getMany(postIds.map(id => ["posts", id]));
+const posts = await kv.get(postIds.map(id => ["posts", id]));
 ----
 
 **Por que usar referência em vez de hierarquia?**
@@ -199,9 +199,9 @@ Um post pode ter várias tags. Uma tag pode estar em vários posts.
 ["posts", postId] → { title, content, tags: ["typescript", "tutorial"] }
 ["tags", tagName] → { description, postsCount }
 
-// Tabela de junção
-["post_tags", postId, tagName] → true
-["tag_posts", tagName, postId] → true  // Índice invertido
+// Tabela de junção (valor = timestamp de quando foi adicionada)
+["post_tags", postId, tagName] → kv.now()
+["tag_posts", tagName, postId] → kv.now()
 ----
 
 **Criar post com tags:**
@@ -215,10 +215,11 @@ async function createPost(post: Post): Promise<string> {
     .set(["posts", postId], { ...post, id: postId });
 
   // Criar relações para cada tag
+  const now = kv.now();
   for (const tag of post.tags) {
     atomic
-      .set(["post_tags", postId, tag], true)
-      .set(["tag_posts", tag, postId], true)
+      .set(["post_tags", postId, tag], now)
+      .set(["tag_posts", tag, postId], now)
       .sum(["tags", tag, "count"], 1n);  // Contador de posts
   }
 
@@ -240,7 +241,7 @@ async function getPostsByTag(tag: string): Promise<Post[]> {
     postIds.push(postId);
   }
 
-  const entries = await kv.getMany<Post>(postIds.map(id => ["posts", id]));
+  const entries = await kv.get<Post>(postIds.map(id => ["posts", id]));
   return entries.map(e => e.value).filter(Boolean) as Post[];
 }
 ----
@@ -289,11 +290,12 @@ async function updatePostTags(postId: string, newTags: string[]): Promise<void> 
   }
 
   // Tags adicionadas
+  const now = kv.now();
   for (const tag of newTagSet) {
     if (!oldTags.has(tag)) {
       atomic
-        .set(["post_tags", postId, tag], true)
-        .set(["tag_posts", tag, postId], true)
+        .set(["post_tags", postId, tag], now)
+        .set(["tag_posts", tag, postId], now)
         .sum(["tags", tag, "count"], 1n);
     }
   }
@@ -325,7 +327,7 @@ for await (const entry of kv.list<Post>(["posts"], { limit: 10 })) {
 // Total: 1 query (list) + 10 queries (get) = 11 queries
 ----
 
-==== Solução 1: Batch com getMany
+==== Solução 1: Batch com get
 
 [source,typescript]
 ----
@@ -339,7 +341,7 @@ for await (const entry of kv.list<Post>(["posts"], { limit: 10 })) {
 }
 
 // Busca autores em batch
-const authors = await kv.getMany<User>(
+const authors = await kv.get<User>(
   [...authorIds].map(id => ["users", id])
 );
 const authorMap = new Map(
@@ -351,7 +353,7 @@ const postsWithAuthor = posts.map(p => ({
   ...p,
   authorName: authorMap.get(p.authorId)
 }));
-// Total: 1 query (list) + 1 query (getMany) = 2 queries
+// Total: 1 query (list) + 1 query (get) = 2 queries
 ----
 
 ==== Solução 2: Denormalização
@@ -379,17 +381,17 @@ for await (const entry of kv.list<PostWithAuthor>(["posts"], { limit: 10 })) {
 [source,typescript]
 ----
 // Precisa atualizar todos os posts
-async function updateUserName(oderId: string, newName: string): Promise<void> {
+async function updateUserName(userId: string, newName: string): Promise<void> {
   // Atualiza o usuário
-  const user = await kv.get<User>(["users", oderId]);
+  const user = await kv.get<User>(["users", userId]);
   if (!user.value) return;
 
-  await kv.set(["users", oderId], { ...user.value, name: newName });
+  await kv.set(["users", userId], { ...user.value, name: newName });
 
   // Atualiza posts denormalizados (pode ser assíncrono)
   await kv.enqueue({
     type: "update_author_name",
-    authorId: oderId,
+    authorId: userId,
     newName
   });
 }
@@ -469,8 +471,8 @@ kv.listenQueue(async (msg) => {
 // Post referencia autor
 ["posts", postId] → { title, authorId }
 
-// Índice de posts por autor
-["users", oderId, "post_refs", postId] → true
+// Índice de posts por autor (valor = timestamp de criação)
+["users", userId, "post_refs", postId] → kv.now()
 ----
 
 * Navegação eficiente em ambas direções

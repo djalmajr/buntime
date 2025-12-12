@@ -88,18 +88,6 @@ for await (const entry of kv.list(["events"], {
 }
 ----
 
-==== consistency: Modo de Leitura
-
-[source,typescript]
-----
-// Leitura de réplica (eventual consistency)
-for await (const entry of kv.list(["metrics"], {
-  consistency: "eventual"
-})) {
-  // Pode estar alguns ms desatualizado
-}
-----
-
 === paginate: Paginação com Cursor
 
 Para interfaces com paginação (tabelas, infinite scroll), use `paginate()`:
@@ -174,34 +162,77 @@ async function getUsers(cursor?: string, limit = 20): Promise<PaginatedResponse<
 app.get("/users", async (c) => {
   const cursor = c.req.query("cursor");
   const limit = parseInt(c.req.query("limit") ?? "20");
-
   const result = await getUsers(cursor, Math.min(limit, 100));
-
   return c.json(result);
 });
 ----
 
-==== Iterando Todas as Páginas
+==== Iterando Todos os Registros
+
+Para iterar sobre todos os registros, use `list()` que já é um AsyncIterator:
 
 [source,typescript]
 ----
-async function* getAllUsers(): AsyncGenerator<User> {
-  let cursor: string | undefined;
-
-  do {
-    const page = await kv.paginate<User>(["users"], { limit: 100, cursor });
-
-    for (const entry of page.entries) {
-      yield entry.value;
-    }
-
-    cursor = page.hasMore ? page.cursor : undefined;
-  } while (cursor);
+// list() já itera automaticamente por todas as páginas
+for await (const entry of kv.list<User>(["users"])) {
+  console.log(entry.value.name);
 }
 
-// Uso
-for await (const user of getAllUsers()) {
-  console.log(user.name);
+// Com limite por batch interno (otimização)
+for await (const entry of kv.list<User>(["users"], { limit: 100 })) {
+  await processUser(entry.value);
+}
+----
+
+NOTE: `list()` é a forma idiomática de iterar todos os registros. Use `paginate()` apenas quando precisar expor o cursor para o cliente (APIs REST, infinite scroll).
+
+==== Infinite Scroll (Frontend)
+
+[source,typescript]
+----
+// Endpoint de API
+app.get("/api/users", async (c) => {
+  const cursor = c.req.query("cursor");
+  const limit = Math.min(parseInt(c.req.query("limit") ?? "20"), 100);
+
+  const page = await kv.paginate<User>(["users"], { limit, cursor });
+
+  return c.json({
+    users: page.entries.map(e => e.value),
+    nextCursor: page.hasMore ? page.cursor : null,
+  });
+});
+
+// React component com infinite scroll
+function UserList() {
+  const [users, setUsers] = useState<User[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [loading, setLoading] = useState(false);
+
+  async function loadMore() {
+    if (loading || !hasMore) return;
+    setLoading(true);
+
+    const params = cursor ? `?cursor=${cursor}` : "";
+    const res = await fetch(`/api/users${params}`);
+    const { users: newUsers, nextCursor } = await res.json();
+
+    setUsers(prev => [...prev, ...newUsers]);
+    setCursor(nextCursor);
+    setHasMore(nextCursor !== null);
+    setLoading(false);
+  }
+
+  // Carregar primeira página
+  useEffect(() => { loadMore(); }, []);
+
+  return (
+    <div>
+      {users.map(user => <UserCard key={user.id} user={user} />)}
+      {hasMore && <button onClick={loadMore}>Carregar mais</button>}
+    </div>
+  );
 }
 ----
 
@@ -552,7 +583,7 @@ Para "mais recentes primeiro" sem usar `reverse`:
 [source,typescript]
 ----
 // Timestamp invertido
-const invertedTs = Number.MAX_SAFE_INTEGER - Date.now();
+const invertedTs = Number.MAX_SAFE_INTEGER - kv.now();
 await kv.set(["events", invertedTs, eventId], event);
 
 // list() natural retorna mais recentes primeiro
@@ -570,8 +601,8 @@ for await (const e of kv.list(["events"])) {
 // Dado: lista de IDs
 const userIds = ["usr_001", "usr_002", "usr_003"];
 
-// Usar getMany (uma requisição)
-const entries = await kv.getMany(userIds.map(id => ["users", id]));
+// Usar get com array de chaves (uma requisição)
+const entries = await kv.get(userIds.map(id => ["users", id]));
 const users = entries.map(e => e.value).filter(Boolean);
 ----
 
@@ -650,14 +681,12 @@ for await (const entry of kv.search<Article>(["articles"], "typescript tutorial"
   console.log(entry.value.content);
 }
 
-// Busca com paginação
-const page = await kv.searchPaginated<Article>(["articles"], "react hooks", {
+// Busca com limite
+for await (const entry of kv.search<Article>(["articles"], "react hooks", {
   limit: 20
-});
-
-console.log(page.entries);
-console.log(page.cursor);
-console.log(page.hasMore);
+})) {
+  console.log(entry.value.title);
+}
 ----
 
 ==== Combinando com Filtros
@@ -685,39 +714,12 @@ for await (const entry of kv.search<Article>(["articles"], "react", {
 }
 ----
 
-==== Operadores de Busca FTS
-
-O FTS5 suporta operadores avançados:
-
-[source,typescript]
-----
-// Operador AND (implícito)
-kv.search(["articles"], "typescript tutorial")
-// Retorna: artigos com "typescript" E "tutorial"
-
-// Operador OR
-kv.search(["articles"], "typescript OR javascript")
-// Retorna: artigos com "typescript" OU "javascript"
-
-// Operador NOT
-kv.search(["articles"], "typescript NOT beginner")
-// Retorna: artigos com "typescript" mas SEM "beginner"
-
-// Frase exata (aspas)
-kv.search(["articles"], '"react hooks"')
-// Retorna: artigos com a frase exata "react hooks"
-
-// Proximidade (NEAR)
-kv.search(["articles"], "NEAR(typescript tutorial, 5)")
-// Retorna: "typescript" e "tutorial" separados por no máximo 5 palavras
-----
-
 ==== Removendo Índice FTS
 
 [source,typescript]
 ----
 // Remover índice quando não for mais necessário
-await kv.dropIndex(["articles"]);
+await kv.removeIndex(["articles"]);
 ----
 
 ==== Quando Usar FTS vs Filtros
@@ -747,5 +749,6 @@ await kv.dropIndex(["articles"]);
 - Cada prefixo pode ter apenas um índice FTS
 - Apenas strings são indexadas (números e booleanos são ignorados)
 - Índice não é atualizado retroativamente (precisa reindexar dados existentes)
+- Operadores FTS5 avançados (OR, NOT, NEAR, frases exatas) não são suportados - apenas busca simples por palavras
 ====
 

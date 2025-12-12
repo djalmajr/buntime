@@ -120,11 +120,6 @@ await kv.delete(["users", "usr_001"]);
 
 [source,typescript]
 ----
-// Prefixo tipado
-["users", "usr_550e8400"]
-["orders", "ord_7c9e6679"]
-["posts", "pst_01ARZ3ND"]
-
 // UUID puro
 ["users", "550e8400-e29b-41d4-a716-446655440000"]
 
@@ -154,6 +149,8 @@ await kv.delete(["users", "usr_001"]);
 
 Chaves são ordenadas lexicograficamente, afetando a ordem dos resultados em `list()`.
 
+TIP: A ordenação lexicográfica (byte a byte) é o padrão de facto em key-value stores como LevelDB, RocksDB e Deno KV. É mais eficiente que ordenação numérica (não requer parsing) e funciona consistentemente para todos os tipos. O trade-off é que números não são ordenados numericamente - use padding ou ULIDs quando precisar de ordem numérica.
+
 ==== Ordenação de Números
 
 [source,typescript]
@@ -163,8 +160,8 @@ await kv.set(["items", 1], "first");
 await kv.set(["items", 2], "second");
 await kv.set(["items", 10], "tenth");
 
-for await (const e of kv.list(["items"])) {
-  console.log(e.key[1]);
+for await (const entry of kv.list(["items"])) {
+  console.log(entry.key[1]);
 }
 // Resultado: 1, 10, 2
 ----
@@ -177,16 +174,37 @@ for await (const e of kv.list(["items"])) {
 await kv.set(["items", "0001"], "first");
 await kv.set(["items", "0002"], "second");
 await kv.set(["items", "0010"], "tenth");
-// Ordem: 0001, 0002, 0010 ✓
+// Ordem: 0001, 0002, 0010
 
-// Opção 2: ULID
+// Opção 2: UUIDv7 (ordenável por tempo)
+const id = Bun.randomUUIDv7(); // "019234f0-1234-7abc-8def-0123456789ab"
+
+// Opção 3: ULID (ordenável por tempo)
 import { ulid } from "ulid";
 const id = ulid(); // "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
-// Opção 3: Timestamp invertido
-const invertedTs = Number.MAX_SAFE_INTEGER - Date.now();
+// Opção 4: Timestamp invertido (ordenação decrescente - mais recente primeiro)
+const invertedTs = Number.MAX_SAFE_INTEGER - kv.now();
 await kv.set(["events", invertedTs, eventId], event);
 ----
+
+[TIP]
+====
+Como a ordenação lexicográfica é sempre crescente, para obter itens do mais recente para o mais antigo, você inverte o valor:
+
+[source]
+......
+// Timestamp normal (crescente - mais antigo primeiro)
+1702300000000  // 11 Dec 2023
+1702400000000  // 12 Dec 2023
+1702500000000  // 13 Dec 2023
+
+// Timestamp invertido (decrescente - mais recente primeiro)
+MAX - 1702500000000  // 13 Dec 2023 → menor valor
+MAX - 1702400000000  // 12 Dec 2023
+MAX - 1702300000000  // 11 Dec 2023 → maior valor
+......
+====
 
 === Padrões Comuns
 
@@ -215,7 +233,7 @@ await kv.set(["events", invertedTs, eventId], event);
 
 // Índices para busca
 ["users_by_email", email]      → userId
-["users_by_city", city, oderId] → userId
+["users_by_city", city, userId] → userId
 ----
 
 ==== Ordenação Temporal
@@ -241,19 +259,51 @@ await kv.set(["events", invertedTs, eventId], event);
 
 === Limites Técnicos
 
-[cols="1,2"]
+Os limites abaixo são **por parte** da chave, não para a chave inteira:
+
+[cols="1,1,2"]
 |===
-| Limite | Valor
+| Tipo | Limite por parte | Observação
 
-| Tamanho de cada parte string
-| 1KB (1024 caracteres)
+| `string`
+| 1024 caracteres
+| Validado no servidor
 
-| Profundidade (número de partes)
-| 20 partes no máximo
+| `Uint8Array`
+| 1024 bytes
+| Validado no servidor
 
-| Tamanho total da chave
-| ~20KB teórico (20 partes × 1KB)
+| `number`
+| 8 bytes
+| IEEE 754 double, sem validação adicional
+
+| `bigint`
+| Sem limite fixo
+| Limitado pela serialização JSON
+
+| `boolean`
+| 1 byte
+| Sem validação adicional
+
+| Profundidade
+| 20 partes
+| Máximo de partes em uma chave
+
+| Tamanho total
+| ~20KB teórico
+| 20 partes × 1KB (pior caso com strings/bytes)
 |===
+
+[source,typescript]
+----
+// Válido: cada parte tem menos de 1024 chars
+["users", "id_com_500_chars".repeat(10), "profile"]
+
+// Inválido: uma parte excede 1024 chars
+["users", "a".repeat(2000)]  // Erro na parte 2
+----
+
+NOTE: Números, bigints e booleans ocupam poucos bytes. O limite de 1KB se aplica apenas a strings e Uint8Array.
 
 === Anti-padrões
 
@@ -262,11 +312,11 @@ await kv.set(["events", invertedTs, eventId], event);
 [source,typescript]
 ----
 // Dificulta manutenção
-["org", orgId, "dept", deptId, "team", teamId, "member", oderId, "role", roleId]
+["org", orgId, "dept", deptId, "team", teamId, "member", userId, "role", roleId]
 
 // Simplifique com entidades separadas
-["members", oderId]           → { orgId, deptId, teamId, roleId }
-["member_roles", oderId, roleId] → true
+["members", userId]           → { orgId, deptId, teamId, roleId }
+["member_roles", userId, roleId] → true
 ----
 
 ==== Dados Mutáveis na Chave
@@ -277,8 +327,8 @@ await kv.set(["events", invertedTs, eventId], event);
 ["users", email]
 
 // Use ID imutável, email em índice
-["users", oderId]           → { email, ... }
-["users_by_email", email]  → oderId
+["users", userId]           → { email, ... }
+["users_by_email", email]  → userId
 ----
 
 ==== Dados Sensíveis em Chaves
@@ -286,8 +336,8 @@ await kv.set(["events", invertedTs, eventId], event);
 [source,typescript]
 ----
 // Chaves são expostas em logs
-["users", "password123", oderId]
+["users", "password123", userId]
 
 // Dados sensíveis no valor
-["users", oderId] → { passwordHash: "..." }
+["users", userId] → { passwordHash: "..." }
 ----

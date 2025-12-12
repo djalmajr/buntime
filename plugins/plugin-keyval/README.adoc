@@ -185,7 +185,7 @@ CREATE TABLE kv_dlq (
 
 | POST
 | `/keys/batch`
-| Buscar múltiplas chaves (getMany)
+| Buscar múltiplas chaves (get com array)
 
 | PUT
 | `/keys/:key`
@@ -326,8 +326,6 @@ CREATE TABLE kv_dlq (
 == Fundamentos
 
 include::docs/fundamentals/architecture.adoc[leveloffset=+1]
-
-include::docs/fundamentals/consistency.adoc[leveloffset=+1]
 
 include::docs/fundamentals/internals.adoc[leveloffset=+1]
 

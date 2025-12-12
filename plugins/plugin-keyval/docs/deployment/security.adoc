@@ -189,10 +189,10 @@ O plugin implementa validação rigorosa de entrada para prevenir ataques:
 [source,typescript]
 ----
 // Válido
-await kv.getMany([key1, key2, ..., key1000]);  // 1000 chaves
+await kv.get([key1, key2, ..., key1000]);  // 1000 chaves
 
 // Inválido - excede limite
-await kv.getMany([key1, key2, ..., key1001]);  // 1001 chaves
+await kv.get([key1, key2, ..., key1001]);  // 1001 chaves
 ----
 
 ==== Limites de Valor

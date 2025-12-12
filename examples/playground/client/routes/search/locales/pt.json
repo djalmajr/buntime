@@ -1,0 +1,47 @@
+{
+  "description": "Criar índices de busca em texto completo e pesquisar documentos",
+  "indexes": {
+    "create": {
+      "create": "Criar Índice",
+      "description": "Criar um novo índice de busca em texto completo",
+      "documentKeyLabel": "Chave do Documento",
+      "documentKeyPlaceholder": "Chave prefixo (ex: users ou posts, published)",
+      "fieldsLabel": "Campos",
+      "fieldsPlaceholder": "Campos separados por vírgula (ex: name, bio)",
+      "title": "Criar Índice",
+      "tokenizerLabel": "Tokenizador"
+    },
+    "list": {
+      "description": "Índices de busca em texto completo existentes",
+      "empty": "Nenhum índice encontrado. Crie um para começar.",
+      "table": {
+        "actions": "Ações",
+        "fields": "Campos",
+        "prefix": "Prefixo",
+        "tokenizer": "Tokenizador"
+      },
+      "title": "Índices"
+    }
+  },
+  "search": {
+    "description": "Pesquisar dentro de um prefixo indexado",
+    "execute": "Pesquisar",
+    "highlightPrefixLabel": "Prefixo de Destaque",
+    "highlightPrefixPlaceholder": "<mark>",
+    "highlightSuffixLabel": "Sufixo de Destaque",
+    "highlightSuffixPlaceholder": "</mark>",
+    "indexKeyLabel": "Chave do Índice",
+    "indexKeyPlaceholder": "Chave prefixo (ex: users)",
+    "proximityLabel": "Proximidade",
+    "proximityPlaceholder": "Distância de proximidade opcional",
+    "queryLabel": "Consulta",
+    "queryPlaceholder": "Consulta de busca (ex: alice desenvolvedor)",
+    "results": "Resultados",
+    "title": "Pesquisar Documentos"
+  },
+  "tabs": {
+    "indexes": "Índices",
+    "search": "Pesquisar"
+  },
+  "title": "Busca"
+}

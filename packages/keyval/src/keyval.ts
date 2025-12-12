@@ -1,10 +1,7 @@
 import {
-  COMMIT_VERSIONSTAMP_SYMBOL,
-  createCommitVersionstamp,
   type KvCheck,
   type KvCommitError,
   type KvCommitResult,
-  type KvCommitVersionstamp,
   type KvCreateIndexOptions,
   type KvDeleteOptions,
   type KvDeleteResult,
@@ -12,10 +9,8 @@ import {
   type KvDlqMessage,
   type KvEnqueueOptions,
   type KvEntry,
-  type KvGetOptions,
   type KvIndex,
   type KvKey,
-  type KvKeyWithVersionstamp,
   type KvListenHandle,
   type KvListenOptions,
   type KvListOptions,
@@ -62,20 +57,6 @@ function jsonReplacer(_key: string, value: unknown): unknown {
     return { $now: true };
   }
   return value;
-}
-
-/**
- * Check if a value is a commitVersionstamp placeholder
- */
-function isCommitVersionstamp(value: unknown): value is KvCommitVersionstamp {
-  return typeof value === "object" && value !== null && COMMIT_VERSIONSTAMP_SYMBOL in value;
-}
-
-/**
- * Check if a key contains any commitVersionstamp placeholders
- */
-function hasVersionstampPlaceholder(key: KvKeyWithVersionstamp): boolean {
-  return key.some(isCommitVersionstamp);
 }
 
 /**
@@ -163,7 +144,7 @@ type MutationType = "append" | "delete" | "max" | "min" | "prepend" | "set" | "s
  */
 interface Mutation {
   expireIn?: number;
-  key: KvKeyWithVersionstamp;
+  key: KvKey;
   type: MutationType;
   value?: unknown;
 }
@@ -174,7 +155,6 @@ interface Mutation {
 export class KvAtomicOperation {
   private checks: KvCheck[] = [];
   private mutations: Mutation[] = [];
-  private hasPlaceholders = false;
 
   constructor(private kv: Kv) {}
 
@@ -188,22 +168,15 @@ export class KvAtomicOperation {
 
   /**
    * Set a key-value pair
-   * Key may contain commitVersionstamp placeholders that will be resolved at commit time
    *
    * @example
    * ```typescript
-   * const vs = kv.commitVersionstamp();
-   *
    * await kv.atomic()
    *   .set(["posts", postId], post)
-   *   .set(["posts_by_time", vs, postId], postId) // vs will be resolved
    *   .commit();
    * ```
    */
-  set(key: KvKeyWithVersionstamp, value: unknown, options?: KvSetOptions): this {
-    if (hasVersionstampPlaceholder(key)) {
-      this.hasPlaceholders = true;
-    }
+  set(key: KvKey, value: unknown, options?: KvSetOptions): this {
     this.mutations.push({
       type: "set",
       key,
@@ -215,12 +188,8 @@ export class KvAtomicOperation {
 
   /**
    * Delete a key
-   * Key may contain commitVersionstamp placeholders that will be resolved at commit time
    */
-  delete(key: KvKeyWithVersionstamp): this {
-    if (hasVersionstampPlaceholder(key)) {
-      this.hasPlaceholders = true;
-    }
+  delete(key: KvKey): this {
     this.mutations.push({ type: "delete", key });
     return this;
   }
@@ -233,14 +202,11 @@ export class KvAtomicOperation {
    * ```typescript
    * await kv.atomic()
    *   .sum(["views", postId], 1n)        // Increment by 1
-   *   .sum(["balance", oderId], -100n)   // Decrement by 100
+   *   .sum(["balance", userId], -100n)   // Decrement by 100
    *   .commit();
    * ```
    */
-  sum(key: KvKeyWithVersionstamp, value: bigint): this {
-    if (hasVersionstampPlaceholder(key)) {
-      this.hasPlaceholders = true;
-    }
+  sum(key: KvKey, value: bigint): this {
     this.mutations.push({ type: "sum", key, value });
     return this;
   }
@@ -252,14 +218,11 @@ export class KvAtomicOperation {
    * @example
    * ```typescript
    * await kv.atomic()
-   *   .max(["highscore", oderId], score)
+   *   .max(["highscore", userId], score)
    *   .commit();
    * ```
    */
-  max(key: KvKeyWithVersionstamp, value: bigint): this {
-    if (hasVersionstampPlaceholder(key)) {
-      this.hasPlaceholders = true;
-    }
+  max(key: KvKey, value: bigint): this {
     this.mutations.push({ type: "max", key, value });
     return this;
   }
@@ -275,10 +238,7 @@ export class KvAtomicOperation {
    *   .commit();
    * ```
    */
-  min(key: KvKeyWithVersionstamp, value: bigint): this {
-    if (hasVersionstampPlaceholder(key)) {
-      this.hasPlaceholders = true;
-    }
+  min(key: KvKey, value: bigint): this {
     this.mutations.push({ type: "min", key, value });
     return this;
   }
@@ -290,14 +250,11 @@ export class KvAtomicOperation {
    * @example
    * ```typescript
    * await kv.atomic()
-   *   .append(["logs", oderId], ["Order placed", "Payment received"])
+   *   .append(["logs", userId], ["Order placed", "Payment received"])
    *   .commit();
    * ```
    */
-  append(key: KvKeyWithVersionstamp, values: unknown[]): this {
-    if (hasVersionstampPlaceholder(key)) {
-      this.hasPlaceholders = true;
-    }
+  append(key: KvKey, values: unknown[]): this {
     this.mutations.push({ type: "append", key, value: values });
     return this;
   }
@@ -309,14 +266,11 @@ export class KvAtomicOperation {
    * @example
    * ```typescript
    * await kv.atomic()
-   *   .prepend(["recent_activity", oderId], [newActivity])
+   *   .prepend(["recent_activity", userId], [newActivity])
    *   .commit();
    * ```
    */
-  prepend(key: KvKeyWithVersionstamp, values: unknown[]): this {
-    if (hasVersionstampPlaceholder(key)) {
-      this.hasPlaceholders = true;
-    }
+  prepend(key: KvKey, values: unknown[]): this {
     this.mutations.push({ type: "prepend", key, value: values });
     return this;
   }
@@ -325,7 +279,7 @@ export class KvAtomicOperation {
    * Commit the atomic operation
    */
   async commit(): Promise<KvCommitError | KvCommitResult> {
-    return this.kv._commitAtomic(this.checks, this.mutations, this.hasPlaceholders);
+    return this.kv._commitAtomic(this.checks, this.mutations);
   }
 }
 
@@ -360,9 +314,37 @@ export class KvTransaction {
   constructor(private kv: Kv) {}
 
   /**
-   * Get a value by key (cached for snapshot isolation)
+   * Check if keys is a nested array (KvKey[]) vs single key (KvKey)
    */
-  async get<T = unknown>(key: KvKey): Promise<KvEntry<T>> {
+  private isNestedKeyArray(keys: KvKey | KvKey[]): boolean {
+    return Array.isArray(keys) && keys.length > 0 && Array.isArray(keys[0]);
+  }
+
+  /**
+   * Get value(s) by key(s) (cached for snapshot isolation)
+   */
+  async get<T = unknown>(keys: []): Promise<KvEntry<T>[]>;
+  async get<T = unknown>(keys: KvKey): Promise<KvEntry<T>>;
+  async get<T = unknown>(keys: KvKey[]): Promise<KvEntry<T>[]>;
+  async get<T = unknown>(keys: KvKey | KvKey[]): Promise<KvEntry<T> | KvEntry<T>[]> {
+    // Empty array - return empty result
+    if (Array.isArray(keys) && keys.length === 0) {
+      return [];
+    }
+
+    // Multiple keys - batch with cache
+    if (this.isNestedKeyArray(keys)) {
+      return this.getBatch<T>(keys as KvKey[]);
+    }
+
+    // Single key
+    return this.getSingle<T>(keys as KvKey);
+  }
+
+  /**
+   * Get a single value by key (cached for snapshot isolation)
+   */
+  private async getSingle<T = unknown>(key: KvKey): Promise<KvEntry<T>> {
     const keyStr = JSON.stringify(key);
 
     if (this.readCache.has(keyStr)) {
@@ -377,7 +359,7 @@ export class KvTransaction {
   /**
    * Get multiple values by keys (cached for snapshot isolation)
    */
-  async getMany<T = unknown>(keys: KvKey[]): Promise<KvEntry<T>[]> {
+  private async getBatch<T = unknown>(keys: KvKey[]): Promise<KvEntry<T>[]> {
     const results: KvEntry<T>[] = new Array(keys.length);
     const uncachedKeys: KvKey[] = [];
     const uncachedIndices: number[] = [];
@@ -396,7 +378,7 @@ export class KvTransaction {
 
     // Fetch uncached keys
     if (uncachedKeys.length > 0) {
-      const entries = await this.kv.getMany<T>(uncachedKeys);
+      const entries = await this.kv.get<T>(uncachedKeys);
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i]!;
         const originalIndex = uncachedIndices[i]!;
@@ -468,7 +450,7 @@ export class KvTransaction {
       });
     }
 
-    return this.kv._commitAtomic(checks, this.mutations, false);
+    return this.kv._commitAtomic(checks, this.mutations);
   }
 }
 
@@ -551,27 +533,51 @@ export class Kv {
   }
 
   /**
-   * Get a value by key
+   * Get value(s) by key(s)
    *
-   * @param key The key to get
-   * @param options Options including consistency level
+   * @param keys - Single key (KvKey) or multiple keys (KvKey[])
    *
    * @example
    * ```typescript
-   * // Strong consistency (default) - always reads from primary
+   * // Single key
    * const entry = await kv.get(["users", 123]);
+   * console.log(entry.value);
    *
-   * // Eventual consistency - may read from replica (lower latency)
-   * const entry = await kv.get(["users", 123], { consistency: "eventual" });
+   * // Multiple keys
+   * const entries = await kv.get([
+   *   ["users", 1],
+   *   ["users", 2],
+   *   ["settings", "theme"],
+   * ]);
+   * entries.forEach(e => console.log(e.value));
    * ```
    */
-  async get<T = unknown>(key: KvKey, options?: KvGetOptions): Promise<KvEntry<T>> {
+  async get<T = unknown>(keys: []): Promise<KvEntry<T>[]>;
+  async get<T = unknown>(keys: KvKey): Promise<KvEntry<T>>;
+  async get<T = unknown>(keys: KvKey[]): Promise<KvEntry<T>[]>;
+  async get<T = unknown>(keys: KvKey | KvKey[]): Promise<KvEntry<T> | KvEntry<T>[]> {
+    // Empty array - return empty result
+    if (Array.isArray(keys) && keys.length === 0) {
+      return [];
+    }
+
+    // Multiple keys - batch request
+    if (this.isNestedKeyArray(keys)) {
+      const keyArray = keys as KvKey[];
+
+      const res = await fetch(`${this.baseUrl}/keys/batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keys: keyArray }),
+      });
+
+      return res.json() as Promise<KvEntry<T>[]>;
+    }
+
+    // Single key
+    const key = keys as KvKey;
     const keyPath = key.map(encodeKeyPart).join("/");
     const url = new URL(`${this.baseUrl}/keys/${keyPath}`);
-
-    if (options?.consistency) {
-      url.searchParams.set("consistency", options.consistency);
-    }
 
     const res = await fetch(url.toString());
 
@@ -580,36 +586,6 @@ export class Kv {
     }
 
     return res.json() as Promise<KvEntry<T>>;
-  }
-
-  /**
-   * Get multiple values by keys in a single request
-   *
-   * @example
-   * ```typescript
-   * const entries = await kv.getMany([
-   *   ["users", 1],
-   *   ["users", 2],
-   *   ["settings", "theme"],
-   * ]);
-   *
-   * // With eventual consistency
-   * const entries = await kv.getMany(keys, { consistency: "eventual" });
-   * ```
-   */
-  async getMany<T = unknown>(keys: KvKey[], options?: KvGetOptions): Promise<KvEntry<T>[]> {
-    if (keys.length === 0) return [];
-
-    const res = await fetch(`${this.baseUrl}/keys/batch`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        keys,
-        consistency: options?.consistency,
-      }),
-    });
-
-    return res.json() as Promise<KvEntry<T>[]>;
   }
 
   /**
@@ -718,7 +694,7 @@ export class Kv {
    * List entries matching a prefix
    *
    * @param prefix - Key prefix to filter by
-   * @param options - List options (limit, reverse, start, end, consistency, where)
+   * @param options - List options (limit, reverse, start, end, where)
    *
    * @example
    * ```typescript
@@ -729,11 +705,6 @@ export class Kv {
    *
    * // With options
    * for await (const entry of kv.list(["users"], { limit: 10, reverse: true })) {
-   *   console.log(entry);
-   * }
-   *
-   * // Eventual consistency - faster reads from replica
-   * for await (const entry of kv.list(["users"], { consistency: "eventual" })) {
    *   console.log(entry);
    * }
    *
@@ -775,7 +746,6 @@ export class Kv {
             end: options.end,
             limit: options.limit,
             reverse: options.reverse,
-            consistency: options.consistency,
             where: options.where,
           },
           jsonReplacer,
@@ -800,9 +770,6 @@ export class Kv {
       }
       if (options.reverse) {
         url.searchParams.set("reverse", "true");
-      }
-      if (options.consistency) {
-        url.searchParams.set("consistency", options.consistency);
       }
 
       const res = await fetch(url.toString());
@@ -904,30 +871,6 @@ export class Kv {
   }
 
   /**
-   * Create a placeholder for the versionstamp that will be assigned at commit time
-   * Use this to create consistent cross-references in atomic operations
-   *
-   * @example
-   * ```typescript
-   * const postId = crypto.randomUUID();
-   * const vs = kv.commitVersionstamp();
-   *
-   * await kv.atomic()
-   *   .set(["posts", postId], { title: "Hello", content: "World" })
-   *   .set(["posts_by_time", vs, postId], postId) // Index by commit time
-   *   .commit();
-   *
-   * // List posts in chronological order
-   * for await (const entry of kv.list(["posts_by_time"])) {
-   *   console.log(entry.key); // ["posts_by_time", "00000000000000000001", "abc123"]
-   * }
-   * ```
-   */
-  commitVersionstamp(): KvCommitVersionstamp {
-    return createCommitVersionstamp();
-  }
-
-  /**
    * Execute a function within a transaction with snapshot isolation
    *
    * The transaction provides:
@@ -990,7 +933,6 @@ export class Kv {
   async _commitAtomic(
     checks: KvCheck[],
     mutations: Mutation[],
-    _hasPlaceholders: boolean,
   ): Promise<KvCommitError | KvCommitResult> {
     const res = await fetch(`${this.baseUrl}/atomic`, {
       method: "POST",
@@ -1057,7 +999,7 @@ export class Kv {
    *
    * @param prefix - Key prefix to search within
    * @param query - Search query string
-   * @param options - Search options (limit, reverse, start, end, consistency, where)
+   * @param options - Search options (limit, reverse, start, end, where)
    *
    * @example
    * ```typescript
@@ -1073,8 +1015,7 @@ export class Kv {
    *
    * // Search with where filter
    * for await (const entry of kv.search(["posts"], "database", {
-   *   where: { status: "published" },
-   *   consistency: "eventual"
+   *   where: { status: "published" }
    * })) {
    *   console.log(entry);
    * }
@@ -1116,9 +1057,6 @@ export class Kv {
     if (options.reverse) {
       url.searchParams.set("reverse", "true");
     }
-    if (options.consistency) {
-      url.searchParams.set("consistency", options.consistency);
-    }
 
     let entries: KvEntry<T>[];
 
@@ -1135,7 +1073,6 @@ export class Kv {
             end: options.end,
             limit: options.limit,
             reverse: options.reverse,
-            consistency: options.consistency,
             where: options.where,
           },
           jsonReplacer,

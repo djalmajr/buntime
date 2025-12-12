@@ -91,7 +91,7 @@ O delay usa **exponential backoff** com jitter para evitar thundering herd.
 
 === Métodos Disponíveis no tx
 
-==== tx.get() e tx.getMany()
+==== tx.get()
 
 [source,typescript]
 ----
@@ -100,7 +100,7 @@ await kv.transaction(async (tx) => {
   const user = await tx.get<User>(["users", id]);
 
   // Leituras múltiplas
-  const [account, settings] = await tx.getMany<Account | Settings>([
+  const [account, settings] = await tx.get<Account | Settings>([
     ["accounts", id],
     ["settings", id],
   ]);
@@ -143,7 +143,7 @@ async function transfer(
 ): Promise<void> {
   const result = await kv.transaction(async (tx) => {
     // Ler ambas as contas
-    const [from, to] = await tx.getMany<Account>([
+    const [from, to] = await tx.get<Account>([
       ["accounts", fromId],
       ["accounts", toId],
     ]);
@@ -202,8 +202,8 @@ async function reserveStock(
     tx.set(["reservations", reservationId], {
       productId,
       quantity,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 15 * 60 * 1000  // 15 min
+      createdAt: kv.now(),
+      expiresAt: kv.now() + 15 * 60 * 1000  // 15 min
     });
 
     return reservationId;
@@ -245,16 +245,16 @@ async function incrementWithLimit(
 }
 
 // Uso: rate limiting
-await incrementWithLimit(["rate_limit", oderId, minute], 100);
+await incrementWithLimit(["rate_limit", userId, minute], 100);
 ----
 
 ==== Toggle com Estado
 
 [source,typescript]
 ----
-async function toggleLike(postId: string, oderId: string): Promise<boolean> {
+async function toggleLike(postId: string, userId: string): Promise<boolean> {
   const result = await kv.transaction(async (tx) => {
-    const likeKey: KvKey = ["likes", postId, oderId];
+    const likeKey: KvKey = ["likes", postId, userId];
     const like = await tx.get(likeKey);
 
     if (like.value) {
@@ -264,7 +264,7 @@ async function toggleLike(postId: string, oderId: string): Promise<boolean> {
       return false;
     } else {
       // Não curtiu, adicionar
-      tx.set(likeKey, { createdAt: Date.now() });
+      tx.set(likeKey, { createdAt: kv.now() });
       tx.sum(["posts", postId, "likeCount"], 1n);
       return true;
     }
@@ -293,7 +293,7 @@ const result = await kv.transaction(async (tx) => {
     throw new Error("Usuário banido");
   }
 
-  tx.set(["users", id], { ...user.value, lastLogin: Date.now() });
+  tx.set(["users", id], { ...user.value, lastLogin: kv.now() });
 });
 
 // result.ok é false se:
@@ -403,7 +403,7 @@ await kv.transaction(async (tx) => {
 
 // Lógica complexa com múltiplas leituras
 await kv.transaction(async (tx) => {
-  const [a, b, c] = await tx.getMany([keyA, keyB, keyC]);
+  const [a, b, c] = await tx.get([keyA, keyB, keyC]);
   // ... lógica de negócio
   tx.set(keyA, newA);
   tx.set(keyB, newB);

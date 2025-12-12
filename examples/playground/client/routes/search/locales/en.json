@@ -1,0 +1,47 @@
+{
+  "description": "Create full-text search indexes and search documents",
+  "indexes": {
+    "create": {
+      "create": "Create Index",
+      "description": "Create a new full-text search index",
+      "documentKeyLabel": "Document Key",
+      "documentKeyPlaceholder": "Prefix key (e.g., users or posts, published)",
+      "fieldsLabel": "Fields",
+      "fieldsPlaceholder": "Comma-separated fields (e.g., name, bio)",
+      "title": "Create Index",
+      "tokenizerLabel": "Tokenizer"
+    },
+    "list": {
+      "description": "Existing full-text search indexes",
+      "empty": "No indexes found. Create one to get started.",
+      "table": {
+        "actions": "Actions",
+        "fields": "Fields",
+        "prefix": "Prefix",
+        "tokenizer": "Tokenizer"
+      },
+      "title": "Indexes"
+    }
+  },
+  "search": {
+    "description": "Search within an indexed prefix",
+    "execute": "Search",
+    "highlightPrefixLabel": "Highlight Prefix",
+    "highlightPrefixPlaceholder": "<mark>",
+    "highlightSuffixLabel": "Highlight Suffix",
+    "highlightSuffixPlaceholder": "</mark>",
+    "indexKeyLabel": "Index Key",
+    "indexKeyPlaceholder": "Prefix key (e.g., users)",
+    "proximityLabel": "Proximity",
+    "proximityPlaceholder": "Optional proximity distance",
+    "queryLabel": "Query",
+    "queryPlaceholder": "Search query (e.g., alice developer)",
+    "results": "Results",
+    "title": "Search Documents"
+  },
+  "tabs": {
+    "indexes": "Indexes",
+    "search": "Search"
+  },
+  "title": "Search"
+}

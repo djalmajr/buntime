@@ -1,17 +1,25 @@
 == Operações CRUD
 
-=== get: Lendo um Valor
+=== get: Lendo Valores
 
-O método `get()` busca uma única entrada por sua chave:
+O método `get()` busca entradas por chave(s):
 
 [source,typescript]
 ----
+// Chave única
 const entry = await kv.get<User>(["users", "usr_001"]);
+
+// Múltiplas chaves
+const entries = await kv.get<User>([
+  ["users", "usr_001"],
+  ["users", "usr_002"],
+  ["users", "usr_003"]
+]);
 ----
 
 ==== Retorno
 
-`get()` retorna um objeto `KvEntry`:
+Para uma chave única, retorna um objeto `KvEntry`:
 
 [source,typescript]
 ----
@@ -21,6 +29,8 @@ interface KvEntry<T> {
   versionstamp: string | null;  // Versão atual, ou null se não existir
 }
 ----
+
+Para múltiplas chaves, retorna um array de `KvEntry[]`.
 
 ==== Tratando Valores Nulos
 
@@ -67,9 +77,9 @@ const entry = await kv.get(["users", "usr_001"]);
 (entry.value as User).name; // Precisa de cast
 ----
 
-=== getMany: Lendo Múltiplos Valores
+==== Lendo Múltiplos Valores
 
-Para buscar várias chaves, use `getMany()` em vez de múltiplos `get()`:
+Passe um array de chaves para buscar múltiplos valores em uma única requisição:
 
 [source,typescript]
 ----
@@ -79,10 +89,10 @@ const user2 = await kv.get(["users", "usr_002"]);
 const user3 = await kv.get(["users", "usr_003"]);
 
 // Eficiente - 1 requisição
-const entries = await kv.getMany<User>([
+const entries = await kv.get<User>([
   ["users", "usr_001"],
   ["users", "usr_002"],
-  ["users", "usr_003"],
+  ["users", "usr_003"]
 ]);
 ----
 
@@ -92,10 +102,10 @@ Os resultados vêm na **mesma ordem** das chaves solicitadas:
 
 [source,typescript]
 ----
-const entries = await kv.getMany([
+const entries = await kv.get([
   ["users", "usr_003"],  // índice 0
   ["users", "usr_001"],  // índice 1
-  ["users", "usr_002"],  // índice 2
+  ["users", "usr_002"]   // índice 2
 ]);
 
 entries[0].key; // ["users", "usr_003"]
@@ -109,9 +119,9 @@ Chaves inexistentes retornam `{ value: null, versionstamp: null }`:
 
 [source,typescript]
 ----
-const entries = await kv.getMany([
+const entries = await kv.get([
   ["users", "existe"],
-  ["users", "nao_existe"],
+  ["users", "nao_existe"]
 ]);
 
 entries[0].value; // { name: "Alice", ... }
@@ -130,7 +140,7 @@ O método `set()` cria ou substitui um valor:
 await kv.set(["users", "usr_001"], {
   name: "Alice",
   email: "alice@example.com",
-  createdAt: Date.now()
+  createdAt: kv.now()
 });
 ----
 
@@ -191,7 +201,7 @@ IMPORTANT: Isso tem race conditions! Veja o capítulo sobre Transações para a 
 [source,typescript]
 ----
 await kv.set(["cache", "item"], data, {
-  expireIn: 60000  // Expira em 60 segundos (TTL)
+  expiresIn: 60_000  // Expira em 60 segundos (TTL)
 });
 ----
 
@@ -278,7 +288,7 @@ await kv.delete(["logs"], {
   where: {
     $and: [
       { level: { $eq: "debug" } },
-      { timestamp: { $lt: kv.now() - 86400000 } }  // Mais de 24h
+      { timestamp: { $lt: kv.now() - 86_400_000 } }  // Mais de 24h
     ]
   }
 });
@@ -380,17 +390,6 @@ const id = ulid();
 // Desvantagens: Precisa de biblioteca
 ----
 
-==== Prefixo + UUID
-
-[source,typescript]
-----
-const id = `usr_${crypto.randomUUID()}`;
-// "usr_550e8400-e29b-41d4-a716-446655440000"
-
-// Vantagens: Fácil identificar o tipo em logs/debug
-// Desvantagens: Mais longo
-----
-
 ==== NanoID
 
 [source,typescript]
@@ -415,7 +414,7 @@ const UserSchema = z.object({
   name: z.string().min(1).max(100),
   email: z.string().email(),
   status: z.enum(["active", "inactive"]).default("active"),
-  createdAt: z.number().default(() => Date.now())
+  createdAt: z.number().default(() => kv.now())
 });
 
 type User = z.infer<typeof UserSchema>;

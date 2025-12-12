@@ -17,7 +17,6 @@ import {
   type KvCommitVersionstamp,
   type KvDeleteOptions,
   type KvEntry,
-  type KvGetOptions,
   type KvKey,
   type KvListOptions,
   type KvPaginateOptions,
@@ -176,9 +175,37 @@ export class Kv {
   }
 
   /**
-   * Get a value by key
+   * Check if keys is a nested array (KvKey[]) vs single key (KvKey)
    */
-  async get<T = unknown>(key: KvKey, _options?: KvGetOptions): Promise<KvEntry<T>> {
+  private isNestedKeyArray(keys: KvKey | KvKey[]): boolean {
+    return Array.isArray(keys) && keys.length > 0 && Array.isArray(keys[0]);
+  }
+
+  /**
+   * Get value(s) by key(s)
+   */
+  async get<T = unknown>(keys: []): Promise<KvEntry<T>[]>;
+  async get<T = unknown>(keys: KvKey): Promise<KvEntry<T>>;
+  async get<T = unknown>(keys: KvKey[]): Promise<KvEntry<T>[]>;
+  async get<T = unknown>(keys: KvKey | KvKey[]): Promise<KvEntry<T> | KvEntry<T>[]> {
+    // Empty array - return empty result
+    if (Array.isArray(keys) && keys.length === 0) {
+      return [];
+    }
+
+    // Multiple keys - batch request
+    if (this.isNestedKeyArray(keys)) {
+      return this.getBatch<T>(keys as KvKey[]);
+    }
+
+    // Single key
+    return this.getSingle<T>(keys as KvKey);
+  }
+
+  /**
+   * Get a single value by key (internal)
+   */
+  private async getSingle<T = unknown>(key: KvKey): Promise<KvEntry<T>> {
     const start = performance.now();
     let error = false;
 
@@ -214,9 +241,9 @@ export class Kv {
   }
 
   /**
-   * Get multiple values by keys
+   * Get multiple values by keys (internal)
    */
-  async getMany<T = unknown>(keys: KvKey[], _options?: KvGetOptions): Promise<KvEntry<T>[]> {
+  private async getBatch<T = unknown>(keys: KvKey[]): Promise<KvEntry<T>[]> {
     if (keys.length === 0) return [];
 
     const start = performance.now();
@@ -267,7 +294,7 @@ export class Kv {
       error = true;
       throw err;
     } finally {
-      this.metrics.recordOperation("getMany", performance.now() - start, error);
+      this.metrics.recordOperation("get", performance.now() - start, error);
     }
   }
 

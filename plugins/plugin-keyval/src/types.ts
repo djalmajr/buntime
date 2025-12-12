@@ -20,24 +20,6 @@ export interface KvEntry<T = unknown> {
 }
 
 /**
- * Consistency level for read operations
- * - "strong": Always read from primary (default, guaranteed latest value)
- * - "eventual": May read from replica (lower latency, possibly stale)
- */
-export type KvConsistency = "eventual" | "strong";
-
-/**
- * Options for get operation
- */
-export interface KvGetOptions {
-  /**
-   * Consistency level for the read operation
-   * @default "strong"
-   */
-  consistency?: KvConsistency;
-}
-
-/**
  * Options for set operation
  */
 export interface KvSetOptions {
@@ -52,11 +34,6 @@ export interface KvSetOptions {
  * Options for list operation
  */
 export interface KvListOptions {
-  /**
-   * Consistency level for the read operation
-   * @default "strong"
-   */
-  consistency?: KvConsistency;
   /**
    * End key (exclusive)
    */
@@ -572,11 +549,6 @@ export interface KvIndex {
  * Options for full-text search
  */
 export interface KvSearchOptions {
-  /**
-   * Consistency level for the read operation
-   * @default "strong"
-   */
-  consistency?: KvConsistency;
   /**
    * Maximum number of results to return
    * @default 100

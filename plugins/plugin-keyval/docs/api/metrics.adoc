@@ -253,10 +253,7 @@ setInterval(logMetrics, 5 * 60 * 1000);
 | Métrica | Descrição
 
 | `get`
-| Leituras de chaves individuais
-
-| `getMany`
-| Leituras em batch
+| Leituras (individuais ou batch com array de chaves)
 
 | `set`
 | Escritas de chaves

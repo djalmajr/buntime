@@ -34,7 +34,7 @@ JOIN products p ON o.product_id = p.id;
 
 // KeyVal: múltiplas queries
 const order = await kv.get(["orders", orderId]);
-const [user, product] = await kv.getMany([
+const [user, product] = await kv.get([
   ["users", order.value.userId],
   ["products", order.value.productId]
 ]);
@@ -178,7 +178,7 @@ async function uploadAttachment(file: File): Promise<Attachment> {
     contentType: file.type,
     size: file.size,
     storageUrl,
-    createdAt: Date.now(),
+    createdAt: kv.now(),
   };
 
   await kv.set(["attachments", id], attachment);
@@ -214,7 +214,7 @@ async function saveLargeData(id: string, data: string): Promise<void> {
   atomic.set(["large_data", id, "meta"], {
     totalSize: data.length,
     chunkCount: chunks.length,
-    createdAt: Date.now(),
+    createdAt: kv.now(),
   });
 
   // Chunks
@@ -353,10 +353,10 @@ const orders = await db.query(`
 const session = await kv.get(["sessions", sessionId]);
 
 // KeyVal para cache
-const cached = await kv.get(["cache", "user", oderId]);
+const cached = await kv.get(["cache", "user", userId]);
 if (!cached.value) {
-  const user = await db.query("SELECT * FROM users WHERE id = $1", [oderId]);
-  await kv.set(["cache", "user", oderId], user, { expireIn: 300000 });
+  const user = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
+  await kv.set(["cache", "user", userId], user, { expireIn: 300000 });
 }
 
 // KeyVal para filas

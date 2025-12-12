@@ -1,0 +1,46 @@
+{
+  "description": "Enqueue messages, listen for events, and manage DLQ",
+  "dlq": {
+    "description": "Failed messages after all retries",
+    "empty": "No messages in DLQ",
+    "table": {
+      "actions": "Actions",
+      "attempts": "Attempts",
+      "error": "Error",
+      "id": "ID",
+      "value": "Value"
+    },
+    "title": "Dead Letter Queue"
+  },
+  "enqueue": {
+    "delayLabel": "Delay (ms)",
+    "delayPlaceholder": "Optional delay in milliseconds",
+    "description": "Add a message to the queue",
+    "send": "Send",
+    "title": "Enqueue Message",
+    "valueLabel": "Message (JSON)",
+    "valuePlaceholder": "{\"type\": \"email\", \"to\": \"user@example.com\"}"
+  },
+  "listen": {
+    "clear": "Clear",
+    "description": "Listen for messages via SSE",
+    "listening": "Listening...",
+    "noMessages": "No messages received yet",
+    "received": "Received Messages",
+    "start": "Start",
+    "stop": "Stop",
+    "title": "Listen for Messages"
+  },
+  "stats": {
+    "dlq": "Dead Letter",
+    "pending": "Pending",
+    "processing": "Processing",
+    "total": "Total"
+  },
+  "tabs": {
+    "dlq": "DLQ",
+    "enqueue": "Enqueue",
+    "listen": "Listen"
+  },
+  "title": "Queue"
+}

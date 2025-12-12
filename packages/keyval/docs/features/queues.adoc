@@ -12,7 +12,7 @@ Filas de mensagens implementam o padrão FIFO (First In, First Out) para process
 
 *Resiliência:* Se um worker falhar, a mensagem pode ser reprocessada automaticamente. O sistema não perde trabalho.
 
-*Controle de fluxo:* Tarefas pesadas não bloqueiam requisições HTTP. O usuário recebe uma resposta imediata enquanto o trabalho acontece em background.
+*Controle de fluxo:* Tarefas pesadas não bloqueiam requisições HTTP. O usuário recebe uma resposta imediata enquanto o trabalho é processado de forma adiada.
 
 ==== Quando Usar Filas
 
@@ -26,7 +26,7 @@ Filas de mensagens implementam o padrão FIFO (First In, First Out) para process
 
 | Processamento de imagens
 | Resize/compress leva segundos
-| Upload retorna rápido, processamento em background
+| Upload retorna rápido, processamento adiado
 
 | Webhooks
 | API externa pode estar lenta ou indisponível
@@ -34,7 +34,7 @@ Filas de mensagens implementam o padrão FIFO (First In, First Out) para process
 
 | Relatórios pesados
 | Consultas SQL complexas demoram minutos
-| Gera relatório em background, notifica quando pronto
+| Gera relatório de forma adiada, notifica quando pronto
 
 | Notificações push
 | Enviar para milhares de dispositivos
@@ -88,7 +88,7 @@ Em outro processo (ou no mesmo), você escuta a fila:
 
 [source,typescript]
 ----
-// Inicia um worker que processa mensagens
+// Escuta mensagens da fila
 kv.listenQueue(async (mensagem) => {
   console.log("Processando:", mensagem);
 
@@ -243,7 +243,7 @@ export async function solicitarRelatorio(req: Request) {
   await kv.set(["relatorios", reportId], {
     status: "pending",
     tipo,
-    solicitadoEm: Date.now()
+    solicitadoEm: kv.now()
   });
 
   // Enfileira geração
@@ -267,7 +267,7 @@ kv.listenQueue(async (job) => {
     // Atualiza status
     await kv.set(["relatorios", job.reportId], {
       status: "processing",
-      iniciadoEm: Date.now()
+      iniciadoEm: kv.now()
     });
 
     // Gera relatório (pode levar minutos)
@@ -279,7 +279,7 @@ kv.listenQueue(async (job) => {
 
     await kv.set(["relatorios", job.reportId], {
       status: "completed",
-      finalizadoEm: Date.now(),
+      finalizadoEm: kv.now(),
       url: `/downloads/reports/${job.reportId}.pdf`
     });
   }
@@ -356,7 +356,7 @@ await kv.enqueue(
 [source,typescript]
 ----
 async function agendarPara(payload: unknown, dataHora: Date) {
-  const delay = dataHora.getTime() - Date.now();
+  const delay = dataHora.getTime() - kv.now();
 
   if (delay < 0) {
     throw new Error("Não é possível agendar para o passado");
@@ -666,7 +666,7 @@ Facilita debug e monitoramento.
 [source,typescript]
 ----
 kv.listenQueue(async (job) => {
-  const startTime = Date.now();
+  const startTime = kv.now();
   const jobId = crypto.randomUUID();
 
   console.log({
@@ -683,7 +683,7 @@ kv.listenQueue(async (job) => {
       event: "job_completed",
       jobId,
       type: job.type,
-      duration: Date.now() - startTime,
+      duration: kv.now() - startTime,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -693,7 +693,7 @@ kv.listenQueue(async (job) => {
       type: job.type,
       error: error.message,
       stack: error.stack,
-      duration: Date.now() - startTime,
+      duration: kv.now() - startTime,
       timestamp: new Date().toISOString()
     });
     throw error;
@@ -796,8 +796,8 @@ async function processarComResultado<T>(
   await kv.enqueue({ ...payload, jobId });
 
   // Aguarda resultado (polling)
-  const inicio = Date.now();
-  while (Date.now() - inicio < timeout) {
+  const inicio = kv.now();
+  while (kv.now() - inicio < timeout) {
     const resultado = await kv.get(["job_results", jobId]);
 
     if (resultado.value) {
@@ -883,7 +883,7 @@ async function enqueueComRateLimit(
   chave: string,
   maxPorMinuto: number
 ) {
-  const minuto = Math.floor(Date.now() / 60000);
+  const minuto = Math.floor(kv.now() / 60000);
   const rateKey = ["rate_limit", chave, minuto];
 
   const resultado = await kv.transaction(async (tx) => {

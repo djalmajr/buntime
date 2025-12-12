@@ -1,14 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { LibSqlAdapter } from "@buntime/plugin-database";
 import { Kv } from "../src/kv";
 import { initSchema } from "../src/schema";
+import { createTestAdapter } from "./helpers";
 
 describe("Kv", () => {
-  let adapter: LibSqlAdapter;
+  const adapter = createTestAdapter();
   let kv: Kv;
 
   beforeAll(async () => {
-    adapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
     await initSchema(adapter);
     kv = new Kv(adapter);
   });
@@ -102,9 +101,9 @@ describe("Kv", () => {
     });
   });
 
-  describe("getMany", () => {
+  describe("get with multiple keys", () => {
     it("should return empty array for empty keys", async () => {
-      const result = await kv.getMany([]);
+      const result = await kv.get([]);
       expect(result).toEqual([]);
     });
 
@@ -113,7 +112,7 @@ describe("Kv", () => {
       await kv.set(["users", 2], { name: "Bob" });
       await kv.set(["users", 3], { name: "Charlie" });
 
-      const entries = await kv.getMany<{ name: string }>([
+      const entries = await kv.get<{ name: string }>([
         ["users", 1],
         ["users", 2],
         ["users", 3],
@@ -130,7 +129,7 @@ describe("Kv", () => {
       await kv.set(["b"], 2);
       await kv.set(["c"], 3);
 
-      const entries = await kv.getMany<number>([["c"], ["a"], ["b"]]);
+      const entries = await kv.get<number>([["c"], ["a"], ["b"]]);
 
       expect(entries[0]?.key).toEqual(["c"]);
       expect(entries[0]?.value).toBe(3);
@@ -143,7 +142,7 @@ describe("Kv", () => {
     it("should return null for missing keys", async () => {
       await kv.set(["exists"], "value");
 
-      const entries = await kv.getMany([["exists"], ["missing"], ["also-missing"]]);
+      const entries = await kv.get([["exists"], ["missing"], ["also-missing"]]);
 
       expect(entries[0]?.value).toBe("value");
       expect(entries[1]?.value).toBe(null);
@@ -162,7 +161,8 @@ describe("Kv", () => {
     });
 
     it("should not throw for non-existent key", async () => {
-      await expect(kv.delete(["nonexistent"])).resolves.toBeUndefined();
+      const result = await kv.delete(["nonexistent"]);
+      expect(result.deletedCount).toBe(0);
     });
   });
 
@@ -257,7 +257,7 @@ describe("Kv", () => {
 
   describe("close", () => {
     it("should stop cleanup interval", async () => {
-      const tempAdapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
+      const tempAdapter = createTestAdapter();
       await initSchema(tempAdapter);
       const tempKv = new Kv(tempAdapter);
 
@@ -267,7 +267,7 @@ describe("Kv", () => {
     });
 
     it("should close metrics if created", async () => {
-      const tempAdapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
+      const tempAdapter = createTestAdapter();
       await initSchema(tempAdapter);
       const tempKv = new Kv(tempAdapter, { persistentMetrics: true });
 
@@ -276,13 +276,15 @@ describe("Kv", () => {
 
       // Close should flush and cleanup
       tempKv.close();
+      // Small delay to allow pending async operations to complete
+      await new Promise((r) => setTimeout(r, 50));
       await tempAdapter.close();
     });
   });
 
   describe("cleanup", () => {
     it("should run periodic cleanup of expired entries", async () => {
-      const tempAdapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
+      const tempAdapter = createTestAdapter();
       await initSchema(tempAdapter);
       const tempKv = new Kv(tempAdapter);
 
@@ -309,7 +311,7 @@ describe("Kv", () => {
         warn: () => {},
       };
 
-      const tempAdapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
+      const tempAdapter = createTestAdapter();
       await initSchema(tempAdapter);
 
       // Drop the table to cause cleanup errors

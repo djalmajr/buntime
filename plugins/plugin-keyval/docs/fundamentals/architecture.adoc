@@ -629,7 +629,7 @@ for (const key of keys) {
 }
 
 // Batch get
-const entries = await kv.getMany(keys);  // 1 query
+const entries = await kv.get(keys);  // 1 query
 ----
 
 *Pagination*:

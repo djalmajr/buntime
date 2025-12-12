@@ -1,0 +1,53 @@
+{
+  "checks": {
+    "add": "Add Check",
+    "description": "Add versionstamp checks for optimistic locking",
+    "keyLabel": "Key",
+    "keyPlaceholder": "Key parts (e.g., users, 123)",
+    "list": "Checks",
+    "title": "Versionstamp Checks",
+    "versionstampLabel": "Versionstamp",
+    "versionstampPlaceholder": "Expected versionstamp (empty for null/not exists)"
+  },
+  "description": "Build and execute atomic transactions with multiple operations",
+  "execute": {
+    "clear": "Clear All",
+    "commit": "Commit Transaction",
+    "description": "Commit the atomic transaction with all operations and checks",
+    "failure": "Failed",
+    "resultLabel": "Result",
+    "success": "Success",
+    "title": "Execute Transaction"
+  },
+  "operations": {
+    "add": "Add Operation",
+    "description": "Add operations to the transaction. They will execute in order.",
+    "keyLabel": "Key",
+    "keyPlaceholder": "Key parts (e.g., counter or users, 123)",
+    "list": "Operations",
+    "title": "Operations Builder",
+    "typeLabel": "Operation Type",
+    "types": {
+      "append": "append(key, suffix) - Append to Uint8Array",
+      "delete": "delete(key) - Delete a key",
+      "max": "max(key, value) - Set max value",
+      "min": "min(key, value) - Set min value",
+      "prepend": "prepend(key, prefix) - Prepend to Uint8Array",
+      "set": "set(key, value) - Set a key-value",
+      "sum": "sum(key, amount) - Add to number"
+    },
+    "valueLabel": "Value",
+    "valuePlaceholder": "Value (JSON for set, number for sum/max/min, text for append/prepend)"
+  },
+  "preview": {
+    "description": "Operations will execute in this order during commit",
+    "table": {
+      "key": "Key",
+      "order": "#",
+      "type": "Type",
+      "value": "Value"
+    },
+    "title": "Operations Preview"
+  },
+  "title": "Atomic Operations"
+}

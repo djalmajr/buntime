@@ -1,15 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { LibSqlAdapter } from "@buntime/plugin-database";
 import { Kv } from "../src/kv";
 import { initSchema } from "../src/schema";
 import type { KvTriggerEvent } from "../src/types";
+import { createTestAdapter } from "./helpers";
 
 describe("KvTriggers", () => {
-  let adapter: LibSqlAdapter;
+  const adapter = createTestAdapter();
   let kv: Kv;
 
   beforeAll(async () => {
-    adapter = new LibSqlAdapter({ type: "libsql", url: ":memory:" });
     await initSchema(adapter);
     kv = new Kv(adapter);
   });

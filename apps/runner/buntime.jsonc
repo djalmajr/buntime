@@ -84,6 +84,22 @@
             "target": "http://localhost:5001",
             "rewrite": "/$1$2",
             "ws": true
+          },
+          {
+            "name": "Playground App",
+            "pattern": "^/playground(/.*)?$",
+            "target": "http://localhost:5002",
+            "base": "/playground",
+            "rewrite": "$1",
+            "relativePaths": true,
+            "ws": true
+          },
+          {
+            "name": "Playground HMR",
+            "pattern": "^/playground/(_bun)(/.*)?$",
+            "target": "http://localhost:5002",
+            "rewrite": "/$1$2",
+            "ws": true
           }
         ]
       }

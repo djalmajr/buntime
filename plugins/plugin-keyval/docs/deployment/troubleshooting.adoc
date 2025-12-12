@@ -375,7 +375,7 @@ for (const id of ids) {
 }
 
 // 1 query
-await kv.getMany(ids.map(id => ["users", id]));
+await kv.get(ids.map(id => ["users", id]));
 ----
 
 ==== Alta CPU no watch

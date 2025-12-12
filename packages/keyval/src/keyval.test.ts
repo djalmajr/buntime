@@ -56,22 +56,38 @@ describe("Kv", () => {
       expect(entry.versionstamp).toBe(null);
     });
 
-    it("should pass consistency option", async () => {
-      let capturedUrl = "";
+    it("should return empty array for empty keys array", async () => {
+      const result = await kv.get([]);
+      expect(result).toEqual([]);
+    });
+
+    it("should get multiple values with array of keys", async () => {
       mockFetch((url) => {
-        capturedUrl = url;
-        return new Response(JSON.stringify({ key: ["test"], value: null, versionstamp: null }));
+        if (url.includes("/keys/batch")) {
+          return new Response(
+            JSON.stringify([
+              { key: ["users", 1], value: { name: "Alice" }, versionstamp: "0001" },
+              { key: ["users", 2], value: { name: "Bob" }, versionstamp: "0002" },
+            ]),
+          );
+        }
+        return new Response("", { status: 404 });
       });
 
-      await kv.get(["test"], { consistency: "eventual" });
+      const entries = await kv.get<{ name: string }>([
+        ["users", 1],
+        ["users", 2],
+      ]);
 
-      expect(capturedUrl).toContain("consistency=eventual");
+      expect(entries.length).toBe(2);
+      expect(entries[0]?.value?.name).toBe("Alice");
+      expect(entries[1]?.value?.name).toBe("Bob");
     });
   });
 
-  describe("getMany", () => {
+  describe("get with multiple keys", () => {
     it("should return empty array for empty keys", async () => {
-      const result = await kv.getMany([]);
+      const result = await kv.get([]);
       expect(result).toEqual([]);
     });
 
@@ -88,7 +104,7 @@ describe("Kv", () => {
         return new Response("", { status: 404 });
       });
 
-      const entries = await kv.getMany<{ name: string }>([
+      const entries = await kv.get<{ name: string }>([
         ["users", 1],
         ["users", 2],
       ]);
@@ -302,7 +318,6 @@ describe("Kv", () => {
       for await (const entry of kv.list(["users"], {
         limit: 10,
         reverse: true,
-        consistency: "eventual",
       })) {
         entries.push(entry);
       }
@@ -310,7 +325,6 @@ describe("Kv", () => {
       expect(capturedUrl).toContain("prefix=users");
       expect(capturedUrl).toContain("limit=10");
       expect(capturedUrl).toContain("reverse=true");
-      expect(capturedUrl).toContain("consistency=eventual");
     });
 
     it("should list with where filter using POST endpoint", async () => {
@@ -425,7 +439,6 @@ describe("Kv", () => {
       for await (const entry of kv.list(["users"], {
         limit: 50,
         reverse: true,
-        consistency: "eventual",
         where: { status: { $eq: "active" } },
       })) {
         entries.push(entry);
@@ -435,7 +448,6 @@ describe("Kv", () => {
       expect(parsed.prefix).toEqual(["users"]);
       expect(parsed.limit).toBe(50);
       expect(parsed.reverse).toBe(true);
-      expect(parsed.consistency).toBe("eventual");
       expect(parsed.where.status.$eq).toBe("active");
     });
 
@@ -634,14 +646,6 @@ describe("Kv", () => {
       expect(sumMutation?.value).toEqual({ __type: "bigint", value: "10" });
     });
   });
-
-  describe("commitVersionstamp", () => {
-    it("should create a placeholder", () => {
-      const vs = kv.commitVersionstamp();
-      expect(vs).toBeDefined();
-      expect(Symbol.for("kv.commitVersionstamp") in vs).toBe(true);
-    });
-  });
 });
 
 describe("KvTransaction", () => {
@@ -771,7 +775,7 @@ describe("KvTransaction", () => {
   });
 
   describe("transaction operations", () => {
-    it("should support getMany", async () => {
+    it("should support get with multiple keys", async () => {
       mockFetch((url) => {
         if (url.includes("/keys/batch")) {
           return new Response(
@@ -788,7 +792,7 @@ describe("KvTransaction", () => {
       });
 
       const result = await kv.transaction(async (tx) => {
-        const entries = await tx.getMany<number>([["a"], ["b"]]);
+        const entries = await tx.get<number>([["a"], ["b"]]);
         const sum = entries.reduce((acc, e) => acc + (e.value ?? 0), 0);
         tx.set(["sum"], sum);
         return { sum };
@@ -1342,21 +1346,6 @@ describe("Kv FTS (Full-Text Search)", () => {
       }
 
       expect(capturedUrl).toContain("reverse=true");
-    });
-
-    it("should search with consistency option", async () => {
-      let capturedUrl = "";
-      mockFetch((url) => {
-        capturedUrl = url;
-        return new Response(JSON.stringify([]));
-      });
-
-      const entries = [];
-      for await (const entry of kv.search(["posts"], "async", { consistency: "eventual" })) {
-        entries.push(entry);
-      }
-
-      expect(capturedUrl).toContain("consistency=eventual");
     });
 
     it("should search with where filter using POST", async () => {

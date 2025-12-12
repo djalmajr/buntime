@@ -25,8 +25,8 @@ Padrões de modelagem para casos de uso comuns em KeyVal.
 | `users`, `blog_posts`, `order_items`
 
 | ID
-| Prefixo descritivo + UUID curto
-| `usr_abc123`, `pst_xyz789`
+| UUID ou identificador único
+| `"abc123"`, `"550e8400-e29b..."`, `123`
 
 | Sub-recurso
 | Plural se múltiplos, singular se único
@@ -36,23 +36,6 @@ Padrões de modelagem para casos de uso comuns em KeyVal.
 | `{entidade}_by_{campo}`
 | `users_by_email`, `posts_by_date`
 |===
-
-==== Por que Prefixos em IDs?
-
-[source,typescript]
-----
-// Sem prefixo: impossível saber o que é
-"abc123xyz"  // Usuário? Post? Produto?
-
-// Com prefixo: auto-documentado
-"usr_abc123"  // Claramente um usuário
-"pst_xyz789"  // Claramente um post
-"ord_def456"  // Claramente um pedido
-
-// Facilita debugging em logs
-console.log(`Processando ${id}`);
-// "Processando usr_abc123" vs "Processando abc123xyz"
-----
 
 === Entidade Simples com Metadados
 
@@ -69,8 +52,8 @@ interface User {
 }
 
 async function createUser(data: Omit<User, "id" | "createdAt" | "updatedAt">): Promise<User> {
-  const id = `usr_${crypto.randomUUID().slice(0, 8)}`;
-  const now = Date.now();
+  const id = crypto.randomUUID();
+  const now = kv.now();
 
   const user: User = {
     ...data,
@@ -91,7 +74,7 @@ async function updateUser(id: string, data: Partial<Omit<User, "id" | "createdAt
     const updated: User = {
       ...entry.value,
       ...data,
-      updatedAt: Date.now()
+      updatedAt: kv.now()
     };
 
     tx.set(["users", id], updated);
@@ -146,7 +129,7 @@ Quando você quer listar ou deletar tudo de um "dono".
 ----
 // Estrutura hierárquica
 ["organizations", orgId]                                    → { name }
-["organizations", orgId, "members", oderId]                 → { role }
+["organizations", orgId, "members", userId]                 → { role }
 ["organizations", orgId, "projects", projectId]             → { name }
 ["organizations", orgId, "projects", projectId, "tasks", taskId] → { title }
 
@@ -174,7 +157,7 @@ Para métricas que atualizam frequentemente.
 ["stats", "global", "page_views"]              → bigint
 ["stats", "posts", postId, "views"]            → bigint
 ["stats", "posts", postId, "likes"]            → bigint
-["stats", "users", oderId, "posts_count"]      → bigint
+["stats", "users", userId, "posts_count"]      → bigint
 
 // Incrementar views (sem race condition!)
 await kv.atomic()
@@ -262,7 +245,7 @@ interface Product {
 
 async function createProduct(data: Omit<Product, "id" | "createdAt">): Promise<Product> {
   const id = `prod_${crypto.randomUUID().slice(0, 8)}`;
-  const product: Product = { ...data, id, createdAt: Date.now() };
+  const product: Product = { ...data, id, createdAt: kv.now() };
 
   await kv.atomic()
     // Dados do produto
@@ -342,7 +325,7 @@ async function getProductStats(category?: string): Promise<ProductStats> {
     ? ["stats", "products", "by_category", category]
     : ["stats", "products"];
 
-  const [countEntry, totalEntry, maxEntry] = await kv.getMany([
+  const [countEntry, totalEntry, maxEntry] = await kv.get([
     [...prefix, "count"],
     [...prefix, "total_value"],
     [...prefix, "max_price"],
@@ -387,7 +370,7 @@ async function recordSale(productId: string, amount: number): Promise<Sale> {
   const month = (now.getMonth() + 1).toString().padStart(2, "0");
   const day = now.getDate().toString().padStart(2, "0");
 
-  const sale: Sale = { id, productId, amount, createdAt: Date.now() };
+  const sale: Sale = { id, productId, amount, createdAt: kv.now() };
 
   await kv.atomic()
     .set(["sales", id], sale)
@@ -407,7 +390,7 @@ async function recordSale(productId: string, amount: number): Promise<Sale> {
 
 // Relatório mensal
 async function getMonthlySalesReport(year: string, month: string) {
-  const [countEntry, totalEntry] = await kv.getMany([
+  const [countEntry, totalEntry] = await kv.get([
     ["stats", "sales", year, month, "count"],
     ["stats", "sales", year, month, "total"],
   ]);
@@ -489,12 +472,12 @@ interface Session {
   createdAt: number;
 }
 
-async function createSession(oderId: string, deviceInfo: string): Promise<string> {
+async function createSession(userId: string, deviceInfo: string): Promise<string> {
   const sessionId = crypto.randomUUID();
 
   await kv.set(
     ["sessions", sessionId],
-    { userId: oderId, deviceInfo, createdAt: Date.now() },
+    { userId: userId, deviceInfo, createdAt: kv.now() },
     { expireIn: 24 * 60 * 60 * 1000 }  // 24 horas
   );
 
@@ -539,7 +522,7 @@ async function checkRateLimit(
   windowMs: number = 60_000
 ): Promise<RateLimitResult> {
   // Janela atual (minuto atual para window de 1 min)
-  const window = Math.floor(Date.now() / windowMs);
+  const window = Math.floor(kv.now() / windowMs);
   const key: KvKey = ["rate_limit", identifier, window];
 
   const entry = await kv.get<number>(key);
@@ -604,7 +587,7 @@ interface FeatureFlag {
 // Verificar feature
 async function isFeatureEnabled(
   featureName: string,
-  oderId?: string
+  userId?: string
 ): Promise<boolean> {
   const flag = await kv.get<FeatureFlag>(["features", featureName]);
 
@@ -617,13 +600,13 @@ async function isFeatureEnabled(
   }
 
   // Habilitado para usuários específicos
-  if (flag.value.enabledFor && oderId) {
-    return flag.value.enabledFor.includes(oderId);
+  if (flag.value.enabledFor && userId) {
+    return flag.value.enabledFor.includes(userId);
   }
 
   // Rollout por porcentagem (baseado no hash do userId)
-  if (flag.value.percentage && oderId) {
-    const hash = simpleHash(oderId);
+  if (flag.value.percentage && userId) {
+    const hash = simpleHash(userId);
     return (hash % 100) < flag.value.percentage;
   }
 
@@ -660,7 +643,7 @@ async function logAuditEvent(
   changes?: AuditEntry["changes"]
 ): Promise<void> {
   const id = crypto.randomUUID();
-  const timestamp = Date.now();
+  const timestamp = kv.now();
 
   const entry: AuditEntry = {
     id,
@@ -759,7 +742,7 @@ async function transitionOrderStatus(
       status: newStatus,
       statusHistory: [
         ...order.statusHistory,
-        { status: newStatus, timestamp: Date.now(), reason }
+        { status: newStatus, timestamp: kv.now(), reason }
       ]
     };
 
@@ -795,25 +778,25 @@ interface User extends SoftDeletable {
   email: string;
 }
 
-async function softDeleteUser(oderId: string, deletedBy: string): Promise<void> {
+async function softDeleteUser(userId: string, deletedBy: string): Promise<void> {
   const result = await kv.transaction(async (tx) => {
-    const entry = await tx.get<User>(["users", oderId]);
+    const entry = await tx.get<User>(["users", userId]);
     if (!entry.value) throw new Error("Usuário não encontrado");
     if (entry.value.deletedAt) throw new Error("Já deletado");
 
     const updated: User = {
       ...entry.value,
-      deletedAt: Date.now(),
+      deletedAt: kv.now(),
       deletedBy
     };
 
-    tx.set(["users", oderId], updated);
+    tx.set(["users", userId], updated);
 
     // Remove dos índices ativos
     tx.delete(["users_by_email", entry.value.email]);
 
     // Adiciona ao índice de deletados (para possível restore)
-    tx.set(["deleted_users", oderId], updated);
+    tx.set(["deleted_users", userId], updated);
   });
 
   if (!result.ok) {
@@ -833,9 +816,9 @@ async function getActiveUsers(): Promise<User[]> {
 }
 
 // Restaurar
-async function restoreUser(oderId: string): Promise<void> {
+async function restoreUser(userId: string): Promise<void> {
   const result = await kv.transaction(async (tx) => {
-    const entry = await tx.get<User>(["users", oderId]);
+    const entry = await tx.get<User>(["users", userId]);
     if (!entry.value) throw new Error("Usuário não encontrado");
     if (!entry.value.deletedAt) throw new Error("Não está deletado");
 
@@ -845,9 +828,9 @@ async function restoreUser(oderId: string): Promise<void> {
       deletedBy: undefined
     };
 
-    tx.set(["users", oderId], restored);
-    tx.set(["users_by_email", restored.email], oderId);
-    tx.delete(["deleted_users", oderId]);
+    tx.set(["users", userId], restored);
+    tx.set(["users_by_email", restored.email], userId);
+    tx.delete(["deleted_users", userId]);
   });
 
   if (!result.ok) {
@@ -863,11 +846,11 @@ async function restoreUser(oderId: string): Promise<void> {
 [source,typescript]
 ----
 // Ruim: difícil de manter e query
-["org", orgId, "dept", deptId, "team", teamId, "member", oderId, "perm", permId]
+["org", orgId, "dept", deptId, "team", teamId, "member", userId, "perm", permId]
 
 // Melhor: entidades separadas com referências
 ["permissions", permId] → { userId, teamId, orgId, ... }
-["users", oderId, "permissions"] → [permId1, permId2]
+["users", userId, "permissions"] → [permId1, permId2]
 ----
 
 ==== Esquecer de Atualizar Índices

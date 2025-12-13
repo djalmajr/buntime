@@ -20,7 +20,8 @@ function resolveComparisonValue(value: KvNowSerialized | number | string): {
   value: number | string;
 } {
   if (isNowPlaceholder(value)) {
-    return { value: Date.now(), isNow: true };
+    const offset = value.$offset ?? 0;
+    return { value: Date.now() + offset, isNow: true };
   }
   return { value, isNow: false };
 }

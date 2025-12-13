@@ -370,7 +370,7 @@ WARNING: Evite watch em milhares de chaves simultaneamente. Para muitas chaves, 
 | Mutations no mesmo processo
 | Zero overhead (callbacks síncronos)
 
-| SSE (`/_/plugin-keyval/watch`)
+| SSE (`/api/keyval/watch`)
 | Updates para frontend
 | Server-Sent Events via HTTP
 |===
@@ -473,7 +473,7 @@ for (const [operation, stats] of Object.entries(metrics)) {
 
 [source,bash]
 ----
-curl http://localhost:4000/_/plugin-keyval/metrics
+curl http://localhost:4000/api/keyval/metrics
 ----
 
 ==== Evite Polling Desnecessário
@@ -636,7 +636,7 @@ Use as métricas do plugin para monitorar performance em produção:
 
 [source,bash]
 ----
-curl http://localhost:4000/_/plugin-keyval/metrics
+curl http://localhost:4000/api/keyval/metrics
 ----
 
 **Resposta:**

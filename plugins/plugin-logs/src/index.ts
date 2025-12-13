@@ -71,7 +71,8 @@ function getLogs(options?: {
   }
 
   if (options?.source) {
-    filtered = filtered.filter((l) => l.source.includes(options.source));
+    const source = options.source;
+    filtered = filtered.filter((l) => l.source.includes(source));
   }
 
   if (options?.search) {
@@ -184,10 +185,6 @@ function renderFragment(req: Request): string {
           </tbody>
         </table>
       </div>
-
-      <p class="mt-4 text-sm text-gray-500">
-        Fragment rendered by @buntime/plugin-logs
-      </p>
     </div>
   `;
 }
@@ -276,7 +273,7 @@ export default function logsPlugin(pluginConfig: LogsConfig = {}): BuntimePlugin
     fragment: {
       fragmentId: "logs",
       prePierceRoutes: ["/cpanel/logs", "/cpanel/logs/*"],
-      fetchFragment: async (req) => {
+      fetchFragment: async (req: Request) => {
         const html = renderFragment(req);
         return new Response(html, {
           headers: { "Content-Type": "text/html; charset=utf-8" },

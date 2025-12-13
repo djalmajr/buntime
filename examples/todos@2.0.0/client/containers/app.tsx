@@ -1,4 +1,5 @@
 import { useTodos } from "~/hooks/use-todos";
+import pkg from "../../package.json" with { type: "json" };
 import { Footer } from "./footer";
 import { Header } from "./header";
 import { Todo } from "./todo";
@@ -60,7 +61,7 @@ export function App() {
         />
       </section>
       <footer className="app__info">
-        <p>Double-click to edit a todo</p>
+        <p>Double-click to edit a todo. v{pkg.version}</p>
         <p>
           Written by <a href="https://user.dev">Djalma Jr.</a>
         </p>

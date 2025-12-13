@@ -46,19 +46,30 @@ export function useBreadcrumbs({
       return [{ label, path: location.pathname }];
     }
 
-    // loaderData mode: read from route loaderData.breadcrumb
-    return matches
-      .filter((match) => {
-        const loaderData = match.loaderData as { breadcrumb?: BreadcrumbLabel } | undefined;
-        return loaderData?.breadcrumb !== undefined;
-      })
-      .map((match) => {
-        const loaderData = match.loaderData as { breadcrumb: BreadcrumbLabel };
-        return {
+    // loaderData mode: read from route loaderData
+    // Supports both single breadcrumb and breadcrumbs array
+    const result: Array<{ label: BreadcrumbLabel; path: string }> = [];
+
+    for (const match of matches) {
+      const loaderData = match.loaderData as {
+        breadcrumb?: BreadcrumbLabel;
+        breadcrumbs?: Array<{ label: BreadcrumbLabel; path: string }>;
+      } | undefined;
+
+      // Support breadcrumbs array (for dynamic routes like deployments)
+      if (loaderData?.breadcrumbs) {
+        result.push(...loaderData.breadcrumbs);
+      }
+      // Support single breadcrumb
+      else if (loaderData?.breadcrumb !== undefined) {
+        result.push({
           label: loaderData.breadcrumb,
           path: match.pathname,
-        };
-      });
+        });
+      }
+    }
+
+    return result;
   }, [matches, location.pathname, pathLabels]);
 
   // Extract required namespaces

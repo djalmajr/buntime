@@ -85,8 +85,9 @@ runtime/
     │   ├── loader.ts     # Plugin loader
     │   └── registry.ts   # Plugin registry
     ├── routes/
-    │   ├── internal/     # /_/* routes
-    │   └── worker.ts     # App routes
+    │   ├── deployments.ts  # /api/deployments/* routes
+    │   ├── plugins-info.ts # /api/plugins route
+    │   └── worker.ts       # App routes
     └── utils/
         ├── get-app-dir.ts
         ├── get-entrypoint.ts
@@ -231,21 +232,18 @@ const router = createRouter({
 
 == Rotas
 
-=== Internal (`/_/*`)
+=== API Routes
 
-* `GET /_/deployments` - Gerenciamento de deployments
-* `GET /_/metrics` - Metricas do pool (JSON)
-* `GET /_/sse` - Stream SSE
-* `GET /_/stats` - Stats completos
-* `GET /_/plugins` - Lista plugins carregados
+* `GET /api/deployments/*` - Gerenciamento de deployments
+* `GET /api/plugins` - Lista plugins carregados
 
-=== Plugin (`/_/{name}/*`)
+=== Plugin (`/api/{name}/*`)
 
-* `/_/plugin-metrics/prometheus` - Metricas Prometheus
-* `/_/plugin-authn/*` - Endpoints de autenticacao
-* `/_/plugin-authz/*` - Endpoints de autorizacao
-* `/_/plugin-keyval/*` - API KeyVal
-* `/_/plugin-gateway/*` - Cache e rate limit
+* `/api/metrics/prometheus` - Metricas Prometheus
+* `/api/authn/*` - Endpoints de autenticacao
+* `/api/authz/*` - Endpoints de autorizacao
+* `/api/keyval/*` - API KeyVal
+* `/api/gateway/*` - Cache e rate limit
 
 === Worker (`/`)
 
@@ -276,8 +274,7 @@ bun build:bin        # Compile to binary
 [source]
 ----
 Request -> Hono Router -> Resolve?
-  |-- /_/* -> Internal Routes
-  |-- /_/{plugin}/* -> Plugin Routes
+  |-- /api/{plugin}/* -> Plugin API Routes
   |-- /app/* (plugin app) -> Plugin App Handler
   +-- /:app/* -> Worker Pool -> Worker Thread
 ----

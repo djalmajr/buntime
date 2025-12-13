@@ -13,10 +13,10 @@ Pool metrics extension for Buntime runner.
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /_/metrics/` | JSON metrics |
-| `GET /_/metrics/prometheus` | Prometheus format |
-| `GET /_/metrics/sse` | SSE stream (real-time) |
-| `GET /_/metrics/stats` | Full stats (pool + workers) |
+| `GET /api/metrics/` | JSON metrics |
+| `GET /api/metrics/prometheus` | Prometheus format |
+| `GET /api/metrics/sse` | SSE stream (real-time) |
+| `GET /api/metrics/stats` | Full stats (pool + workers) |
 
 ## Configuration
 

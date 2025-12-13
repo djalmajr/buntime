@@ -13,8 +13,8 @@ JWT/OIDC authentication extension for Buntime runner.
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /_/authn/well-known` | Provider info |
-| `POST /_/authn/introspect` | Token introspection |
+| `GET /api/authn/well-known` | Provider info |
+| `POST /api/authn/introspect` | Token introspection |
 
 ## Configuration
 

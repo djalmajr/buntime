@@ -1,4 +1,9 @@
-import { parseDuration, parseDurationArray, parseDurationOptional } from "./duration";
+import {
+  type Duration,
+  parseDuration,
+  parseDurationArray,
+  parseDurationOptional,
+} from "./duration";
 import {
   type KvCheck,
   type KvCommitError,
@@ -34,6 +39,24 @@ import {
 } from "./types";
 
 /**
+ * Create a KvNow placeholder with optional offset
+ */
+function createNow(offset = 0): KvNow {
+  return {
+    [NOW_SYMBOL]: true,
+    offset: offset || undefined,
+    add(duration: Duration): KvNow {
+      const ms = parseDuration(duration);
+      return createNow((this.offset ?? 0) + ms);
+    },
+    sub(duration: Duration): KvNow {
+      const ms = parseDuration(duration);
+      return createNow((this.offset ?? 0) - ms);
+    },
+  };
+}
+
+/**
  * Check if a value is a $now placeholder
  */
 function isNowPlaceholder(value: unknown): value is KvNow {
@@ -48,14 +71,18 @@ function isNowPlaceholder(value: unknown): value is KvNow {
 /**
  * JSON replacer to handle BigInt and $now serialization
  * - Converts BigInt to a tagged object { __type: "bigint", value: string }
- * - Converts $now placeholder to { $now: true } for server-side resolution
+ * - Converts $now placeholder to { $now: true, offset?: number } for server-side resolution
  */
 function jsonReplacer(_key: string, value: unknown): unknown {
   if (typeof value === "bigint") {
     return { __type: "bigint", value: value.toString() };
   }
   if (isNowPlaceholder(value)) {
-    return { $now: true };
+    const result: { $now: true; offset?: number } = { $now: true };
+    if (value.offset !== undefined) {
+      result.offset = value.offset;
+    }
+    return result;
   }
   return value;
 }
@@ -461,7 +488,7 @@ export class KvTransaction {
  *
  * @example
  * ```typescript
- * const kv = new Kv("http://localhost:8000/_/plugin-keyval");
+ * const kv = new Kv("http://localhost:8000/api/keyval");
  *
  * // Set a value
  * await kv.set(["users", 123], { name: "Alice" });
@@ -528,10 +555,16 @@ export class Kv {
    *     ]
    *   }
    * });
+   *
+   * // Server time + 1 hour
+   * kv.now().add("1h")
+   *
+   * // Server time - 24 hours
+   * kv.now().sub("24h")
    * ```
    */
   now(): KvNow {
-    return { [NOW_SYMBOL]: true };
+    return createNow();
   }
 
   /**
@@ -1139,10 +1172,11 @@ export class Kv {
    * ```
    */
   async removeIndex(prefix: KvKey): Promise<void> {
-    await fetch(`${this.baseUrl}/indexes`, {
+    const url = new URL(`${this.baseUrl}/indexes`);
+    url.searchParams.set("prefix", prefix.map(encodeKeyPart).join("/"));
+
+    await fetch(url.toString(), {
       method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prefix }),
     });
   }
 
@@ -1200,8 +1234,10 @@ export class Kv {
    * ```typescript
    * // SSE mode (default, low latency)
    * const handle = kv.listenQueue(async (msg) => {
-   *   console.log("Processing:", msg);
-   *   // If handler throws, message will be retried
+   *   console.log("Processing:", msg.value);
+   *   console.log("Message ID:", msg.id);
+   *   console.log("Attempts:", msg.attempts);
+   *   // If handler throws, message will be retried (autoAck: true by default)
    * });
    *
    * // Polling mode (better for restrictive proxies)
@@ -1210,24 +1246,35 @@ export class Kv {
    *   pollInterval: 2000
    * });
    *
+   * // Manual ack/nack mode
+   * const handle = kv.listenQueue(async (msg) => {
+   *   const success = await processMessage(msg.value);
+   *   if (success) {
+   *     await kv.ackMessage(msg.id);
+   *   } else {
+   *     await kv.nackMessage(msg.id);
+   *   }
+   * }, { autoAck: false });
+   *
    * // Stop listening
    * handle.stop();
    * ```
    */
   listenQueue<T = unknown>(
-    handler: (value: T) => Promise<void> | void,
+    handler: (message: KvQueueMessage<T>) => Promise<void> | void,
     options?: KvListenOptions,
   ): KvListenHandle {
     const mode = options?.mode ?? "sse";
+    const autoAck = options?.autoAck ?? true;
     const pollIntervalMs = options?.pollInterval ? parseDuration(options.pollInterval) : 1000;
     const listenerId = crypto.randomUUID();
     const controller = new AbortController();
     this.listeners.set(listenerId, controller);
 
     if (mode === "polling") {
-      this.startPolling(handler, controller, pollIntervalMs);
+      this.startPolling(handler, controller, pollIntervalMs, autoAck);
     } else {
-      this.startSSE(handler, controller);
+      this.startSSE(handler, controller, autoAck);
     }
 
     const stop = () => {
@@ -1245,9 +1292,10 @@ export class Kv {
    * Poll for queue messages
    */
   private async startPolling<T>(
-    handler: (value: T) => Promise<void> | void,
+    handler: (message: KvQueueMessage<T>) => Promise<void> | void,
     controller: AbortController,
     interval: number,
+    autoAck: boolean,
   ): Promise<void> {
     while (!controller.signal.aborted) {
       try {
@@ -1257,7 +1305,7 @@ export class Kv {
         const data = (await res.json()) as { message: KvQueueMessage<T> | null };
 
         if (data.message) {
-          await this.processMessage(handler, data.message);
+          await this.processMessage(handler, data.message, autoAck);
         } else {
           await new Promise((r) => setTimeout(r, interval));
         }
@@ -1273,8 +1321,9 @@ export class Kv {
    * Listen via SSE for queue messages
    */
   private async startSSE<T>(
-    handler: (value: T) => Promise<void> | void,
+    handler: (message: KvQueueMessage<T>) => Promise<void> | void,
     controller: AbortController,
+    autoAck: boolean,
   ): Promise<void> {
     while (!controller.signal.aborted) {
       try {
@@ -1307,7 +1356,7 @@ export class Kv {
               currentData = line.slice(5).trim();
             } else if (line === "" && currentEvent === "message" && currentData) {
               const msg = JSON.parse(currentData) as KvQueueMessage<T>;
-              await this.processMessage(handler, msg);
+              await this.processMessage(handler, msg, autoAck);
               currentEvent = "";
               currentData = "";
             }
@@ -1322,28 +1371,33 @@ export class Kv {
   }
 
   /**
-   * Process a queue message and send ack/nack
+   * Process a queue message and optionally send ack/nack
    */
   private async processMessage<T>(
-    handler: (value: T) => Promise<void> | void,
+    handler: (message: KvQueueMessage<T>) => Promise<void> | void,
     msg: KvQueueMessage<T>,
+    autoAck: boolean,
   ): Promise<void> {
     try {
-      await handler(msg.value);
+      await handler(msg);
 
-      // Acknowledge successful processing
-      await fetch(`${this.baseUrl}/queue/ack`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: msg.id }),
-      });
+      // Auto-acknowledge successful processing
+      if (autoAck) {
+        await fetch(`${this.baseUrl}/queue/ack`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: msg.id }),
+        });
+      }
     } catch {
-      // Negative acknowledge - will be retried
-      await fetch(`${this.baseUrl}/queue/nack`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: msg.id }),
-      });
+      // Auto-nack on error - will be retried
+      if (autoAck) {
+        await fetch(`${this.baseUrl}/queue/nack`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: msg.id }),
+        });
+      }
     }
   }
 
@@ -1441,12 +1495,17 @@ export class Kv {
       }
     }
 
+    let closed = false;
     const stop = () => {
+      closed = true;
       controller.abort();
       this.listeners.delete(watcherId);
     };
 
     return {
+      get closed() {
+        return closed;
+      },
       stop,
       [Symbol.dispose]: stop,
     };

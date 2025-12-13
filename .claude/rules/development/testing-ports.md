@@ -15,7 +15,7 @@ The runtime (port 8000):
 - Loads all plugins from `buntime.jsonc`
 - Serves the admin dashboard (React app)
 - Handles proxying/redirects to examples
-- Provides plugin APIs (`/_/plugin-keyval/*`, `/_/plugin-metrics/*`, etc.)
+- Provides plugin APIs (`/api/keyval/*`, `/api/metrics/*`, etc.)
 - Manages worker pools and routing
 - Injects `<base href>` for SPAs under subpaths
 

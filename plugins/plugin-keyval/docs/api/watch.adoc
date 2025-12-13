@@ -277,7 +277,7 @@ Watch por chaves específicas via SSE:
 
 [source,bash]
 ----
-curl -N "http://localhost:4000/_/plugin-keyval/watch?keys=config&keys=settings"
+curl -N "http://localhost:4000/api/keyval/watch?keys=config&keys=settings"
 ----
 
 **Parâmetros:**
@@ -308,7 +308,7 @@ Watch por prefixo via SSE:
 
 [source,bash]
 ----
-curl -N "http://localhost:4000/_/plugin-keyval/watch/prefix/users"
+curl -N "http://localhost:4000/api/keyval/watch/prefix/users"
 ----
 
 **Resposta (SSE):**

@@ -4,7 +4,7 @@ import { Hono } from "hono";
 export interface DeploymentsConfig extends BasePluginConfig {
   /**
    * Directory containing deployable apps
-   * @default Uses globalConfig.appsDir from buntime.jsonc
+   * @default Uses first directory from globalConfig.appsDirs
    */
   appsDir?: string;
 }
@@ -124,10 +124,6 @@ async function renderFragment(req: Request): Promise<string> {
           </tbody>
         </table>
       </div>
-
-      <p class="mt-4 text-sm text-gray-500">
-        Fragment rendered by @buntime/plugin-deployments
-      </p>
     </div>
   `;
 }
@@ -198,8 +194,8 @@ export default function deploymentsPlugin(pluginConfig: DeploymentsConfig = {}):
     onInit(ctx: PluginContext) {
       logger = ctx.logger;
       const config = ctx.config as DeploymentsConfig;
-      // Use plugin-specific appsDir if provided, otherwise use global config
-      appsDir = config.appsDir ?? ctx.globalConfig.appsDir;
+      // Use plugin-specific appsDir if provided, otherwise use first from global config
+      appsDir = config.appsDir ?? ctx.globalConfig.appsDirs[0] ?? "./apps";
       ctx.logger.info(`Deployments plugin initialized (appsDir: ${appsDir})`);
     },
   };

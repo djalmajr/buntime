@@ -11,13 +11,18 @@ export interface RegistryRef {
 }
 
 export interface DeploymentRoutesDeps {
-  appsDir: string;
+  appsDirs: string[];
   registry?: RegistryRef;
 }
 
 export type DeploymentRoutesType = ReturnType<typeof createDeploymentRoutes>;
 
-export function createDeploymentRoutes({ appsDir, registry }: DeploymentRoutesDeps) {
+export function createDeploymentRoutes({ appsDirs, registry }: DeploymentRoutesDeps) {
+  // Use first directory as primary deployment target
+  const appsDir = appsDirs[0];
+  if (!appsDir) {
+    throw new Error("At least one apps directory is required");
+  }
   /**
    * Check if app name conflicts with plugin routes or reserved paths
    * Throws ValidationError if there's a conflict

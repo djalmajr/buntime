@@ -244,6 +244,32 @@ export interface KvQueueMessage<T = unknown> {
  */
 export interface KvListenOptions {
   /**
+   * Whether to automatically acknowledge messages after handler completes
+   * - true: Auto-ack on success, auto-nack on error (default)
+   * - false: Manual control via kv.ackMessage() and kv.nackMessage()
+   *
+   * When autoAck is false, you MUST call ackMessage() or nackMessage()
+   * for each message, otherwise messages will remain in processing state.
+   *
+   * @default true
+   *
+   * @example
+   * ```typescript
+   * // Auto-ack mode (default)
+   * kv.listenQueue(handler);
+   *
+   * // Manual ack mode
+   * kv.listenQueue(async (msg) => {
+   *   if (processSucceeded) {
+   *     await kv.ackMessage(msg.id);
+   *   } else {
+   *     await kv.nackMessage(msg.id);
+   *   }
+   * }, { autoAck: false });
+   * ```
+   */
+  autoAck?: boolean;
+  /**
    * Connection mode
    * - "sse": Server-Sent Events (default, low latency)
    * - "polling": HTTP polling (more compatible with proxies)
@@ -382,6 +408,10 @@ export interface KvWatchOptions {
  * ```
  */
 export interface KvWatchHandle extends Disposable {
+  /**
+   * Whether the watcher has been stopped
+   */
+  readonly closed: boolean;
   /**
    * Stop watching
    */
@@ -633,19 +663,40 @@ export interface KvIndex {
 export const NOW_SYMBOL = Symbol.for("kv.now");
 
 /**
- * Placeholder for current server timestamp
- * Created by kv.now() and resolved server-side to Date.now()
+ * Placeholder for current server timestamp with optional offset
+ * Created by kv.now() and resolved server-side to Date.now() + offset
  *
  * @example
  * ```typescript
- * // Delete expired sessions using server time
- * await kv.delete(["sessions"], {
- *   where: { expiresAt: { $lt: kv.now() } }
- * });
+ * // Current server time
+ * kv.now()
+ *
+ * // Server time + 1 hour
+ * kv.now().add("1h")
+ *
+ * // Server time - 24 hours
+ * kv.now().sub("24h")
  * ```
  */
 export interface KvNow {
   [NOW_SYMBOL]: true;
+  /**
+   * Offset in milliseconds from current time
+   * Positive = future, Negative = past
+   */
+  offset?: number;
+  /**
+   * Add time to current timestamp
+   * @param duration - Duration to add (e.g., "1h", "30m", 3600000)
+   * @returns New KvNow with positive offset
+   */
+  add(duration: Duration): KvNow;
+  /**
+   * Subtract time from current timestamp
+   * @param duration - Duration to subtract (e.g., "1h", "30m", 3600000)
+   * @returns New KvNow with negative offset
+   */
+  sub(duration: Duration): KvNow;
 }
 
 /**

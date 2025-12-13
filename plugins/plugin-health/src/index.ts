@@ -245,10 +245,6 @@ async function renderFragment(): Promise<string> {
           </tbody>
         </table>
       </div>
-
-      <p class="mt-4 text-sm text-gray-500">
-        Fragment rendered by @buntime/plugin-health
-      </p>
     </div>
   `;
 }

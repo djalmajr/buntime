@@ -1,4 +1,4 @@
-import type { KvKey, KvKeyPart } from "./types";
+import type { KvKey, KvKeyPart, KvNowSerialized } from "./types";
 import { isNowPlaceholder } from "./types";
 
 /**
@@ -326,7 +326,8 @@ function jsonReplacer(_key: string, value: unknown): unknown {
   }
   // Resolve $now placeholder to current server timestamp
   if (isNowPlaceholder(value)) {
-    return Date.now();
+    const offset = (value as KvNowSerialized).$offset ?? 0;
+    return Date.now() + offset;
   }
   return value;
 }

@@ -12,8 +12,8 @@ API gateway extension for Buntime runner.
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /_/gateway/stats` | Gateway stats |
-| `POST /_/gateway/cache/invalidate` | Invalidate cache |
+| `GET /api/gateway/stats` | Gateway stats |
+| `POST /api/gateway/cache/invalidate` | Invalidate cache |
 
 ## Configuration
 

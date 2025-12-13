@@ -442,6 +442,23 @@ for await (const entry of kv.list(["products"], {
 
 O método `kv.now()` retorna um placeholder que é resolvido no **servidor** para `Date.now()`. Isso evita discrepâncias de tempo entre cliente e servidor.
 
+Você pode usar `.add()` e `.sub()` para calcular timestamps relativos:
+
+[source,typescript]
+----
+// Tempo atual do servidor
+kv.now()
+
+// Servidor + 1 hora
+kv.now().add("1h")
+
+// Servidor - 24 horas
+kv.now().sub("24h")
+
+// Servidor + 1 hora - 30 minutos (encadeamento)
+kv.now().add("1h").sub("30m")
+----
+
 [source,typescript]
 ----
 // Sessões expiradas (expiresAt < tempo atual do servidor)
@@ -497,12 +514,11 @@ const result = await kv.delete(["sessions"], {
 console.log(`${result.deletedCount} sessões removidas`);
 
 // Excluir usuários inativos há mais de 1 ano
-const oneYearAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
 await kv.delete(["users"], {
   where: {
     $and: [
       { status: { $eq: "inactive" } },
-      { lastLogin: { $lt: oneYearAgo } }
+      { lastLogin: { $lt: kv.now().sub("1y") } }
     ]
   }
 });

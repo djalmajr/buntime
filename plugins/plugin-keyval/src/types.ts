@@ -374,10 +374,15 @@ export interface KvTriggerEvent<T = unknown> {
 
 /**
  * Serialized $now placeholder from client
- * When JSON serialized, the Symbol-based $now becomes { "$now": true }
+ * When JSON serialized, the Symbol-based $now becomes { "$now": true, "$offset"?: number }
  */
 export interface KvNowSerialized {
   $now: true;
+  /**
+   * Offset in milliseconds from current time
+   * Positive = future, Negative = past
+   */
+  $offset?: number;
 }
 
 /**

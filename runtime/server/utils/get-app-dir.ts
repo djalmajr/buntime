@@ -71,13 +71,15 @@ function findNestedVersions(
 }
 
 /**
- * Creates a function to retrieve app directories with a specific base path.
+ * Creates a function to retrieve app directories from multiple base paths.
+ * @param appsDirs - Array of directories to search for apps
  */
-export function createAppResolver(appsDir: string) {
+export function createAppResolver(appsDirs: string[]) {
   /**
    * Retrieves the filesystem path for a given app name.
    *
-   * Supports two directory structures:
+   * Searches through all configured app directories in order.
+   * Supports two directory structures per directory:
    * - Flat: `appsDir/app-name@1.0.0/` (checked first)
    * - Nested: `appsDir/app-name/1.0.0/` (fallback)
    *
@@ -97,40 +99,44 @@ export function createAppResolver(appsDir: string) {
     const [name, versionRange] = appName.split("@");
     if (!name) return "";
 
-    // 1. Try flat format first (appsDir/app-name@version/)
-    const flat = findFlatVersions(appsDir, name);
+    // Collect all versions from all directories
+    const allVersions: string[] = [];
+    const allDirs = new Map<string, string>();
 
-    if (flat.versions.length > 0) {
-      if (!versionRange) {
-        // No version specified: return highest flat version
-        const sorted = rsort(flat.versions);
-        return flat.dirs.get(sorted[0]!) ?? "";
+    for (const appsDir of appsDirs) {
+      // 1. Try flat format first (appsDir/app-name@version/)
+      const flat = findFlatVersions(appsDir, name);
+      for (const version of flat.versions) {
+        if (!allDirs.has(version)) {
+          allVersions.push(version);
+          allDirs.set(version, flat.dirs.get(version)!);
+        }
       }
 
-      // Try to match version range in flat versions
-      const matched = maxSatisfying(flat.versions, versionRange, { includePrerelease: true });
-      if (matched) {
-        return flat.dirs.get(matched) ?? "";
+      // 2. Try nested format (appsDir/app-name/version/)
+      const nested = findNestedVersions(appsDir, name);
+      for (const version of nested.versions) {
+        if (!allDirs.has(version)) {
+          allVersions.push(version);
+          allDirs.set(version, nested.dirs.get(version)!);
+        }
       }
     }
 
-    // 2. Fallback to nested format (appsDir/app-name/version/)
-    const nested = findNestedVersions(appsDir, name);
-
-    if (nested.versions.length === 0) {
+    if (allVersions.length === 0) {
       return "";
     }
 
     if (!versionRange) {
-      // No version specified: return highest nested version
-      const sorted = rsort(nested.versions);
-      return nested.dirs.get(sorted[0]!) ?? "";
+      // No version specified: return highest version
+      const sorted = rsort(allVersions);
+      return allDirs.get(sorted[0]!) ?? "";
     }
 
-    // Try to match version range in nested versions
-    const matched = maxSatisfying(nested.versions, versionRange, { includePrerelease: true });
+    // Try to match version range
+    const matched = maxSatisfying(allVersions, versionRange, { includePrerelease: true });
     if (matched) {
-      return nested.dirs.get(matched) ?? "";
+      return allDirs.get(matched) ?? "";
     }
 
     console.error(`[getAppDir] No version satisfies range: ${versionRange}`);

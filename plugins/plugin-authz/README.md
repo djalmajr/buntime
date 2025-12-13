@@ -12,12 +12,12 @@ XACML-like policy-based authorization extension for Buntime runner.
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /_/authz/policies` | List policies |
-| `GET /_/authz/policies/:id` | Get policy |
-| `POST /_/authz/policies` | Create/update policy |
-| `DELETE /_/authz/policies/:id` | Delete policy |
-| `POST /_/authz/evaluate` | Evaluate context |
-| `POST /_/authz/explain` | Debug decision |
+| `GET /api/authz/policies` | List policies |
+| `GET /api/authz/policies/:id` | Get policy |
+| `POST /api/authz/policies` | Create/update policy |
+| `DELETE /api/authz/policies/:id` | Delete policy |
+| `POST /api/authz/evaluate` | Evaluate context |
+| `POST /api/authz/explain` | Debug decision |
 
 ## Requirements
 

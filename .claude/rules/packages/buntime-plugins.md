@@ -47,14 +47,14 @@ Plugins are configured in `buntime.jsonc`:
 
 ## Plugin Routes
 
-Each plugin mounts its routes at `/_/{plugin-name}/*`:
+Each plugin mounts its routes at `/api/{plugin-name}/*`:
 
-- `/_/plugin-metrics/*` - Metrics endpoints
-- `/_/plugin-authn/*` - Authentication endpoints
-- `/_/plugin-gateway/*` - Gateway endpoints
-- `/_/plugin-authz/*` - Authorization endpoints
-- `/_/plugin-durable/*` - Durable actors management
-- `/_/plugin-keyval/*` - KeyVal REST API
+- `/api/metrics/*` - Metrics endpoints
+- `/api/authn/*` - Authentication endpoints
+- `/api/gateway/*` - Gateway endpoints
+- `/api/authz/*` - Authorization endpoints
+- `/api/durable/*` - Durable actors management
+- `/api/keyval/*` - KeyVal REST API
 
 ## Related SDKs
 

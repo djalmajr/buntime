@@ -11,6 +11,9 @@
     "lint": "bun run lint:format && bun run lint:types",
     "test": "bun test"
   },
+  "dependencies": {
+    "@buntime/shared": "workspace:*"
+  },
   "peerDependencies": {
     "hono": "^4.0.0"
   }

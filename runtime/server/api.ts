@@ -36,7 +36,7 @@ const runtimeConfig = initConfig(buntimeConfig, baseDir);
 const pool = new WorkerPool({ maxSize: runtimeConfig.poolSize });
 
 // Create app resolver
-const getAppDir = createAppResolver(runtimeConfig.appsDir);
+const getAppDir = createAppResolver(runtimeConfig.appsDirs);
 
 // Load plugins
 const loader = new PluginLoader(buntimeConfig, pool);
@@ -44,7 +44,7 @@ const registry = await loader.load();
 
 // Create routes with dependencies
 const deployments = createDeploymentRoutes({
-  appsDir: runtimeConfig.appsDir,
+  appsDirs: runtimeConfig.appsDirs,
   registry,
 });
 
@@ -69,38 +69,40 @@ const app = createApp({
 
 // Check existing apps for conflicts with plugin routes
 async function checkExistingAppsForConflicts() {
-  const { appsDir } = getConfig();
+  const { appsDirs } = getConfig();
+  const mountedPaths = registry.getMountedPaths();
 
-  try {
-    const entries = await Array.fromAsync(
-      new Bun.Glob("*").scan({ cwd: appsDir, onlyFiles: false }),
-    );
-    const mountedPaths = registry.getMountedPaths();
+  for (const appsDir of appsDirs) {
+    try {
+      const entries = await Array.fromAsync(
+        new Bun.Glob("*").scan({ cwd: appsDir, onlyFiles: false }),
+      );
 
-    for (const entry of entries) {
-      // Only check top-level directories (apps)
-      const stat = await Bun.file(`${appsDir}/${entry}`).exists();
-      if (stat) continue; // Skip files
+      for (const entry of entries) {
+        // Only check top-level directories (apps)
+        const stat = await Bun.file(`${appsDir}/${entry}`).exists();
+        if (stat) continue; // Skip files
 
-      const appPath = `/${entry}`;
-      const conflictingPlugin = registry.checkRouteConflict(appPath);
-      if (conflictingPlugin) {
-        // Find the actual mount path of the conflicting plugin
-        let pluginMountPath = "";
-        for (const [path, name] of mountedPaths) {
-          if (name === conflictingPlugin) {
-            pluginMountPath = path;
-            break;
+        const appPath = `/${entry}`;
+        const conflictingPlugin = registry.checkRouteConflict(appPath);
+        if (conflictingPlugin) {
+          // Find the actual mount path of the conflicting plugin
+          let pluginMountPath = "";
+          for (const [path, name] of mountedPaths) {
+            if (name === conflictingPlugin) {
+              pluginMountPath = path;
+              break;
+            }
           }
-        }
 
-        logger.warn(
-          `Existing app "${entry}" conflicts with plugin "${conflictingPlugin}" (mounted at "${pluginMountPath}"). Plugin routes take priority.`,
-        );
+          logger.warn(
+            `Existing app "${entry}" conflicts with plugin "${conflictingPlugin}" (mounted at "${pluginMountPath}"). Plugin routes take priority.`,
+          );
+        }
       }
+    } catch {
+      // Ignore errors (appsDir might not exist yet)
     }
-  } catch {
-    // Ignore errors (appsDir might not exist yet)
   }
 }
 

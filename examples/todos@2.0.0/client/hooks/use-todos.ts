@@ -1,8 +1,8 @@
-import { Kv } from "@buntime/keyval";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import redaxios from "redaxios";
 import type { FilterType, Todo } from "~/types";
 
-const kv = new Kv("/_/plugin-keyval");
+const api = redaxios.create({ baseURL: "/todos@2/api" });
 
 const getHashFilter = (): FilterType => {
   const str = (window.location.hash.match(/\w+/g) || [])[0];
@@ -18,11 +18,10 @@ export function useTodos() {
   useEffect(() => {
     const loadTodos = async () => {
       try {
+        const list: Todo[] = (await api.get("/todos")).data;
         const loaded: Record<string, Todo> = {};
-        for await (const entry of kv.list<Todo>(["todos"])) {
-          if (entry.value) {
-            loaded[entry.value.uid] = entry.value;
-          }
+        for (const todo of list) {
+          loaded[todo.uid] = todo;
         }
         setTodos(loaded);
       } catch (error) {
@@ -59,34 +58,27 @@ export function useTodos() {
 
   // Actions
   const addTodo = useCallback(async (text: string) => {
-    const uid = crypto.randomUUID();
-    const todo: Todo = { uid, text, completed: false };
-    await kv.set(["todos", uid], todo);
-    setTodos((prev) => ({ ...prev, [uid]: todo }));
+    const todo: Todo = (await api.post("/todos", { text })).data;
+    setTodos((prev) => ({ ...prev, [todo.uid]: todo }));
   }, []);
 
   const editTodo = useCallback(async (uid: string, text: string) => {
-    setTodos((prev) => {
-      const todo = prev[uid];
-      if (!todo) return prev;
-      const updated = { ...todo, text };
-      kv.set(["todos", uid], updated);
-      return { ...prev, [uid]: updated };
-    });
+    const updated: Todo = (await api.put(`/todos/${uid}`, { text })).data;
+    setTodos((prev) => ({ ...prev, [uid]: updated }));
   }, []);
 
   const toggleTodo = useCallback(async (uid: string) => {
     setTodos((prev) => {
       const todo = prev[uid];
       if (!todo) return prev;
-      const updated = { ...todo, completed: !todo.completed };
-      kv.set(["todos", uid], updated);
-      return { ...prev, [uid]: updated };
+      const newCompleted = !todo.completed;
+      api.put(`/todos/${uid}`, { completed: newCompleted });
+      return { ...prev, [uid]: { ...todo, completed: newCompleted } };
     });
   }, []);
 
   const removeTodo = useCallback(async (uid: string) => {
-    await kv.delete(["todos", uid]);
+    await api.delete(`/todos/${uid}`);
     setTodos((prev) => {
       const { [uid]: _, ...rest } = prev;
       return rest;
@@ -95,34 +87,22 @@ export function useTodos() {
 
   const toggleAll = useCallback(async () => {
     const newCompleted = !allDone;
-    const atomic = kv.atomic();
-    const updated: Record<string, Todo> = {};
-
-    for (const todo of allTodos) {
-      const newTodo = { ...todo, completed: newCompleted };
-      atomic.set(["todos", todo.uid], newTodo);
-      updated[todo.uid] = newTodo;
+    const updated: Todo[] = (await api.post("/todos/toggle-all", { completed: newCompleted })).data;
+    const newTodos: Record<string, Todo> = {};
+    for (const todo of updated) {
+      newTodos[todo.uid] = todo;
     }
-
-    await atomic.commit();
-    setTodos(updated);
-  }, [allTodos, allDone]);
+    setTodos(newTodos);
+  }, [allDone]);
 
   const clearCompleted = useCallback(async () => {
-    const atomic = kv.atomic();
-    const remaining: Record<string, Todo> = {};
-
-    for (const todo of allTodos) {
-      if (todo.completed) {
-        atomic.delete(["todos", todo.uid]);
-      } else {
-        remaining[todo.uid] = todo;
-      }
+    const remaining: Todo[] = (await api.post("/todos/clear-completed")).data;
+    const newTodos: Record<string, Todo> = {};
+    for (const todo of remaining) {
+      newTodos[todo.uid] = todo;
     }
-
-    await atomic.commit();
-    setTodos(remaining);
-  }, [allTodos]);
+    setTodos(newTodos);
+  }, []);
 
   return {
     // State

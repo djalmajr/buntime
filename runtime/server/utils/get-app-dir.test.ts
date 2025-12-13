@@ -9,7 +9,7 @@ let getAppDir: ReturnType<typeof createAppResolver>;
 
 beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });
-  getAppDir = createAppResolver(TEST_DIR);
+  getAppDir = createAppResolver([TEST_DIR]);
 });
 
 afterEach(() => {
@@ -220,6 +220,51 @@ describe("getAppDir", () => {
 
       const result = getAppDir("hello-api@1.0.0");
       expect(result).toBe(join(TEST_DIR, "hello-api/1.0.0"));
+    });
+  });
+
+  describe("multiple directories", () => {
+    const TEST_DIR_2 = join(import.meta.dir, ".test-apps-2");
+
+    beforeEach(() => {
+      mkdirSync(TEST_DIR_2, { recursive: true });
+    });
+
+    afterEach(() => {
+      rmSync(TEST_DIR_2, { recursive: true, force: true });
+    });
+
+    it("should find app from second directory when not in first", () => {
+      mkdirSync(join(TEST_DIR_2, "another-api@1.0.0"), { recursive: true });
+      const resolver = createAppResolver([TEST_DIR, TEST_DIR_2]);
+
+      const result = resolver("another-api@1.0.0");
+      expect(result).toBe(join(TEST_DIR_2, "another-api@1.0.0"));
+    });
+
+    it("should prefer first directory when app exists in both", () => {
+      createFlatVersions("shared-api", ["1.0.0"]);
+      mkdirSync(join(TEST_DIR_2, "shared-api@1.0.0"), { recursive: true });
+      const resolver = createAppResolver([TEST_DIR, TEST_DIR_2]);
+
+      const result = resolver("shared-api@1.0.0");
+      expect(result).toBe(join(TEST_DIR, "shared-api@1.0.0"));
+    });
+
+    it("should find highest version across all directories", () => {
+      createFlatVersions("multi-api", ["1.0.0"]);
+      mkdirSync(join(TEST_DIR_2, "multi-api@2.0.0"), { recursive: true });
+      const resolver = createAppResolver([TEST_DIR, TEST_DIR_2]);
+
+      const result = resolver("multi-api");
+      expect(result).toBe(join(TEST_DIR_2, "multi-api@2.0.0"));
+    });
+
+    it("should return empty string when app not found in any directory", () => {
+      const resolver = createAppResolver([TEST_DIR, TEST_DIR_2]);
+
+      const result = resolver("nonexistent@1.0.0");
+      expect(result).toBe("");
     });
   });
 });

@@ -52,15 +52,15 @@ Verifique se o plugin está funcionando:
 [source,bash]
 ----
 # Health check
-curl http://localhost:4000/_/plugin-keyval/health
+curl http://localhost:4000/api/keyval/health
 
 # Set value
-curl -X POST http://localhost:4000/_/plugin-keyval/set \
+curl -X POST http://localhost:4000/api/keyval/set \
   -H "Content-Type: application/json" \
   -d '{"key": "test", "value": "hello"}'
 
 # Get value
-curl http://localhost:4000/_/plugin-keyval/get/test
+curl http://localhost:4000/api/keyval/get/test
 ----
 
 === Produção com libSQL Self-Hosted
@@ -73,7 +73,7 @@ Em produção, o libSQL não deve ser exposto diretamente. O plugin-keyval atua 
 ----
 ┌─────────────────┐      ┌──────────────────────┐      ┌─────────────────┐
 │   Clients       │─────▶│  plugin-keyval       │─────▶│  libSQL (sqld)  │
-│                 │ HTTP │  (/_/plugin-keyval)  │ HTTP │  (rede interna) │
+│                 │ HTTP │  (/api/keyval)  │ HTTP │  (rede interna) │
 └─────────────────┘      └──────────────────────┘      └─────────────────┘
 ----
 
@@ -357,7 +357,7 @@ cp /backups/data-20250115.db /var/lib/sqld/data.db
 docker compose start libsql
 
 # 4. Valide os dados
-curl http://localhost:4000/_/plugin-keyval/keys/count
+curl http://localhost:4000/api/keyval/keys/count
 ----
 
 WARNING: Restauração sobrescreve dados atuais. Sempre valide em ambiente separado antes.
@@ -376,7 +376,7 @@ scrape_configs:
     scrape_interval: 15s
     static_configs:
       - targets: ['localhost:4000']
-    metrics_path: '/_/plugin-metrics/prometheus'
+    metrics_path: '/api/metrics/prometheus'
 ----
 
 Métricas disponíveis:
@@ -404,7 +404,7 @@ Configure health checks no load balancer:
 [source,bash]
 ----
 # Health check básico
-curl http://localhost:4000/_/plugin-keyval/health
+curl http://localhost:4000/api/keyval/health
 
 # Resposta OK:
 {"status":"ok","timestamp":"2025-01-15T10:30:00Z"}
@@ -419,14 +419,14 @@ Configure no Kubernetes:
 ----
 livenessProbe:
   httpGet:
-    path: /_/plugin-keyval/health
+    path: /api/keyval/health
     port: 4000
   initialDelaySeconds: 10
   periodSeconds: 30
 
 readinessProbe:
   httpGet:
-    path: /_/plugin-keyval/health
+    path: /api/keyval/health
     port: 4000
   initialDelaySeconds: 5
   periodSeconds: 10

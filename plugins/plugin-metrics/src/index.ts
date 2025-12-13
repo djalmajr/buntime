@@ -83,10 +83,10 @@ const routes = new Hono()
  * Metrics plugin for Buntime
  *
  * Provides endpoints:
- * - GET /_/metrics/ - JSON metrics
- * - GET /_/metrics/prometheus - Prometheus format
- * - GET /_/metrics/sse - Server-Sent Events stream
- * - GET /_/metrics/stats - Full stats (pool + workers)
+ * - GET /api/metrics/ - JSON metrics
+ * - GET /api/metrics/prometheus - Prometheus format
+ * - GET /api/metrics/sse - Server-Sent Events stream
+ * - GET /api/metrics/stats - Full stats (pool + workers)
  */
 export default function metricsPlugin(pluginConfig: MetricsConfig = {}): BuntimePlugin {
   config = pluginConfig;

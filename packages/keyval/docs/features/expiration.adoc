@@ -61,7 +61,7 @@ Use a opção `expiresIn` ao criar um dado:
 ----
 import { Kv } from "@buntime/keyval";
 
-const kv = new Kv("http://localhost:8000/_/plugin-keyval");
+const kv = new Kv("http://localhost:8000/api/keyval");
 
 // Formato numérico (milissegundos)
 await kv.set(["temp", "data"], { value: 123 }, { expiresIn: 3600000 }); // 1 hora
@@ -422,7 +422,7 @@ async function createVerificationCode(email: string) {
   // 15 minutos
   await kv.set(
     ["verify", email],
-    { code, expiresAt: kv.now() + 15 * 60 * 1000 },
+    { code, expiresAt: kv.now().add("15m") },
     { expiresIn: "15m" }
   );
 
@@ -439,7 +439,7 @@ async function verifyCode(email: string, code: string) {
   }
 
   // Verificar expiração absoluta
-  if (kv.now() > result.value.expiresAt) {
+  if (Date.now() > result.value.expiresAt) {
     await kv.delete(["verify", email]);
     throw new Error("Código expirado");
   }
@@ -471,12 +471,13 @@ Para forçar limpeza imediata:
 [source,typescript]
 ----
 async function cleanupExpired() {
-  const now = kv.now();
-
   // Buscar todos expirados
-  const expired = await kv.list([], {
-    where: { expiresAt: { $lt: now } }
-  });
+  const expired = [];
+  for await (const entry of kv.list([], {
+    where: { expiresAt: { $lt: kv.now() } }
+  })) {
+    expired.push(entry);
+  }
 
   // Remover em lote
   const tx = kv.atomic();
@@ -496,13 +497,14 @@ Para listar dados expirados (debug/monitoramento):
 [source,typescript]
 ----
 async function listExpiredSessions() {
-  const now = kv.now();
-
-  const result = await kv.list(["session"], {
+  const result = [];
+  for await (const entry of kv.list(["session"], {
     where: {
-      expiresAt: { $lt: now }
+      expiresAt: { $lt: kv.now() }
     }
-  });
+  })) {
+    result.push(entry);
+  }
 
   console.log(`Encontradas ${result.length} sessões expiradas`);
   return result;

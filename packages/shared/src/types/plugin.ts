@@ -68,11 +68,11 @@ export type PluginConfig = string | [name: string, config: Record<string, unknow
  */
 export interface BuntimeConfig {
   /**
-   * Directory containing worker apps
+   * Directories containing worker apps
    * Supports ${ENV_VAR} syntax
-   * @example "/var/buntime/apps" or "${APPS_DIR}"
+   * @example ["./apps", "../examples"] or ["${APPS_DIR}"]
    */
-  appsDir?: string;
+  appsDir?: string[];
 
   /**
    * Maximum number of workers in the pool
@@ -114,8 +114,8 @@ export interface BasePluginConfig {
  * Global configuration values available to all plugins
  */
 export interface GlobalPluginConfig {
-  /** Directory containing worker apps */
-  appsDir: string;
+  /** Directories containing worker apps (normalized to array) */
+  appsDirs: string[];
 
   /** Maximum number of workers in the pool */
   poolSize: number;

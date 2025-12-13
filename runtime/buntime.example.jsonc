@@ -10,7 +10,7 @@
   // Plugins array (Babel-style) - order matters for dependencies!
   // Format: "plugin-name" or ["plugin-name", { config }]
   "plugins": [
-    // Metrics plugin - provides /_/metrics/* endpoints
+    // Metrics plugin - provides /api/metrics/* endpoints
     "@buntime/plugin-metrics",
 
     // Gateway plugin - rate limiting, caching, CORS

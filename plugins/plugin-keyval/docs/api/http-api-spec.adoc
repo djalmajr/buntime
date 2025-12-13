@@ -9,7 +9,7 @@ Esta seção documenta a API REST completa do plugin KeyVal, incluindo todos os 
 | Item | Valor
 
 | Base Path
-| `/_/plugin-keyval`
+| `/api/keyval`
 
 | Content-Type
 | `application/json`
@@ -51,7 +51,7 @@ Obtém um único valor por chave.
 
 [source,bash]
 ----
-curl -X GET "http://localhost:4000/_/plugin-keyval/keys/users/123"
+curl -X GET "http://localhost:4000/api/keyval/keys/users/123"
 ----
 
 ==== POST /keys/batch
@@ -99,7 +99,7 @@ NOTE: Quando uma chave não existe, o retorno contém `value: null` e `versionst
 
 [source,bash]
 ----
-curl -X POST "http://localhost:4000/_/plugin-keyval/keys/batch" \
+curl -X POST "http://localhost:4000/api/keyval/keys/batch" \
   -H "Content-Type: application/json" \
   -d '{"keys": [["users", "123"], ["posts", "456"]]}'
 
@@ -153,12 +153,12 @@ NOTE: Quando `exact` é false ou omitido, cada chave é tratada como prefixo e t
 [source,bash]
 ----
 # Delete batch simples (remove chaves + filhos)
-curl -X POST "http://localhost:4000/_/plugin-keyval/keys/delete-batch" \
+curl -X POST "http://localhost:4000/api/keyval/keys/delete-batch" \
   -H "Content-Type: application/json" \
   -d '{"keys": [["users", "123"], ["posts", "456"]]}'
 
 # Delete batch exato (sem remover filhos)
-curl -X POST "http://localhost:4000/_/plugin-keyval/keys/delete-batch" \
+curl -X POST "http://localhost:4000/api/keyval/keys/delete-batch" \
   -H "Content-Type: application/json" \
   -d '{
     "keys": [["users", "123"], ["posts", "456"]],
@@ -166,7 +166,7 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/keys/delete-batch" \
   }'
 
 # Delete batch com filtro WHERE
-curl -X POST "http://localhost:4000/_/plugin-keyval/keys/delete-batch" \
+curl -X POST "http://localhost:4000/api/keyval/keys/delete-batch" \
   -H "Content-Type: application/json" \
   -d '{
     "keys": [["tasks"], ["jobs"]],
@@ -218,12 +218,12 @@ Qualquer valor JSON serializável (será armazenado como `value`).
 [source,bash]
 ----
 # Set sem TTL
-curl -X PUT "http://localhost:4000/_/plugin-keyval/keys/users/123" \
+curl -X PUT "http://localhost:4000/api/keyval/keys/users/123" \
   -H "Content-Type: application/json" \
   -d '{"name": "João", "email": "joao@example.com"}'
 
 # Set com TTL de 1 hora (3600000 ms)
-curl -X PUT "http://localhost:4000/_/plugin-keyval/keys/sessions/abc?expiresIn=3600000" \
+curl -X PUT "http://localhost:4000/api/keyval/keys/sessions/abc?expiresIn=3600000" \
   -H "Content-Type: application/json" \
   -d '{"userId": "123", "createdAt": 1234567890}'
 ----
@@ -275,20 +275,20 @@ IMPORTANT: Quando `where` é fornecido, a chave na URL vira um prefixo. Todas as
 [source,bash]
 ----
 # Delete simples (remove chave + todos os filhos)
-curl -X DELETE "http://localhost:4000/_/plugin-keyval/keys/users/123"
+curl -X DELETE "http://localhost:4000/api/keyval/keys/users/123"
 
 # Delete exato (remove APENAS a chave, não os filhos)
-curl -X DELETE "http://localhost:4000/_/plugin-keyval/keys/users/123" \
+curl -X DELETE "http://localhost:4000/api/keyval/keys/users/123" \
   -H "Content-Type: application/json" \
   -d '{"exact": true}'
 
 # Delete com filtro (deleta entradas com status = "completed")
-curl -X DELETE "http://localhost:4000/_/plugin-keyval/keys/tasks" \
+curl -X DELETE "http://localhost:4000/api/keyval/keys/tasks" \
   -H "Content-Type: application/json" \
   -d '{"where": {"status": "completed"}}'
 
 # Delete com filtro de data (todas tarefas atualizadas há mais de 1 dia)
-curl -X DELETE "http://localhost:4000/_/plugin-keyval/keys/tasks" \
+curl -X DELETE "http://localhost:4000/api/keyval/keys/tasks" \
   -H "Content-Type: application/json" \
   -d '{"where": {"updatedAt": {"$lt": {"$now": true}}}}'
 ----
@@ -352,13 +352,13 @@ Lista entradas por prefixo com paginação simples (sem filtros).
 [source,bash]
 ----
 # Listar todas as chaves com prefixo "users"
-curl -X GET "http://localhost:4000/_/plugin-keyval/keys?prefix=users&limit=50"
+curl -X GET "http://localhost:4000/api/keyval/keys?prefix=users&limit=50"
 
 # Listar em ordem reversa
-curl -X GET "http://localhost:4000/_/plugin-keyval/keys?prefix=users&reverse=true"
+curl -X GET "http://localhost:4000/api/keyval/keys?prefix=users&reverse=true"
 
 # Listar com range (de "users/100" até "users/200")
-curl -X GET "http://localhost:4000/_/plugin-keyval/keys?prefix=users&start=users/100&end=users/200"
+curl -X GET "http://localhost:4000/api/keyval/keys?prefix=users&start=users/100&end=users/200"
 ----
 
 ==== POST /keys/list
@@ -540,7 +540,7 @@ Lista entradas com suporte a filtros `where` (use este endpoint quando precisar 
 [source,bash]
 ----
 # Listar usuários ativos
-curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
+curl -X POST "http://localhost:4000/api/keyval/keys/list" \
   -H "Content-Type: application/json" \
   -d '{
     "prefix": ["users"],
@@ -548,7 +548,7 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
   }'
 
 # Listar com múltiplos filtros
-curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
+curl -X POST "http://localhost:4000/api/keyval/keys/list" \
   -H "Content-Type: application/json" \
   -d '{
     "prefix": ["users"],
@@ -559,7 +559,7 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
   }'
 
 # Listar com $or
-curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
+curl -X POST "http://localhost:4000/api/keyval/keys/list" \
   -H "Content-Type: application/json" \
   -d '{
     "prefix": ["users"],
@@ -572,7 +572,7 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
   }'
 
 # Sessões não expiradas (usando timestamp do servidor)
-curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
+curl -X POST "http://localhost:4000/api/keyval/keys/list" \
   -H "Content-Type: application/json" \
   -d '{
     "prefix": ["sessions"],
@@ -580,7 +580,7 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
   }'
 
 # Posts publicados com range de datas e paginação
-curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
+curl -X POST "http://localhost:4000/api/keyval/keys/list" \
   -H "Content-Type: application/json" \
   -d '{
     "prefix": ["posts"],
@@ -595,7 +595,7 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
   }'
 
 # Busca case-insensitive com múltiplas condições
-curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
+curl -X POST "http://localhost:4000/api/keyval/keys/list" \
   -H "Content-Type: application/json" \
   -d '{
     "prefix": ["products"],
@@ -637,10 +637,10 @@ Conta o número de entradas por prefixo.
 [source,bash]
 ----
 # Contar todas as chaves
-curl -X GET "http://localhost:4000/_/plugin-keyval/keys/count"
+curl -X GET "http://localhost:4000/api/keyval/keys/count"
 
 # Contar chaves com prefixo "users"
-curl -X GET "http://localhost:4000/_/plugin-keyval/keys/count?prefix=users"
+curl -X GET "http://localhost:4000/api/keyval/keys/count?prefix=users"
 ----
 
 ==== GET /keys/paginate
@@ -696,10 +696,10 @@ Paginação baseada em cursor para navegação eficiente.
 [source,bash]
 ----
 # Primeira página
-curl -X GET "http://localhost:4000/_/plugin-keyval/keys/paginate?prefix=users&limit=10"
+curl -X GET "http://localhost:4000/api/keyval/keys/paginate?prefix=users&limit=10"
 
 # Próxima página (usando cursor retornado)
-curl -X GET "http://localhost:4000/_/plugin-keyval/keys/paginate?prefix=users&limit=10&cursor=dXNlcnMvMDAy"
+curl -X GET "http://localhost:4000/api/keyval/keys/paginate?prefix=users&limit=10&cursor=dXNlcnMvMDAy"
 ----
 
 === Atomic Operations
@@ -811,7 +811,7 @@ NOTE: Se `commit()` for chamado sem nenhum check nem mutation (requisição vazi
 [source,bash]
 ----
 # Incrementar contador atomicamente
-curl -X POST "http://localhost:4000/_/plugin-keyval/atomic" \
+curl -X POST "http://localhost:4000/api/keyval/atomic" \
   -H "Content-Type: application/json" \
   -d '{
     "mutations": [
@@ -820,7 +820,7 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/atomic" \
   }'
 
 # Atualização condicional (somente se versionstamp corresponder)
-curl -X POST "http://localhost:4000/_/plugin-keyval/atomic" \
+curl -X POST "http://localhost:4000/api/keyval/atomic" \
   -H "Content-Type: application/json" \
   -d '{
     "checks": [
@@ -832,7 +832,7 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/atomic" \
   }'
 
 # Múltiplos checks em uma única requisição (variadic)
-curl -X POST "http://localhost:4000/_/plugin-keyval/atomic" \
+curl -X POST "http://localhost:4000/api/keyval/atomic" \
   -H "Content-Type: application/json" \
   -d '{
     "checks": [
@@ -846,7 +846,7 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/atomic" \
   }'
 
 # Múltiplas operações atômicas
-curl -X POST "http://localhost:4000/_/plugin-keyval/atomic" \
+curl -X POST "http://localhost:4000/api/keyval/atomic" \
   -H "Content-Type: application/json" \
   -d '{
     "mutations": [
@@ -896,12 +896,12 @@ Adiciona uma mensagem à fila.
 [source,bash]
 ----
 # Enqueue simples
-curl -X POST "http://localhost:4000/_/plugin-keyval/queue/enqueue" \
+curl -X POST "http://localhost:4000/api/keyval/queue/enqueue" \
   -H "Content-Type: application/json" \
   -d '{"value": {"task": "send-email", "to": "user@example.com"}}'
 
 # Enqueue com delay de 10 segundos
-curl -X POST "http://localhost:4000/_/plugin-keyval/queue/enqueue" \
+curl -X POST "http://localhost:4000/api/keyval/queue/enqueue" \
   -H "Content-Type: application/json" \
   -d '{
     "value": {"task": "reminder"},
@@ -939,7 +939,7 @@ data: {"id":"01J9X3K2M5N7P8Q9R0S1T2V3W5","value":{"task":"another"},"attempts":1
 [source,bash]
 ----
 # Escutar mensagens via SSE
-curl -N "http://localhost:4000/_/plugin-keyval/queue/listen"
+curl -N "http://localhost:4000/api/keyval/queue/listen"
 ----
 
 ==== GET /queue/poll
@@ -972,7 +972,7 @@ Obtém uma única mensagem (polling mode).
 
 [source,bash]
 ----
-curl -X GET "http://localhost:4000/_/plugin-keyval/queue/poll"
+curl -X GET "http://localhost:4000/api/keyval/queue/poll"
 ----
 
 ==== POST /queue/ack
@@ -1010,7 +1010,7 @@ Confirma o processamento bem-sucedido de uma mensagem.
 
 [source,bash]
 ----
-curl -X POST "http://localhost:4000/_/plugin-keyval/queue/ack" \
+curl -X POST "http://localhost:4000/api/keyval/queue/ack" \
   -H "Content-Type: application/json" \
   -d '{"id": "01J9X3K2M5N7P8Q9R0S1T2V3W4"}'
 ----
@@ -1041,7 +1041,7 @@ Rejeita uma mensagem (será reprocessada ou enviada para DLQ).
 
 [source,bash]
 ----
-curl -X POST "http://localhost:4000/_/plugin-keyval/queue/nack" \
+curl -X POST "http://localhost:4000/api/keyval/queue/nack" \
   -H "Content-Type: application/json" \
   -d '{"id": "01J9X3K2M5N7P8Q9R0S1T2V3W4"}'
 ----
@@ -1066,7 +1066,7 @@ Obtém estatísticas da fila.
 
 [source,bash]
 ----
-curl -X GET "http://localhost:4000/_/plugin-keyval/queue/stats"
+curl -X GET "http://localhost:4000/api/keyval/queue/stats"
 ----
 
 === Dead Letter Queue (DLQ) API
@@ -1114,10 +1114,10 @@ Lista mensagens na DLQ.
 [source,bash]
 ----
 # Listar primeiras 50 mensagens da DLQ
-curl -X GET "http://localhost:4000/_/plugin-keyval/queue/dlq?limit=50"
+curl -X GET "http://localhost:4000/api/keyval/queue/dlq?limit=50"
 
 # Segunda página (offset 50)
-curl -X GET "http://localhost:4000/_/plugin-keyval/queue/dlq?limit=50&offset=50"
+curl -X GET "http://localhost:4000/api/keyval/queue/dlq?limit=50&offset=50"
 ----
 
 ==== GET /queue/dlq/:id
@@ -1152,7 +1152,7 @@ Obtém uma mensagem específica da DLQ.
 
 [source,bash]
 ----
-curl -X GET "http://localhost:4000/_/plugin-keyval/queue/dlq/01J9X3K2M5N7P8Q9R0S1T2V3W4"
+curl -X GET "http://localhost:4000/api/keyval/queue/dlq/01J9X3K2M5N7P8Q9R0S1T2V3W4"
 ----
 
 ==== POST /queue/dlq/:id/requeue
@@ -1183,7 +1183,7 @@ Reenvia uma mensagem da DLQ para processamento.
 
 [source,bash]
 ----
-curl -X POST "http://localhost:4000/_/plugin-keyval/queue/dlq/01J9X3K2M5N7P8Q9R0S1T2V3W4/requeue"
+curl -X POST "http://localhost:4000/api/keyval/queue/dlq/01J9X3K2M5N7P8Q9R0S1T2V3W4/requeue"
 ----
 
 ==== DELETE /queue/dlq/:id
@@ -1203,7 +1203,7 @@ Remove uma mensagem específica da DLQ.
 
 [source,bash]
 ----
-curl -X DELETE "http://localhost:4000/_/plugin-keyval/queue/dlq/01J9X3K2M5N7P8Q9R0S1T2V3W4"
+curl -X DELETE "http://localhost:4000/api/keyval/queue/dlq/01J9X3K2M5N7P8Q9R0S1T2V3W4"
 ----
 
 ==== DELETE /queue/dlq
@@ -1223,7 +1223,7 @@ Remove todas as mensagens da DLQ (purge).
 
 [source,bash]
 ----
-curl -X DELETE "http://localhost:4000/_/plugin-keyval/queue/dlq"
+curl -X DELETE "http://localhost:4000/api/keyval/queue/dlq"
 ----
 
 === Watch API
@@ -1271,13 +1271,13 @@ data: [{"key":["users","123"],"value":{"name":"João Updated"},"versionstamp":"0
 [source,bash]
 ----
 # Observar uma chave
-curl -N "http://localhost:4000/_/plugin-keyval/watch?keys=users/123"
+curl -N "http://localhost:4000/api/keyval/watch?keys=users/123"
 
 # Observar múltiplas chaves (separadas por vírgula)
-curl -N "http://localhost:4000/_/plugin-keyval/watch?keys=config,settings"
+curl -N "http://localhost:4000/api/keyval/watch?keys=config,settings"
 
 # Sem emissão inicial
-curl -N "http://localhost:4000/_/plugin-keyval/watch?keys=users/123&initial=false"
+curl -N "http://localhost:4000/api/keyval/watch?keys=users/123&initial=false"
 ----
 
 ==== GET /watch/poll
@@ -1324,10 +1324,10 @@ NOTE: `entries` contém apenas chaves que mudaram desde os `versionstamps` forne
 [source,bash]
 ----
 # Primeira verificação (retorna valores atuais)
-curl -X GET "http://localhost:4000/_/plugin-keyval/watch/poll?keys=users/123,posts/456"
+curl -X GET "http://localhost:4000/api/keyval/watch/poll?keys=users/123,posts/456"
 
 # Verificações subsequentes (passando versionstamps anteriores)
-curl -X GET "http://localhost:4000/_/plugin-keyval/watch/poll?keys=users/123,posts/456&versionstamps=00000000000000010000,00000000000000020000"
+curl -X GET "http://localhost:4000/api/keyval/watch/poll?keys=users/123,posts/456&versionstamps=00000000000000010000,00000000000000020000"
 ----
 
 ==== GET /watch/prefix
@@ -1377,10 +1377,10 @@ NOTE: Quando `value` é `null` e `versionstamp` é `null`, significa que a chave
 [source,bash]
 ----
 # Observar todas as chaves com prefixo "users"
-curl -N "http://localhost:4000/_/plugin-keyval/watch/prefix?prefix=users"
+curl -N "http://localhost:4000/api/keyval/watch/prefix?prefix=users"
 
 # Limitar a 50 chaves
-curl -N "http://localhost:4000/_/plugin-keyval/watch/prefix?prefix=users&limit=50"
+curl -N "http://localhost:4000/api/keyval/watch/prefix?prefix=users&limit=50"
 ----
 
 ==== GET /watch/prefix/poll
@@ -1435,10 +1435,10 @@ Modo polling para verificar mudanças em chaves com prefixo.
 [source,bash]
 ----
 # Primeira verificação
-curl -X GET "http://localhost:4000/_/plugin-keyval/watch/prefix/poll?prefix=users"
+curl -X GET "http://localhost:4000/api/keyval/watch/prefix/poll?prefix=users"
 
 # Verificação subsequente (passando versionstamps anteriores)
-curl -X GET "http://localhost:4000/_/plugin-keyval/watch/prefix/poll?prefix=users&versionstamps=users/001:00000000000000010000,users/002:00000000000000020000"
+curl -X GET "http://localhost:4000/api/keyval/watch/prefix/poll?prefix=users&versionstamps=users/001:00000000000000010000,users/002:00000000000000020000"
 ----
 
 === Full-Text Search (FTS)
@@ -1501,7 +1501,7 @@ IMPORTANT: Um índice FTS é necessário antes de realizar buscas. Cada prefixo 
 [source,bash]
 ----
 # Criar índice simples para produtos
-curl -X POST "http://localhost:4000/_/plugin-keyval/indexes" \
+curl -X POST "http://localhost:4000/api/keyval/indexes" \
   -H "Content-Type: application/json" \
   -d '{
     "prefix": ["products"],
@@ -1511,7 +1511,7 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/indexes" \
   }'
 
 # Criar índice com Porter Stemming para posts
-curl -X POST "http://localhost:4000/_/plugin-keyval/indexes" \
+curl -X POST "http://localhost:4000/api/keyval/indexes" \
   -H "Content-Type: application/json" \
   -d '{
     "prefix": ["posts"],
@@ -1548,7 +1548,7 @@ Lista todos os índices FTS existentes.
 
 [source,bash]
 ----
-curl -X GET "http://localhost:4000/_/plugin-keyval/indexes"
+curl -X GET "http://localhost:4000/api/keyval/indexes"
 ----
 
 ==== DELETE /indexes
@@ -1590,7 +1590,7 @@ Remove um índice FTS específico.
 [source,bash]
 ----
 # Remover índice do prefixo "products"
-curl -X DELETE "http://localhost:4000/_/plugin-keyval/indexes?prefix=products"
+curl -X DELETE "http://localhost:4000/api/keyval/indexes?prefix=products"
 ----
 
 ==== GET /search
@@ -1661,13 +1661,13 @@ NOTE: Resultados são ordenados por relevância (ordem interna do SQLite FTS5).
 [source,bash]
 ----
 # Buscar produtos contendo "smartphone"
-curl -X GET "http://localhost:4000/_/plugin-keyval/search?prefix=products&query=smartphone"
+curl -X GET "http://localhost:4000/api/keyval/search?prefix=products&query=smartphone"
 
 # Buscar com limite de resultados
-curl -X GET "http://localhost:4000/_/plugin-keyval/search?prefix=products&query=phone%20case&limit=10"
+curl -X GET "http://localhost:4000/api/keyval/search?prefix=products&query=phone%20case&limit=10"
 
 # Buscar posts
-curl -X GET "http://localhost:4000/_/plugin-keyval/search?prefix=posts&query=tutorial%20react"
+curl -X GET "http://localhost:4000/api/keyval/search?prefix=posts&query=tutorial%20react"
 ----
 
 ==== POST /search
@@ -1725,7 +1725,7 @@ NOTE: A busca FTS é aplicada primeiro (usando o índice), depois o filtro `wher
 [source,bash]
 ----
 # Buscar produtos baratos com "phone"
-curl -X POST "http://localhost:4000/_/plugin-keyval/search" \
+curl -X POST "http://localhost:4000/api/keyval/search" \
   -H "Content-Type: application/json" \
   -d '{
     "prefix": ["products"],
@@ -1736,7 +1736,7 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/search" \
   }'
 
 # Buscar posts ativos sobre React
-curl -X POST "http://localhost:4000/_/plugin-keyval/search" \
+curl -X POST "http://localhost:4000/api/keyval/search" \
   -H "Content-Type: application/json" \
   -d '{
     "prefix": ["posts"],
@@ -1751,7 +1751,7 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/search" \
   }'
 
 # Buscar produtos em estoque com múltiplas condições
-curl -X POST "http://localhost:4000/_/plugin-keyval/search" \
+curl -X POST "http://localhost:4000/api/keyval/search" \
   -H "Content-Type: application/json" \
   -d '{
     "prefix": ["products"],
@@ -1803,7 +1803,7 @@ Obtém métricas em formato JSON.
 
 [source,bash]
 ----
-curl -X GET "http://localhost:4000/_/plugin-keyval/metrics"
+curl -X GET "http://localhost:4000/api/keyval/metrics"
 ----
 
 ==== GET /metrics/prometheus
@@ -1856,7 +1856,7 @@ keyval_storage_bytes 1048576
 
 [source,bash]
 ----
-curl -X GET "http://localhost:4000/_/plugin-keyval/metrics/prometheus"
+curl -X GET "http://localhost:4000/api/keyval/metrics/prometheus"
 ----
 
 === Códigos de Erro
@@ -1977,24 +1977,24 @@ data: json-payload
 [source,bash]
 ----
 # 1. Adicionar mensagem à fila
-curl -X POST "http://localhost:4000/_/plugin-keyval/queue/enqueue" \
+curl -X POST "http://localhost:4000/api/keyval/queue/enqueue" \
   -H "Content-Type: application/json" \
   -d '{"value": {"task": "send-email", "to": "user@example.com"}}'
 
 # Resposta: {"ok": true, "id": "01J9X3K2M5N7P8Q9R0S1T2V3W4"}
 
 # 2. Obter mensagem
-curl -X GET "http://localhost:4000/_/plugin-keyval/queue/poll"
+curl -X GET "http://localhost:4000/api/keyval/queue/poll"
 
 # Resposta: {"message": {"id": "01J9X3K2M5N7P8Q9R0S1T2V3W4", "value": {...}, "attempts": 1}}
 
 # 3. Processar e confirmar sucesso
-curl -X POST "http://localhost:4000/_/plugin-keyval/queue/ack" \
+curl -X POST "http://localhost:4000/api/keyval/queue/ack" \
   -H "Content-Type: application/json" \
   -d '{"id": "01J9X3K2M5N7P8Q9R0S1T2V3W4"}'
 
 # Ou rejeitar em caso de erro
-curl -X POST "http://localhost:4000/_/plugin-keyval/queue/nack" \
+curl -X POST "http://localhost:4000/api/keyval/queue/nack" \
   -H "Content-Type: application/json" \
   -d '{"id": "01J9X3K2M5N7P8Q9R0S1T2V3W4"}'
 ----
@@ -2003,7 +2003,7 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/queue/nack" \
 
 [source,bash]
 ----
-curl -X POST "http://localhost:4000/_/plugin-keyval/atomic" \
+curl -X POST "http://localhost:4000/api/keyval/atomic" \
   -H "Content-Type: application/json" \
   -d '{
     "checks": [
@@ -2042,12 +2042,12 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/atomic" \
 [source,bash]
 ----
 # Primeira verificação (obter estado atual)
-RESPONSE=$(curl -s "http://localhost:4000/_/plugin-keyval/watch/poll?keys=users/123,posts/456")
+RESPONSE=$(curl -s "http://localhost:4000/api/keyval/watch/poll?keys=users/123,posts/456")
 echo "$RESPONSE"
 
 # Extrair versionstamps para próxima verificação
 VERSIONSTAMPS=$(echo "$RESPONSE" | jq -r '.versionstamps | join(",")')
 
 # Verificar mudanças (retorna vazio se nada mudou)
-curl -s "http://localhost:4000/_/plugin-keyval/watch/poll?keys=users/123,posts/456&versionstamps=$VERSIONSTAMPS"
+curl -s "http://localhost:4000/api/keyval/watch/poll?keys=users/123,posts/456&versionstamps=$VERSIONSTAMPS"
 ----

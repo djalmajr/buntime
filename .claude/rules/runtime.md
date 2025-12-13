@@ -56,8 +56,7 @@ bun build:bin    # Compile to binary
 
 ## Routes
 
-- `/_/*` - Internal routes
-- `/_/{plugin}/*` - Plugin routes (e.g., `/_/plugin-keyval/*`)
+- `/api/*` - Plugin API routes (e.g., `/api/keyval/*`, `/api/metrics/*`)
 - `/:app/*` - Worker routes
 
 ## Config Files

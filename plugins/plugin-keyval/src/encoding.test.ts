@@ -328,6 +328,44 @@ describe("encoding", () => {
       expect(deserialized?.metadata.updatedAt).toBeGreaterThanOrEqual(before);
       expect(deserialized?.metadata.updatedAt).toBeLessThanOrEqual(after);
     });
+
+    it("should resolve $now with positive offset (future)", () => {
+      const offset = 3600000; // 1 hour
+      const before = Date.now() + offset;
+      const value = { expiresAt: { $now: true, $offset: offset }, name: "test" };
+      const serialized = serializeValue(value);
+      const after = Date.now() + offset;
+
+      const deserialized = deserializeValue<{ expiresAt: number; name: string }>(serialized);
+      expect(deserialized?.name).toBe("test");
+      expect(deserialized?.expiresAt).toBeGreaterThanOrEqual(before - 100);
+      expect(deserialized?.expiresAt).toBeLessThanOrEqual(after + 100);
+    });
+
+    it("should resolve $now with negative offset (past)", () => {
+      const offset = -3600000; // 1 hour ago
+      const before = Date.now() + offset;
+      const value = { createdAt: { $now: true, $offset: offset }, name: "test" };
+      const serialized = serializeValue(value);
+      const after = Date.now() + offset;
+
+      const deserialized = deserializeValue<{ createdAt: number; name: string }>(serialized);
+      expect(deserialized?.name).toBe("test");
+      expect(deserialized?.createdAt).toBeGreaterThanOrEqual(before - 100);
+      expect(deserialized?.createdAt).toBeLessThanOrEqual(after + 100);
+    });
+
+    it("should resolve $now with zero offset", () => {
+      const before = Date.now();
+      const value = { timestamp: { $now: true, $offset: 0 }, name: "test" };
+      const serialized = serializeValue(value);
+      const after = Date.now();
+
+      const deserialized = deserializeValue<{ timestamp: number; name: string }>(serialized);
+      expect(deserialized?.name).toBe("test");
+      expect(deserialized?.timestamp).toBeGreaterThanOrEqual(before);
+      expect(deserialized?.timestamp).toBeLessThanOrEqual(after);
+    });
   });
 });
 

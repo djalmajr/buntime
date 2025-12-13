@@ -42,7 +42,7 @@ if (result.ok) {
 ----
 kv.atomic()
   .set(["users", id], { name: "Alice" })
-  .set(["cache", key], data, { expireIn: 60000 })  // Com TTL
+  .set(["cache", key], data, { expiresIn: "1m" })  // Com TTL
   .commit();
 ----
 
@@ -136,6 +136,46 @@ Atualiza apenas se o novo valor for menor que o atual:
 await kv.atomic()
   .min(["races", userId, "bestTime"], BigInt(raceTime))
   .commit();
+----
+
+==== append: Adicionar ao Final do Array
+
+Adiciona valores ao final de um array atomicamente. Se a chave não existir, cria um novo array:
+
+[source,typescript]
+----
+// Adicionar atividade recente
+await kv.atomic()
+  .append(["recent_activity", userId], [newActivity])
+  .commit();
+
+// Adicionar múltiplos itens
+await kv.atomic()
+  .append(["notifications", userId], [notification1, notification2])
+  .commit();
+
+// Se a chave não existe, cria: [notification1, notification2]
+// Se existe [old1, old2], fica: [old1, old2, notification1, notification2]
+----
+
+==== prepend: Adicionar ao Início do Array
+
+Adiciona valores ao início de um array atomicamente. Se a chave não existir, cria um novo array:
+
+[source,typescript]
+----
+// Adicionar no início (mais recente primeiro)
+await kv.atomic()
+  .prepend(["recent_activity", userId], [newActivity])
+  .commit();
+
+// Adicionar múltiplos itens
+await kv.atomic()
+  .prepend(["notifications", userId], [notification1, notification2])
+  .commit();
+
+// Se a chave não existe, cria: [notification1, notification2]
+// Se existe [old1, old2], fica: [notification1, notification2, old1, old2]
 ----
 
 === Padrões Comuns

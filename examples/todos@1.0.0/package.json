@@ -1,0 +1,18 @@
+{
+  "name": "todos-htm",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bunx browser-sync --port 5000 --no-ui --no-open --single --watch",
+    "lint:format": "bun biome check --write",
+    "lint": "bun run lint:format"
+  },
+  "workerConfig": {
+    "idleTimeout": 30,
+    "lowMemory": false,
+    "maxRequests": 100,
+    "timeout": 30,
+    "ttl": 60
+  }
+}

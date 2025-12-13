@@ -14,9 +14,9 @@ Stateful actors plugin for Buntime runner (similar to Cloudflare Durable Objects
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /_/plugin-durable/` | List all actors |
-| `GET /_/plugin-durable/:id` | Get actor info |
-| `DELETE /_/plugin-durable/:id` | Delete actor |
+| `GET /api/durable/` | List all actors |
+| `GET /api/durable/:id` | Get actor info |
+| `DELETE /api/durable/:id` | Delete actor |
 
 ## Configuration
 

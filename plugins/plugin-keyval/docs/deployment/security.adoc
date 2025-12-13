@@ -98,7 +98,7 @@ Use sempre o protocolo `libsql://` para conexões criptografadas:
 
 ==== Exposição Interna vs Externa
 
-O plugin KeyVal expõe rotas em `/_/plugin-keyval/*`:
+O plugin KeyVal expõe rotas em `/api/keyval/*`:
 
 * **Interno**: Acesso apenas do runner para workers
 * **Externo**: Expor ao público requer configuração explícita de proxy

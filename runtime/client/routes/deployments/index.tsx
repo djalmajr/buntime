@@ -175,7 +175,7 @@ function DeploymentsPage() {
   };
 
   const handleDownload = (entry: FileEntry) => {
-    window.open(`/_/deployments/download?path=${encodeURIComponent(entry.path)}`, "_blank");
+    window.open(`/api/deployments/download?path=${encodeURIComponent(entry.path)}`, "_blank");
   };
 
   const handleMove = async (destPath: string) => {
@@ -255,7 +255,7 @@ function DeploymentsPage() {
     const paths = Array.from(selectedPaths)
       .map((p) => encodeURIComponent(p))
       .join(",");
-    window.open(`/_/deployments/download-batch?paths=${paths}`, "_blank");
+    window.open(`/api/deployments/download-batch?paths=${paths}`, "_blank");
   };
 
   const handleBatchMove = async (destPath: string) => {

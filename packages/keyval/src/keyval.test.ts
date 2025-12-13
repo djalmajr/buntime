@@ -17,7 +17,7 @@ describe("Kv", () => {
   let kv: Kv;
 
   beforeEach(() => {
-    kv = new Kv("http://localhost:8000/_/plugin-keyval");
+    kv = new Kv("http://localhost:8000/api/keyval");
   });
 
   afterEach(() => {
@@ -698,7 +698,7 @@ describe("KvTransaction", () => {
   let kv: Kv;
 
   beforeEach(() => {
-    kv = new Kv("http://localhost:8000/_/plugin-keyval");
+    kv = new Kv("http://localhost:8000/api/keyval");
   });
 
   afterEach(() => {
@@ -912,7 +912,7 @@ describe("Kv Queue", () => {
   let kv: Kv;
 
   beforeEach(() => {
-    kv = new Kv("http://localhost:8000/_/plugin-keyval");
+    kv = new Kv("http://localhost:8000/api/keyval");
   });
 
   afterEach(() => {
@@ -1023,7 +1023,7 @@ describe("Kv DLQ", () => {
   let kv: Kv;
 
   beforeEach(() => {
-    kv = new Kv("http://localhost:8000/_/plugin-keyval");
+    kv = new Kv("http://localhost:8000/api/keyval");
   });
 
   afterEach(() => {
@@ -1157,7 +1157,7 @@ describe("Kv Metrics", () => {
   let kv: Kv;
 
   beforeEach(() => {
-    kv = new Kv("http://localhost:8000/_/plugin-keyval");
+    kv = new Kv("http://localhost:8000/api/keyval");
   });
 
   afterEach(() => {
@@ -1207,7 +1207,7 @@ describe("Kv Watch", () => {
   let kv: Kv;
 
   beforeEach(() => {
-    kv = new Kv("http://localhost:8000/_/plugin-keyval");
+    kv = new Kv("http://localhost:8000/api/keyval");
   });
 
   afterEach(() => {
@@ -1276,7 +1276,7 @@ describe("Kv FTS (Full-Text Search)", () => {
   let kv: Kv;
 
   beforeEach(() => {
-    kv = new Kv("http://localhost:8000/_/plugin-keyval");
+    kv = new Kv("http://localhost:8000/api/keyval");
   });
 
   afterEach(() => {
@@ -1542,33 +1542,29 @@ describe("Kv FTS (Full-Text Search)", () => {
     it("should remove index by prefix", async () => {
       let capturedUrl = "";
       let capturedMethod = "";
-      let capturedBody = "";
       mockFetch((url, init) => {
         capturedUrl = url;
         capturedMethod = init?.method ?? "GET";
-        capturedBody = init?.body as string;
         return new Response("");
       });
 
       await kv.removeIndex(["posts"]);
 
       expect(capturedUrl).toContain("/indexes");
+      expect(capturedUrl).toContain("prefix=posts");
       expect(capturedMethod).toBe("DELETE");
-      const parsed = JSON.parse(capturedBody);
-      expect(parsed.prefix).toEqual(["posts"]);
     });
 
     it("should remove index with nested prefix", async () => {
-      let capturedBody = "";
-      mockFetch((_url, init) => {
-        capturedBody = init?.body as string;
+      let capturedUrl = "";
+      mockFetch((url, _init) => {
+        capturedUrl = url;
         return new Response("");
       });
 
       await kv.removeIndex(["documents", "archived"]);
 
-      const parsed = JSON.parse(capturedBody);
-      expect(parsed.prefix).toEqual(["documents", "archived"]);
+      expect(capturedUrl).toContain("prefix=documents%2Farchived");
     });
   });
 });

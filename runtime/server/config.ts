@@ -10,7 +10,7 @@ import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
 import { DELAY_MS, IS_COMPILED, IS_DEV, NODE_ENV, PORT, VERSION } from "./constants";
 
 interface RuntimeConfig {
-  appsDir: string;
+  appsDirs: string[];
   delayMs: number;
   isCompiled: boolean;
   isDev: boolean;
@@ -22,8 +22,8 @@ interface RuntimeConfig {
 }
 
 // Default values
-const defaults: Omit<RuntimeConfig, "appsDir"> & { appsDir?: string } = {
-  appsDir: undefined,
+const defaults: Omit<RuntimeConfig, "appsDirs"> & { appsDirs?: string[] } = {
+  appsDirs: undefined,
   delayMs: DELAY_MS,
   isCompiled: IS_COMPILED,
   isDev: IS_DEV,
@@ -57,12 +57,15 @@ function resolvePath(path: string, baseDir: string): string {
  * Initialize runtime configuration from buntime.jsonc + env vars
  */
 export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): RuntimeConfig {
-  // Get appsDir: buntime.jsonc > env var
+  // Get appsDir: buntime.jsonc (array) > env var (single path fallback)
   // Relative paths are resolved against the config file directory
-  const rawAppsDir = buntimeConfig.appsDir ?? Bun.env.APPS_DIR;
-  const appsDir = rawAppsDir ? resolvePath(rawAppsDir, baseDir) : undefined;
+  const appsDirs = buntimeConfig.appsDir
+    ? buntimeConfig.appsDir.map((dir) => resolvePath(dir, baseDir))
+    : Bun.env.APPS_DIR
+      ? [resolvePath(Bun.env.APPS_DIR, baseDir)]
+      : [];
 
-  if (!appsDir) {
+  if (appsDirs.length === 0) {
     throw new Error("appsDir is required: set in buntime.jsonc or APPS_DIR env var");
   }
 
@@ -76,7 +79,7 @@ export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): Runti
 
   _config = {
     ...defaults,
-    appsDir,
+    appsDirs,
     poolSize,
     shell,
   };

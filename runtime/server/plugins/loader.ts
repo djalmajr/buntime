@@ -326,7 +326,7 @@ export class PluginLoader {
     // Create context for initialization with service access
     const registry = this.registry;
     const globalConfig = {
-      appsDir: this.config.appsDir || "./apps",
+      appsDirs: this.config.appsDir || ["./apps"],
       poolSize: this.config.poolSize || 100,
     };
 

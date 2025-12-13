@@ -89,12 +89,14 @@ Em outro processo (ou no mesmo), você escuta a fila:
 [source,typescript]
 ----
 // Escuta mensagens da fila
-kv.listenQueue(async (mensagem) => {
-  console.log("Processando:", mensagem);
+kv.listenQueue(async (msg) => {
+  console.log("Processando:", msg.value);
+  console.log("ID da mensagem:", msg.id);
+  console.log("Tentativas:", msg.attempts);
 
   // Lógica de processamento baseada no tipo
-  if (mensagem.type === "send_email") {
-    await enviarEmail(mensagem.to, mensagem.subject, mensagem.template);
+  if (msg.value.type === "send_email") {
+    await enviarEmail(msg.value.to, msg.value.subject, msg.value.template);
   }
 
   // Se não lançar erro, mensagem é confirmada (ACK) e removida da fila
@@ -132,7 +134,9 @@ export async function cadastrarUsuario(req: Request) {
 }
 
 // No worker (processo separado)
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
+  const job = msg.value;
+
   if (job.type === "welcome_email") {
     await emailService.send({
       to: job.email,
@@ -171,7 +175,9 @@ export async function uploadImage(req: Request) {
 }
 
 // Worker de processamento
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
+  const job = msg.value;
+
   if (job.type === "process_image") {
     const original = await storage.load(`originals/${job.imageId}`);
 
@@ -212,7 +218,9 @@ await kv.enqueue(
 );
 
 // Worker
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
+  const job = msg.value;
+
   if (job.type === "webhook") {
     const response = await fetch(job.url, {
       method: "POST",
@@ -262,7 +270,9 @@ export async function solicitarRelatorio(req: Request) {
 }
 
 // Worker de relatórios
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
+  const job = msg.value;
+
   if (job.type === "generate_report") {
     // Atualiza status
     await kv.set(["relatorios", job.reportId], {
@@ -319,7 +329,9 @@ export async function enviarCampanha(req: Request) {
 }
 
 // Worker processa em paralelo (múltiplas instâncias)
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
+  const job = msg.value;
+
   if (job.type === "push_notification") {
     await pushService.send({
       token: job.token,
@@ -424,10 +436,10 @@ O KeyVal implementa ACK (acknowledge) e NACK (negative acknowledge) automáticos
 
 [source,typescript]
 ----
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
   try {
     // Se processar com sucesso
-    await processarTrabalho(job);
+    await processarTrabalho(msg.value);
     // ACK automático: mensagem é removida da fila
 
   } catch (error) {
@@ -449,7 +461,7 @@ Para casos avançados onde você precisa de controle granular sobre o acknowledg
 const handle = kv.listenQueue(async (msg) => {
   try {
     // Processamento pode ter lógica condicional
-    const resultado = await processarMensagem(msg);
+    const resultado = await processarMensagem(msg.value);
 
     if (resultado.sucesso) {
       // Confirma processamento bem-sucedido
@@ -489,14 +501,14 @@ await kv.nackMessage(messageId: string): Promise<void>
 ----
 kv.listenQueue(async (msg) => {
   // Valida formato
-  if (!validarFormato(msg.payload)) {
+  if (!validarFormato(msg.value)) {
     console.warn("Formato inválido, descartando:", msg.id);
     await kv.ackMessage(msg.id); // ACK para descartar
     return;
   }
 
   // Valida regras de negócio
-  const podeProcessar = await verificarRegras(msg.payload);
+  const podeProcessar = await verificarRegras(msg.value);
 
   if (!podeProcessar) {
     console.log("Condições não atendidas, tentando novamente:", msg.id);
@@ -505,7 +517,7 @@ kv.listenQueue(async (msg) => {
   }
 
   // Processa normalmente
-  await executarProcessamento(msg.payload);
+  await executarProcessamento(msg.value);
   await kv.ackMessage(msg.id);
 }, { autoAck: false });
 ----
@@ -559,21 +571,37 @@ Mensagens que falharam todas as tentativas vão para a DLQ para análise manual.
 [source,typescript]
 ----
 // Listar mensagens na DLQ
-const mensagensMortas = await kv.dlq.list({ limit: 10 });
+const deadMessages = await kv.dlq.list({ limit: 10 });
 
-for (const msg of mensagensMortas) {
+for (const msg of deadMessages) {
   console.log({
     id: msg.id,
+    originalId: msg.originalId,
     payload: msg.value,
-    tentativas: msg.attempts,
-    erro: msg.errorMessage,
-    falhouEm: new Date(msg.failedAt)
+    attempts: msg.attempts,
+    error: msg.errorMessage,
+    createdAt: new Date(msg.originalCreatedAt),
+    failedAt: new Date(msg.failedAt)
   });
 }
 
+// Paginação com limit e offset
+const firstPage = await kv.dlq.list({ limit: 10, offset: 0 });   // Primeiras 10
+const secondPage = await kv.dlq.list({ limit: 10, offset: 10 });  // Próximas 10
+const thirdPage = await kv.dlq.list({ limit: 10, offset: 20 });  // Próximas 10
+
+// Exemplo de paginação dinâmica
+async function listDLQPaginated(page: number, perPage: number) {
+  const offset = page * perPage;
+  return await kv.dlq.list({ limit: perPage, offset });
+}
+
+const firstPage = await listDLQPaginated(0, 20); // Página 0: itens 0-19
+const secondPage = await listDLQPaginated(1, 20);    // Página 1: itens 20-39
+
 // Ver mensagem específica
-const mensagem = await kv.dlq.get("message-id-123");
-console.log("Detalhes:", mensagem);
+const message = await kv.dlq.get("message-id-123");
+console.log("Detalhes:", message);
 
 // Reprocessar manualmente (volta para fila)
 await kv.dlq.requeue("message-id-123");
@@ -666,7 +694,9 @@ Handlers devem ser idempotentes: processar a mesma mensagem deve produzir o mesm
 [source,typescript]
 ----
 // ERRADO: Não é idempotente
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
+  const job = msg.value;
+
   if (job.type === "credit_user") {
     // Se reprocessar, credita duas vezes!
     await db.update(users)
@@ -676,7 +706,9 @@ kv.listenQueue(async (job) => {
 });
 
 // CORRETO: Idempotente com ID único
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
+  const job = msg.value;
+
   if (job.type === "credit_user") {
     // Verifica se já foi processado
     const existing = await db.query.transactions.findFirst({
@@ -727,7 +759,9 @@ await kv.enqueue({
 });
 
 // Worker busca dados
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
+  const job = msg.value;
+
   if (job.type === "process_data") {
     const data = await kv.get(["temp_data", job.dataId]);
     await processar(data.value);
@@ -754,10 +788,10 @@ async function withTimeout<T>(
   ]);
 }
 
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
   try {
     // Timeout de 30 segundos
-    await withTimeout(processarJob(job), 30000);
+    await withTimeout(processarJob(msg.value), 30000);
   } catch (error) {
     if (error.message === "Timeout") {
       console.error("Job excedeu timeout de 30s");
@@ -773,14 +807,15 @@ Facilita debug e monitoramento.
 
 [source,typescript]
 ----
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
   const startTime = kv.now();
-  const jobId = crypto.randomUUID();
+  const job = msg.value;
 
   console.log({
     event: "job_started",
-    jobId,
+    messageId: msg.id,
     type: job.type,
+    attempts: msg.attempts,
     timestamp: new Date().toISOString()
   });
 
@@ -789,7 +824,7 @@ kv.listenQueue(async (job) => {
 
     console.log({
       event: "job_completed",
-      jobId,
+      messageId: msg.id,
       type: job.type,
       duration: kv.now() - startTime,
       timestamp: new Date().toISOString()
@@ -797,7 +832,7 @@ kv.listenQueue(async (job) => {
   } catch (error) {
     console.error({
       event: "job_failed",
-      jobId,
+      messageId: msg.id,
       type: job.type,
       error: error.message,
       stack: error.stack,
@@ -859,7 +894,9 @@ type JobPayload =
   | { type: "generate_report"; reportId: string; filters: unknown }
   | { type: "webhook"; url: string; event: string; data: unknown };
 
-kv.listenQueue<JobPayload>(async (job) => {
+kv.listenQueue<JobPayload>(async (msg) => {
+  const job = msg.value;
+
   // TypeScript sabe quais campos existem em cada type
   switch (job.type) {
     case "send_email":
@@ -937,7 +974,9 @@ export async function processarDados(req: Request) {
 }
 
 // Worker salva resultado
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
+  const job = msg.value;
+
   if (job.type === "complex_calculation") {
     try {
       const resultado = await calcularComplexo(job.input);
@@ -959,21 +998,21 @@ Você pode ter múltiplas instâncias escutando a mesma fila. As mensagens são 
 [source,typescript]
 ----
 // Em worker-1 (processo/container 1)
-kv.listenQueue(async (job) => {
-  console.log("Worker 1 processando:", job.type);
-  await processar(job);
+kv.listenQueue(async (msg) => {
+  console.log("Worker 1 processando:", msg.value.type);
+  await processar(msg.value);
 });
 
 // Em worker-2 (processo/container 2)
-kv.listenQueue(async (job) => {
-  console.log("Worker 2 processando:", job.type);
-  await processar(job);
+kv.listenQueue(async (msg) => {
+  console.log("Worker 2 processando:", msg.value.type);
+  await processar(msg.value);
 });
 
 // Em worker-3 (processo/container 3)
-kv.listenQueue(async (job) => {
-  console.log("Worker 3 processando:", job.type);
-  await processar(job);
+kv.listenQueue(async (msg) => {
+  console.log("Worker 3 processando:", msg.value.type);
+  await processar(msg.value);
 });
 
 // Cada mensagem vai para apenas UM worker
@@ -1044,7 +1083,9 @@ await kv.enqueue({
 });
 
 // Worker 1: processa apenas prioridade alta
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
+  const job = msg.value;
+
   if (job.priority === "high") {
     await processarUrgente(job);
   } else {
@@ -1054,7 +1095,9 @@ kv.listenQueue(async (job) => {
 });
 
 // Worker 2: processa prioridade normal
-kv.listenQueue(async (job) => {
+kv.listenQueue(async (msg) => {
+  const job = msg.value;
+
   if (job.priority === "normal") {
     await processarNormal(job);
   }
@@ -1112,7 +1155,7 @@ TypeScript 5.2+ suporta a keyword `using` para cleanup automático.
 async function processar() {
   // `using` chama automaticamente .stop() ao sair do escopo
   using listener = kv.listenQueue(async (msg) => {
-    await processarMensagem(msg);
+    await processarMensagem(msg.value);
   });
 
   // Processa por 5 minutos
@@ -1133,7 +1176,7 @@ import { afterEach, describe, it } from "bun:test";
 describe("Queue processing", () => {
   it("should process messages", async () => {
     using listener = kv.listenQueue(async (msg) => {
-      // processar
+      await processar(msg.value);
     });
 
     // testes...

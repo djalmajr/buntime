@@ -702,13 +702,13 @@ SELECT * FROM kv_dlq ORDER BY failed_at DESC LIMIT 10;
 [source,bash]
 ----
 # Endpoint de métricas
-curl http://localhost:4000/_/plugin-keyval/metrics
+curl http://localhost:4000/api/keyval/metrics
 
 # Prometheus format
-curl http://localhost:4000/_/plugin-keyval/metrics?format=prometheus
+curl http://localhost:4000/api/keyval/metrics?format=prometheus
 
 # Queue stats
-curl http://localhost:4000/_/plugin-keyval/queue/stats
+curl http://localhost:4000/api/keyval/queue/stats
 ----
 
 === Contato e Suporte

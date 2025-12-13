@@ -291,6 +291,41 @@ describe("whereToSql", () => {
       expect(result.params[1]).toBeGreaterThanOrEqual(before);
       expect(result.params[1]).toBeLessThanOrEqual(after);
     });
+
+    it("should handle $now with positive offset (future)", () => {
+      const offset = 3600000; // 1 hour
+      const before = Date.now() + offset;
+      const result = whereToSql({ expiresAt: { $lt: { $now: true, $offset: offset } } });
+      const after = Date.now() + offset;
+
+      expect(result.sql).toBe("json_extract(value, '$.expiresAt') < ?");
+      expect(result.params.length).toBe(1);
+      expect(result.params[0]).toBeGreaterThanOrEqual(before - 100);
+      expect(result.params[0]).toBeLessThanOrEqual(after + 100);
+    });
+
+    it("should handle $now with negative offset (past)", () => {
+      const offset = -3600000; // 1 hour ago
+      const before = Date.now() + offset;
+      const result = whereToSql({ createdAt: { $gt: { $now: true, $offset: offset } } });
+      const after = Date.now() + offset;
+
+      expect(result.sql).toBe("json_extract(value, '$.createdAt') > ?");
+      expect(result.params.length).toBe(1);
+      expect(result.params[0]).toBeGreaterThanOrEqual(before - 100);
+      expect(result.params[0]).toBeLessThanOrEqual(after + 100);
+    });
+
+    it("should handle $now with zero offset", () => {
+      const before = Date.now();
+      const result = whereToSql({ timestamp: { $lte: { $now: true, $offset: 0 } } });
+      const after = Date.now();
+
+      expect(result.sql).toBe("json_extract(value, '$.timestamp') <= ?");
+      expect(result.params.length).toBe(1);
+      expect(result.params[0]).toBeGreaterThanOrEqual(before);
+      expect(result.params[0]).toBeLessThanOrEqual(after);
+    });
   });
 
   describe("$between operator", () => {

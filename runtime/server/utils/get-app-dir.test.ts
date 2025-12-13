@@ -16,13 +16,28 @@ afterEach(() => {
   rmSync(TEST_DIR, { recursive: true, force: true });
 });
 
-const createVersions = (appName: string, versions: string[]) => {
+/**
+ * Create nested format versions (appsDir/app-name/version/)
+ */
+const createNestedVersions = (appName: string, versions: string[]) => {
   const appDir = join(TEST_DIR, appName);
   mkdirSync(appDir, { recursive: true });
   for (const version of versions) {
     mkdirSync(join(appDir, version), { recursive: true });
   }
 };
+
+/**
+ * Create flat format versions (appsDir/app-name@version/)
+ */
+const createFlatVersions = (appName: string, versions: string[]) => {
+  for (const version of versions) {
+    mkdirSync(join(TEST_DIR, `${appName}@${version}`), { recursive: true });
+  }
+};
+
+// Alias for backward compatibility with existing tests
+const createVersions = createNestedVersions;
 
 describe("getAppDir", () => {
   describe("with exact version", () => {
@@ -113,6 +128,98 @@ describe("getAppDir", () => {
 
       const result = getAppDir("empty-app");
       expect(result).toBe("");
+    });
+  });
+
+  describe("flat format (app-name@version/)", () => {
+    describe("with exact version", () => {
+      it("should find exact version in flat format", () => {
+        createFlatVersions("hello-api", ["1.0.0", "1.1.0", "2.0.0"]);
+
+        const result = getAppDir("hello-api@1.0.0");
+        expect(result).toBe(join(TEST_DIR, "hello-api@1.0.0"));
+      });
+    });
+
+    describe("with version ranges", () => {
+      it("should find highest patch with major version (e.g., app@1)", () => {
+        createFlatVersions("hello-api", ["1.0.0", "1.5.3", "2.0.0"]);
+
+        const result = getAppDir("hello-api@1");
+        expect(result).toBe(join(TEST_DIR, "hello-api@1.5.3"));
+      });
+
+      it("should find highest patch with major.minor version (e.g., app@1.4)", () => {
+        createFlatVersions("hello-api", ["1.4.0", "1.4.5", "1.5.0"]);
+
+        const result = getAppDir("hello-api@1.4");
+        expect(result).toBe(join(TEST_DIR, "hello-api@1.4.5"));
+      });
+
+      it("should support semver ranges (e.g., ^1.0.0)", () => {
+        createFlatVersions("hello-api", ["1.0.0", "1.5.0", "2.0.0"]);
+
+        const result = getAppDir("hello-api@^1.0.0");
+        expect(result).toBe(join(TEST_DIR, "hello-api@1.5.0"));
+      });
+
+      it("should support semver ranges (e.g., ~1.4.0)", () => {
+        createFlatVersions("hello-api", ["1.4.0", "1.4.3", "1.5.0"]);
+
+        const result = getAppDir("hello-api@~1.4.0");
+        expect(result).toBe(join(TEST_DIR, "hello-api@1.4.3"));
+      });
+    });
+
+    describe("without version", () => {
+      it("should return highest version when no version is specified", () => {
+        createFlatVersions("hello-api", ["1.0.0", "1.1.0"]);
+
+        const result = getAppDir("hello-api");
+        expect(result).toBe(join(TEST_DIR, "hello-api@1.1.0"));
+      });
+
+      it("should correctly sort semantic versions (2.0.0 > 1.10.0 > 1.2.0)", () => {
+        createFlatVersions("hello-api", ["1.2.0", "1.10.0", "2.0.0"]);
+
+        const result = getAppDir("hello-api");
+        expect(result).toBe(join(TEST_DIR, "hello-api@2.0.0"));
+      });
+    });
+  });
+
+  describe("flat format priority over nested", () => {
+    it("should prefer flat format when both exist", () => {
+      createFlatVersions("hello-api", ["1.0.0"]);
+      createNestedVersions("hello-api", ["1.0.0"]);
+
+      const result = getAppDir("hello-api@1.0.0");
+      expect(result).toBe(join(TEST_DIR, "hello-api@1.0.0"));
+    });
+
+    it("should prefer flat format for highest version", () => {
+      createFlatVersions("hello-api", ["2.0.0"]);
+      createNestedVersions("hello-api", ["3.0.0"]);
+
+      // Flat has 2.0.0, nested has 3.0.0
+      // Should return flat's 2.0.0 because flat is checked first
+      const result = getAppDir("hello-api");
+      expect(result).toBe(join(TEST_DIR, "hello-api@2.0.0"));
+    });
+
+    it("should fallback to nested when flat has no matching version", () => {
+      createFlatVersions("hello-api", ["1.0.0"]);
+      createNestedVersions("hello-api", ["2.0.0"]);
+
+      const result = getAppDir("hello-api@2.0.0");
+      expect(result).toBe(join(TEST_DIR, "hello-api/2.0.0"));
+    });
+
+    it("should fallback to nested when no flat versions exist", () => {
+      createNestedVersions("hello-api", ["1.0.0", "2.0.0"]);
+
+      const result = getAppDir("hello-api@1.0.0");
+      expect(result).toBe(join(TEST_DIR, "hello-api/1.0.0"));
     });
   });
 });

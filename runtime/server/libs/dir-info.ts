@@ -1,5 +1,6 @@
 import { mkdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { isValidUploadDestination, parseDeploymentPath } from "@/utils/deployment-path";
 
 const DIRINFO_FILE = ".dirinfo";
 
@@ -137,9 +138,12 @@ export class DirInfo {
   }
 
   async move(destPath: string): Promise<void> {
-    // Validate source is at least 3 levels deep (inside app/version/)
-    const sourceParts = this.dirPath.split("/").filter(Boolean);
-    if (sourceParts.length < 3) {
+    // Validate source is inside a version folder (can't move app or version folders themselves)
+    const sourceInfo = parseDeploymentPath(this.dirPath);
+    // For nested: depth 3+ means inside version (app/version/file)
+    // For flat: depth 2+ means inside version (app@version/file)
+    const minSourceDepth = sourceInfo.format === "flat" ? 2 : 3;
+    if (sourceInfo.depth < minSourceDepth) {
       throw new Error("Cannot move app or version folders");
     }
 
@@ -153,9 +157,8 @@ export class DirInfo {
       throw new Error("Destination path is outside allowed directory");
     }
 
-    // Validate destination is at least 2 levels deep (app/version)
-    const destParts = destPath.split("/").filter(Boolean);
-    if (destParts.length < 2) {
+    // Validate destination is inside a version folder (flat or nested)
+    if (!isValidUploadDestination(destPath)) {
       throw new Error("Destination must be inside an app version");
     }
     try {

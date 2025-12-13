@@ -110,6 +110,70 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/keys/batch" \
 # ]
 ----
 
+==== POST /keys/delete-batch
+
+Remove múltiplas chaves em uma única requisição (batch delete).
+
+**Request Body:**
+
+[source,typescript]
+----
+{
+  "keys": [
+    ["users", "123"],
+    ["posts", "456"],
+    ["cache", "temp"]
+  ],
+  "exact": true,  // opcional: se true, deleta apenas chaves exatas (sem filhos)
+  "where": {      // opcional: filtro aplicado a cada chave
+    "status": "completed"
+  }
+}
+----
+
+**Resposta (200):**
+
+[source,typescript]
+----
+{
+  "deletedCount": 7  // total de entradas deletadas (incluindo filhos se exact=false)
+}
+----
+
+**Validação:**
+
+- Máximo de 1000 chaves por requisição
+- Cada chave deve ter no máximo 20 partes
+- `exact` e `where` são opcionais e aplicados a todas as chaves
+
+NOTE: Quando `exact` é false ou omitido, cada chave é tratada como prefixo e todos os filhos também são deletados. O `deletedCount` retorna a soma total de todas as entradas removidas.
+
+**Exemplo:**
+
+[source,bash]
+----
+# Delete batch simples (remove chaves + filhos)
+curl -X POST "http://localhost:4000/_/plugin-keyval/keys/delete-batch" \
+  -H "Content-Type: application/json" \
+  -d '{"keys": [["users", "123"], ["posts", "456"]]}'
+
+# Delete batch exato (sem remover filhos)
+curl -X POST "http://localhost:4000/_/plugin-keyval/keys/delete-batch" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "keys": [["users", "123"], ["posts", "456"]],
+    "exact": true
+  }'
+
+# Delete batch com filtro WHERE
+curl -X POST "http://localhost:4000/_/plugin-keyval/keys/delete-batch" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "keys": [["tasks"], ["jobs"]],
+    "where": {"status": "completed"}
+  }'
+----
+
 ==== PUT /keys/:key
 
 Define ou atualiza um valor.
@@ -120,7 +184,7 @@ Define ou atualiza um valor.
 |===
 | Parâmetro | Tipo | Padrão | Descrição
 
-| expireIn
+| expiresIn
 | number
 | null
 | TTL em milissegundos (máximo: 2147483647)
@@ -159,7 +223,7 @@ curl -X PUT "http://localhost:4000/_/plugin-keyval/keys/users/123" \
   -d '{"name": "João", "email": "joao@example.com"}'
 
 # Set com TTL de 1 hora (3600000 ms)
-curl -X PUT "http://localhost:4000/_/plugin-keyval/keys/sessions/abc?expireIn=3600000" \
+curl -X PUT "http://localhost:4000/_/plugin-keyval/keys/sessions/abc?expiresIn=3600000" \
   -H "Content-Type: application/json" \
   -d '{"userId": "123", "createdAt": 1234567890}'
 ----
@@ -168,13 +232,17 @@ curl -X PUT "http://localhost:4000/_/plugin-keyval/keys/sessions/abc?expireIn=36
 
 Remove uma chave específica ou múltiplas entradas por filtro WHERE.
 
-**Modo 1: Delete simples**
+**Modo 1: Delete simples (sem body)**
 
-Sem body, deleta a chave exata fornecida na URL.
+Sem body, deleta a chave fornecida na URL E todas as sub-chaves (filhos) que começam com esse prefixo.
 
-NOTE: O método delete() remove a chave especificada E todas as sub-chaves (filhos) que começam com esse prefixo. Por exemplo, deletar `["users", "123"]` irá remover também `["users", "123", "profile"]`, `["users", "123", "settings"]`, etc.
+NOTE: Por padrão, delete() remove a chave especificada E todas as sub-chaves (filhos). Por exemplo, deletar `["users", "123"]` irá remover também `["users", "123", "profile"]`, `["users", "123", "settings"]`, etc.
 
-**Modo 2: Delete com filtro WHERE**
+**Modo 2: Delete exato (com exact: true)**
+
+Com body contendo `{"exact": true}`, deleta APENAS a chave exata sem remover filhos.
+
+**Modo 3: Delete com filtro WHERE**
 
 Com body contendo `where`, a chave na URL é tratada como **prefixo** e todas as entradas que correspondem ao filtro são deletadas em lote.
 
@@ -183,7 +251,8 @@ Com body contendo `where`, a chave na URL é tratada como **prefixo** e todas as
 [source,typescript]
 ----
 {
-  "where": {
+  "exact": true,  // opcional: se true, deleta apenas a chave exata (sem filhos)
+  "where": {      // opcional: filtro para delete em lote
     "status": "completed",
     "updatedAt": { "$lt": { "$now": true } }
   }
@@ -205,8 +274,13 @@ IMPORTANT: Quando `where` é fornecido, a chave na URL vira um prefixo. Todas as
 
 [source,bash]
 ----
-# Delete simples de uma chave
+# Delete simples (remove chave + todos os filhos)
 curl -X DELETE "http://localhost:4000/_/plugin-keyval/keys/users/123"
+
+# Delete exato (remove APENAS a chave, não os filhos)
+curl -X DELETE "http://localhost:4000/_/plugin-keyval/keys/users/123" \
+  -H "Content-Type: application/json" \
+  -d '{"exact": true}'
 
 # Delete com filtro (deleta entradas com status = "completed")
 curl -X DELETE "http://localhost:4000/_/plugin-keyval/keys/tasks" \
@@ -650,7 +724,7 @@ Executa operações atômicas com controle de concorrência otimista.
       "type": "set",
       "key": ["users", "123"],
       "value": {"name": "João", "email": "joao@example.com"},
-      "expireIn": 3600000  // opcional
+      "expiresIn": 3600000  // opcional
     },
     {
       "type": "sum",
@@ -672,7 +746,7 @@ Executa operações atômicas com controle de concorrência otimista.
 | Tipo | Parâmetros | Descrição
 
 | set
-| key, value, expireIn?
+| key, value, expiresIn?
 | Define um valor
 
 | delete
@@ -1830,7 +1904,7 @@ curl -X GET "http://localhost:4000/_/plugin-keyval/metrics/prometheus"
 | 100
 | Valor padrão para `limit` em operações de listagem
 
-| TTL máximo (expireIn)
+| TTL máximo (expiresIn)
 | 2147483647 ms
 | Aproximadamente 24 dias
 
@@ -1859,7 +1933,7 @@ curl -X GET "http://localhost:4000/_/plugin-keyval/metrics/prometheus"
 
 - **Keys:** Devem ser arrays com partes válidas (string, number, bigint, boolean, Uint8Array)
 - **Values:** Qualquer valor JSON serializável
-- **expireIn:** Número inteiro positivo em milissegundos
+- **expiresIn:** Número inteiro positivo em milissegundos
 - **Where filters:** Objeto com operadores válidos ($eq, $gt, $in, etc.)
 
 === Server-Sent Events (SSE)

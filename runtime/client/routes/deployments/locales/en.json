@@ -52,10 +52,10 @@
   },
   "newFolder": {
     "description": "Enter a name for the new folder.",
-    "descriptionApp": "Enter a name for the application (kebab-case).",
+    "descriptionApp": "Enter a name for the application (kebab-case) or app with version (app-name@1.0.0).",
     "descriptionVersion": "Enter the version number (semantic versioning).",
     "placeholder": "Folder name",
-    "placeholderApp": "my-app-name",
+    "placeholderApp": "my-app or my-app@1.0.0",
     "placeholderVersion": "1.0.0",
     "title": "New Folder"
   },
@@ -75,6 +75,7 @@
     "uploading": "Uploading files..."
   },
   "validation": {
+    "appOrFlat": "Name must be kebab-case (my-app) or app with version (my-app@1.0.0)",
     "kebabCase": "Name must be kebab-case (lowercase letters, numbers, and hyphens)",
     "semver": "Version must follow semantic versioning (e.g., 1.0.0, 1.0.0-rc.1, 1.0.0-alpha)"
   }

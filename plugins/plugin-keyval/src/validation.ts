@@ -231,16 +231,16 @@ export function validateBigInt(value: unknown, fieldName = "value"): bigint {
 }
 
 /**
- * Validates expireIn value
+ * Validates expiresIn value
  */
-export function validateExpireIn(value: unknown): number | undefined {
+export function validateExpiresIn(value: unknown): number | undefined {
   if (value === undefined || value === null) {
     return undefined;
   }
 
   if (typeof value !== "number" && typeof value !== "string") {
     throw new HTTPException(400, {
-      message: `expireIn must be a number (milliseconds), received ${getTypeName(value)}: ${formatValue(value)}`,
+      message: `expiresIn must be a number (milliseconds), received ${getTypeName(value)}: ${formatValue(value)}`,
     });
   }
 
@@ -248,7 +248,7 @@ export function validateExpireIn(value: unknown): number | undefined {
 
   if (!Number.isFinite(num) || num <= 0) {
     throw new HTTPException(400, {
-      message: `expireIn must be a positive number (milliseconds), received ${num}. Note: minimum effective TTL is 1000ms (1 second)`,
+      message: `expiresIn must be a positive number (milliseconds), received ${num}. Note: minimum effective TTL is 1000ms (1 second)`,
     });
   }
 

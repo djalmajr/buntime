@@ -252,7 +252,17 @@ const handle = kv.watch(
   callback,
   {
     mode: "polling",
-    pollInterval: 2000 // Verifica a cada 2 segundos
+    pollInterval: 2000 // Como número em millisegundos
+  }
+);
+
+// Também aceita formato string
+const handle = kv.watch(
+  keys,
+  callback,
+  {
+    mode: "polling",
+    pollInterval: "2s" // Como string (suporta: ms, s, m, h, d)
   }
 );
 ----
@@ -329,6 +339,48 @@ kv.watch(
 ----
 
 WARNING: Se o callback for muito lento, eventos podem se acumular. Configure o buffer adequadamente ou processe de forma assíncrona.
+
+==== Limitar Número de Entradas
+
+Use `limit` para controlar quantas entradas são retornadas por atualização:
+
+[source,typescript]
+----
+kv.watch(
+  ["logs"],
+  (entries) => {
+    console.log(`Recebeu ${entries.length} entradas`);
+    // Nunca receberá mais de 50 entradas por vez
+  },
+  {
+    limit: 50  // Máximo de 50 entradas por atualização (padrão: 100)
+  }
+);
+----
+
+**Quando usar:**
+
+* **Prefixos grandes**: Quando observa prefixos com muitos filhos
+* **Controle de memória**: Limita quantidade de dados transferidos
+* **Performance**: Evita processar muitas entradas de uma vez
+
+[source,typescript]
+----
+// Exemplo: Observar logs sem sobrecarregar a UI
+const handle = kv.watch(
+  ["logs"],
+  (entries) => {
+    // Com limit: 50, sempre processa no máximo 50 logs por vez
+    appendLogsToUI(entries);
+  },
+  {
+    limit: 50,
+    emitInitial: false  // Só novos logs, não histórico
+  }
+);
+----
+
+TIP: Se você observa prefixos amplos (ex: `["users"]` com milhares de usuários), use `limit` para evitar receber centenas de entradas de uma vez.
 
 === Auto-cleanup com `using`
 

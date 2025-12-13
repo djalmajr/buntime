@@ -18,6 +18,7 @@ import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
 import { useHeader } from "~/contexts/header-context";
 import { api } from "~/helpers/api-client";
+import { isValidUploadDestination, parseDeploymentPath } from "~/helpers/path-utils";
 import { useQueryString } from "~/hooks/use-query-state";
 import { cn } from "~/utils/cn";
 import { FileRow } from "./-components/file-row";
@@ -92,9 +93,10 @@ function DeploymentsPage() {
     return entries.filter((entry) => entry.name.toLowerCase().includes(term));
   }, [entries, search]);
 
-  const pathParts = path ? path.split("/") : [];
-  // Upload is only allowed inside app/version/ (at least 2 levels deep)
-  const canUpload = pathParts.length >= 2;
+  // Parse path to get format info and determine if uploads are allowed
+  const pathInfo = parseDeploymentPath(path);
+  // Upload is only allowed inside a version folder (flat: app@version, nested: app/version)
+  const canUpload = isValidUploadDestination(path);
 
   const navigateTo = (newPath: string) => {
     navigate({ search: { path: newPath, search: undefined }, to: "/deployments" });
@@ -179,9 +181,8 @@ function DeploymentsPage() {
   const handleMove = async (destPath: string) => {
     if (!moveTarget) return;
 
-    // Validate destination is at least 2 levels deep (app/version)
-    const destParts = destPath.split("/").filter(Boolean);
-    if (destParts.length < 2) {
+    // Validate destination is inside a version folder (flat or nested)
+    if (!isValidUploadDestination(destPath)) {
       toast.error(t("errors.moveFailed"));
       return;
     }
@@ -260,9 +261,8 @@ function DeploymentsPage() {
   const handleBatchMove = async (destPath: string) => {
     if (selectedPaths.size === 0) return;
 
-    // Validate destination is at least 2 levels deep (app/version)
-    const destParts = destPath.split("/").filter(Boolean);
-    if (destParts.length < 2) {
+    // Validate destination is inside a version folder (flat or nested)
+    if (!isValidUploadDestination(destPath)) {
       toast.error(t("errors.moveFailed"));
       return;
     }
@@ -570,7 +570,7 @@ function DeploymentsPage() {
         </table>
       </section>
       <NewFolderDialog
-        depth={pathParts.length}
+        depth={pathInfo.depth}
         open={newFolderOpen}
         onClose={() => setNewFolderOpen(false)}
         onCreate={handleCreateFolder}

@@ -33,7 +33,10 @@ for await (const entry of kv.search(["articles"], "typescript")) {
 [source,typescript]
 ----
 interface CreateIndexOptions {
-  fields: string[];  // Campos a serem indexados
+  fields: string[];            // Campos a serem indexados
+  tokenize?: "unicode61"       // Tokenizador (padrão: "unicode61")
+           | "porter"          // Porter stemming para inglês
+           | "ascii";          // ASCII simples
 }
 
 await kv.createIndex(prefix: KvKey, options: CreateIndexOptions): Promise<void>
@@ -53,7 +56,7 @@ interface Post {
   createdAt: number;
 }
 
-// Indexar title e content
+// Indexar title e content (tokenizador padrão: unicode61)
 await kv.createIndex(["posts"], {
   fields: ["title", "content"]
 });
@@ -65,6 +68,66 @@ await kv.createIndex(["posts"], {
 ----
 
 NOTE: Cada prefixo pode ter apenas um índice FTS. Chamar `createIndex()` novamente substitui o índice anterior.
+
+==== Tokenizadores
+
+O KeyVal oferece três tokenizadores diferentes que afetam como o texto é dividido e indexado:
+
+[cols="1,2,2"]
+|===
+| Tokenizador | Descrição | Quando usar
+
+| `unicode61`
+| Tokenizador Unicode completo, lida com acentos e caracteres internacionais
+| Conteúdo multilíngue, português, textos com acentuação (padrão)
+
+| `porter`
+| Stemming Porter para inglês, normaliza palavras para suas raízes
+| Conteúdo em inglês onde você quer que "running" encontre "run", "runs", etc.
+
+| `ascii`
+| Tokenizador ASCII simples, mais rápido mas limitado
+| Conteúdo puramente ASCII, logs, códigos, performance crítica
+|===
+
+**Exemplos:**
+
+[source,typescript]
+----
+// Conteúdo multilíngue (português, espanhol, etc.) - usa unicode61 (padrão)
+await kv.createIndex(["posts"], {
+  fields: ["title", "content"]
+});
+
+// Conteúdo em inglês com stemming
+await kv.createIndex(["articles"], {
+  fields: ["body"],
+  tokenize: "porter"
+});
+
+// Logs ou conteúdo ASCII simples (mais rápido)
+await kv.createIndex(["logs"], {
+  fields: ["message"],
+  tokenize: "ascii"
+});
+----
+
+**Diferenças de comportamento:**
+
+[source,typescript]
+----
+// unicode61: Lida com acentos
+// Buscando "café" encontra "café", "cafe" não encontra
+await kv.search(["posts"], "café");
+
+// porter: Stemming em inglês
+// Buscando "running" também encontra "run", "runs", "runner"
+await kv.search(["articles"], "running");
+
+// ascii: Apenas caracteres ASCII
+// Buscando "café" pode não funcionar bem com acentos
+await kv.search(["logs"], "error");
+----
 
 ==== Campos Aninhados
 
@@ -128,12 +191,15 @@ for await (const entry of kv.search<Post>(["posts"], "typescript", {
 
 ==== Opções de Busca
 
-A busca FTS suporta as seguintes opções:
+A busca FTS suporta as mesmas opções de `list()` (KvSearchOptions extends KvListOptions):
 
 [source,typescript]
 ----
 interface SearchOptions {
+  start?: KvKey;                     // Chave inicial (inclusivo)
+  end?: KvKey;                       // Chave final (exclusivo)
   limit?: number;                    // Máximo de resultados
+  reverse?: boolean;                 // Ordem reversa
   where?: WhereClause;               // Filtros adicionais
 }
 ----
@@ -153,6 +219,23 @@ for await (const entry of kv.search<Post>(["posts"], "typescript", {
   limit: 50
 })) {
   console.log(entry.value);
+}
+
+// Busca com range de chaves
+for await (const entry of kv.search<Post>(["posts"], "tutorial", {
+  start: ["posts", "2024-01-01"],
+  end: ["posts", "2024-12-31"],
+  limit: 20
+})) {
+  console.log(entry.value);
+}
+
+// Busca em ordem reversa
+for await (const entry of kv.search<Post>(["posts"], "react", {
+  reverse: true,
+  limit: 10
+})) {
+  console.log(entry.value); // Mais recentes primeiro
 }
 ----
 

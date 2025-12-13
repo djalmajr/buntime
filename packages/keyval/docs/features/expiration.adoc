@@ -31,7 +31,10 @@ Com TTL, a remoção é automática:
 
 [source,typescript]
 ----
-// Expira automaticamente em 24h
+// Expira automaticamente em 24h (formato numérico em milissegundos)
+await kv.set(["session", sessionId], userData, { expiresIn: 86400000 });
+
+// Ou use formato string (mais legível)
 await kv.set(["session", sessionId], userData, { expiresIn: "24h" });
 // Você não precisa fazer mais nada!
 ----
@@ -52,64 +55,101 @@ Alguns tipos de dado DEVEM ser apagados após um tempo:
 
 ==== Definindo TTL na Criação
 
-Use a opção `expireIn` ao criar um dado:
+Use a opção `expiresIn` ao criar um dado:
 
 [source,typescript]
 ----
-import { Keyval } from "@buntime/keyval";
+import { Kv } from "@buntime/keyval";
 
-const kv = new Keyval({ libsqlUrl: "..." });
+const kv = new Kv("http://localhost:8000/_/plugin-keyval");
 
-// Expira em 1 hora
-await kv.set(["temp", "data"], { value: 123 }, { expireIn: "1h" });
+// Formato numérico (milissegundos)
+await kv.set(["temp", "data"], { value: 123 }, { expiresIn: 3600000 }); // 1 hora
+await kv.set(["cache", "result"], data, { expiresIn: 1800000 }); // 30 minutos
+await kv.set(["token", userId], token, { expiresIn: 604800000 }); // 7 dias
 
-// Expira em 30 minutos
-await kv.set(["cache", "result"], data, { expireIn: "30m" });
-
-// Expira em 7 dias
-await kv.set(["token", userId], token, { expireIn: "7d" });
+// Formato string (mais legível e prático)
+await kv.set(["temp", "data"], { value: 123 }, { expiresIn: "1h" });
+await kv.set(["cache", "result"], data, { expiresIn: "30m" });
+await kv.set(["token", userId], token, { expiresIn: "7d" });
 ----
 
-==== Sintaxe do `expireIn`
+==== Formato do `expiresIn`
 
-O `expireIn` aceita strings no formato:
+O `expiresIn` aceita dois formatos:
+
+**Formato numérico (milissegundos):**
 
 [cols="1,2,1"]
 |===
-| Formato | Descrição | Exemplo
+| Duração | Cálculo | Valor em ms
 
-| `Ns`
-| N segundos
-| `"30s"` = 30 segundos
+| 30 segundos
+| `30 * 1000`
+| `30000`
 
-| `Nm`
-| N minutos
-| `"15m"` = 15 minutos
+| 15 minutos
+| `15 * 60 * 1000`
+| `900000`
 
-| `Nh`
-| N horas
-| `"2h"` = 2 horas
+| 2 horas
+| `2 * 60 * 60 * 1000`
+| `7200000`
 
-| `Nd`
-| N dias
-| `"7d"` = 7 dias
+| 7 dias
+| `7 * 24 * 60 * 60 * 1000`
+| `604800000`
 |===
 
-Você também pode combinar unidades:
+**Formato string (legível):**
+
+[cols="1,1,2"]
+|===
+| Formato | Exemplo | Descrição
+
+| `ms`
+| `"500ms"`
+| Milissegundos
+
+| `s`
+| `"30s"`
+| Segundos
+
+| `m`
+| `"15m"`
+| Minutos
+
+| `h`
+| `"2h"`
+| Horas
+
+| `d`
+| `"7d"`
+| Dias
+
+| `w`
+| `"2w"`
+| Semanas
+
+| `y`
+| `"1y"`
+| Anos
+|===
 
 [source,typescript]
 ----
-// 1 dia e 12 horas
-await kv.set(key, value, { expireIn: "1d 12h" });
+// Todos estes são equivalentes (30 segundos)
+await kv.set(key, value, { expiresIn: 30000 });
+await kv.set(key, value, { expiresIn: "30s" });
+await kv.set(key, value, { expiresIn: "30000ms" });
 
-// 2 horas e 30 minutos
-await kv.set(key, value, { expireIn: "2h 30m" });
-
-// 1 hora, 15 minutos e 30 segundos
-await kv.set(key, value, { expireIn: "1h 15m 30s" });
+// Formato string é mais legível
+await kv.set(key, value, { expiresIn: "1d" });    // Melhor que 86400000
+await kv.set(key, value, { expiresIn: "24h" });   // Melhor que 86400000
+await kv.set(key, value, { expiresIn: "30s" });   // Melhor que 30000
 ----
 
-TIP: Use unidades maiores quando possível: `"1h"` é mais legível que `"3600s"`.
+TIP: Prefira o formato string para melhor legibilidade do código.
 
 ==== Comportamento na Expiração
 
@@ -122,7 +162,7 @@ Quando o TTL expira:
 [source,typescript]
 ----
 // Criar dado com TTL de 5 segundos
-await kv.set(["temp"], "value", { expireIn: "5s" });
+await kv.set(["temp"], "value", { expiresIn: "5s" });
 
 // Imediatamente após criar
 const result1 = await kv.get(["temp"]);
@@ -154,7 +194,7 @@ async function createSession(userId: string, data: SessionData) {
   const sessionId = crypto.randomUUID();
 
   // Sessão expira em 7 dias
-  await kv.set(["session", sessionId], data, { expireIn: "7d" });
+  await kv.set(["session", sessionId], data, { expiresIn: "7d" });
 
   return sessionId;
 }
@@ -191,7 +231,7 @@ async function getUserProfile(userId: string) {
   const profile = await db.users.findById(userId);
 
   // Salvar no cache por 1 hora
-  await kv.set(cacheKey, profile, { expireIn: "1h" });
+  await kv.set(cacheKey, profile, { expiresIn: "1h" });
 
   return profile;
 }
@@ -215,8 +255,8 @@ async function checkRateLimit(userId: string): Promise<boolean> {
     return false; // Bloqueado
   }
 
-  // Incrementar contador
-  await kv.set(key, count + 1, { expireIn: "1h" });
+  // Incrementar contador (expira em 1 hora)
+  await kv.set(key, count + 1, { expiresIn: "1h" });
 
   return true; // Permitido
 }
@@ -237,7 +277,7 @@ async function createPasswordResetToken(email: string) {
   await kv.set(
     ["reset-token", token],
     { email, createdAt: kv.now() },
-    { expireIn: "15m" }
+    { expiresIn: "15m" }
   );
 
   return token;
@@ -271,7 +311,7 @@ Garantir que apenas um processo execute uma tarefa:
 ----
 async function acquireLock(
   resource: string,
-  ttl: string = "30s"
+  ttl: string | number = "30s" // 30 segundos
 ): Promise<boolean> {
   const key = ["lock", resource];
   const lockId = crypto.randomUUID();
@@ -279,7 +319,7 @@ async function acquireLock(
   // Tentar criar lock (atomic set)
   const result = await kv.atomic()
     .check({ key, versionstamp: null }) // Só cria se não existir
-    .set(key, lockId, { expireIn: ttl })
+    .set(key, lockId, { expiresIn: ttl })
     .commit();
 
   return result.ok;
@@ -329,8 +369,8 @@ async function extendSession(sessionId: string) {
     throw new Error("Sessão não encontrada");
   }
 
-  // Re-salvar com novo TTL
-  await kv.set(key, result.value, { expireIn: "7d" });
+  // Re-salvar com novo TTL (7 dias)
+  await kv.set(key, result.value, { expiresIn: "7d" });
 }
 ----
 
@@ -350,8 +390,8 @@ async function getSessionAndRenew(sessionId: string) {
     return null;
   }
 
-  // Renovar TTL a cada acesso (sliding expiration)
-  await kv.set(key, result.value, { expireIn: "7d" });
+  // Renovar TTL a cada acesso (sliding expiration, 7 dias)
+  await kv.set(key, result.value, { expiresIn: "7d" });
 
   return result.value;
 }
@@ -379,10 +419,11 @@ Exemplo de Absolute Expiration:
 async function createVerificationCode(email: string) {
   const code = Math.random().toString().slice(2, 8);
 
+  // 15 minutos
   await kv.set(
     ["verify", email],
     { code, expiresAt: kv.now() + 15 * 60 * 1000 },
-    { expireIn: "15m" }
+    { expiresIn: "15m" }
   );
 
   return code;
@@ -478,20 +519,20 @@ async function listExpiredSessions() {
 await kv.set(["cache", userId], data);
 
 // Sempre defina TTL para dados temporários
-await kv.set(["cache", userId], data, { expireIn: "1h" });
+await kv.set(["cache", userId], data, { expiresIn: "1h" });
 ----
 
-WARNING: Se um dado deve ser temporário, SEMPRE defina `expireIn`. Dados sem TTL ficam no banco para sempre.
+WARNING: Se um dado deve ser temporário, SEMPRE defina `expiresIn`. Dados sem TTL ficam no banco para sempre.
 
 ==== TTL Muito Curto
 
 [source,typescript]
 ----
 // Cache inútil: expira antes de ser usado
-await kv.set(["cache", "expensive-query"], result, { expireIn: "1s" });
+await kv.set(["cache", "expensive-query"], result, { expiresIn: "1s" });
 
 // TTL adequado ao padrão de acesso
-await kv.set(["cache", "expensive-query"], result, { expireIn: "5m" });
+await kv.set(["cache", "expensive-query"], result, { expiresIn: "5m" });
 ----
 
 TIP: Analise quanto tempo o dado permanece válido e útil antes de definir o TTL.
@@ -501,10 +542,10 @@ TIP: Analise quanto tempo o dado permanece válido e útil antes de definir o TT
 [source,typescript]
 ----
 // Código de verificação válido por 7 dias = risco de segurança
-await kv.set(["verify", email], code, { expireIn: "7d" });
+await kv.set(["verify", email], code, { expiresIn: "7d" });
 
 // Códigos de verificação devem expirar rápido
-await kv.set(["verify", email], code, { expireIn: "15m" });
+await kv.set(["verify", email], code, { expiresIn: "15m" });
 ----
 
 IMPORTANT: Dados sensíveis (tokens, códigos) devem ter TTL curto por segurança.
@@ -532,7 +573,7 @@ return session.value.userId;
 // Renova cache a cada leitura = trabalho desnecessário
 const cached = await kv.get(cacheKey);
 if (cached.value) {
-  await kv.set(cacheKey, cached.value, { expireIn: "1h" });
+  await kv.set(cacheKey, cached.value, { expiresIn: "1h" });
   return cached.value;
 }
 

@@ -70,8 +70,8 @@ describe("Kv", () => {
       const key = ["session", "abc"];
       const value = { userId: 123 };
 
-      // expireIn is in milliseconds, converted to seconds (min 1 second)
-      await kv.set(key, value, { expireIn: 1500 }); // 1.5 seconds
+      // expiresIn is in milliseconds, converted to seconds (min 1 second)
+      await kv.set(key, value, { expiresIn: 1500 }); // 1.5 seconds
 
       const before = await kv.get(key);
       expect(before.value).toEqual(value);
@@ -289,7 +289,7 @@ describe("Kv", () => {
       const tempKv = new Kv(tempAdapter);
 
       // Set an entry with short expiration
-      await tempKv.set(["expire", "test"], "value", { expireIn: 100 });
+      await tempKv.set(["expire", "test"], "value", { expiresIn: 100 });
 
       // Wait for expiration
       await new Promise((r) => setTimeout(r, 200));

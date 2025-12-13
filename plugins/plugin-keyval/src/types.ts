@@ -26,8 +26,9 @@ export interface KvSetOptions {
   /**
    * Time to live in milliseconds
    * After this time, the key will be automatically deleted
+   * Note: SDK accepts Duration (string | number) but plugin receives milliseconds
    */
-  expireIn?: number;
+  expiresIn?: number;
 }
 
 /**
@@ -151,7 +152,7 @@ export interface KvMutation {
   key: KvKey;
   type: KvMutationType;
   value?: unknown;
-  expireIn?: number;
+  expiresIn?: number;
 }
 
 /**

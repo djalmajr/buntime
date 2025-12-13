@@ -206,8 +206,8 @@ await kv.enqueue(
     data: { orderId: 123, total: 99.90 }
   },
   {
-    // Tenta novamente com intervalos crescentes
-    backoffSchedule: [1000, 5000, 30000, 120000] // 1s, 5s, 30s, 2min
+    // Tenta novamente com intervalos crescentes (usando strings)
+    backoffSchedule: ["1s", "5s", "30s", "2m"]
   }
 );
 
@@ -338,17 +338,35 @@ Você pode agendar trabalho para ser executado no futuro.
 
 ==== Delay Relativo
 
+O delay pode ser especificado em milissegundos (number) ou como string formatada:
+
 [source,typescript]
 ----
-// Enviar lembrete em 24 horas
+// Usando milissegundos
 await kv.enqueue(
   {
     type: "send_reminder",
     userId: 123,
     mensagem: "Você tem uma reunião amanhã às 14h"
   },
-  { delay: 24 * 60 * 60 * 1000 } // 24 horas em milissegundos
+  { delay: 86400000 } // 24 horas em milissegundos
 );
+
+// Usando formato de string (mais legível)
+await kv.enqueue(
+  {
+    type: "send_reminder",
+    userId: 123,
+    mensagem: "Você tem uma reunião amanhã às 14h"
+  },
+  { delay: "24h" } // 24 horas
+);
+
+// Outros exemplos de delay com string
+await kv.enqueue(data, { delay: "5s" });   // 5 segundos
+await kv.enqueue(data, { delay: "30m" });  // 30 minutos
+await kv.enqueue(data, { delay: "1h" });   // 1 hora
+await kv.enqueue(data, { delay: "7d" });   // 7 dias
 ----
 
 ==== Agendar para Horário Específico
@@ -422,12 +440,85 @@ kv.listenQueue(async (job) => {
 
 WARNING: Se você não propagar o erro (throw), o KeyVal assume que o processamento foi bem-sucedido e remove a mensagem da fila, perdendo o trabalho.
 
-==== Configurando Backoff Schedule
+==== Controle Manual da Fila
 
-Você controla os intervalos entre tentativas:
+Para casos avançados onde você precisa de controle granular sobre o acknowledgment de mensagens, é possível desabilitar o ACK/NACK automático e gerenciar manualmente:
 
 [source,typescript]
 ----
+const handle = kv.listenQueue(async (msg) => {
+  try {
+    // Processamento pode ter lógica condicional
+    const resultado = await processarMensagem(msg);
+
+    if (resultado.sucesso) {
+      // Confirma processamento bem-sucedido
+      await kv.ackMessage(msg.id);
+    } else {
+      // Rejeita e reenfileira para retry
+      await kv.nackMessage(msg.id);
+    }
+  } catch (error) {
+    // Em caso de erro, também reenfileira
+    await kv.nackMessage(msg.id);
+  }
+}, { autoAck: false }); // Desabilita ACK automático
+----
+
+*Quando usar controle manual:*
+
+- Validação condicional: Aceitar apenas se certos critérios forem atendidos
+- Processamento parcial: ACK mesmo com falhas recuperáveis em partes não críticas
+- Logging avançado: Registrar exatamente quando cada mensagem foi confirmada
+- Integração com sistemas externos: ACK apenas após confirmação externa
+
+*Métodos disponíveis:*
+
+[source,typescript]
+----
+// Confirma processamento (remove da fila)
+await kv.ackMessage(messageId: string): Promise<void>
+
+// Rejeita processamento (reenfileira com backoff)
+await kv.nackMessage(messageId: string): Promise<void>
+----
+
+*Exemplo: Validação Condicional*
+
+[source,typescript]
+----
+kv.listenQueue(async (msg) => {
+  // Valida formato
+  if (!validarFormato(msg.payload)) {
+    console.warn("Formato inválido, descartando:", msg.id);
+    await kv.ackMessage(msg.id); // ACK para descartar
+    return;
+  }
+
+  // Valida regras de negócio
+  const podeProcessar = await verificarRegras(msg.payload);
+
+  if (!podeProcessar) {
+    console.log("Condições não atendidas, tentando novamente:", msg.id);
+    await kv.nackMessage(msg.id); // NACK para retry
+    return;
+  }
+
+  // Processa normalmente
+  await executarProcessamento(msg.payload);
+  await kv.ackMessage(msg.id);
+}, { autoAck: false });
+----
+
+WARNING: Quando usar `autoAck: false`, você DEVE chamar `ackMessage()` ou `nackMessage()` explicitamente. Mensagens não confirmadas ficarão presas no estado "processing" e não serão reprocessadas.
+
+==== Configurando Backoff Schedule
+
+Você controla os intervalos entre tentativas usando milissegundos (number[]) ou strings formatadas (string[]):
+
+[source,typescript]
+----
+// Usando milissegundos
 await kv.enqueue(
   { type: "api_call", url: "https://api.externa.com" },
   {
@@ -440,6 +531,23 @@ await kv.enqueue(
     ]
   }
 );
+
+// Usando formato de string (mais legível)
+await kv.enqueue(
+  { type: "api_call", url: "https://api.externa.com" },
+  {
+    backoffSchedule: ["1s", "5s", "30s", "2m"]
+  }
+);
+
+// Outros exemplos de backoff
+await kv.enqueue(data, {
+  backoffSchedule: ["1s", "5s", "30s"]  // Crescente exponencial
+});
+
+await kv.enqueue(data, {
+  backoffSchedule: ["10s", "1m", "5m", "30m"]  // Para APIs lentas
+});
 ----
 
 Se todas as tentativas falharem, a mensagem vai para a Dead Letter Queue (DLQ).

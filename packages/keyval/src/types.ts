@@ -1,3 +1,5 @@
+import type { Duration } from "./duration";
+
 /**
  * A key part can be a string, number, bigint, boolean, or Uint8Array
  * Keys are ordered lexicographically by type, then by value
@@ -24,10 +26,21 @@ export interface KvEntry<T = unknown> {
  */
 export interface KvSetOptions {
   /**
-   * Time to live in milliseconds
-   * After this time, the key will be automatically deleted
+   * Time to live before the key is automatically deleted
+   * Accepts milliseconds (number) or string format ("1d", "2h", "30s")
+   *
+   * @example
+   * ```typescript
+   * // As milliseconds
+   * await kv.set(key, value, { expiresIn: 86400000 });
+   *
+   * // As string (human-readable)
+   * await kv.set(key, value, { expiresIn: "1d" });
+   * await kv.set(key, value, { expiresIn: "24h" });
+   * await kv.set(key, value, { expiresIn: "30s" });
+   * ```
    */
-  expireIn?: number;
+  expiresIn?: Duration;
 }
 
 /**
@@ -173,15 +186,35 @@ export interface KvCheck {
  */
 export interface KvEnqueueOptions {
   /**
-   * Delay in milliseconds before the message becomes available
+   * Delay before the message becomes available
+   * Accepts milliseconds (number) or string format ("1d", "2h", "30s")
    * @default 0
+   *
+   * @example
+   * ```typescript
+   * // Process after 5 seconds
+   * await kv.enqueue(data, { delay: 5000 });
+   * await kv.enqueue(data, { delay: "5s" });
+   *
+   * // Process after 1 hour
+   * await kv.enqueue(data, { delay: "1h" });
+   * ```
    */
-  delay?: number;
+  delay?: Duration;
   /**
-   * Backoff schedule in milliseconds for retries
+   * Backoff schedule for retries
+   * Each value is the delay before the next retry attempt
+   * Accepts milliseconds (number) or string format ("1d", "2h", "30s")
    * @default [1000, 5000, 10000]
+   *
+   * @example
+   * ```typescript
+   * // Retry after 1s, 5s, then 30s
+   * await kv.enqueue(data, { backoffSchedule: [1000, 5000, 30000] });
+   * await kv.enqueue(data, { backoffSchedule: ["1s", "5s", "30s"] });
+   * ```
    */
-  backoffSchedule?: number[];
+  backoffSchedule?: Duration[];
   /**
    * Keys to set the message value if delivery fails after all retries
    */
@@ -218,10 +251,17 @@ export interface KvListenOptions {
    */
   mode?: "polling" | "sse";
   /**
-   * Polling interval in milliseconds (only for mode: "polling")
+   * Polling interval (only for mode: "polling")
+   * Accepts milliseconds (number) or string format ("1s", "2s", "500ms")
    * @default 1000
+   *
+   * @example
+   * ```typescript
+   * kv.listenQueue(handler, { mode: "polling", pollInterval: 2000 });
+   * kv.listenQueue(handler, { mode: "polling", pollInterval: "2s" });
+   * ```
    */
-  pollInterval?: number;
+  pollInterval?: Duration;
 }
 
 /**
@@ -310,10 +350,17 @@ export interface KvWatchOptions {
    */
   overflowStrategy?: KvWatchOverflowStrategy;
   /**
-   * Polling interval in milliseconds (only for mode: "polling")
+   * Polling interval (only for mode: "polling")
+   * Accepts milliseconds (number) or string format ("1s", "2s", "500ms")
    * @default 1000
+   *
+   * @example
+   * ```typescript
+   * kv.watch(keys, callback, { mode: "polling", pollInterval: 2000 });
+   * kv.watch(keys, callback, { mode: "polling", pollInterval: "2s" });
+   * ```
    */
-  pollInterval?: number;
+  pollInterval?: Duration;
 }
 
 /**
@@ -360,10 +407,17 @@ export interface KvTransactionOptions {
    */
   maxRetries?: number;
   /**
-   * Base delay in milliseconds between retries (multiplied by attempt number)
+   * Base delay between retries (multiplied by attempt number)
+   * Accepts milliseconds (number) or string format ("10ms", "100ms", "1s")
    * @default 10
+   *
+   * @example
+   * ```typescript
+   * await kv.transaction(fn, { maxRetries: 3, retryDelay: 100 });
+   * await kv.transaction(fn, { maxRetries: 3, retryDelay: "100ms" });
+   * ```
    */
-  retryDelay?: number;
+  retryDelay?: Duration;
 }
 
 /**

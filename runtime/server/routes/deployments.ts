@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { NotFoundError, ValidationError } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import { DirInfo } from "@/libs/dir-info";
+import { extractAppName } from "@/utils/deployment-path";
 
 export interface RegistryRef {
   checkRouteConflict: (path: string) => string | undefined;
@@ -64,7 +65,8 @@ export function createDeploymentRoutes({ appsDir, registry }: DeploymentRoutesDe
         }
 
         // Check for plugin route conflicts (only for top-level app directories)
-        const appName = path.split("/")[0];
+        // Handles both flat (app@version) and nested (app/version) formats
+        const appName = extractAppName(path);
         if (appName) checkAppConflict(appName);
 
         const dir = new DirInfo(appsDir, path);
@@ -123,7 +125,8 @@ export function createDeploymentRoutes({ appsDir, registry }: DeploymentRoutesDe
         }
 
         // Check for plugin route conflicts (only for top-level app directories)
-        const appName = targetPath.split("/")[0];
+        // Handles both flat (app@version) and nested (app/version) formats
+        const appName = extractAppName(targetPath);
         if (appName) checkAppConflict(appName);
 
         const dir = new DirInfo(appsDir, targetPath);

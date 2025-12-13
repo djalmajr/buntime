@@ -13,7 +13,7 @@ import type {
 } from "./types";
 import {
   validateBigInt,
-  validateExpireIn,
+  validateExpiresIn,
   validateKey,
   validateKeyPath,
   validateKeys,
@@ -94,7 +94,7 @@ const routes = new Hono()
         type: "append" | "delete" | "max" | "min" | "prepend" | "set" | "sum";
         key: KvKey;
         value?: unknown;
-        expireIn?: number;
+        expiresIn?: number;
       }>;
     }>();
 
@@ -115,7 +115,7 @@ const routes = new Hono()
       switch (mutation.type) {
         case "set":
           atomic.set(key, mutation.value, {
-            expireIn: validateExpireIn(mutation.expireIn),
+            expiresIn: validateExpiresIn(mutation.expiresIn),
           });
           break;
         case "delete":
@@ -276,9 +276,9 @@ const routes = new Hono()
     const keyPath = ctx.req.path.replace(/.*\/keys\//, "");
     const key = validateKeyPath(keyPath);
     const body = await ctx.req.json();
-    const expireIn = validateExpireIn(ctx.req.query("expireIn"));
+    const expiresIn = validateExpiresIn(ctx.req.query("expiresIn"));
 
-    const result = await kv.set(key, body, { expireIn });
+    const result = await kv.set(key, body, { expiresIn });
 
     return ctx.json(result);
   })
@@ -793,7 +793,7 @@ const routes = new Hono()
  *
  * Provides a Deno KV-like key-value store with:
  * - Composite keys (array of parts)
- * - TTL support (expireIn)
+ * - TTL support (expiresIn)
  * - Atomic transactions with optimistic concurrency control
  * - Prefix-based listing
  *

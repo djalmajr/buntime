@@ -2,6 +2,7 @@ import { join } from "node:path";
 import type { PublicRoutesConfig } from "@buntime/shared/types";
 import { boolean, number } from "@buntime/shared/utils/zod-helpers";
 import z from "zod/v4";
+import { parseDurationToMs } from "../../utils/duration";
 
 // Default values for worker configuration
 export const ConfigDefaults = {
@@ -28,15 +29,18 @@ const publicRoutesSchema = z.union([
   }),
 ]);
 
+// Schema for duration values (number in seconds or string like "30s", "1m", "1h")
+const durationSchema = z.union([z.number().nonnegative(), z.string()]);
+
 const workerConfigSchema = z.object({
   autoInstall: boolean(ConfigDefaults.autoInstall, z.boolean()),
   entrypoint: z.string().optional(),
-  idleTimeout: number(ConfigDefaults.idleTimeout, z.number().nonnegative()),
+  idleTimeout: durationSchema.default(ConfigDefaults.idleTimeout),
   lowMemory: boolean(ConfigDefaults.lowMemory, z.boolean()),
   maxRequests: number(ConfigDefaults.maxRequests, z.number().nonnegative()),
   publicRoutes: publicRoutesSchema.optional(),
-  timeout: number(ConfigDefaults.timeout, z.number().nonnegative()),
-  ttl: number(ConfigDefaults.ttl, z.number().nonnegative()),
+  timeout: durationSchema.default(ConfigDefaults.timeout),
+  ttl: durationSchema.default(ConfigDefaults.ttl),
 });
 
 export type WorkerConfigFile = z.infer<typeof workerConfigSchema>;
@@ -102,11 +106,11 @@ export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
   return {
     autoInstall: data.autoInstall,
     entrypoint: data.entrypoint,
-    idleTimeoutMs: data.idleTimeout * 1000,
+    idleTimeoutMs: parseDurationToMs(data.idleTimeout),
     lowMemory: data.lowMemory,
     maxRequests: data.maxRequests,
     publicRoutes: data.publicRoutes,
-    timeoutMs: data.timeout * 1000,
-    ttlMs: data.ttl * 1000,
+    timeoutMs: parseDurationToMs(data.timeout),
+    ttlMs: parseDurationToMs(data.ttl),
   };
 }

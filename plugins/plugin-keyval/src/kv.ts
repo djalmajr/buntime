@@ -314,7 +314,7 @@ export class Kv {
       const encodedValue = serializeValue(value);
       const versionstamp = Bun.randomUUIDv7();
       const now = Math.floor(Date.now() / 1000);
-      const expiresAt = options?.expireIn ? now + Math.floor(options.expireIn / 1000) : null;
+      const expiresAt = options?.expiresIn ? now + Math.floor(options.expiresIn / 1000) : null;
 
       await this.adapter.execute(
         `INSERT OR REPLACE INTO kv_entries (key, value, versionstamp, expires_at)

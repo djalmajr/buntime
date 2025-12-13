@@ -131,7 +131,7 @@ export class KvTransaction {
       key,
       type: "set",
       value,
-      expireIn: options?.expireIn,
+      expiresIn: options?.expiresIn,
     });
     return this;
   }
@@ -195,7 +195,7 @@ export class KvTransaction {
     for (const mutation of this.writes) {
       switch (mutation.type) {
         case "set":
-          atomic.set(mutation.key, mutation.value, { expireIn: mutation.expireIn });
+          atomic.set(mutation.key, mutation.value, { expiresIn: mutation.expiresIn });
           break;
         case "delete":
           atomic.delete(mutation.key);

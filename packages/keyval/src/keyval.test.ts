@@ -130,16 +130,28 @@ describe("Kv", () => {
       expect(JSON.parse(capturedBody)).toEqual({ name: "Alice" });
     });
 
-    it("should pass expireIn option", async () => {
+    it("should pass expiresIn option as milliseconds", async () => {
       let capturedUrl = "";
       mockFetch((url) => {
         capturedUrl = url;
         return new Response(JSON.stringify({ ok: true, versionstamp: "0001" }));
       });
 
-      await kv.set(["session"], { token: "abc" }, { expireIn: 60000 });
+      await kv.set(["session"], { token: "abc" }, { expiresIn: 60000 });
 
-      expect(capturedUrl).toContain("expireIn=60000");
+      expect(capturedUrl).toContain("expiresIn=60000");
+    });
+
+    it("should parse expiresIn string duration", async () => {
+      let capturedUrl = "";
+      mockFetch((url) => {
+        capturedUrl = url;
+        return new Response(JSON.stringify({ ok: true, versionstamp: "0001" }));
+      });
+
+      await kv.set(["session"], { token: "abc" }, { expiresIn: "1h" });
+
+      expect(capturedUrl).toContain("expiresIn=3600000");
     });
   });
 
@@ -641,7 +653,7 @@ describe("Kv", () => {
       expect(result.ok).toBe(true);
       expect(capturedBody).toEqual({
         checks: [{ key: ["counter"], versionstamp: "0000" }],
-        mutations: [{ type: "set", key: ["counter"], value: 1, expireIn: undefined }],
+        mutations: [{ type: "set", key: ["counter"], value: 1, expiresIn: undefined }],
       });
     });
 

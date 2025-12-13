@@ -19,7 +19,7 @@ import {
  * Internal mutation type that supports keys with uuidv7 placeholders
  */
 interface KvMutationInternal {
-  expireIn?: number;
+  expiresIn?: number;
   key: KvKeyWithUuidv7;
   type: KvMutationType;
   value?: unknown;
@@ -87,7 +87,7 @@ export class AtomicOperation {
       key,
       type: "set",
       value,
-      expireIn: options?.expireIn,
+      expiresIn: options?.expiresIn,
     });
     return this;
   }
@@ -206,7 +206,7 @@ export class AtomicOperation {
       const statements = this.mutations.map((mutation) => {
         const resolvedKey = resolveKey(mutation.key, versionstamp);
         const encodedKey = encodeKey(resolvedKey);
-        const expiresAt = mutation.expireIn ? now + Math.floor(mutation.expireIn / 1000) : null;
+        const expiresAt = mutation.expiresIn ? now + Math.floor(mutation.expiresIn / 1000) : null;
 
         switch (mutation.type) {
           case "delete":

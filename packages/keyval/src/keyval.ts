@@ -1,3 +1,4 @@
+import { parseDuration, parseDurationArray, parseDurationOptional } from "./duration";
 import {
   type KvCheck,
   type KvCommitError,
@@ -140,10 +141,10 @@ class WatchBuffer<T> {
 type MutationType = "append" | "delete" | "max" | "min" | "prepend" | "set" | "sum";
 
 /**
- * Internal mutation structure
+ * Internal mutation structure (always uses milliseconds internally)
  */
 interface Mutation {
-  expireIn?: number;
+  expiresIn?: number;
   key: KvKey;
   type: MutationType;
   value?: unknown;
@@ -173,6 +174,7 @@ export class KvAtomicOperation {
    * ```typescript
    * await kv.atomic()
    *   .set(["posts", postId], post)
+   *   .set(["cache", "data"], data, { expiresIn: "1h" })
    *   .commit();
    * ```
    */
@@ -181,7 +183,7 @@ export class KvAtomicOperation {
       type: "set",
       key,
       value,
-      expireIn: options?.expireIn,
+      expiresIn: parseDurationOptional(options?.expiresIn),
     });
     return this;
   }
@@ -398,7 +400,7 @@ export class KvTransaction {
       type: "set",
       key,
       value,
-      expireIn: options?.expireIn,
+      expiresIn: parseDurationOptional(options?.expiresIn),
     });
     return this;
   }
@@ -599,8 +601,9 @@ export class Kv {
     const keyPath = key.map(encodeKeyPart).join("/");
     const url = new URL(`${this.baseUrl}/keys/${keyPath}`);
 
-    if (options?.expireIn) {
-      url.searchParams.set("expireIn", String(options.expireIn));
+    const expiresInMs = parseDurationOptional(options?.expiresIn);
+    if (expiresInMs) {
+      url.searchParams.set("expiresIn", String(expiresInMs));
     }
 
     const res = await fetch(url.toString(), {
@@ -921,7 +924,7 @@ export class Kv {
     options?: KvTransactionOptions,
   ): Promise<KvTransactionError | KvTransactionResult<T>> {
     const maxRetries = options?.maxRetries ?? 0;
-    const retryDelay = options?.retryDelay ?? 10;
+    const retryDelayMs = options?.retryDelay ? parseDuration(options.retryDelay) : 10;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const tx = new KvTransaction(this);
@@ -934,7 +937,7 @@ export class Kv {
 
       // Commit failed due to version conflict, retry if possible
       if (attempt < maxRetries) {
-        await new Promise((r) => setTimeout(r, retryDelay * (attempt + 1)));
+        await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
       }
     }
 
@@ -963,7 +966,7 @@ export class Kv {
             type: m.type,
             key: m.key,
             value: m.value,
-            expireIn: m.expireIn,
+            expiresIn: m.expiresIn,
           })),
         },
         jsonReplacer,
@@ -1157,9 +1160,11 @@ export class Kv {
    *
    * // With delay (process after 5 seconds)
    * await kv.enqueue(data, { delay: 5000 });
+   * await kv.enqueue(data, { delay: "5s" });
    *
    * // With custom retry schedule
    * await kv.enqueue(data, { backoffSchedule: [1000, 5000, 30000] });
+   * await kv.enqueue(data, { backoffSchedule: ["1s", "5s", "30s"] });
    *
    * // With fallback keys if delivery fails
    * await kv.enqueue(data, {
@@ -1168,10 +1173,21 @@ export class Kv {
    * ```
    */
   async enqueue(value: unknown, options?: KvEnqueueOptions): Promise<{ ok: true; id: string }> {
+    // Parse duration options to milliseconds
+    const parsedOptions = options
+      ? {
+          delay: parseDurationOptional(options.delay),
+          backoffSchedule: options.backoffSchedule
+            ? parseDurationArray(options.backoffSchedule)
+            : undefined,
+          keysIfUndelivered: options.keysIfUndelivered,
+        }
+      : undefined;
+
     const res = await fetch(`${this.baseUrl}/queue/enqueue`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value, options }),
+      body: JSON.stringify({ value, options: parsedOptions }),
     });
 
     return res.json() as Promise<{ ok: true; id: string }>;
@@ -1203,12 +1219,13 @@ export class Kv {
     options?: KvListenOptions,
   ): KvListenHandle {
     const mode = options?.mode ?? "sse";
+    const pollIntervalMs = options?.pollInterval ? parseDuration(options.pollInterval) : 1000;
     const listenerId = crypto.randomUUID();
     const controller = new AbortController();
     this.listeners.set(listenerId, controller);
 
     if (mode === "polling") {
-      this.startPolling(handler, controller, options?.pollInterval ?? 1000);
+      this.startPolling(handler, controller, pollIntervalMs);
     } else {
       this.startSSE(handler, controller);
     }
@@ -1384,6 +1401,7 @@ export class Kv {
     const bufferSize = options?.bufferSize ?? null;
     const overflowStrategy = options?.overflowStrategy ?? "drop-oldest";
     const exact = options?.exact ?? false;
+    const pollIntervalMs = options?.pollInterval ? parseDuration(options.pollInterval) : 1000;
     const watcherId = crypto.randomUUID();
     const controller = new AbortController();
     this.listeners.set(watcherId, controller);
@@ -1397,13 +1415,7 @@ export class Kv {
     if (exact) {
       // Exact mode: watch specific keys without children
       if (mode === "polling") {
-        this.startWatchExactPolling(
-          normalizedKeys,
-          callback,
-          controller,
-          options?.pollInterval ?? 1000,
-          buffer,
-        );
+        this.startWatchExactPolling(normalizedKeys, callback, controller, pollIntervalMs, buffer);
       } else {
         this.startWatchExactSSE(
           normalizedKeys,
@@ -1416,13 +1428,7 @@ export class Kv {
     } else {
       // Prefix mode: watch keys and all children
       if (mode === "polling") {
-        this.startWatchPrefixPolling(
-          normalizedKeys,
-          callback,
-          controller,
-          options?.pollInterval ?? 1000,
-          buffer,
-        );
+        this.startWatchPrefixPolling(normalizedKeys, callback, controller, pollIntervalMs, buffer);
       } else {
         this.startWatchPrefixSSE(
           normalizedKeys,

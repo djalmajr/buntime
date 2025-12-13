@@ -1,3 +1,4 @@
+export type { Duration } from "./duration";
 export { Kv, KvAtomicOperation, KvTransaction } from "./keyval";
 export type {
   KvCheck,

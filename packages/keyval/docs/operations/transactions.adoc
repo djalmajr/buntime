@@ -72,22 +72,77 @@ if (result.ok) {
 └─────────────────────────────────────────────────────────┘
 ----
 
-=== Opções de Retry
+=== Opções de Transação
+
+A função `transaction()` aceita um segundo parâmetro opcional do tipo `KvTransactionOptions`:
 
 [source,typescript]
 ----
+interface KvTransactionOptions {
+  /**
+   * Número máximo de retries em caso de falha no commit
+   * @default 0
+   */
+  maxRetries?: number;
+
+  /**
+   * Delay base entre retries (multiplicado pelo número da tentativa)
+   * Aceita número em milissegundos ou string (ex: "100ms", "1s")
+   * @default 10
+   */
+  retryDelay?: number | string;
+}
+----
+
+==== Exemplo de Uso
+
+[source,typescript]
+----
+// Com número em milissegundos
 const result = await kv.transaction(
   async (tx) => {
-    // ... sua lógica
+    const user = await tx.get(["users", 123]);
+    await tx.set(["users", 123], {
+      ...user.value,
+      visits: user.value.visits + 1
+    });
+    return user.value;
   },
   {
-    maxRetries: 5,      // Máximo de tentativas (padrão: 3)
-    retryDelay: 10      // Delay base em ms entre retries
+    maxRetries: 3,    // Até 3 retries em caso de conflito (padrão: 0)
+    retryDelay: 100   // Delay base de 100ms (padrão: 10)
+  }
+);
+
+// Com string
+const result2 = await kv.transaction(
+  async (tx) => {
+    const user = await tx.get(["users", 456]);
+    await tx.set(["users", 456], {
+      ...user.value,
+      visits: user.value.visits + 1
+    });
+    return user.value;
+  },
+  {
+    maxRetries: 3,
+    retryDelay: "100ms"  // String format: "100ms", "1s", etc.
   }
 );
 ----
 
-O delay usa **exponential backoff** com jitter para evitar thundering herd.
+==== Comportamento do Retry
+
+Quando há conflito (versionstamp alterado), a transação é re-executada automaticamente:
+
+* **Tentativa 1**: Sem delay (execução inicial)
+* **Tentativa 2**: Delay de `retryDelay * 1` ms (ex: 50ms)
+* **Tentativa 3**: Delay de `retryDelay * 2` ms (ex: 100ms)
+* **Tentativa 4**: Delay de `retryDelay * 3` ms (ex: 150ms)
+
+O delay usa **backoff linear** onde cada retry aguarda `retryDelay * attemptNumber` milissegundos antes de re-executar.
+
+IMPORTANT: Por padrão, `maxRetries` é 0 (sem retries automáticos). Para transações com alta contenção, configure um valor maior.
 
 === Métodos Disponíveis no tx
 

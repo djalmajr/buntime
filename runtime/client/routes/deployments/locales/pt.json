@@ -52,10 +52,10 @@
   },
   "newFolder": {
     "description": "Digite um nome para a nova pasta.",
-    "descriptionApp": "Digite um nome para a aplicação (kebab-case).",
+    "descriptionApp": "Digite um nome para a aplicação (kebab-case) ou app com versão (nome-app@1.0.0).",
     "descriptionVersion": "Digite o número da versão (versionamento semântico).",
     "placeholder": "Nome da pasta",
-    "placeholderApp": "minha-app",
+    "placeholderApp": "minha-app ou minha-app@1.0.0",
     "placeholderVersion": "1.0.0",
     "title": "Nova Pasta"
   },
@@ -75,6 +75,7 @@
     "uploading": "Enviando arquivos..."
   },
   "validation": {
+    "appOrFlat": "Nome deve ser kebab-case (minha-app) ou app com versão (minha-app@1.0.0)",
     "kebabCase": "Nome deve ser kebab-case (letras minúsculas, números e hífens)",
     "semver": "Versão deve seguir versionamento semântico (ex: 1.0.0, 1.0.0-rc.1, 1.0.0-alpha)"
   }

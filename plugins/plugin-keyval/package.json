@@ -15,10 +15,14 @@
   },
   "dependencies": {
     "@buntime/plugin-database": "workspace:*",
-    "@buntime/shared": "workspace:*"
+    "@buntime/shared": "workspace:*",
+    "ms": "^2.1.3"
   },
   "peerDependencies": {
     "hono": "^4.0.0",
     "typescript": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/ms": "^2.1.0"
   }
 }

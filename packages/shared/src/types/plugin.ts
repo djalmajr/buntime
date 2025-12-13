@@ -1,3 +1,4 @@
+import type { FragmentConfig } from "@buntime/piercing";
 import type { BunFile, Server, ServerWebSocket } from "bun";
 import type { Hono, MiddlewareHandler } from "hono";
 
@@ -110,11 +111,28 @@ export interface BasePluginConfig {
 }
 
 /**
+ * Global configuration values available to all plugins
+ */
+export interface GlobalPluginConfig {
+  /** Directory containing worker apps */
+  appsDir: string;
+
+  /** Maximum number of workers in the pool */
+  poolSize: number;
+}
+
+/**
  * Context provided to plugins during initialization
  */
 export interface PluginContext {
   /** Plugin-specific configuration */
   config: Record<string, unknown>;
+
+  /**
+   * Global configuration from buntime.jsonc
+   * Provides access to shared values like appsDir, poolSize
+   */
+  globalConfig: GlobalPluginConfig;
 
   /** Logger instance */
   logger: PluginLogger;
@@ -353,6 +371,19 @@ export interface BuntimePlugin {
    * - fetch: invoked in app.fetch (Hono)
    */
   server?: PluginServer;
+
+  /**
+   * Micro-frontend fragment configuration for piercing architecture
+   * Allows plugins to provide UI fragments that get "pierced" into the main shell
+   *
+   * @example
+   * fragment: {
+   *   fragmentId: "deployments",
+   *   prePierceRoutes: ["/cpanel/deployments*"],
+   *   fetchFragment: (req) => deploymentWorker.fetch(req),
+   * }
+   */
+  fragment?: Omit<FragmentConfig, "fragmentId"> & { fragmentId?: string };
 }
 
 /**

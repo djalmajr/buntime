@@ -1,0 +1,476 @@
+= Micro-Frontend Plugin Architecture
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+
+== Overview
+
+This document describes the micro-frontend architecture for Buntime plugins, inspired by Cloudflare's Fragment Piercing strategy:
+
+- https://blog.cloudflare.com/fragment-piercing/
+
+=== Goals
+
+- **Modularity**: Each plugin can provide its own UI as a separate worker
+- **Independence**: Plugin UIs are developed, built, and deployed independently
+- **Framework-agnostic**: Plugins can use React, Solid, Qwik, Vue, etc.
+- **SSR First**: Server-side rendering for fast initial load
+- **Seamless Integration**: Fragments "pierce" into the main dashboard shell
+
+=== Architecture Diagram
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                    Buntime Runner (Port 8000)               │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │              PiercingGateway (Hono Middleware)        │  │
+│  │                                                       │  │
+│  │  • Intercepts HTML requests                           │  │
+│  │  • Routes /piercing-fragment/:id to plugin workers    │  │
+│  │  • Routes /_fragment/:id/* to plugin assets           │  │
+│  │  • Combines fragment streams with shell HTML          │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                             │                               │
+│         ┌───────────────────┼───────────────────┐           │
+│         ▼                   ▼                   ▼           │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
+│  │  Dashboard  │    │ Deployments │    │   Metrics   │     │
+│  │   (Shell)   │    │  (Fragment) │    │  (Fragment) │     │
+│  │             │    │             │    │             │     │
+│  │ - Layout    │    │ - File Mgmt │    │ - Charts    │     │
+│  │ - Nav       │    │ - Upload    │    │ - Stats     │     │
+│  │ - Outlets   │    │ - Deploy    │    │ - SSE       │     │
+│  └─────────────┘    └─────────────┘    └─────────────┘     │
+│         │                   │                   │           │
+│         └───────────────────┼───────────────────┘           │
+│                             ▼                               │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │                 MessageBus (Shared State)             │  │
+│  │                                                       │  │
+│  │  • dispatch('auth', { user: '...' })                  │  │
+│  │  • listen('theme', (value) => ...)                    │  │
+│  │  • SSR state hydration                                │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+----
+
+== Plugin UI Registration
+
+=== Plugin Interface Extension
+
+[source,typescript]
+----
+interface BuntimePlugin {
+  name: string;
+  version: string;
+  priority?: number;
+  base?: string;
+  routes?: Hono;
+
+  // NEW: Micro-frontend UI configuration
+  fragment?: {
+    /** Unique fragment ID (derived from plugin name if not provided) */
+    fragmentId?: string;
+    /** Directory containing the fragment's built assets */
+    assetsDir: string;
+    /** SSR entry point that exports fetch handler */
+    ssrEntry: string;
+    /** Framework used (for gateway optimizations) */
+    framework?: "react" | "qwik" | "solid" | "vue";
+    /** Styles to apply before piercing (for seamless transitions) */
+    prePiercingStyles?: string;
+    /** Routes where this fragment should be pre-pierced in HTML */
+    prePierceRoutes?: string[];
+    /** Navigation item to register in dashboard */
+    navigation?: {
+      title: string;
+      icon: string;
+      path: string;
+      priority?: number;
+    };
+  };
+}
+----
+
+=== Example Plugin with Fragment
+
+[source,typescript]
+----
+// plugins/plugin-deployments/src/index.ts
+import { definePlugin } from "@buntime/shared";
+
+export default definePlugin({
+  name: "@buntime/plugin-deployments",
+  version: "1.0.0",
+
+  fragment: {
+    assetsDir: "./dist/client",
+    ssrEntry: "./dist/server/entry.ssr.js",
+    framework: "react",
+    prePierceRoutes: ["/dashboard/deployments*"],
+    navigation: {
+      title: "Deployments",
+      icon: "lucide:cloud-upload",
+      path: "/dashboard/deployments",
+      priority: 10,
+    },
+  },
+
+  // API routes (backend)
+  routes: createDeploymentRoutes(),
+});
+----
+
+== Core Components
+
+=== PiercingGateway for Bun
+
+Adapted from Cloudflare's implementation for Bun's runtime.
+
+[source,typescript]
+----
+// packages/piercing/src/piercing-gateway.ts
+import type { Hono } from "hono";
+import type { MessageBusState } from "./message-bus";
+
+interface FragmentConfig {
+  fragmentId: string;
+  framework?: "react" | "qwik" | "solid" | "vue";
+  prePiercingStyles?: string;
+  prePierceRoutes?: string[];
+  assetsDir: string;
+  ssrFetch: (req: Request) => Promise<Response>;
+}
+
+interface PiercingGatewayConfig {
+  getShellHtml: (req: Request) => Promise<string>;
+  generateMessageBusState: (
+    requestState: MessageBusState,
+    req: Request
+  ) => MessageBusState | Promise<MessageBusState>;
+}
+
+export class PiercingGateway {
+  private fragments = new Map<string, FragmentConfig>();
+
+  constructor(private config: PiercingGatewayConfig) {}
+
+  registerFragment(config: FragmentConfig): void {
+    this.fragments.set(config.fragmentId, config);
+  }
+
+  middleware(): MiddlewareHandler {
+    return async (ctx, next) => {
+      // 1. Handle fragment SSR requests: /piercing-fragment/:id
+      // 2. Handle fragment asset requests: /_fragment/:id/*
+      // 3. For HTML requests, inject pre-pierced fragments
+      // 4. Otherwise, pass to next handler
+    };
+  }
+}
+----
+
+=== Fragment Host Web Component
+
+[source,typescript]
+----
+// packages/piercing/src/piercing-fragment-host.ts
+export class PiercingFragmentHost extends HTMLElement {
+  private messageBus: FragmentMessageBus;
+  fragmentId!: string;
+
+  connectedCallback() {
+    this.fragmentId = this.getAttribute("fragment-id")!;
+    this.messageBus = new FragmentMessageBus(this);
+
+    if (!this.fragmentIsPierced) {
+      this.setStylesEmbeddingObserver();
+    }
+  }
+
+  pierceInto(outlet: Element) {
+    // Move this fragment into the outlet element
+    outlet.appendChild(this);
+    this.removeStylesEmbeddingObserver();
+  }
+}
+----
+
+=== Fragment Outlet Web Component
+
+[source,typescript]
+----
+// packages/piercing/src/piercing-fragment-outlet.ts
+export class PiercingFragmentOutlet extends HTMLElement {
+  async connectedCallback() {
+    const fragmentId = this.getAttribute("fragment-id")!;
+
+    // Try to find existing pre-pierced fragment
+    let host = document.querySelector(
+      `piercing-fragment-host[fragment-id="${fragmentId}"]`
+    );
+
+    if (host) {
+      // Fragment was pre-pierced in HTML, move it here
+      host.pierceInto(this);
+    } else {
+      // Fetch fragment on-demand
+      const stream = await this.fetchFragment(fragmentId);
+      await this.streamIntoOutlet(stream);
+    }
+  }
+
+  private async fetchFragment(id: string): Promise<ReadableStream> {
+    const res = await fetch(`/piercing-fragment/${id}`, {
+      headers: {
+        "message-bus-state": JSON.stringify(getBus().state),
+      },
+    });
+    return res.body!;
+  }
+}
+----
+
+=== MessageBus for Cross-Fragment Communication
+
+[source,typescript]
+----
+// packages/piercing/src/message-bus.ts
+export interface MessageBus {
+  state: MessageBusState;
+  dispatch(event: string, value: JSONValue): void;
+  listen<T>(event: string, callback: (value: T) => void): () => void;
+  latestValue<T>(event: string): T | undefined;
+}
+
+// Usage in fragments:
+const bus = getBus();
+
+// Listen for auth changes
+bus.listen("auth", (user) => {
+  console.log("User changed:", user);
+});
+
+// Dispatch navigation event
+bus.dispatch("navigate", { path: "/deployments" });
+----
+
+== Plugin Dashboard (Shell)
+
+The dashboard plugin provides the shell that orchestrates all fragment plugins.
+
+=== Structure
+
+[source]
+----
+plugins/plugin-dashboard/
+├── package.json
+├── src/
+│   ├── index.ts           # Plugin entry
+│   ├── server/
+│   │   └── index.ts       # SSR shell
+│   └── client/
+│       ├── index.tsx      # Client entry
+│       ├── components/
+│       │   ├── layout.tsx # Main layout with outlets
+│       │   └── nav.tsx    # Navigation (from plugin registry)
+│       └── routes/
+│           └── index.tsx  # Dashboard home
+└── dist/
+----
+
+=== Shell Layout with Outlets
+
+[source,tsx]
+----
+// plugin-dashboard/src/client/components/layout.tsx
+import { useNavigationItems } from "../hooks/use-navigation";
+
+export function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const navItems = useNavigationItems(); // From MessageBus
+
+  return (
+    <div className="dashboard">
+      <aside className="sidebar">
+        <nav>
+          {navItems.map((item) => (
+            <NavLink key={item.path} to={item.path}>
+              <Icon icon={item.icon} />
+              {item.title}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+
+      <main className="content">
+        {children}
+      </main>
+    </div>
+  );
+}
+----
+
+=== Dynamic Fragment Routes
+
+[source,tsx]
+----
+// plugin-dashboard/src/client/routes/deployments.tsx
+export function DeploymentsPage() {
+  return (
+    <DashboardLayout>
+      {/* Fragment outlet - will load deployments fragment */}
+      <piercing-fragment-outlet fragment-id="deployments" />
+    </DashboardLayout>
+  );
+}
+----
+
+== Integration with Buntime Runner
+
+=== Registry Fragment Collection
+
+[source,typescript]
+----
+// runtime/server/plugins/registry.ts
+export class PluginRegistry {
+  // ... existing methods ...
+
+  /**
+   * Get all plugins that have fragment UIs
+   */
+  getFragmentPlugins(): Array<{
+    plugin: LoadedPlugin;
+    config: FragmentConfig;
+  }> {
+    return this.plugins
+      .filter((p) => p.fragment)
+      .map((p) => ({
+        plugin: p,
+        config: {
+          fragmentId: p.fragment!.fragmentId ?? this.getFragmentId(p.name),
+          ...p.fragment!,
+        },
+      }));
+  }
+
+  /**
+   * Get navigation items from all fragment plugins
+   */
+  getNavigationItems(): NavigationItem[] {
+    return this.getFragmentPlugins()
+      .filter((p) => p.config.navigation)
+      .map((p) => p.config.navigation!)
+      .sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50));
+  }
+
+  private getFragmentId(pluginName: string): string {
+    // @buntime/plugin-deployments -> deployments
+    return pluginName.replace(/^@[^/]+\/plugin-/, "");
+  }
+}
+----
+
+=== App Integration
+
+[source,typescript]
+----
+// runtime/server/app.ts
+import { PiercingGateway } from "@buntime/piercing";
+
+export function createApp(deps: AppDeps) {
+  const app = new Hono();
+
+  // Create piercing gateway
+  const gateway = new PiercingGateway({
+    getShellHtml: async (req) => {
+      // Fetch shell HTML from dashboard plugin
+      const dashboardWorker = deps.pool.getOrCreate("dashboard");
+      const res = await dashboardWorker.fetch(req);
+      return res.text();
+    },
+    generateMessageBusState: async (state, req) => {
+      // Add navigation items to bus state
+      return {
+        ...state,
+        navigation: deps.registry.getNavigationItems(),
+        theme: "system",
+      };
+    },
+  });
+
+  // Register all fragment plugins
+  for (const { config } of deps.registry.getFragmentPlugins()) {
+    gateway.registerFragment({
+      ...config,
+      ssrFetch: async (req) => {
+        const worker = deps.pool.getOrCreate(config.fragmentId);
+        return worker.fetch(req);
+      },
+    });
+  }
+
+  // Add piercing middleware
+  app.use("*", gateway.middleware());
+
+  // ... rest of app setup
+}
+----
+
+== New Plugin Candidates
+
+Based on current runner functionality, these can become fragment plugins:
+
+=== plugin-deployments
+
+Current: `runtime/client/routes/deployments/`
+
+Features:
+- File browser
+- Upload/download
+- Folder management
+- Worker deployment
+
+=== plugin-metrics (UI extension)
+
+Current: Already a plugin, but UI is in runner
+
+Add fragment to existing plugin:
+- Pool stats dashboard
+- Worker metrics charts
+- Prometheus metrics view
+
+=== plugin-logs
+
+New plugin for centralized logging:
+- Real-time log streaming (SSE)
+- Log filtering/search
+- Log retention/export
+
+=== plugin-health
+
+New plugin for health monitoring:
+- Health check endpoints
+- Liveness/readiness probes
+- Service status dashboard
+
+== Migration Path
+
+1. **Phase 1**: Create `@buntime/piercing` package with core components
+2. **Phase 2**: Create `plugin-dashboard` as shell orchestrator
+3. **Phase 3**: Extract `plugin-deployments` from runner client
+4. **Phase 4**: Add fragment UI to `plugin-metrics`
+5. **Phase 5**: Create new plugins (logs, health)
+
+== Benefits
+
+- **Independent Deployment**: Update plugin UIs without touching runner
+- **Technology Freedom**: Each plugin can use different frameworks
+- **Better DX**: Plugin developers own their full stack
+- **Lazy Loading**: Fragments load on-demand
+- **SSR Performance**: Fast initial render with streaming
+- **Isolation**: Fragment bugs don't crash the shell

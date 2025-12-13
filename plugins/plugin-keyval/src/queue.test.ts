@@ -397,13 +397,12 @@ describe("KvQueue", () => {
       await tempAdapter.close();
     });
 
-    it("should run periodic cleanup of old messages", async () => {
+    it("should not have delivered status (messages are deleted on ack)", async () => {
       const tempAdapter = createTestAdapter();
       await initSchema(tempAdapter);
       const tempKv = new Kv(tempAdapter, {
         queueCleanup: {
           cleanupInterval: 100,
-          maxAge: 50,
         },
       });
 
@@ -414,13 +413,8 @@ describe("KvQueue", () => {
         await tempKv.queue.ack(msg.id);
       }
 
-      // Wait for cleanup to run
-      await new Promise((r) => setTimeout(r, 200));
-
-      // Verify old delivered messages are cleaned up
-      const rows = await tempAdapter.execute(
-        "SELECT COUNT(*) as count FROM kv_queue WHERE status = 'delivered'",
-      );
+      // Verify acked messages are deleted, not marked as delivered
+      const rows = await tempAdapter.execute("SELECT COUNT(*) as count FROM kv_queue");
       expect((rows[0] as { count: number }).count).toBe(0);
 
       tempKv.close();

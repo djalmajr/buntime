@@ -173,8 +173,6 @@ describe("Kv", () => {
 
       expect(capturedContentType).toBe("application/json");
       const parsed = JSON.parse(capturedBody);
-      expect(parsed.keys).toEqual([["sessions"]]);
-      expect(parsed.exact).toBe(false);
       expect(parsed.where).toEqual({ expiresAt: { $lt: 1234567890 } });
       expect(result.deletedCount).toBe(5);
     });
@@ -193,7 +191,6 @@ describe("Kv", () => {
       });
 
       const parsed = JSON.parse(capturedBody);
-      expect(parsed.keys).toEqual([["users"]]);
       expect(parsed.where.$or).toHaveLength(2);
       expect(parsed.where.$or[0]).toEqual({ status: { $eq: "inactive" } });
       expect(parsed.where.$or[1]).toEqual({ "profile.verified": { $eq: false } });
@@ -211,7 +208,6 @@ describe("Kv", () => {
       });
 
       const parsed = JSON.parse(capturedBody);
-      expect(parsed.keys).toEqual([["logs"]]);
       expect(parsed.where.level.$in).toEqual(["debug", "trace"]);
     });
 
@@ -227,61 +223,99 @@ describe("Kv", () => {
       expect(capturedBody).toBeUndefined();
     });
 
-    it("should delete multiple prefixes", async () => {
-      let capturedBody = "";
+    it("should delete multiple keys using batch endpoint", async () => {
       let capturedUrl = "";
+      let capturedBody = "";
       mockFetch((url, init) => {
         capturedUrl = url;
+        capturedBody = init?.body as string;
+        return new Response(JSON.stringify({ deletedCount: 2 }));
+      });
+
+      const result = await kv.delete([
+        ["users", 123],
+        ["users", 456],
+      ]);
+
+      expect(capturedUrl).toContain("/keys/delete-batch");
+      const parsed = JSON.parse(capturedBody);
+      expect(parsed.keys).toEqual([
+        ["users", 123],
+        ["users", 456],
+      ]);
+      expect(result.success).toBe(true);
+      expect(result.deletedCount).toBe(2);
+    });
+
+    it("should delete multiple keys with options using batch endpoint", async () => {
+      let capturedBody = "";
+      mockFetch((_url, init) => {
+        capturedBody = init?.body as string;
+        return new Response(JSON.stringify({ deletedCount: 3 }));
+      });
+
+      const result = await kv.delete(
+        [
+          ["sessions", 1],
+          ["sessions", 2],
+        ],
+        { exact: true, where: { active: { $eq: false } } },
+      );
+
+      const parsed = JSON.parse(capturedBody);
+      expect(parsed.keys).toHaveLength(2);
+      expect(parsed.exact).toBe(true);
+      expect(parsed.where).toEqual({ active: { $eq: false } });
+      expect(result.deletedCount).toBe(3);
+    });
+
+    it("should delete with exact option set to true", async () => {
+      let capturedBody = "";
+      let capturedContentType = "";
+      mockFetch((_url, init) => {
+        capturedBody = init?.body as string;
+        capturedContentType = (init?.headers as Record<string, string>)?.["Content-Type"] ?? "";
+        return new Response(JSON.stringify({ success: true, deletedCount: 1 }));
+      });
+
+      const result = await kv.delete(["users", 123], { exact: true });
+
+      expect(capturedContentType).toBe("application/json");
+      const parsed = JSON.parse(capturedBody);
+      expect(parsed.exact).toBe(true);
+      expect(result.deletedCount).toBe(1);
+    });
+
+    it("should delete with exact option set to false", async () => {
+      let capturedBody = "";
+      mockFetch((_url, init) => {
         capturedBody = init?.body as string;
         return new Response(JSON.stringify({ success: true, deletedCount: 5 }));
       });
 
-      await kv.delete([
-        ["users", 123],
-        ["orders", 456],
-      ]);
+      const result = await kv.delete(["users", 123], { exact: false });
 
-      expect(capturedUrl).toContain("/keys");
       const parsed = JSON.parse(capturedBody);
-      expect(parsed.keys).toEqual([
-        ["users", 123],
-        ["orders", 456],
-      ]);
       expect(parsed.exact).toBe(false);
+      expect(result.deletedCount).toBe(5);
     });
 
-    it("should delete exact key without children", async () => {
-      let capturedBody = "";
-      mockFetch((_url, init) => {
-        capturedBody = init?.body as string;
-        return new Response(JSON.stringify({ success: true, deletedCount: 1 }));
-      });
-
-      await kv.delete(["users", 123], { exact: true });
-
-      const parsed = JSON.parse(capturedBody);
-      expect(parsed.exact).toBe(true);
-      expect(parsed.keys).toEqual([["users", 123]]);
-    });
-
-    it("should delete multiple exact keys", async () => {
+    it("should delete with both exact and where options", async () => {
       let capturedBody = "";
       mockFetch((_url, init) => {
         capturedBody = init?.body as string;
         return new Response(JSON.stringify({ success: true, deletedCount: 2 }));
       });
 
-      await kv.delete(
-        [
-          ["users", 123],
-          ["users", 456],
-        ],
-        { exact: true },
-      );
+      const result = await kv.delete(["sessions"], {
+        exact: true,
+        where: { expiresAt: { $lt: 1234567890 } },
+      });
 
       const parsed = JSON.parse(capturedBody);
       expect(parsed.exact).toBe(true);
-      expect(parsed.keys).toHaveLength(2);
+      expect(parsed.where).toEqual({ expiresAt: { $lt: 1234567890 } });
+      expect(result.deletedCount).toBe(2);
     });
   });
 

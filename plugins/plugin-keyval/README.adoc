@@ -34,6 +34,8 @@ Para documentação de uso do SDK, veja o pacote link:../../packages/keyval/READ
 bun add @buntime/plugin-keyval
 ----
 
+IMPORTANT: O plugin KeyVal depende do `@buntime/plugin-database` para acesso ao banco de dados. Certifique-se de que o plugin-database esteja configurado antes do plugin-keyval.
+
 == Configuração
 
 === buntime.jsonc
@@ -42,16 +44,22 @@ bun add @buntime/plugin-keyval
 ----
 {
   "plugins": [
+    "@buntime/plugin-database",  // Dependência obrigatória
     ["@buntime/plugin-keyval", {
-      "libsqlUrl": "${LIBSQL_URL}",           // URL do servidor libSQL
-      "libsqlReplicaUrl": "${LIBSQL_REPLICA_URL}", // URL da réplica (opcional)
-      "libsqlToken": "${LIBSQL_TOKEN}",       // Token de autenticação (opcional)
-      "cleanupInterval": 60000,               // Intervalo de limpeza de expirados (ms)
-      "operationTimeout": 30000               // Timeout de operações (ms)
+      "metrics": {
+        "persistent": false,       // Armazenar métricas no banco de dados
+        "flushInterval": 30000     // Intervalo de flush em ms
+      },
+      "queue": {
+        "cleanupInterval": 60000,  // Intervalo de limpeza (0 para desabilitar)
+        "lockDuration": 30000      // Duração do lock durante processamento (30s)
+      }
     }]
   ]
 }
 ----
+
+NOTE: A configuração do banco de dados (URL do libSQL, réplica, token) é feita no `@buntime/plugin-database`.
 
 === Variáveis de Ambiente
 
@@ -154,7 +162,7 @@ CREATE TABLE kv_queue (
   max_attempts INTEGER DEFAULT 5,   -- Máximo de tentativas
   backoff_schedule TEXT,            -- JSON array de delays
   keys_if_undelivered TEXT,         -- Fallback keys
-  status TEXT DEFAULT 'pending',    -- pending | processing | failed
+  status TEXT DEFAULT 'pending',    -- pending | processing
   locked_until INTEGER,             -- Lock timestamp
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -167,6 +175,7 @@ CREATE TABLE kv_dlq (
   value BLOB NOT NULL,
   error_message TEXT,
   attempts INTEGER NOT NULL,
+  original_created_at INTEGER NOT NULL,
   failed_at INTEGER NOT NULL
 );
 ----
@@ -193,7 +202,7 @@ CREATE TABLE kv_dlq (
 
 | DELETE
 | `/keys/:key`
-| Deletar uma chave
+| Deletar uma chave e suas sub-chaves
 
 | GET
 | `/keys`
@@ -210,6 +219,10 @@ CREATE TABLE kv_dlq (
 | POST
 | `/keys/count`
 | Contar entradas por prefixo
+
+| GET
+| `/keys/count`
+| Conta entries por prefixo
 |===
 
 === Transações
@@ -229,6 +242,45 @@ CREATE TABLE kv_dlq (
 
 === Filas
 
+==== Estados da Fila
+
+[cols="1,3"]
+|===
+| Status | Descrição
+
+| `pending`
+| Aguardando processamento
+
+| `processing`
+| Em processamento (locked)
+|===
+
+NOTE: Mensagens processadas com sucesso são deletadas (não marcadas como 'delivered'). Mensagens que falharam são movidas para a DLQ e deletadas da fila principal (não marcadas como 'failed').
+
+==== Fallback Keys
+
+Mensagens podem especificar chaves de fallback para salvar o valor automaticamente se falharem:
+
+[source,typescript]
+----
+await kv.queue.enqueue(message, {
+  keysIfUndelivered: [["failed_jobs", jobId]]
+});
+----
+
+==== Backoff Customizável
+
+[source,typescript]
+----
+await kv.queue.enqueue(message, {
+  backoffSchedule: [1000, 5000, 30000]  // 1s, 5s, 30s entre retries
+});
+----
+
+Padrão: `[1000, 5000, 10000]` (máximo 4 tentativas)
+
+==== Endpoints
+
 [cols="1,2,2"]
 |===
 | Método | Endpoint | Descrição
@@ -238,24 +290,24 @@ CREATE TABLE kv_dlq (
 | Enfileirar mensagem
 
 | GET
-| `/queue/dequeue`
-| Obter próxima mensagem
+| `/queue/poll`
+| Obter próxima mensagem (polling)
+
+| GET
+| `/queue/listen`
+| SSE para receber mensagens
 
 | POST
-| `/queue/ack/:id`
+| `/queue/ack`
 | Confirmar processamento
 
 | POST
-| `/queue/nack/:id`
+| `/queue/nack`
 | Rejeitar mensagem (retry)
 
 | GET
 | `/queue/stats`
 | Estatísticas da fila
-
-| GET
-| `/queue/listen`
-| SSE para receber mensagens
 |===
 
 === Dead Letter Queue
@@ -308,6 +360,33 @@ CREATE TABLE kv_dlq (
 | Polling para observar prefixo
 |===
 
+=== Full-Text Search
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| POST
+| `/indexes`
+| Criar índice FTS
+
+| GET
+| `/indexes`
+| Listar índices
+
+| DELETE
+| `/indexes`
+| Remover índice
+
+| GET
+| `/search`
+| Buscar (query params)
+
+| POST
+| `/search`
+| Buscar com filtros
+|===
+
 === Métricas
 
 [cols="1,2,2"]
@@ -340,6 +419,8 @@ include::docs/fundamentals/future.adoc[leveloffset=+1]
 include::docs/api/http-api-spec.adoc[leveloffset=+1]
 
 include::docs/api/where-filters.adoc[leveloffset=+1]
+
+include::docs/api/fts.adoc[leveloffset=+1]
 
 include::docs/api/pagination.adoc[leveloffset=+1]
 

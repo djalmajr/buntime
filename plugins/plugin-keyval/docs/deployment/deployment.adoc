@@ -530,11 +530,8 @@ rate(keyval_queue_items_processed_total[5m])
 
         // === Queue ===
         "queue": {
-          // Intervalo de limpeza de itens antigos (ms)
+          // Intervalo de limpeza de locks expirados (ms)
           "cleanupInterval": 60000,      // Padrão: 1 minuto
-
-          // Idade máxima dos itens processados (ms)
-          "maxAge": 3600000,             // Padrão: 1 hora
 
           // Duração do lock de processamento (ms)
           "lockDuration": 30000          // Padrão: 30 segundos
@@ -556,7 +553,7 @@ rate(keyval_queue_items_processed_total[5m])
 
 ==== queue.cleanupInterval
 
-Controla com que frequência o plugin remove itens antigos da queue.
+Controla com que frequência o plugin reseta locks expirados de mensagens presas em processamento.
 
 [cols="1,2"]
 |===
@@ -572,27 +569,9 @@ Controla com que frequência o plugin remove itens antigos da queue.
 | Cleanup a cada 10 segundos (mais agressivo)
 |===
 
+NOTE: Mensagens processadas com sucesso são deletadas imediatamente (não são afetadas pelo cleanup). Mensagens que falharam são movidas para a DLQ.
+
 TIP: Use valores maiores (5-10 minutos) em produção para reduzir carga no database.
-
-==== queue.maxAge
-
-Define quanto tempo itens processados são mantidos antes de serem deletados.
-
-[cols="1,2"]
-|===
-| Valor | Comportamento
-
-| `3600000` (padrão)
-| Manter por 1 hora (para debugging)
-
-| `86400000`
-| Manter por 24 horas (auditoria)
-
-| `0`
-| Deletar imediatamente após processar
-|===
-
-WARNING: Valores muito altos aumentam o storage usado. Itens antigos são apenas para debugging.
 
 ==== queue.lockDuration
 
@@ -713,7 +692,6 @@ TIP: Para produção, use `flushInterval: 30000` (30 segundos) como compromisso 
         // Queue otimizada para produção
         "queue": {
           "cleanupInterval": 300000,     // 5 minutos
-          "maxAge": 86400000,            // 24 horas (auditoria)
           "lockDuration": 60000          // 1 minuto (tarefas médias)
         },
 
@@ -736,5 +714,5 @@ export LIBSQL_TOKEN="seu-token-jwt"
 export LIBSQL_REPLICA_URL="http://libsql-replica:8080"
 
 # Iniciar runner
-bun run apps/runner/src/index.ts
+bun run runtime/index.ts
 ----

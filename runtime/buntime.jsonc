@@ -1,0 +1,10 @@
+{
+  "appsDir": "../../buntime-apps",
+  "poolSize": 100,
+  "plugins": [
+    "@buntime/plugin-metrics",
+    "@buntime/plugin-deployments",
+    "@buntime/plugin-health",
+    "@buntime/plugin-logs"
+  ]
+}

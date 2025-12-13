@@ -797,20 +797,22 @@ export interface KvWhereFilter {
  */
 export interface KvDeleteOptions {
   /**
-   * If true, delete only the exact key(s) without children
-   * If false (default), delete the key(s) as prefix(es), including all children
+   * If true, delete only the exact key without children.
+   * If false (default), delete the key as a prefix including all children.
+   *
    * @default false
    *
    * @example
    * ```typescript
-   * // Delete ["users", 123] and all children (profile, settings, etc.)
+   * // Delete prefix (includes children) - default behavior
    * await kv.delete(["users", 123]);
    *
-   * // Delete only ["users", 123] without children
+   * // Delete exact key only (no children)
    * await kv.delete(["users", 123], { exact: true });
    * ```
    */
   exact?: boolean;
+
   /**
    * Filter to apply before deleting
    * Only entries matching the filter will be deleted

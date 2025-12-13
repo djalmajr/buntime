@@ -1,10 +1,8 @@
 # Buntime
 
-## Apps
+## Runtime
 
-@.claude/rules/apps/runner.md
-
-@.claude/rules/apps/cpanel.md
+@.claude/rules/runtime.md
 
 ## Plugins
 

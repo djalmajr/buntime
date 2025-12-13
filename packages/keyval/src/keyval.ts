@@ -661,33 +661,49 @@ export class Kv {
    * ```
    */
   async delete(keys: KvKey | KvKey[], options?: KvDeleteOptions): Promise<KvDeleteResult> {
-    // Normalize keys: single key becomes array of one
-    const normalizedKeys = this.isNestedKeyArray(keys) ? (keys as KvKey[]) : [keys as KvKey];
-    const exact = options?.exact ?? false;
+    // Multiple keys - use batch endpoint
+    if (this.isNestedKeyArray(keys)) {
+      const keyArray = keys as KvKey[];
 
-    const fetchOptions: RequestInit = { method: "DELETE" };
+      const body: { keys: KvKey[]; exact?: boolean; where?: unknown } = { keys: keyArray };
+      if (options?.exact !== undefined) {
+        body.exact = options.exact;
+      }
+      if (options?.where) {
+        body.where = options.where;
+      }
 
-    // Build request body if we have options or multiple keys
-    if (options?.where || normalizedKeys.length > 1 || exact) {
-      fetchOptions.headers = { "Content-Type": "application/json" };
-      fetchOptions.body = JSON.stringify(
-        {
-          keys: normalizedKeys,
-          exact,
-          ...(options?.where && { where: options.where }),
-        },
-        jsonReplacer,
-      );
+      const res = await fetch(`${this.baseUrl}/keys/delete-batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body, jsonReplacer),
+      });
 
-      const res = await fetch(`${this.baseUrl}/keys`, fetchOptions);
-      return res.json() as Promise<KvDeleteResult>;
+      const data = (await res.json()) as { deletedCount: number };
+      return { success: true, deletedCount: data.deletedCount };
     }
 
-    // Simple case: single prefix without options
-    // normalizedKeys always has at least 1 element at this point
-    const keyPath = normalizedKeys[0]!.map(encodeKeyPart).join("/");
+    // Single key deletion
+    const key = keys as KvKey;
+    const keyPath = key.map(encodeKeyPart).join("/");
+    const fetchOptions: RequestInit = { method: "DELETE" };
+
+    // Add where filter or exact option in request body if provided
+    if (options?.where || options?.exact !== undefined) {
+      fetchOptions.headers = { "Content-Type": "application/json" };
+      const body: { where?: unknown; exact?: boolean } = {};
+      if (options.where) {
+        body.where = options.where;
+      }
+      if (options.exact !== undefined) {
+        body.exact = options.exact;
+      }
+      fetchOptions.body = JSON.stringify(body, jsonReplacer);
+    }
+
     const res = await fetch(`${this.baseUrl}/keys/${keyPath}`, fetchOptions);
-    return res.json() as Promise<KvDeleteResult>;
+    const data = (await res.json()) as { deletedCount: number };
+    return { success: true, deletedCount: data.deletedCount };
   }
 
   /**

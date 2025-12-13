@@ -1,0 +1,390 @@
+= Buntime Runtime
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+ifdef::env-github[]
+:tip-caption: 💡
+:note-caption: ℹ️
+:important-caption: ⚠️
+:caution-caption: 🔥
+:warning-caption: ⚠️
+endif::[]
+
+toc::[]
+
+== Visao Geral
+
+Worker pool runner para aplicacoes Bun, projetado como engine para uma plataforma serverless.
+Inclui admin dashboard (React) integrado.
+
+=== Features
+
+* **Worker Pool Management** - Spawning dinamico, pool size configuravel, lifecycle automatico
+* **Semantic Versioning** - Suporte a `app@1.0.0`, `app@1`, `app`
+* **Plugin System** - Config JSONC, lifecycle hooks, ordenacao por prioridade
+* **Admin Dashboard** - Interface React para monitoramento e gerenciamento
+* **Base Path Injection** - Suporte a SPAs sob subpaths via `<base href>`
+* **Auth** - Keycloak/OIDC/JWT (AuthN) + politicas XACML (AuthZ)
+* **Monitoring** - SSE, Prometheus, stats por worker
+
+=== Tech Stack
+
+**Server:** Bun, Hono, Zod, quick-lru, semver
+
+**Client:** React 19, TanStack (Router, Query, Table), Tailwind v4, Radix UI, shadcn/ui, i18next, Recharts
+
+== Estrutura do Projeto
+
+[source]
+----
+runtime/
+├── index.ts              # Entry point unificado
+├── buntime.jsonc         # Configuracao do runtime
+├── bunfig.toml           # Configuracao Bun (plugins)
+├── components.json       # shadcn/ui config
+├── client/               # Admin Dashboard (React)
+│   ├── index.html        # HTML com <base href>
+│   ├── index.tsx         # React entry point
+│   ├── index.css         # Tailwind styles
+│   ├── components/       # UI components
+│   │   ├── icon.tsx
+│   │   ├── navigation/
+│   │   └── ui/           # shadcn/ui
+│   ├── helpers/          # API client, i18n, query
+│   ├── hooks/            # Custom hooks
+│   ├── routes/           # TanStack Router (file-based)
+│   │   ├── __root.tsx
+│   │   ├── index.tsx
+│   │   ├── deployments/
+│   │   ├── redirects/
+│   │   ├── keyval/
+│   │   ├── metrics/
+│   │   └── ...
+│   └── routeTree.gen.ts  # Generated routes
+└── server/               # Worker Pool Server (Hono)
+    ├── index.ts          # Bun.serve entry
+    ├── api.ts            # Hono app (routes aggregator)
+    ├── app.ts            # Request resolution logic
+    ├── config.ts         # Runtime configuration
+    ├── constants.ts      # Environment variables
+    ├── libs/
+    │   ├── dir-info.ts   # Directory operations
+    │   └── pool/         # Worker pool management
+    │       ├── pool.ts       # WorkerPool class & singleton
+    │       ├── instance.ts   # WorkerInstance lifecycle
+    │       ├── wrapper.ts    # Worker thread code
+    │       ├── config.ts     # Worker configuration
+    │       ├── metrics.ts    # Pool metrics
+    │       └── types.ts      # Message types
+    ├── plugins/
+    │   ├── builtin.ts    # Built-in plugin resolvers
+    │   ├── loader.ts     # Plugin loader
+    │   └── registry.ts   # Plugin registry
+    ├── routes/
+    │   ├── internal/     # /_/* routes
+    │   └── worker.ts     # App routes
+    └── utils/
+        ├── get-app-dir.ts
+        ├── get-entrypoint.ts
+        ├── get-public-routes.ts
+        ├── glob-to-regex.ts
+        └── serve-static.ts
+----
+
+== Configuracao
+
+=== buntime.jsonc
+
+[source,jsonc]
+----
+{
+  "appsDir": "./apps",           // Diretorio das aplicacoes
+  "poolSize": 100,               // Tamanho do pool
+  "plugins": [
+    "@buntime/plugin-metrics",
+    ["@buntime/plugin-proxy", {
+      "rules": [
+        {
+          "name": "My App",
+          "pattern": "^/myapp(/.*)?$",
+          "target": "http://localhost:3000",
+          "rewrite": "$1",
+          "base": "/myapp"        // Injeta <base href="/myapp/">
+        }
+      ]
+    }]
+  ]
+}
+----
+
+=== Base Path para SPAs
+
+Quando uma SPA precisa rodar sob um subpath (ex: `/cpanel`), o runner injeta automaticamente a tag `<base href>` em respostas HTML.
+
+==== Como Funciona
+
+O header `x-base` e adicionado as requests para workers. O worker wrapper (`wrapper.ts`) injeta a tag base no HTML:
+
+[source,typescript]
+----
+// wrapper.ts - injeta base em respostas HTML
+const base = req.headers["x-base"];
+const isHtml = headers["content-type"]?.includes("text/html");
+
+if (isHtml && base) {
+  const html = text.replace("<head>", `<head><base href="${base}/" />`);
+  // ...
+}
+----
+
+==== Configuracao no Proxy
+
+[source,jsonc]
+----
+{
+  "rules": [
+    {
+      "name": "CPanel App",
+      "pattern": "^/cpanel(/.*)?$",
+      "target": "http://localhost:4000",
+      "rewrite": "$1",
+      "base": "/cpanel"      // Injeta <base href="/cpanel/">
+    }
+  ]
+}
+----
+
+==== No Cliente (TanStack Router)
+
+O cliente React le a tag `<base>` e configura o router:
+
+[source,typescript]
+----
+// client/index.tsx
+const base = document.querySelector("base");
+const url = new URL(base?.href || "http://a.b");
+
+const router = createRouter({
+  basepath: url.pathname,  // Ex: "/cpanel/"
+  routeTree,
+});
+----
+
+=== worker.jsonc (por app)
+
+[source,jsonc]
+----
+{
+  "entrypoint": "public/index.html",
+  "timeout": 30,
+  "ttl": 60,
+  "maxRequests": 1000,
+  "idleTimeout": 60,
+  "autoInstall": false,
+  "lowMemory": false
+}
+----
+
+[cols="1,1,1,2"]
+|===
+| Opcao | Tipo | Default | Descricao
+
+| `autoInstall`
+| boolean
+| false
+| Executa `bun install` antes de iniciar worker
+
+| `entrypoint`
+| string
+| auto
+| Entrypoint da aplicacao
+
+| `idleTimeout`
+| number
+| 60
+| Threshold de idle (segundos)
+
+| `lowMemory`
+| boolean
+| false
+| Ativa modo low-memory
+
+| `maxRequests`
+| number
+| 1000
+| Maximo de requests antes de reciclar
+
+| `timeout`
+| number
+| 30
+| Timeout de request (segundos)
+
+| `ttl`
+| number
+| 0
+| TTL do worker (0 = sem limite)
+|===
+
+== Rotas
+
+=== Internal (`/_/*`)
+
+* `GET /_/deployments` - Gerenciamento de deployments
+* `GET /_/metrics` - Metricas do pool (JSON)
+* `GET /_/sse` - Stream SSE
+* `GET /_/stats` - Stats completos
+* `GET /_/plugins` - Lista plugins carregados
+
+=== Plugin (`/_/{name}/*`)
+
+* `/_/plugin-metrics/prometheus` - Metricas Prometheus
+* `/_/plugin-authn/*` - Endpoints de autenticacao
+* `/_/plugin-authz/*` - Endpoints de autorizacao
+* `/_/plugin-keyval/*` - API KeyVal
+* `/_/plugin-gateway/*` - Cache e rate limit
+
+=== Worker (`/`)
+
+* `ALL /:app` - Roteia para worker da app
+* `ALL /:app/*` - Roteia paths aninhados
+
+**Resolucao de Versao:**
+
+* `/hello-api` -> Versao mais alta
+* `/hello-api@1.0.0` -> Versao exata
+* `/hello-api@1` -> Maior versao 1.x.x
+
+== Scripts
+
+[source,bash]
+----
+bun dev              # Watch mode
+bun lint             # Format + type check
+bun test             # Run tests
+bun build            # Build runner
+bun build:bin        # Compile to binary
+----
+
+== Arquitetura
+
+=== Request Flow
+
+[source]
+----
+Request -> Hono Router -> Resolve?
+  |-- /_/* -> Internal Routes
+  |-- /_/{plugin}/* -> Plugin Routes
+  |-- /app/* (plugin app) -> Plugin App Handler
+  +-- /:app/* -> Worker Pool -> Worker Thread
+----
+
+=== Principios de Design
+
+. Main thread orquestra, nunca executa logica de app
+. Workers proveem isolamento (crash nao afeta main)
+. Pipeline de plugins intercepta requests/responses
+. Base path injection permite SPAs sob subpaths
+
+=== Worker Lifecycle
+
+[source]
+----
+Creating -> Ready -> Active <-> Idle -> Terminated
+----
+
+== Componentes Principais
+
+[cols="1,2"]
+|===
+| Componente | Responsabilidade
+
+| `server/api.ts`
+| Hono app, agregador de rotas
+
+| `server/app.ts`
+| Resolucao de requests, plugin apps
+
+| `server/libs/pool/pool.ts`
+| Classe WorkerPool, LRU cache
+
+| `server/libs/pool/instance.ts`
+| Lifecycle do WorkerInstance
+
+| `server/libs/pool/wrapper.ts`
+| Request handling no worker, base injection
+
+| `server/plugins/loader.ts`
+| Carrega plugins do config
+
+| `server/plugins/registry.ts`
+| Lifecycle dos plugins
+
+| `client/`
+| Admin dashboard React
+|===
+
+== Client (Admin Dashboard)
+
+=== Path Aliases
+
+`~/` -> `./client/`
+
+[source,typescript]
+----
+import { Button } from "~/components/ui/button";
+import { api } from "~/helpers/api-client";
+----
+
+=== Rotas do Dashboard
+
+[cols="1,2"]
+|===
+| Rota | Descricao
+
+| `/` | Dashboard (metricas, workers)
+| `/deployments` | File browser
+| `/redirects` | Proxy rules CRUD
+| `/keyval/*` | KeyVal explorer
+| `/metrics/*` | Metricas detalhadas
+| `/authz/*` | Policies XACML
+| `/gateway/*` | Cache management
+| `/durable/*` | Durable actors
+|===
+
+=== Patterns
+
+==== Icon Component
+
+[source,tsx]
+----
+import { Icon } from "~/components/icon";
+
+<Icon icon="lucide:search" className="size-4" />
+----
+
+==== API Client
+
+[source,typescript]
+----
+import { api } from "~/helpers/api-client";
+
+const res = await api._.deployments.list.$get({ query: { path } });
+----
+
+==== React Query
+
+[source,typescript]
+----
+// Sufixo $ para evitar conflitos
+const templates$ = useTemplates({ page: 1 });
+const create$ = useCreateCampaign();
+
+{templates$.isLoading && <Spinner />}
+{templates$.data?.data.map(...)}
+----
+
+include::docs/logging.adoc[leveloffset=+1]

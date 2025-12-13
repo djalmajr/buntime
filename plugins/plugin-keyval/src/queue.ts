@@ -6,7 +6,6 @@ import type { KvEnqueueOptions, KvKey, KvQueueListenerConfig, KvQueueMessage } f
 const DEFAULT_BACKOFF_SCHEDULE = [1000, 5000, 10000];
 const LOCK_DURATION_MS = 30_000; // 30 seconds
 const DEFAULT_CLEANUP_INTERVAL = 60_000; // 60 seconds
-const DEFAULT_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
  * Queue cleanup configuration options
@@ -17,12 +16,6 @@ export interface KvQueueCleanupConfig {
    * @default 60000
    */
   cleanupInterval?: number;
-
-  /**
-   * Max age in ms for delivered/failed messages before deletion
-   * @default 86400000 (24 hours)
-   */
-  maxAge?: number;
 
   /**
    * Lock duration in ms for processing messages
@@ -56,7 +49,6 @@ export class KvQueue {
   ) {
     this.cleanupConfig = {
       cleanupInterval: config?.cleanupInterval ?? DEFAULT_CLEANUP_INTERVAL,
-      maxAge: config?.maxAge ?? DEFAULT_MAX_AGE,
       lockDuration: config?.lockDuration ?? LOCK_DURATION_MS,
     };
     this.startCleanup();
@@ -514,7 +506,7 @@ export class KvQueue {
   }
 
   /**
-   * Start periodic cleanup of old messages
+   * Start periodic cleanup to reset expired locks
    */
   private startCleanup(): void {
     // Skip cleanup if interval is 0
@@ -524,16 +516,6 @@ export class KvQueue {
 
     this.cleanupInterval = setInterval(async () => {
       try {
-        const maxAgeThreshold = Date.now() - this.cleanupConfig.maxAge;
-
-        // Clean up old failed/delivered messages
-        await this.adapter.execute(
-          `DELETE FROM kv_queue
-           WHERE status IN ('delivered', 'failed')
-             AND updated_at < ?`,
-          [maxAgeThreshold],
-        );
-
         // Reset stuck processing messages (locked too long)
         const now = Date.now();
         await this.adapter.execute(

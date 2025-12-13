@@ -282,15 +282,15 @@ describe("AtomicOperation", () => {
     });
   });
 
-  describe("commitVersionstamp", () => {
-    it("should resolve versionstamp placeholder in key", async () => {
-      const vs = kv.commitVersionstamp();
+  describe("uuidv7", () => {
+    it("should resolve uuidv7 placeholder in key", async () => {
+      const id = kv.uuidv7();
       const postId = "post-123";
 
       const result = await kv
         .atomic()
         .set(["posts", postId], { title: "Hello" })
-        .set(["posts_by_time", vs, postId], postId)
+        .set(["posts_by_time", id, postId], postId)
         .commit();
 
       expect(result.ok).toBe(true);
@@ -309,14 +309,14 @@ describe("AtomicOperation", () => {
       expect(indexKey?.[2]).toBe(postId);
     });
 
-    it("should use same versionstamp for all placeholders", async () => {
-      const vs1 = kv.commitVersionstamp();
-      const vs2 = kv.commitVersionstamp();
+    it("should use same uuidv7 for all placeholders in same commit", async () => {
+      const id1 = kv.uuidv7();
+      const id2 = kv.uuidv7();
 
       const result = await kv
         .atomic()
-        .set(["index1", vs1], "value1")
-        .set(["index2", vs2], "value2")
+        .set(["index1", id1], "value1")
+        .set(["index2", id2], "value2")
         .commit();
 
       expect(result.ok).toBe(true);

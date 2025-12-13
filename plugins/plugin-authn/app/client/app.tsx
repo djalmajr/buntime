@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { createAuthClient } from "better-auth/react";
 import { genericOAuthClient } from "better-auth/client/plugins";
+import { createAuthClient } from "better-auth/react";
+import { useState } from "react";
 import { cn } from "./utils";
 
 // Create auth client with genericOAuth plugin

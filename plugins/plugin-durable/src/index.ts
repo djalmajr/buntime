@@ -122,3 +122,5 @@ export default function durableObjectsExtension(config: DurableObjectsConfig = {
 export { durableObjectsExtension };
 export { DurableObjectRegistry } from "./registry";
 export { DurableObjectStorage, initDatabase } from "./storage";
+
+export type DurableRoutesType = typeof routes;

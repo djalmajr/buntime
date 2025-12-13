@@ -69,6 +69,50 @@ for await (const entry of kv.list(["products"], {
 }
 ----
 
+==== Exemplo de $between
+
+[source,typescript]
+----
+// Produtos com preço entre 10 e 100 (inclusivo)
+for await (const entry of kv.list(["products"], {
+  where: { price: { $between: [10, 100] } }
+})) {
+  console.log(entry.value);
+}
+
+// Usuários com idade entre 18 e 65
+for await (const entry of kv.list(["users"], {
+  where: { age: { $between: [18, 65] } }
+})) {
+  console.log(entry.value);
+}
+
+// Eventos em um período de datas (timestamps)
+for await (const entry of kv.list(["events"], {
+  where: {
+    startDate: { $between: [1704067200000, 1706745600000] }  // Jan 2024
+  }
+})) {
+  console.log(entry.value);
+}
+----
+
+==== Suporte a BigInt
+
+Filtros suportam valores `bigint` para comparações numéricas precisas:
+
+[source,typescript]
+----
+// Transações com valor alto (BigInt)
+for await (const entry of kv.list(["transactions"], {
+  where: { amount: { $gt: 9007199254740991n } }  // > Number.MAX_SAFE_INTEGER
+})) {
+  console.log(entry.value);
+}
+----
+
+NOTE: BigInt é convertido para string internamente para comparação no banco de dados.
+
 === Operadores de Array
 
 [cols="1,2,2"]
@@ -169,6 +213,34 @@ for await (const entry of kv.list(["users"], {
 }
 ----
 
+==== Exemplos de $startsWith e $endsWith
+
+NOTE: Estes operadores são **case-sensitive**. Use `$startsWithi` e `$endsWithi` para busca case-insensitive.
+
+[source,typescript]
+----
+// Arquivos que começam com "report_"
+for await (const entry of kv.list(["files"], {
+  where: { filename: { $startsWith: "report_" } }
+})) {
+  console.log(entry.value);
+}
+
+// Emails com domínio específico
+for await (const entry of kv.list(["users"], {
+  where: { email: { $endsWith: "@company.com" } }
+})) {
+  console.log(entry.value);
+}
+
+// Versões case-insensitive
+for await (const entry of kv.list(["files"], {
+  where: { filename: { $endsWithi: ".PDF" } }  // Encontra .pdf, .PDF, .Pdf
+})) {
+  console.log(entry.value);
+}
+----
+
 === Operadores de Existência
 
 [cols="1,2,2"]
@@ -204,6 +276,49 @@ for await (const entry of kv.list(["posts"], {
   where: { tags: { $notEmpty: true } }
 })) {
   console.log(entry.value);
+}
+----
+
+==== Diferença entre $null e $empty
+
+[cols="1,2,2"]
+|===
+| Operador | Condição | Exemplo de Match
+
+| `$null: true`
+| Campo é `null` ou não existe
+| `{ name: null }` ou `{}`
+
+| `$empty: true`
+| Campo é `null`, string vazia `""`, ou array vazio `[]`
+| `{ tags: [] }`, `{ bio: "" }`, `{ avatar: null }`
+
+| `$notEmpty: true`
+| Campo existe e tem valor não-vazio
+| `{ tags: ["a"] }`, `{ bio: "Hello" }`
+|===
+
+[source,typescript]
+----
+// Usuários sem avatar definido (null ou não existe)
+for await (const entry of kv.list(["users"], {
+  where: { avatar: { $null: true } }
+})) {
+  console.log("Sem avatar:", entry.value.name);
+}
+
+// Usuários com bio vazia (null, "" ou não preenchida)
+for await (const entry of kv.list(["users"], {
+  where: { bio: { $empty: true } }
+})) {
+  console.log("Bio vazia:", entry.value.name);
+}
+
+// Produtos com tags preenchidas
+for await (const entry of kv.list(["products"], {
+  where: { tags: { $notEmpty: true } }
+})) {
+  console.log("Com tags:", entry.value.name, entry.value.tags);
 }
 ----
 
@@ -261,6 +376,35 @@ for await (const entry of kv.list(["users"], {
 }
 ----
 
+==== Combinando $not com $and/$or
+
+[source,typescript]
+----
+// Usuários ativos que NÃO são administradores
+for await (const entry of kv.list(["users"], {
+  where: {
+    $and: [
+      { status: { $eq: "active" } },
+      { $not: { role: { $eq: "admin" } } }
+    ]
+  }
+})) {
+  console.log(entry.value);
+}
+
+// Produtos que NÃO estão em promoção E NÃO estão esgotados
+for await (const entry of kv.list(["products"], {
+  where: {
+    $and: [
+      { $not: { onSale: { $eq: true } } },
+      { $not: { stock: { $eq: 0 } } }
+    ]
+  }
+})) {
+  console.log(entry.value);
+}
+----
+
 === Campos Aninhados
 
 Use notação de ponto para acessar campos aninhados:
@@ -296,24 +440,33 @@ for await (const entry of kv.list(["products"], {
 
 === Placeholder $now
 
-Use `kv.now()` para comparar com o timestamp atual do servidor:
+O método `kv.now()` retorna um placeholder que é resolvido no **servidor** para `Date.now()`. Isso evita discrepâncias de tempo entre cliente e servidor.
 
 [source,typescript]
 ----
-// Sessões expiradas
+// Sessões expiradas (expiresAt < tempo atual do servidor)
 for await (const entry of kv.list(["sessions"], {
   where: { expiresAt: { $lt: kv.now() } }
 })) {
   console.log("Sessão expirada:", entry.value);
 }
 
-// Eventos futuros
+// Posts publicados (publishedAt <= agora)
+for await (const entry of kv.list(["posts"], {
+  where: { publishedAt: { $lte: kv.now() } }
+})) {
+  console.log("Publicado:", entry.value.title);
+}
+
+// Eventos futuros (startDate > agora)
 for await (const entry of kv.list(["events"], {
   where: { startDate: { $gt: kv.now() } }
 })) {
-  console.log("Evento futuro:", entry.value);
+  console.log("Evento futuro:", entry.value.name);
 }
 ----
+
+WARNING: `kv.now()` só está disponível no SDK cliente (`@buntime/keyval`). Para HTTP API, use `{ "$now": true }`.
 
 === Múltiplos Operadores no Mesmo Campo
 

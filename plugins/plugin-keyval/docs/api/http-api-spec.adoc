@@ -27,18 +27,6 @@ Esta seção documenta a API REST completa do plugin KeyVal, incluindo todos os 
 
 Obtém um único valor por chave.
 
-**Parâmetros de Query:**
-
-[cols="1,1,1,2"]
-|===
-| Parâmetro | Tipo | Padrão | Descrição
-
-| consistency
-| string
-| "strong"
-| Nível de consistência: "strong" ou "eventual"
-|===
-
 **Resposta (200):**
 
 [source,typescript]
@@ -64,7 +52,6 @@ Obtém um único valor por chave.
 [source,bash]
 ----
 curl -X GET "http://localhost:4000/_/plugin-keyval/keys/users/123"
-curl -X GET "http://localhost:4000/_/plugin-keyval/keys/users/123?consistency=eventual"
 ----
 
 ==== POST /keys/batch
@@ -79,8 +66,7 @@ Obtém múltiplos valores em uma única requisição (batch get).
   "keys": [
     ["users", "123"],
     ["posts", "456"]
-  ],
-  "consistency": "strong" // opcional
+  ]
 }
 ----
 
@@ -96,11 +82,18 @@ Obtém múltiplos valores em uma única requisição (batch get).
   },
   {
     "key": ["posts", "456"],
-    "value": {"title": "Hello World"},
-    "versionstamp": "00000000000000020000"
+    "value": null,
+    "versionstamp": null
   }
 ]
 ----
+
+NOTE: Quando uma chave não existe, o retorno contém `value: null` e `versionstamp: null`. A ordem das respostas corresponde à ordem das chaves solicitadas.
+
+**Validação:**
+
+- Máximo de 1000 chaves por requisição
+- Cada chave deve ter no máximo 20 partes
 
 **Exemplo:**
 
@@ -109,6 +102,12 @@ Obtém múltiplos valores em uma única requisição (batch get).
 curl -X POST "http://localhost:4000/_/plugin-keyval/keys/batch" \
   -H "Content-Type: application/json" \
   -d '{"keys": [["users", "123"], ["posts", "456"]]}'
+
+# Resposta inclui chaves existentes e não existentes
+# [
+#   {"key": ["users", "123"], "value": {...}, "versionstamp": "..."},
+#   {"key": ["posts", "456"], "value": null, "versionstamp": null}
+# ]
 ----
 
 ==== PUT /keys/:key
@@ -167,7 +166,17 @@ curl -X PUT "http://localhost:4000/_/plugin-keyval/keys/sessions/abc?expireIn=36
 
 ==== DELETE /keys/:key
 
-Remove uma chave ou múltiplas entradas por filtro.
+Remove uma chave específica ou múltiplas entradas por filtro WHERE.
+
+**Modo 1: Delete simples**
+
+Sem body, deleta a chave exata fornecida na URL.
+
+NOTE: O método delete() remove a chave especificada E todas as sub-chaves (filhos) que começam com esse prefixo. Por exemplo, deletar `["users", "123"]` irá remover também `["users", "123", "profile"]`, `["users", "123", "settings"]`, etc.
+
+**Modo 2: Delete com filtro WHERE**
+
+Com body contendo `where`, a chave na URL é tratada como **prefixo** e todas as entradas que correspondem ao filtro são deletadas em lote.
 
 **Request Body (Opcional):**
 
@@ -181,14 +190,13 @@ Remove uma chave ou múltiplas entradas por filtro.
 }
 ----
 
-IMPORTANT: Se `where` for fornecido, a chave é tratada como prefixo e todas as entradas correspondentes ao filtro são deletadas.
+IMPORTANT: Quando `where` é fornecido, a chave na URL vira um prefixo. Todas as entradas com esse prefixo que satisfazem o filtro são deletadas atomicamente.
 
 **Resposta (200):**
 
 [source,typescript]
 ----
 {
-  "success": true,
   "deletedCount": 3
 }
 ----
@@ -245,11 +253,6 @@ Lista entradas por prefixo com paginação simples (sem filtros).
 | boolean
 | false
 | Retornar em ordem reversa
-
-| consistency
-| string
-| "strong"
-| Nível de consistência: "strong" ou "eventual"
 |===
 
 **Resposta (200):**
@@ -298,7 +301,6 @@ Lista entradas com suporte a filtros `where` (use este endpoint quando precisar 
   "end": ["users", "200"],       // opcional, chave final
   "limit": 100,                  // opcional, máximo de entradas
   "reverse": false,              // opcional, ordem reversa
-  "consistency": "strong",       // opcional, nível de consistência
   "where": {                     // opcional, filtro
     "status": { "$eq": "active" },
     "age": { "$gt": 18 }
@@ -502,6 +504,33 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
     "prefix": ["sessions"],
     "where": {"expiresAt": {"$gt": {"$now": true}}}
   }'
+
+# Posts publicados com range de datas e paginação
+curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefix": ["posts"],
+    "start": ["posts", "2024-01"],
+    "end": ["posts", "2024-12"],
+    "limit": 50,
+    "reverse": true,
+    "where": {
+      "status": {"$eq": "published"},
+      "likes": {"$gt": 100}
+    }
+  }'
+
+# Busca case-insensitive com múltiplas condições
+curl -X POST "http://localhost:4000/_/plugin-keyval/keys/list" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefix": ["products"],
+    "where": {
+      "name": {"$containsi": "phone"},
+      "price": {"$between": [100, 500]},
+      "inStock": {"$eq": true}
+    }
+  }'
 ----
 
 ==== GET /keys/count
@@ -671,6 +700,8 @@ Executa operações atômicas com controle de concorrência otimista.
 | Adiciona ao início de um array
 |===
 
+NOTE: Para operações `sum`, `max` e `min`, valores BigInt são automaticamente convertidos para Number. Os valores devem estar no range de `Number.MIN_SAFE_INTEGER` (-9007199254740991) a `Number.MAX_SAFE_INTEGER` (9007199254740991) para evitar perda de precisão.
+
 **Resposta (200) - Sucesso:**
 
 [source,typescript]
@@ -689,6 +720,8 @@ Executa operações atômicas com controle de concorrência otimista.
   "ok": false
 }
 ----
+
+NOTE: Se `commit()` for chamado sem nenhum check nem mutation (requisição vazia ou arrays vazios), retorna `{ ok: true, versionstamp: <uuid> }`.
 
 **Resposta (400) - Erro de validação:**
 
@@ -724,6 +757,20 @@ curl -X POST "http://localhost:4000/_/plugin-keyval/atomic" \
     ]
   }'
 
+# Múltiplos checks em uma única requisição (variadic)
+curl -X POST "http://localhost:4000/_/plugin-keyval/atomic" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "checks": [
+      {"key": ["users", "123"], "versionstamp": "00000000000000010000"},
+      {"key": ["users", "456"], "versionstamp": "00000000000000020000"},
+      {"key": ["settings", "config"], "versionstamp": null}
+    ],
+    "mutations": [
+      {"type": "set", "key": ["batch", "processed"], "value": true}
+    ]
+  }'
+
 # Múltiplas operações atômicas
 curl -X POST "http://localhost:4000/_/plugin-keyval/atomic" \
   -H "Content-Type: application/json" \
@@ -754,7 +801,8 @@ Adiciona uma mensagem à fila.
   },
   "options": {
     "delay": 5000,  // atrasar 5 segundos (opcional)
-    "keys": [["email-jobs", "123"]]  // opcional
+    "backoffSchedule": [1000, 5000, 10000],  // opcional
+    "keysIfUndelivered": [["failed_jobs", "123"]]  // opcional
   }
 }
 ----
@@ -976,13 +1024,13 @@ Lista mensagens na DLQ.
 ----
 [
   {
-    "id": "01J9X3K2M5N7P8Q9R0S1T2V3W4",
-    "value": {"task": "failed-email"},
+    "id": "...",
+    "originalId": "...",
+    "value": {...},
     "attempts": 3,
-    "maxAttempts": 3,
-    "status": "failed",
-    "createdAt": 1234567890000,
-    "updatedAt": 1234567900000
+    "errorMessage": "Connection timeout",
+    "originalCreatedAt": 1234567890000,
+    "failedAt": 1234567900000
   }
 ]
 ----
@@ -1007,13 +1055,13 @@ Obtém uma mensagem específica da DLQ.
 [source,typescript]
 ----
 {
-  "id": "01J9X3K2M5N7P8Q9R0S1T2V3W4",
-  "value": {"task": "failed-email"},
+  "id": "...",
+  "originalId": "...",
+  "value": {...},
   "attempts": 3,
-  "maxAttempts": 3,
-  "status": "failed",
-  "createdAt": 1234567890000,
-  "updatedAt": 1234567900000
+  "errorMessage": "Connection timeout",
+  "originalCreatedAt": 1234567890000,
+  "failedAt": 1234567900000
 }
 ----
 
@@ -1042,7 +1090,8 @@ Reenvia uma mensagem da DLQ para processamento.
 [source,typescript]
 ----
 {
-  "ok": true
+  "ok": true,
+  "newId": "01J9X3K2M5N7P8Q9R0S1T2V3W5"
 }
 ----
 
@@ -1092,7 +1141,6 @@ Remove todas as mensagens da DLQ (purge).
 [source,typescript]
 ----
 {
-  "ok": true,
   "deletedCount": 42
 }
 ----
@@ -1112,19 +1160,17 @@ Stream SSE para observar mudanças em chaves específicas.
 
 **Parâmetros de Query:**
 
-[cols="1,1,1,2"]
+[cols="1,1,2"]
 |===
-| Parâmetro | Tipo | Padrão | Descrição
+| Parâmetro | Tipo | Descrição
 
 | keys
 | string
-| (obrigatório)
 | Chaves separadas por vírgula (ex: "users/123,posts/456")
 
 | initial
 | boolean
-| true
-| Emitir valores iniciais no primeiro evento
+| Emitir valores iniciais no primeiro evento (padrão: true)
 |===
 
 **Resposta (SSE Stream):**
@@ -1153,8 +1199,8 @@ data: [{"key":["users","123"],"value":{"name":"João Updated"},"versionstamp":"0
 # Observar uma chave
 curl -N "http://localhost:4000/_/plugin-keyval/watch?keys=users/123"
 
-# Observar múltiplas chaves
-curl -N "http://localhost:4000/_/plugin-keyval/watch?keys=users/123,posts/456"
+# Observar múltiplas chaves (separadas por vírgula)
+curl -N "http://localhost:4000/_/plugin-keyval/watch?keys=config,settings"
 
 # Sem emissão inicial
 curl -N "http://localhost:4000/_/plugin-keyval/watch?keys=users/123&initial=false"
@@ -1321,6 +1367,333 @@ curl -X GET "http://localhost:4000/_/plugin-keyval/watch/prefix/poll?prefix=user
 curl -X GET "http://localhost:4000/_/plugin-keyval/watch/prefix/poll?prefix=users&versionstamps=users/001:00000000000000010000,users/002:00000000000000020000"
 ----
 
+=== Full-Text Search (FTS)
+
+==== POST /indexes
+
+Cria um índice FTS para busca textual em campos específicos.
+
+**Request Body:**
+
+[source,typescript]
+----
+{
+  "prefix": ["products"],
+  "options": {
+    "fields": ["name", "description", "category"],
+    "tokenize": "porter"  // opcional: "unicode61" (padrão), "porter", "ascii"
+  }
+}
+----
+
+**Tokenizers Disponíveis:**
+
+[cols="1,2"]
+|===
+| Tokenizer | Descrição
+
+| `unicode61`
+| Tokenização Unicode (padrão) - suporta caracteres internacionais
+
+| `porter`
+| Aplica algoritmo Porter Stemming - normaliza palavras para raízes (ex: "running" → "run")
+
+| `ascii`
+| Tokenização ASCII - apenas caracteres ASCII básicos
+|===
+
+**Resposta (200):**
+
+[source,json]
+----
+{
+  "ok": true
+}
+----
+
+**Resposta (400) - Validação:**
+
+[source,json]
+----
+{
+  "error": "options.fields must be a non-empty array"
+}
+----
+
+IMPORTANT: Um índice FTS é necessário antes de realizar buscas. Cada prefixo pode ter apenas um índice. Criar um novo índice para o mesmo prefixo substitui o anterior.
+
+**Exemplo:**
+
+[source,bash]
+----
+# Criar índice simples para produtos
+curl -X POST "http://localhost:4000/_/plugin-keyval/indexes" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefix": ["products"],
+    "options": {
+      "fields": ["name", "description", "category"]
+    }
+  }'
+
+# Criar índice com Porter Stemming para posts
+curl -X POST "http://localhost:4000/_/plugin-keyval/indexes" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefix": ["posts"],
+    "options": {
+      "fields": ["title", "content", "tags"],
+      "tokenize": "porter"
+    }
+  }'
+----
+
+==== GET /indexes
+
+Lista todos os índices FTS existentes.
+
+**Resposta (200):**
+
+[source,typescript]
+----
+[
+  {
+    "prefix": ["products"],
+    "fields": ["name", "description", "category"],
+    "tokenize": "unicode61"
+  },
+  {
+    "prefix": ["posts"],
+    "fields": ["title", "content", "tags"],
+    "tokenize": "porter"
+  }
+]
+----
+
+**Exemplo:**
+
+[source,bash]
+----
+curl -X GET "http://localhost:4000/_/plugin-keyval/indexes"
+----
+
+==== DELETE /indexes
+
+Remove um índice FTS específico.
+
+**Parâmetros de Query:**
+
+[cols="1,1,1,2"]
+|===
+| Parâmetro | Tipo | Padrão | Descrição
+
+| prefix
+| string
+| (obrigatório)
+| Prefixo do índice a remover (formato: "part1/part2")
+|===
+
+**Resposta (200):**
+
+[source,json]
+----
+{
+  "ok": true
+}
+----
+
+**Resposta (400):**
+
+[source,json]
+----
+{
+  "error": "Missing 'prefix' query parameter"
+}
+----
+
+**Exemplo:**
+
+[source,bash]
+----
+# Remover índice do prefixo "products"
+curl -X DELETE "http://localhost:4000/_/plugin-keyval/indexes?prefix=products"
+----
+
+==== GET /search
+
+Realiza busca textual usando parâmetros de query (modo simples).
+
+**Parâmetros de Query:**
+
+[cols="1,1,1,2"]
+|===
+| Parâmetro | Tipo | Padrão | Descrição
+
+| prefix
+| string
+| (obrigatório)
+| Prefixo do índice para buscar (formato: "part1/part2")
+
+| query
+| string
+| (obrigatório)
+| Texto de busca
+
+| limit
+| number
+| 100
+| Máximo de resultados
+|===
+
+**Resposta (200):**
+
+[source,typescript]
+----
+[
+  {
+    "key": ["products", "123"],
+    "value": {
+      "name": "Smartphone XYZ",
+      "description": "High-end smartphone with advanced features",
+      "price": 999.99
+    },
+    "versionstamp": "00000000000000010000"
+  },
+  {
+    "key": ["products", "456"],
+    "value": {
+      "name": "Phone Case",
+      "description": "Protective case for smartphones",
+      "price": 29.99
+    },
+    "versionstamp": "00000000000000020000"
+  }
+]
+----
+
+NOTE: Resultados são ordenados por relevância (ordem interna do SQLite FTS5).
+
+**Resposta (400):**
+
+[source,json]
+----
+{
+  "error": "Missing 'query' query parameter"
+}
+----
+
+**Exemplo:**
+
+[source,bash]
+----
+# Buscar produtos contendo "smartphone"
+curl -X GET "http://localhost:4000/_/plugin-keyval/search?prefix=products&query=smartphone"
+
+# Buscar com limite de resultados
+curl -X GET "http://localhost:4000/_/plugin-keyval/search?prefix=products&query=phone%20case&limit=10"
+
+# Buscar posts
+curl -X GET "http://localhost:4000/_/plugin-keyval/search?prefix=posts&query=tutorial%20react"
+----
+
+==== POST /search
+
+Realiza busca textual com suporte a filtros `where` complexos (modo avançado).
+
+**Request Body:**
+
+[source,typescript]
+----
+{
+  "prefix": ["products"],
+  "query": "smartphone",
+  "options": {
+    "limit": 50,           // opcional, padrão: 100
+    "where": {             // opcional, filtro adicional
+      "price": { "$lt": 500 },
+      "inStock": { "$eq": true }
+    }
+  }
+}
+----
+
+**Resposta (200):**
+
+[source,typescript]
+----
+[
+  {
+    "key": ["products", "789"],
+    "value": {
+      "name": "Budget Smartphone",
+      "description": "Affordable smartphone for everyday use",
+      "price": 299.99,
+      "inStock": true
+    },
+    "versionstamp": "00000000000000030000"
+  }
+]
+----
+
+**Resposta (400):**
+
+[source,json]
+----
+{
+  "error": "prefix is required"
+}
+----
+
+NOTE: A busca FTS é aplicada primeiro (usando o índice), depois o filtro `where` é aplicado aos resultados. Isso combina busca textual eficiente com filtragem estruturada.
+
+**Exemplo:**
+
+[source,bash]
+----
+# Buscar produtos baratos com "phone"
+curl -X POST "http://localhost:4000/_/plugin-keyval/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefix": ["products"],
+    "query": "phone",
+    "options": {
+      "where": {"price": {"$lt": 100}}
+    }
+  }'
+
+# Buscar posts ativos sobre React
+curl -X POST "http://localhost:4000/_/plugin-keyval/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefix": ["posts"],
+    "query": "react hooks",
+    "options": {
+      "limit": 20,
+      "where": {
+        "status": {"$eq": "published"},
+        "publishedAt": {"$gt": {"$now": true}}
+      }
+    }
+  }'
+
+# Buscar produtos em estoque com múltiplas condições
+curl -X POST "http://localhost:4000/_/plugin-keyval/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefix": ["products"],
+    "query": "laptop gaming",
+    "options": {
+      "where": {
+        "$and": [
+          {"inStock": {"$eq": true}},
+          {"price": {"$between": [500, 2000]}},
+          {"rating": {"$gte": 4}}
+        ]
+      }
+    }
+  }'
+----
+
 === Metrics API
 
 ==== GET /metrics
@@ -1437,13 +1810,21 @@ curl -X GET "http://localhost:4000/_/plugin-keyval/metrics/prometheus"
 |===
 | Item | Limite | Descrição
 
-| Tamanho de chave
-| Sem limite
-| Array de partes (string, number, bigint, boolean, Uint8Array)
+| Profundidade de chave
+| 20 partes
+| Máximo de partes em uma chave array
+
+| Tipo de parte de chave
+| Restritos
+| string, number, bigint, boolean, ou Uint8Array
+
+| Batch get (POST /keys/batch)
+| 1000 chaves
+| Máximo de chaves por requisição batch
 
 | Limite de listagem
 | 1000
-| Máximo de entradas retornadas por vez
+| Máximo de entradas retornadas por vez (GET /keys, POST /keys/list)
 
 | Limite padrão
 | 100
@@ -1455,8 +1836,31 @@ curl -X GET "http://localhost:4000/_/plugin-keyval/metrics/prometheus"
 
 | Valor de bigint
 | BigInt válido
-| Para operações sum/max/min
+| Para operações atômicas sum/max/min
+
+| Operações atômicas
+| Sem limite explícito
+| Número de checks e mutations por transação
+
+| Watch keys (GET /watch)
+| 1000 chaves
+| Máximo de chaves observadas simultaneamente
+
+| Watch prefix (GET /watch/prefix)
+| 1000 chaves
+| Máximo de chaves retornadas por prefixo
+
+| Queue DLQ limit
+| 1000 mensagens
+| Máximo de mensagens retornadas (GET /queue/dlq)
 |===
+
+**Validação de Tipos:**
+
+- **Keys:** Devem ser arrays com partes válidas (string, number, bigint, boolean, Uint8Array)
+- **Values:** Qualquer valor JSON serializável
+- **expireIn:** Número inteiro positivo em milissegundos
+- **Where filters:** Objeto com operadores válidos ($eq, $gt, $in, etc.)
 
 === Server-Sent Events (SSE)
 

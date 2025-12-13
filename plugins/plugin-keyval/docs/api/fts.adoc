@@ -1,0 +1,936 @@
+== Full-Text Search (FTS)
+
+O KeyVal oferece suporte nativo a busca de texto completo (Full-Text Search) usando FTS5 do SQLite. Diferente de queries SQL simples com LIKE, o FTS5 fornece busca indexada e otimizada com suporte a operadores booleanos, relevância e tokenização multilíngue.
+
+=== Visão Geral
+
+O sistema FTS permite:
+
+* Indexação automática de campos específicos em documentos
+* Busca rápida usando sintaxe FTS5 (AND, OR, NOT, NEAR, etc.)
+* Suporte a múltiplos tokenize (unicode61, porter, ascii)
+* Integração com where filters para filtragem adicional
+* Indexação automática em operações set() e delete()
+
+==== Casos de Uso
+
+* Busca em blog posts (título, conteúdo, tags)
+* Catálogo de produtos (nome, descrição, categorias)
+* Documentação (pesquisa de artigos e tutoriais)
+* Busca de usuários (nome, bio, habilidades)
+* Logs e mensagens (busca por termos e contexto)
+
+=== Criação de Índices
+
+Para habilitar busca em um conjunto de chaves, primeiro crie um índice especificando o prefixo e os campos a serem indexados.
+
+==== Sintaxe HTTP
+
+[source,http]
+----
+POST /_/plugin-keyval/indexes
+Content-Type: application/json
+
+{
+  "prefix": ["posts"],
+  "options": {
+    "fields": ["title", "content", "author.name"],
+    "tokenize": "unicode61"
+  }
+}
+----
+
+==== Parâmetros
+
+[cols="1,1,2"]
+|===
+| Campo | Tipo | Descrição
+
+| `prefix`
+| `KvKey`
+| Prefixo das chaves a serem indexadas
+
+| `options.fields`
+| `string[]`
+| Campos a indexar (suporta JSON paths como "author.name")
+
+| `options.tokenize`
+| `"unicode61" \| "porter" \| "ascii"`
+| Tokenizer a usar (padrão: "unicode61")
+|===
+
+==== Tokenizers
+
+O tokenize define como o texto é dividido em termos indexáveis.
+
+[cols="1,2,2"]
+|===
+| Tokenizer | Descrição | Quando Usar
+
+| `unicode61`
+| Tokenização multilíngue com suporte a acentos e caracteres especiais
+| Conteúdo em português, espanhol, francês ou qualquer idioma com acentos (padrão)
+
+| `porter`
+| Stemming para inglês (reduce "running", "runner", "runs" para "run")
+| Conteúdo exclusivamente em inglês onde variações de palavras devem ser tratadas como equivalentes
+
+| `ascii`
+| Tokenização simples baseada em espaços e pontuação ASCII
+| Conteúdo técnico (códigos, logs) ou quando performance é crítica
+|===
+
+==== Comparação de Tokenizers
+
+[cols="1,2,2"]
+|===
+| Tokenizer | Comportamento | Melhor para
+
+| `unicode61`
+| Tokenização padrão Unicode, sem stemming
+| Textos multilíngue, português, busca exata
+
+| `porter`
+| Stemming em inglês (running → run)
+| Conteúdo em inglês, busca flexível
+
+| `ascii`
+| Apenas caracteres ASCII, simples
+| IDs, códigos, dados técnicos
+|===
+
+**Exemplo de diferença:**
+
+[source,typescript]
+----
+// Com porter: "running", "runner", "runs" → todos encontram "run"
+await fts.createIndex(["docs-en"], {
+  fields: ["content"],
+  tokenize: "porter"
+});
+await fts.search(["docs-en"], "run");  // Encontra docs com "running"
+
+// Com unicode61: precisa termo exato ou wildcard
+await fts.createIndex(["docs-pt"], {
+  fields: ["content"],
+  tokenize: "unicode61"
+});
+await fts.search(["docs-pt"], "run");   // NÃO encontra "running"
+await fts.search(["docs-pt"], "run*");  // Encontra "running" (wildcard)
+----
+
+==== Exemplo: Blog Posts
+
+[source,typescript]
+----
+// Criar índice para posts
+await fetch("http://localhost:8000/_/plugin-keyval/indexes", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    prefix: ["posts"],
+    options: {
+      fields: ["title", "content", "tags"],
+      tokenize: "unicode61"
+    }
+  })
+});
+
+// Documentos adicionados automaticamente ao índice
+await kv.set(["posts", 1], {
+  title: "Introdução ao TypeScript",
+  content: "TypeScript é um superset de JavaScript...",
+  tags: "typescript javascript tutorial",
+  author: { name: "Ana Silva" }
+});
+----
+
+==== Exemplo: Catálogo de Produtos
+
+[source,typescript]
+----
+// Índice para produtos com campos aninhados
+await fetch("http://localhost:8000/_/plugin-keyval/indexes", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    prefix: ["products"],
+    options: {
+      fields: ["name", "description", "brand.name", "category.name"],
+      tokenize: "unicode61"
+    }
+  })
+});
+
+// Produto com estrutura aninhada
+await kv.set(["products", "prod-123"], {
+  name: "Mouse Gamer RGB",
+  description: "Mouse óptico com iluminação RGB personalizável",
+  brand: { name: "TechGear", country: "BR" },
+  category: { name: "Periféricos", id: 42 },
+  price: 149.90
+});
+----
+
+=== Listar Índices
+
+==== Sintaxe HTTP
+
+[source,http]
+----
+GET /_/plugin-keyval/indexes
+----
+
+==== Resposta
+
+[source,json]
+----
+[
+  {
+    "prefix": ["posts"],
+    "fields": ["title", "content", "tags"],
+    "tokenize": "unicode61",
+    "tableName": "kv_fts_a1b2c3d4e5f6g7h8"
+  },
+  {
+    "prefix": ["products"],
+    "fields": ["name", "description"],
+    "tokenize": "porter",
+    "tableName": "kv_fts_9i8j7k6l5m4n3o2p"
+  }
+]
+----
+
+=== Remover Índice
+
+Remove um índice FTS e sua tabela associada. Documentos no KV não são afetados.
+
+==== Sintaxe HTTP
+
+[source,http]
+----
+DELETE /_/plugin-keyval/indexes?prefix=["posts"]
+----
+
+==== Parâmetros de Query
+
+[cols="1,1,2"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `prefix`
+| `string`
+| Prefixo do índice a ser removido (JSON serializado)
+|===
+
+=== Operações de Busca
+
+==== Busca Simples (GET)
+
+Para buscas rápidas sem filtros adicionais.
+
+[source,http]
+----
+GET /_/plugin-keyval/search?prefix=["posts"]&query=typescript&limit=20
+----
+
+===== Parâmetros de Query
+
+[cols="1,1,2"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `prefix`
+| `string`
+| Prefixo das chaves a buscar (JSON serializado)
+
+| `query`
+| `string`
+| Query FTS5 (sintaxe descrita abaixo)
+
+| `limit`
+| `number`
+| Máximo de resultados (padrão: 100)
+|===
+
+===== Exemplo
+
+[source,bash]
+----
+curl "http://localhost:8000/_/plugin-keyval/search?prefix=%5B%22posts%22%5D&query=typescript+tutorial&limit=10"
+----
+
+==== Busca Avançada (POST)
+
+Para buscas com where filters adicionais.
+
+[source,http]
+----
+POST /_/plugin-keyval/search
+Content-Type: application/json
+
+{
+  "prefix": ["posts"],
+  "query": "typescript tutorial",
+  "options": {
+    "limit": 20,
+    "where": {
+      "status": { "$eq": "published" },
+      "publishedAt": { "$gte": { "$now": true } }
+    }
+  }
+}
+----
+
+===== Parâmetros do Body
+
+[cols="1,1,2"]
+|===
+| Campo | Tipo | Descrição
+
+| `prefix`
+| `KvKey`
+| Prefixo das chaves a buscar
+
+| `query`
+| `string`
+| Query FTS5
+
+| `options.limit`
+| `number`
+| Máximo de resultados (padrão: 100)
+
+| `options.where`
+| `KvWhereFilter`
+| Filtro adicional aplicado após match FTS
+|===
+
+===== Resposta
+
+[source,json]
+----
+[
+  {
+    "key": ["posts", 1],
+    "value": {
+      "title": "Introdução ao TypeScript",
+      "content": "TypeScript é um superset de JavaScript...",
+      "status": "published",
+      "publishedAt": 1704067200
+    },
+    "versionstamp": "00000000000000010000"
+  }
+]
+----
+
+=== Sintaxe de Query FTS5
+
+O KeyVal suporta a sintaxe completa do FTS5.
+
+==== Busca Simples
+
+[source]
+----
+typescript
+----
+
+Encontra documentos contendo "typescript" em qualquer campo indexado.
+
+==== Operadores Booleanos
+
+[cols="1,2,2"]
+|===
+| Operador | Descrição | Exemplo
+
+| `AND`
+| Ambos termos devem existir
+| `typescript AND tutorial`
+
+| `OR`
+| Pelo menos um termo deve existir
+| `javascript OR typescript`
+
+| `NOT`
+| Exclui documentos com o termo
+| `typescript NOT beginner`
+
+| `-` (menos)
+| Sintaxe alternativa para NOT
+| `typescript -beginner`
+|===
+
+==== Frases Exatas
+
+Use aspas duplas para buscar frases exatas:
+
+[source]
+----
+"getting started with typescript"
+----
+
+==== Busca por Campo Específico
+
+Use a sintaxe FTS5 para buscar em campos específicos:
+
+[source]
+----
+title:typescript          // Busca "typescript" no campo title
+content:(tutorial guide)  // Busca "tutorial" OU "guide" no campo content
+tags:beginner             // Busca "beginner" no campo tags
+----
+
+NOTE: A busca padrão (sem prefixo de campo) pesquisa em TODOS os campos indexados.
+
+[source,typescript]
+----
+// Busca apenas no título
+const results = await fts.search(["posts"], "title:typescript");
+
+// Busca em campo específico com múltiplos termos
+const results = await fts.search(["posts"], "content:(react hooks)");
+----
+
+==== Operador NEAR
+
+Encontra termos próximos um do outro:
+
+[source]
+----
+typescript NEAR/5 tutorial    // Até 5 palavras de distância
+javascript NEAR guide         // Distância padrão (10 palavras)
+----
+
+==== Prefixo e Wildcard
+
+Use `*` para buscar prefixos:
+
+[source]
+----
+type*        // Encontra "typescript", "types", "type"
+java*        // Encontra "javascript", "java"
+----
+
+==== Agrupamento
+
+Use parênteses para agrupar expressões:
+
+[source]
+----
+(javascript OR typescript) AND (tutorial OR guide)
+(react OR vue) NEAR framework
+title:(typescript tutorial)
+----
+
+==== Exemplos Práticos
+
+[source,typescript]
+----
+// Posts sobre JavaScript ou TypeScript
+"javascript OR typescript"
+
+// Tutoriais avançados de React
+"react AND (advanced OR expert) AND tutorial"
+
+// Posts sobre TypeScript mas não para iniciantes
+"typescript NOT beginner"
+
+// Termo exato no título
+"title:\"getting started\""
+
+// Documentos com "function" próximo de "async"
+"function NEAR/3 async"
+
+// Posts sobre Vue ou React frameworks
+"(vue OR react) AND framework"
+----
+
+=== Integração com Where Filters
+
+Combine busca FTS com filtros adicionais para queries precisas.
+
+==== Exemplo: Blog com Filtros
+
+[source,typescript]
+----
+// Buscar posts publicados sobre TypeScript
+const response = await fetch("http://localhost:8000/_/plugin-keyval/search", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    prefix: ["posts"],
+    query: "typescript tutorial",
+    options: {
+      limit: 50,
+      where: {
+        status: { $eq: "published" },
+        publishedAt: { $lte: { $now: true } },
+        views: { $gte: 1000 }
+      }
+    }
+  })
+});
+
+const posts = await response.json();
+----
+
+==== Filtrando por Data com $now
+
+Use `kv.now()` para comparações de timestamp com o horário do servidor:
+
+[source,typescript]
+----
+// Posts JÁ PUBLICADOS (publishedAt no passado ou agora)
+const published = await fts.search(["posts"], "typescript", {
+  where: { publishedAt: { $lte: kv.now() } }
+});
+
+// Posts AGENDADOS (publishedAt no futuro)
+const scheduled = await fts.search(["posts"], "typescript", {
+  where: { publishedAt: { $gt: kv.now() } }
+});
+----
+
+Para HTTP API, use o placeholder JSON:
+[source,json]
+----
+{
+  "where": {
+    "publishedAt": { "$lte": { "$now": true } }
+  }
+}
+----
+
+==== Exemplo: E-commerce
+
+[source,typescript]
+----
+// Buscar produtos em promoção
+const response = await fetch("http://localhost:8000/_/plugin-keyval/search", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    prefix: ["products"],
+    query: "mouse gamer",
+    options: {
+      where: {
+        $and: [
+          { price: { $lte: 200 } },
+          { stock: { $gt: 0 } },
+          { discount: { $gte: 10 } }
+        ]
+      }
+    }
+  })
+});
+----
+
+==== Exemplo: Documentação
+
+[source,typescript]
+----
+// Buscar artigos recentes sobre API
+const response = await fetch("http://localhost:8000/_/plugin-keyval/search", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    prefix: ["docs"],
+    query: "API AND (authentication OR authorization)",
+    options: {
+      where: {
+        category: { $eq: "guides" },
+        updatedAt: { $gte: 1704067200 }  // Timestamp
+      }
+    }
+  })
+});
+----
+
+=== Performance e Limitações
+
+==== Performance
+
+* **Indexação**: Documentos são indexados automaticamente em `set()` e `delete()`
+* **Busca**: FTS5 usa índices invertidos - buscas são O(log n) no número de documentos
+* **Overhead**: Cada índice adiciona ~30-50% ao tamanho do banco para os campos indexados
+* **Atualização**: Documentos são re-indexados completamente em `set()` (delete + insert)
+
+==== Cache de Índices
+
+O sistema FTS utiliza cache em memória para índices:
+
+- Índices são carregados na primeira operação (lazy loading)
+- O cache é invalidado quando índices são criados ou removidos
+- Isso significa que a primeira busca pode ser mais lenta
+
+[source,typescript]
+----
+// Primeira busca: carrega índices em cache (~10-50ms overhead)
+const results1 = await fts.search(["posts"], "typescript");
+
+// Buscas subsequentes: usa cache (mais rápido)
+const results2 = await fts.search(["posts"], "react");
+----
+
+==== Re-indexação de Documentos
+
+Quando um documento é atualizado com `set()`, o FTS:
+1. **Deleta** a entrada antiga do índice
+2. **Insere** a nova entrada
+
+Isso garante que não há duplicatas, mas significa que updates são mais custosos que inserts.
+
+TIP: Para re-indexar documentos existentes após criar um índice, itere e re-salve:
+
+[source,typescript]
+----
+// Re-indexar todos os posts existentes
+for await (const entry of kv.list(["posts"])) {
+  await kv.set(entry.key, entry.value);  // Re-indexa automaticamente
+}
+----
+
+==== Limites
+
+[cols="1,1,2"]
+|===
+| Limite | Valor | Descrição
+
+| Resultados (padrão)
+| 100
+| Sem `limit` especificado
+
+| Campos indexados
+| Ilimitado
+| Mas afeta performance de indexação
+
+| Tamanho de campo
+| Ilimitado
+| FTS5 não tem limite de tamanho por campo
+|===
+
+NOTE: Não há limite máximo de resultados. Se você passar `limit: 10000`, retornará até 10000 resultados. Use com cautela para não impactar performance.
+
+[source,typescript]
+----
+// Padrão: até 100 resultados
+const results1 = await fts.search(["posts"], "typescript");
+console.log(results1.length);  // Até 100
+
+// Limite explícito
+const results2 = await fts.search(["posts"], "typescript", { limit: 20 });
+console.log(results2.length);  // Até 20
+
+// Limite grande (use com cautela)
+const results3 = await fts.search(["posts"], "typescript", { limit: 5000 });
+console.log(results3.length);  // Até 5000
+----
+
+==== Quando NÃO Usar FTS
+
+* Dados estruturados pequenos (use where filters simples)
+* Queries exatas (use `{ field: { $eq: "value" } }`)
+* Dados numéricos (use operadores de comparação)
+* Dados com poucas centenas de registros (overhead não compensa)
+
+==== Quando Usar FTS
+
+* Catálogos com milhares de produtos
+* Blogs e sistemas de conteúdo
+* Documentação técnica
+* Logs e mensagens de sistema
+* Busca de usuários por nome/bio
+
+=== Indexação Automática
+
+Quando um índice existe, documentos são automaticamente indexados/removidos.
+
+==== Set Automático
+
+[source,typescript]
+----
+// Índice criado para ["posts"]
+await kv.set(["posts", 1], {
+  title: "Novo Post",
+  content: "Conteúdo aqui..."
+});
+// ↑ Documento automaticamente indexado pelo FTS
+----
+
+==== Update Automático
+
+[source,typescript]
+----
+// Update remove entrada antiga e adiciona nova
+await kv.set(["posts", 1], {
+  title: "Post Atualizado",  // Título mudou
+  content: "Novo conteúdo"
+});
+// ↑ Entrada FTS anterior removida, nova entrada criada
+----
+
+==== Delete Automático
+
+[source,typescript]
+----
+// Delete remove do KV e do índice FTS
+await kv.delete(["posts", 1]);
+// ↑ Entrada automaticamente removida do índice FTS
+----
+
+==== Caveats
+
+* Se um índice for criado DEPOIS que documentos já existem, eles NÃO são indexados automaticamente
+* Para re-indexar documentos existentes, use `set()` novamente ou recrie o índice após popular os dados
+* Índices não afetam operações normais de leitura (`get()`, `list()`)
+
+=== Exemplos Práticos Completos
+
+==== Blog Search
+
+[source,typescript]
+----
+// 1. Criar índice
+await fetch("http://localhost:8000/_/plugin-keyval/indexes", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    prefix: ["blog", "posts"],
+    options: {
+      fields: ["title", "content", "excerpt", "tags"],
+      tokenize: "unicode61"
+    }
+  })
+});
+
+// 2. Adicionar posts
+await kv.set(["blog", "posts", 1], {
+  title: "Como usar TypeScript em 2024",
+  content: "TypeScript revolucionou o desenvolvimento JavaScript...",
+  excerpt: "Guia completo de TypeScript",
+  tags: "typescript javascript tutorial",
+  status: "published",
+  publishedAt: 1704067200,
+  author: "Ana Silva"
+});
+
+// 3. Buscar posts
+const response = await fetch("http://localhost:8000/_/plugin-keyval/search", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    prefix: ["blog", "posts"],
+    query: "typescript AND tutorial",
+    options: {
+      limit: 10,
+      where: {
+        status: { $eq: "published" },
+        publishedAt: { $lte: { $now: true } }
+      }
+    }
+  })
+});
+
+const results = await response.json();
+console.log(`Encontrados ${results.length} posts`);
+----
+
+==== Product Catalog
+
+[source,typescript]
+----
+// 1. Índice para produtos
+await fetch("http://localhost:8000/_/plugin-keyval/indexes", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    prefix: ["products"],
+    options: {
+      fields: ["name", "description", "brand", "category"],
+      tokenize: "unicode61"
+    }
+  })
+});
+
+// 2. Adicionar produtos
+await kv.set(["products", "sku-001"], {
+  name: "Teclado Mecânico RGB",
+  description: "Teclado mecânico com switches Cherry MX Blue",
+  brand: "TechKeys",
+  category: "Periféricos",
+  price: 499.90,
+  stock: 25,
+  discount: 15
+});
+
+// 3. Buscar produtos em promoção
+const response = await fetch("http://localhost:8000/_/plugin-keyval/search", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    prefix: ["products"],
+    query: "(teclado OR mouse) AND mecânico",
+    options: {
+      where: {
+        stock: { $gt: 0 },
+        discount: { $gte: 10 },
+        price: { $between: [100, 600] }
+      }
+    }
+  })
+});
+----
+
+==== Documentation Search
+
+[source,typescript]
+----
+// 1. Índice para documentação
+await fetch("http://localhost:8000/_/plugin-keyval/indexes", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    prefix: ["docs"],
+    options: {
+      fields: ["title", "content", "keywords", "category.name"],
+      tokenize: "unicode61"
+    }
+  })
+});
+
+// 2. Adicionar artigo
+await kv.set(["docs", "authentication-guide"], {
+  title: "Authentication Guide",
+  content: "Complete guide to implementing JWT authentication...",
+  keywords: "jwt authentication security oauth",
+  category: { name: "Security", id: 5 },
+  difficulty: "intermediate",
+  updatedAt: 1704067200
+});
+
+// 3. Buscar guias recentes sobre autenticação
+const response = await fetch("http://localhost:8000/_/plugin-keyval/search", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    prefix: ["docs"],
+    query: "authentication AND (jwt OR oauth)",
+    options: {
+      where: {
+        "category.name": { $eq: "Security" },
+        updatedAt: { $gte: 1672531200 }  // 2023+
+      }
+    }
+  })
+});
+----
+
+=== Troubleshooting
+
+==== Índice não está retornando resultados
+
+**Causa**: Documentos foram adicionados ANTES do índice ser criado.
+
+**Solução**: Re-adicione os documentos com `set()` ou popule os dados após criar o índice.
+
+[source,typescript]
+----
+// Opção 1: Re-adicionar manualmente
+const entries = await kv.list(["posts"]);
+for await (const entry of entries) {
+  await kv.set(entry.key, entry.value);  // Re-indexa
+}
+
+// Opção 2: Criar índice ANTES de popular
+await createIndex(["posts"], { fields: ["title"] });
+await populatePosts();  // Agora serão indexados
+----
+
+==== Busca retorna documentos irrelevantes
+
+**Causa**: Tokenizer errado ou query muito ampla.
+
+**Solução**: Use frases exatas ou busca por campo específico.
+
+[source,typescript]
+----
+// Problema: Muito genérico
+"javascript"  // Retorna milhares de resultados
+
+// Solução 1: Frase exata
+"\"introduction to javascript\""
+
+// Solução 2: Campo específico
+"title:javascript"
+
+// Solução 3: Combine com where filter
+{
+  query: "javascript",
+  options: {
+    where: { difficulty: { $eq: "beginner" } }
+  }
+}
+----
+
+==== Performance ruim em buscas
+
+**Causa**: Muitos resultados ou índice não otimizado.
+
+**Solução**: Use `limit` menor e combine com where filters.
+
+[source,typescript]
+----
+// Problema: Sem limite
+{ query: "tutorial" }  // Retorna tudo
+
+// Solução: Limite e filtro
+{
+  query: "tutorial",
+  options: {
+    limit: 20,
+    where: { publishedAt: { $gte: 1704067200 } }
+  }
+}
+----
+
+==== Erro "No index found for prefix"
+
+**Causa**: Tentando buscar em prefixo sem índice.
+
+**Solução**: Crie o índice primeiro.
+
+[source,bash]
+----
+# 1. Verificar índices existentes
+curl http://localhost:8000/_/plugin-keyval/indexes
+
+# 2. Criar índice para o prefixo
+curl -X POST http://localhost:8000/_/plugin-keyval/indexes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefix": ["posts"],
+    "options": { "fields": ["title"] }
+  }'
+----
+
+==== Campos aninhados não são indexados
+
+**Causa**: Sintaxe de path incorreta.
+
+**Solução**: Use dot notation corretamente.
+
+[source,typescript]
+----
+// ERRADO
+fields: ["author"]  // Indexa JSON stringificado
+
+// CORRETO
+fields: ["author.name", "author.email"]  // Extrai campos
+
+// Documento
+{
+  author: {
+    name: "Ana Silva",
+    email: "ana@example.com"
+  }
+}
+----

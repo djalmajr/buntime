@@ -155,45 +155,50 @@ export interface KvMutation {
 }
 
 /**
- * Symbol used to identify commitVersionstamp placeholders
+ * Symbol used to identify uuidv7 placeholders
  */
-export const COMMIT_VERSIONSTAMP_SYMBOL = Symbol.for("kv.commitVersionstamp");
+export const UUIDV7_SYMBOL = Symbol.for("kv.uuidv7");
 
 /**
- * Placeholder for a versionstamp that will be resolved at commit time
+ * Placeholder for a UUIDv7 that will be generated at commit time
  * Used in atomic operations to create consistent cross-references
+ *
+ * All placeholders in the same atomic commit resolve to the SAME UUIDv7,
+ * enabling consistent cross-references between entries.
  *
  * @example
  * ```typescript
- * const vs = kv.commitVersionstamp();
+ * const id = kv.uuidv7();
  *
  * await kv.atomic()
  *   .set(["posts", postId], post)
- *   .set(["posts_by_time", vs, postId], postId)
+ *   .set(["posts_by_time", id, postId], postId)
+ *   .set(["posts_by_author", authorId, id], postId)
  *   .commit();
+ * // All `id` placeholders resolve to the same UUIDv7
  * ```
  */
-export interface KvCommitVersionstamp {
-  [COMMIT_VERSIONSTAMP_SYMBOL]: true;
+export interface KvUuidv7 {
+  [UUIDV7_SYMBOL]: true;
 }
 
 /**
- * A key part that may include a commitVersionstamp placeholder
+ * A key part that may include a uuidv7 placeholder
  * Used in atomic operations
  */
-export type KvKeyPartWithVersionstamp = KvCommitVersionstamp | KvKeyPart;
+export type KvKeyPartWithUuidv7 = KvKeyPart | KvUuidv7;
 
 /**
- * A key that may include commitVersionstamp placeholders
+ * A key that may include uuidv7 placeholders
  * Used in atomic operations
  */
-export type KvKeyWithVersionstamp = KvKeyPartWithVersionstamp[];
+export type KvKeyWithUuidv7 = KvKeyPartWithUuidv7[];
 
 /**
- * Create a commitVersionstamp placeholder
+ * Create a uuidv7 placeholder
  */
-export function createCommitVersionstamp(): KvCommitVersionstamp {
-  return { [COMMIT_VERSIONSTAMP_SYMBOL]: true };
+export function createUuidv7(): KvUuidv7 {
+  return { [UUIDV7_SYMBOL]: true };
 }
 
 // ============================================================================
@@ -466,6 +471,12 @@ export interface KvWhereFilter {
  * Options for delete operation
  */
 export interface KvDeleteOptions {
+  /**
+   * When true, delete only the exact key without children.
+   * When false or not provided, delete key as prefix including children.
+   * @default false
+   */
+  exact?: boolean;
   where?: KvWhereFilter;
 }
 

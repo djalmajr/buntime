@@ -13,8 +13,7 @@ import { KvMetrics } from "./metrics";
 import { KvQueue, type KvQueueCleanupConfig } from "./queue";
 import { KvTransaction } from "./transaction";
 import {
-  createCommitVersionstamp,
-  type KvCommitVersionstamp,
+  createUuidv7,
   type KvDeleteOptions,
   type KvEntry,
   type KvKey,
@@ -28,6 +27,7 @@ import {
   type KvTriggerConfig,
   type KvTriggerEvent,
   type KvTriggerEventType,
+  type KvUuidv7,
 } from "./types";
 import { whereToSql } from "./where-to-sql";
 
@@ -382,18 +382,33 @@ export class Kv {
       if (options?.where) {
         // Delete with filter: uses json_extract for filtering
         const whereResult = whereToSql(options.where);
-        const whereClause = `(key = ? OR (key >= ? AND key < ?))
+        let keyClause: string;
+        if (options.exact) {
+          keyClause = `key = ?`;
+          args = [encodedKey, ...whereResult.params];
+        } else {
+          keyClause = `(key = ? OR (key >= ? AND key < ?))`;
+          args = [encodedKey, range.start, range.end, ...whereResult.params];
+        }
+        const whereClause = `${keyClause}
                AND (expires_at IS NULL OR expires_at > unixepoch())
                AND ${whereResult.sql}`;
         countSql = `SELECT COUNT(*) as count FROM kv_entries WHERE ${whereClause}`;
         deleteSql = `DELETE FROM kv_entries WHERE ${whereClause}`;
-        args = [encodedKey, range.start, range.end, ...whereResult.params];
       } else {
-        // Delete without filter: delete exact key and all children
-        const whereClause = `key = ? OR (key >= ? AND key < ?)`;
+        // Delete without filter
+        let whereClause: string;
+        if (options?.exact) {
+          // Delete only exact key
+          whereClause = `key = ?`;
+          args = [encodedKey];
+        } else {
+          // Delete exact key and all children
+          whereClause = `key = ? OR (key >= ? AND key < ?)`;
+          args = [encodedKey, range.start, range.end];
+        }
         countSql = `SELECT COUNT(*) as count FROM kv_entries WHERE ${whereClause}`;
         deleteSql = `DELETE FROM kv_entries WHERE ${whereClause}`;
-        args = [encodedKey, range.start, range.end];
       }
 
       // Count rows to be deleted (since adapter.execute doesn't return rowsAffected)
@@ -644,10 +659,11 @@ export class Kv {
   }
 
   /**
-   * Create a placeholder for the versionstamp that will be assigned at commit time
+   * Create a placeholder for a UUIDv7 that will be generated at commit time
+   * All placeholders in the same atomic commit resolve to the SAME UUIDv7
    */
-  commitVersionstamp(): KvCommitVersionstamp {
-    return createCommitVersionstamp();
+  uuidv7(): KvUuidv7 {
+    return createUuidv7();
   }
 
   /**

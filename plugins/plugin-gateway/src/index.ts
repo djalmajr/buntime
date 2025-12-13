@@ -333,3 +333,5 @@ export { gatewayPlugin };
 export { ResponseCache } from "./cache";
 export type { CorsConfig } from "./cors";
 export { parseWindow, RateLimiter, TokenBucket } from "./rate-limit";
+
+export type GatewayRoutesType = typeof routes;

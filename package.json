@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "apps/*",
     "examples/*",
     "packages/*",
-    "plugins/*"
+    "plugins/*",
+    "runtime"
   ],
   "scripts": {
     "build": "bun run --filter '*' build",

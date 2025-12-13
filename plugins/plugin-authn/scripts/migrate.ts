@@ -7,7 +7,8 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-const dbPath = Bun.env.AUTHN_DATABASE_PATH || "/home/user/Developer/zomme/buntime/apps/runner/data/auth.db";
+const dbPath =
+  Bun.env.AUTHN_DATABASE_PATH || "/home/user/Developer/zomme/buntime/runtime/data/auth.db";
 
 console.log(`Migrating database: ${dbPath}`);
 
@@ -91,7 +92,9 @@ try {
 }
 
 // Verify tables exist
-const tables = db.query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[];
+const tables = db
+  .query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+  .all() as { name: string }[];
 console.log("Tables:", tables.map((t) => t.name).join(", "));
 
 db.close();

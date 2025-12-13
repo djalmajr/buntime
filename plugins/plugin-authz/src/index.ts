@@ -283,3 +283,5 @@ export type {
   ResourceMatch,
   SubjectMatch,
 } from "./types";
+
+export type AuthzRoutesType = typeof routes;

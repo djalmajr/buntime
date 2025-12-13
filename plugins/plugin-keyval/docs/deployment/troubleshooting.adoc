@@ -667,7 +667,7 @@ sqlite3 production.db < backup.sql
 [source,bash]
 ----
 # Runner logs
-DEBUG=buntime:* bun run apps/runner/src/index.ts
+DEBUG=buntime:* bun run runtime/index.ts
 
 # libSQL server logs
 docker logs -f libsql

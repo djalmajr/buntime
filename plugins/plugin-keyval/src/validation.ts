@@ -195,6 +195,17 @@ export function validateBigInt(value: unknown, fieldName = "value"): bigint {
     return value;
   }
 
+  // Handle serialized BigInt from SDK (HTTP JSON)
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "__type" in value &&
+    "value" in value &&
+    (value as { __type: unknown }).__type === "bigint"
+  ) {
+    return BigInt(String((value as { value: unknown }).value));
+  }
+
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
       throw new HTTPException(400, {

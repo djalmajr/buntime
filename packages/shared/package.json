@@ -15,6 +15,7 @@
     "lint": "bun run lint:format && bun run lint:types"
   },
   "peerDependencies": {
+    "@buntime/piercing": "workspace:*",
     "hono": "^4.0.0",
     "typescript": "^5.0.0",
     "zod": "^4.0.0"

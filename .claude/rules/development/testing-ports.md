@@ -2,23 +2,24 @@
 
 ## Port Architecture
 
-**ALWAYS test applications via port 8000 (runner)**. Never test directly on app/example ports.
+**ALWAYS test applications via port 8000 (runtime)**. Never test directly on example ports.
 
 | Port Range | Type | Description |
 |------------|------|-------------|
-| 8000 | Runner | Main buntime server with all plugins loaded |
-| 4000-4999 | Apps | CPanel (4000), Coder (4001), etc. |
-| 5000-5999 | Examples | todos-htm (5000), todos-kv (5001), playground (5002) |
+| 8000 | Runtime | Main buntime server with all plugins and admin dashboard |
+| 5000-5999 | Examples | todos-htm (5000), todos-kv (5001), etc. |
 
 ## Why Port 8000?
 
-The runner (port 8000):
+The runtime (port 8000):
 - Loads all plugins from `buntime.jsonc`
-- Handles proxying/redirects to apps and examples
+- Serves the admin dashboard (React app)
+- Handles proxying/redirects to examples
 - Provides plugin APIs (`/_/plugin-keyval/*`, `/_/plugin-metrics/*`, etc.)
 - Manages worker pools and routing
+- Injects `<base href>` for SPAs under subpaths
 
-Apps and examples running on their own ports (4000+, 5000+) do NOT have access to plugins.
+Examples running on their own ports (5000+) do NOT have access to plugins.
 
 ## Correct Testing Flow
 
@@ -27,15 +28,14 @@ Apps and examples running on their own ports (4000+, 5000+) do NOT have access t
 cd /home/user/Developer/zomme/buntime
 bun dev
 
-# Access applications via runner (port 8000)
-http://localhost:8000/playground    # NOT http://localhost:5002
-http://localhost:8000/cpanel        # NOT http://localhost:4000
-http://localhost:8000/coder         # NOT http://localhost:4001
+# Access applications via runtime (port 8000)
+http://localhost:8000/              # Admin dashboard
+http://localhost:8000/todos-kv      # NOT http://localhost:5001
 ```
 
 ## Prerequisites
 
-The runner requires libSQL for some plugins:
+The runtime requires libSQL for some plugins:
 
 ```bash
 # Start libSQL before bun dev
@@ -47,6 +47,6 @@ bun dev
 
 ## Common Mistakes
 
-- Testing on `localhost:5002/keyval` instead of `localhost:8000/playground/keyval`
-- Testing on `localhost:4000` instead of `localhost:8000/cpanel`
-- Forgetting to start libSQL before runner (causes plugin load failures)
+- Testing on `localhost:5001` instead of `localhost:8000/todos-kv`
+- Forgetting to start libSQL before runtime (causes plugin load failures)
+- Not using the `base` option in proxy rules for SPAs (breaks routing)

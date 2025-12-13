@@ -49,12 +49,6 @@ export interface KeyValConfig extends BasePluginConfig {
     cleanupInterval?: number;
 
     /**
-     * Max age in ms for delivered/failed messages before deletion
-     * @default 86400000 (24 hours)
-     */
-    maxAge?: number;
-
-    /**
      * Lock duration in ms for processing messages
      * Messages locked longer than this will be reset to pending
      * @default 30000
@@ -161,6 +155,25 @@ const routes = new Hono()
 
     const entries = await kv.get(keys);
     return ctx.json(entries);
+  })
+  // Batch delete - single request to delete multiple keys
+  .post("/keys/delete-batch", async (ctx) => {
+    const body = await ctx.req.json<{
+      keys: unknown;
+      exact?: boolean;
+      where?: KvWhereFilter;
+    }>();
+    const keys = validateKeys(body.keys);
+    const options: KvDeleteOptions | undefined =
+      body.exact !== undefined || body.where ? { exact: body.exact, where: body.where } : undefined;
+
+    let totalDeleted = 0;
+    for (const key of keys) {
+      const result = await kv.delete(key, options);
+      totalDeleted += result.deletedCount;
+    }
+
+    return ctx.json({ deletedCount: totalDeleted });
   })
   .get("/keys", async (ctx) => {
     const prefix = ctx.req.query("prefix");
@@ -273,14 +286,14 @@ const routes = new Hono()
     const keyPath = ctx.req.path.replace(/.*\/keys\//, "");
     const key = validateKeyPath(keyPath);
 
-    // Check if there's a request body with where filter
+    // Check if there's a request body with where filter or exact option
     let options: KvDeleteOptions | undefined;
     const contentType = ctx.req.header("content-type");
     if (contentType?.includes("application/json")) {
       try {
-        const body = await ctx.req.json<{ where?: KvWhereFilter }>();
-        if (body?.where) {
-          options = { where: body.where };
+        const body = await ctx.req.json<{ exact?: boolean; where?: KvWhereFilter }>();
+        if (body?.where || body?.exact !== undefined) {
+          options = { exact: body.exact, where: body.where };
         }
       } catch {
         // No body or invalid JSON, proceed without filter
@@ -288,18 +301,25 @@ const routes = new Hono()
     }
 
     const result = await kv.delete(key, options);
-    return ctx.json({ success: true, deletedCount: result.deletedCount });
+    return ctx.json({ deletedCount: result.deletedCount });
   })
   // Queue routes
   .post("/queue/enqueue", async (ctx) => {
     const body = await ctx.req.json<{
       value: unknown;
-      options?: { delay?: number; keys?: unknown };
+      options?: {
+        delay?: number;
+        backoffSchedule?: number[];
+        keysIfUndelivered?: unknown;
+      };
     }>();
     const options = body.options
       ? {
           delay: body.options.delay,
-          keys: body.options.keys ? validateKeys(body.options.keys) : undefined,
+          backoffSchedule: body.options.backoffSchedule,
+          keysIfUndelivered: body.options.keysIfUndelivered
+            ? validateKeys(body.options.keysIfUndelivered)
+            : undefined,
         }
       : undefined;
     const result = await kv.queue.enqueue(body.value, options);
@@ -847,7 +867,6 @@ export type {
   KvCheck,
   KvCommitError,
   KvCommitResult,
-  KvCommitVersionstamp,
   KvCreateIndexOptions,
   KvEnqueueOptions,
   KvEntry,
@@ -855,8 +874,8 @@ export type {
   KvIndex,
   KvKey,
   KvKeyPart,
-  KvKeyPartWithVersionstamp,
-  KvKeyWithVersionstamp,
+  KvKeyPartWithUuidv7,
+  KvKeyWithUuidv7,
   KvListOptions,
   KvMutation,
   KvMutationType,
@@ -869,8 +888,11 @@ export type {
   KvTransactionError,
   KvTransactionOptions,
   KvTransactionResult,
+  KvUuidv7,
 } from "./types";
 export {
-  COMMIT_VERSIONSTAMP_SYMBOL,
-  createCommitVersionstamp,
+  createUuidv7,
+  UUIDV7_SYMBOL,
 } from "./types";
+
+export type KeyvalRoutesType = typeof routes;

@@ -1,0 +1,17 @@
+{
+  "name": "@buntime/plugin-health",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "lint": "bun run lint:format && bun run lint:types",
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "hono": "^4.0.0"
+  }
+}

@@ -1,5 +1,5 @@
-import server from "./app/server";
 import client from "./app/client/index.html";
+import server from "./app/server";
 
 const PORT = 4002;
 

@@ -337,11 +337,11 @@ Versionstamps usam UUIDv7 para ordenação temporal:
 [source,typescript]
 ----
 const postId = crypto.randomUUID();
-const vs = kv.commitVersionstamp();
+const id = kv.uuidv7();
 
 await kv.atomic()
   .set(["posts", postId], post)
-  .set(["posts_by_time", vs, postId], postId)  // vs será substituído
+  .set(["posts_by_time", id, postId], postId)  // id será substituído por UUIDv7
   .commit();
 
 // Listar posts cronologicamente

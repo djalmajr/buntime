@@ -3,42 +3,42 @@ import { encodeKey, serializeValue } from "./encoding";
 import type { Kv } from "./kv";
 import type { KvMetrics } from "./metrics";
 import {
-  COMMIT_VERSIONSTAMP_SYMBOL,
   type KvCheck,
   type KvCommitError,
   type KvCommitResult,
-  type KvCommitVersionstamp,
   type KvKey,
   type KvKeyPart,
-  type KvKeyWithVersionstamp,
+  type KvKeyWithUuidv7,
   type KvMutationType,
   type KvSetOptions,
+  type KvUuidv7,
+  UUIDV7_SYMBOL,
 } from "./types";
 
 /**
- * Internal mutation type that supports keys with versionstamp placeholders
+ * Internal mutation type that supports keys with uuidv7 placeholders
  */
 interface KvMutationInternal {
   expireIn?: number;
-  key: KvKeyWithVersionstamp;
+  key: KvKeyWithUuidv7;
   type: KvMutationType;
   value?: unknown;
 }
 
 /**
- * Check if a value is a commitVersionstamp placeholder
+ * Check if a value is a uuidv7 placeholder
  */
-function isCommitVersionstamp(value: unknown): value is KvCommitVersionstamp {
-  return typeof value === "object" && value !== null && COMMIT_VERSIONSTAMP_SYMBOL in value;
+function isUuidv7Placeholder(value: unknown): value is KvUuidv7 {
+  return typeof value === "object" && value !== null && UUIDV7_SYMBOL in value;
 }
 
 /**
- * Resolve commitVersionstamp placeholders in a key
+ * Resolve uuidv7 placeholders in a key
  */
-function resolveKey(key: KvKeyWithVersionstamp, versionstamp: string): KvKey {
+function resolveKey(key: KvKeyWithUuidv7, uuidv7: string): KvKey {
   return key.map((part) => {
-    if (isCommitVersionstamp(part)) {
-      return versionstamp;
+    if (isUuidv7Placeholder(part)) {
+      return uuidv7;
     }
     return part as KvKeyPart;
   });
@@ -82,7 +82,7 @@ export class AtomicOperation {
   /**
    * Set a key-value pair
    */
-  set(key: KvKeyWithVersionstamp, value: unknown, options?: KvSetOptions): this {
+  set(key: KvKeyWithUuidv7, value: unknown, options?: KvSetOptions): this {
     this.mutations.push({
       key,
       type: "set",
@@ -95,7 +95,7 @@ export class AtomicOperation {
   /**
    * Delete a key
    */
-  delete(key: KvKeyWithVersionstamp): this {
+  delete(key: KvKeyWithUuidv7): this {
     this.mutations.push({
       key,
       type: "delete",
@@ -106,7 +106,7 @@ export class AtomicOperation {
   /**
    * Add a value to an existing numeric value atomically
    */
-  sum(key: KvKeyWithVersionstamp, value: bigint): this {
+  sum(key: KvKeyWithUuidv7, value: bigint): this {
     this.mutations.push({
       key,
       type: "sum",
@@ -118,7 +118,7 @@ export class AtomicOperation {
   /**
    * Set to the maximum of the current value and the provided value
    */
-  max(key: KvKeyWithVersionstamp, value: bigint): this {
+  max(key: KvKeyWithUuidv7, value: bigint): this {
     this.mutations.push({
       key,
       type: "max",
@@ -130,7 +130,7 @@ export class AtomicOperation {
   /**
    * Set to the minimum of the current value and the provided value
    */
-  min(key: KvKeyWithVersionstamp, value: bigint): this {
+  min(key: KvKeyWithUuidv7, value: bigint): this {
     this.mutations.push({
       key,
       type: "min",
@@ -142,7 +142,7 @@ export class AtomicOperation {
   /**
    * Append values to an existing array atomically
    */
-  append(key: KvKeyWithVersionstamp, values: unknown[]): this {
+  append(key: KvKeyWithUuidv7, values: unknown[]): this {
     this.mutations.push({
       key,
       type: "append",
@@ -154,7 +154,7 @@ export class AtomicOperation {
   /**
    * Prepend values to an existing array atomically
    */
-  prepend(key: KvKeyWithVersionstamp, values: unknown[]): this {
+  prepend(key: KvKeyWithUuidv7, values: unknown[]): this {
     this.mutations.push({
       key,
       type: "prepend",

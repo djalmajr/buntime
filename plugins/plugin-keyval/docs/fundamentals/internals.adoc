@@ -164,6 +164,67 @@ const versionstamp = Bun.randomUUIDv7();
 - Sortável lexicograficamente
 - ~10^38 valores possíveis por milissegundo
 
+=== UUIDv7 Placeholder
+
+O método `uuidv7()` retorna um placeholder especial que é resolvido apenas no momento do commit da operação atômica. Isso é útil para criar índices secundários com ordenação consistente baseada no tempo de commit.
+
+**Importante:** Todos os placeholders no mesmo commit atômico resolvem para o **mesmo UUIDv7**, permitindo cross-references consistentes.
+
+==== Quando Usar
+
+Use `uuidv7()` quando precisar de IDs time-ordered em índices secundários, especialmente para:
+
+- Feeds de atividades ordenados cronologicamente
+- Timelines de posts ou mensagens
+- Logs de auditoria com ordem garantida
+- Cross-references entre múltiplos índices no mesmo commit
+
+==== Como Funciona
+
+[source,typescript]
+----
+// 1. Cria o placeholder
+const id = kv.uuidv7();
+
+// 2. Usa em uma operação atômica
+await kv.atomic()
+  .set(["posts", postId], post)
+  .set(["posts_by_time", id, postId], postId)      // mesmo id
+  .set(["posts_by_author", authorId, id], postId)  // mesmo id
+  .commit();
+
+// 3. No commit, id é substituído pelo UUIDv7 gerado
+// Resultado: ["posts_by_time", "0190a5b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b", postId]
+----
+
+==== Por Que É Útil
+
+Sem `uuidv7()`, você teria que usar `Date.now()` ou gerar UUIDs manualmente, o que pode resultar em ordem inconsistente se houver concorrência:
+
+[source,typescript]
+----
+// PROBLEMA: Ordem pode ser inconsistente com alta concorrência
+const now = Date.now();
+await kv.atomic()
+  .set(["posts", postId], post)
+  .set(["posts_by_time", now, postId], postId)  // now pode duplicar entre requests
+  .commit();
+
+// SOLUÇÃO: uuidv7() garante unicidade e ordem
+const id = kv.uuidv7();
+await kv.atomic()
+  .set(["posts", postId], post)
+  .set(["posts_by_time", id, postId], postId)  // id único por commit
+  .commit();
+----
+
+**Benefícios:**
+
+- Ordem garantida mesmo sob alta concorrência
+- Unicidade garantida (UUIDv7 gerado via `Bun.randomUUIDv7()`)
+- Consistência entre chave primária e índices secundários
+- Cross-references consistentes (todos os placeholders no mesmo commit = mesmo valor)
+
 === Sistema de Filas
 
 ==== Arquitetura
@@ -196,6 +257,21 @@ const versionstamp = Bun.randomUUIDv7();
                                    cleanup() reseta locks
 ----
 
+==== Estados de Mensagens
+
+[cols="1,3"]
+|===
+| Status | Descrição
+
+| `pending`
+| Aguardando processamento (ou aguardando delay)
+
+| `processing`
+| Em processamento por um worker (locked)
+|===
+
+NOTE: Mensagens processadas com sucesso são DELETADAS (não marcadas como 'delivered'). Mensagens que falharam após todas as tentativas são MOVIDAS para a DLQ e deletadas da fila principal (não marcadas como 'failed').
+
 ==== Dequeue Atômico
 
 O dequeue usa `UPDATE...RETURNING` para operação atômica:
@@ -219,20 +295,166 @@ RETURNING id, value, attempts
 
 Isso garante que apenas um worker processa cada mensagem.
 
-==== Backoff Schedule
+==== Métodos SDK da Fila
 
-Retries seguem um schedule configurável:
+O KeyVal Queue expõe os seguintes métodos para uso no SDK:
+
+===== listen()
+
+Permite processar mensagens da fila de forma contínua:
 
 [source,typescript]
 ----
-const DEFAULT_BACKOFF_SCHEDULE = [1000, 5000, 10000]; // ms
+const stop = kv.queue.listen({
+  handler: async (msg) => {
+    console.log("Processando:", msg.id, msg.value);
+    // Se completar sem erro, mensagem é automaticamente acked
+  },
+  onError: (error, msg) => {
+    console.error("Erro ao processar:", msg.id, error);
+    // Mensagem será nacked automaticamente
+  },
+  concurrency: 5,      // Processar até 5 mensagens simultaneamente
+  pollInterval: 500    // Verificar novas mensagens a cada 500ms
+});
 
-// Tentativa 1: imediata
-// Tentativa 2: +1s
-// Tentativa 3: +5s
-// Tentativa 4: +10s
-// Após: vai para DLQ
+// Parar o listener após 1 hora
+setTimeout(async () => {
+  await stop();
+  console.log("Listener parado");
+}, 3600000);
 ----
+
+**Parâmetros do Listener:**
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Padrão | Descrição
+
+| `handler`
+| (obrigatório)
+| Função chamada para cada mensagem. Se completar sem erro, mensagem é acked automaticamente.
+
+| `onError`
+| (opcional)
+| Callback para erros. Mensagem é nacked automaticamente após erro.
+
+| `concurrency`
+| 1
+| Número máximo de mensagens processadas simultaneamente.
+
+| `pollInterval`
+| 1000ms
+| Intervalo entre verificações de novas mensagens.
+|===
+
+===== stats()
+
+Retorna estatísticas da fila:
+
+[source,typescript]
+----
+const stats = await kv.queue.stats();
+// {
+//   pending: 10,      // mensagens aguardando processamento
+//   processing: 3,    // mensagens sendo processadas
+//   dlq: 2,          // mensagens na DLQ
+//   total: 15        // total de mensagens
+// }
+----
+
+===== getDlqMessage(id)
+
+Obtém uma mensagem específica da Dead Letter Queue:
+
+[source,typescript]
+----
+const message = await kv.queue.getDlqMessage("01J9X3K2M5N7P8Q9R0S1T2V3W4");
+// {
+//   id: "...",
+//   originalId: "...",
+//   value: {...},
+//   attempts: 3,
+//   errorMessage: "Connection timeout",
+//   originalCreatedAt: 1234567890000,
+//   failedAt: 1234567900000
+// }
+
+// Retorna null se não encontrada
+if (!message) {
+  console.log("Mensagem não encontrada na DLQ");
+}
+----
+
+===== deleteDlq(id)
+
+Remove uma mensagem específica da DLQ:
+
+[source,typescript]
+----
+await kv.queue.deleteDlq("01J9X3K2M5N7P8Q9R0S1T2V3W4");
+console.log("Mensagem removida da DLQ");
+----
+
+===== close()
+
+Fecha a fila e para todos os listeners ativos:
+
+[source,typescript]
+----
+// Para todos os listeners e limpa recursos
+kv.queue.close();
+console.log("Fila fechada");
+----
+
+IMPORTANT: O método `close()` é chamado automaticamente quando o plugin é desligado. Use apenas se precisar fechar a fila manualmente antes do shutdown.
+
+==== Backoff Schedule Customizável
+
+O schedule de retry pode ser personalizado por mensagem:
+
+[source,typescript]
+----
+await kv.queue.enqueue(
+  { task: "send-email", to: "user@example.com" },
+  {
+    backoffSchedule: [1000, 5000, 30000, 60000]  // 1s, 5s, 30s, 1min
+  }
+);
+----
+
+**Comportamento:**
+
+- `backoffSchedule[0]` = delay após 1ª falha (1s)
+- `backoffSchedule[1]` = delay após 2ª falha (5s)
+- `backoffSchedule[n]` = delay após (n+1)ª falha
+- Máximo de tentativas = `backoffSchedule.length + 1`
+
+Se não especificado, usa o padrão: `[1000, 5000, 10000]` (4 tentativas totais: 1 inicial + 3 retries).
+
+==== Fallback Keys (keysIfUndelivered)
+
+Salva automaticamente a mensagem em chaves específicas se falhar após todas as tentativas:
+
+[source,typescript]
+----
+await kv.queue.enqueue(
+  { email: "user@example.com", subject: "Welcome" },
+  {
+    keysIfUndelivered: [
+      ["failed_emails", crypto.randomUUID()],
+      ["alerts", "email_failure"]
+    ]
+  }
+);
+----
+
+Se a mensagem falhar após todos os retries:
+
+1. O valor é salvo nas chaves especificadas via `kv.set()`
+2. A mensagem é movida para a DLQ
+
+TIP: Use `keysIfUndelivered` para criar logs de falhas ou notificações automáticas.
 
 ==== Dead Letter Queue
 
@@ -251,20 +473,36 @@ CREATE TABLE kv_dlq (
 );
 ----
 
-==== Cleanup Automático
+==== Limpeza Automática
 
-Um timer periódico limpa mensagens antigas e reseta locks expirados:
+O sistema de filas executa limpeza automática em background:
+
+- **Intervalo**: A cada 60 segundos (configurável via `cleanupInterval`)
+- **Ação**: Reseta locks expirados (mensagens "presas" em `processing` por mais de `lockDuration`)
+
+**Configuração no buntime.jsonc:**
+
+[source,jsonc]
+----
+["@buntime/plugin-keyval", {
+  "queue": {
+    "cleanupInterval": 60000,   // Intervalo de limpeza em ms (0 para desabilitar)
+    "lockDuration": 30000       // Duração do lock em ms (padrão: 30s)
+  }
+}]
+----
+
+NOTE: O parâmetro `maxAge` foi removido pois mensagens processadas são deletadas imediatamente, não ficam armazenadas com status final.
+
+WARNING: Mensagens na DLQ NÃO são afetadas pelo cleanup automático. Use `purgeDlq()` manualmente.
+
+**Detalhes da implementação:**
 
 [source,typescript]
 ----
 // A cada cleanupInterval (default: 60s)
 
-// 1. Deleta mensagens antigas
-DELETE FROM kv_queue
-WHERE status IN ('delivered', 'failed')
-  AND updated_at < (now - maxAge)
-
-// 2. Reseta locks expirados (mensagens "presas")
+// Reseta locks expirados (mensagens "presas")
 UPDATE kv_queue
 SET status = 'pending',
     locked_until = NULL
@@ -285,7 +523,28 @@ WHERE key = ?
   AND (expires_at IS NULL OR expires_at > unixepoch())
 ----
 
-==== Cleanup Background
+==== Limpeza Automática de Entries
+
+O KeyVal executa limpeza automática de entries expiradas em background:
+
+- **Intervalo**: A cada 60 segundos (hardcoded, não configurável)
+- **Ação**: Remove entries onde `expires_at < NOW()`
+
+[source,typescript]
+----
+// Entry com TTL de 1 hora
+await kv.set(["sessions", sessionId], sessionData, {
+  expireIn: 3600000  // 1 hora em ms
+});
+
+// Após 1 hora, a entry é removida automaticamente pelo cleanup
+----
+
+NOTE: O cleanup roda independentemente de requisições. Mesmo sem tráfego, entries expiradas são removidas.
+
+WARNING: O cleanup NÃO dispara triggers de delete para entries expiradas.
+
+==== Implementação do Cleanup
 
 [source,typescript]
 ----
@@ -327,6 +586,33 @@ setInterval(async () => {
 └─────────────────────────────────────────────────────────────┘
 ----
 
+**Casos especiais do commit:**
+
+1. **Commit vazio**: Se `commit()` é chamado sem checks nem mutations, retorna `{ ok: true, versionstamp: <novo_uuidv7> }`
+
+2. **check() com múltiplas verificações**: O método `check()` aceita parâmetros variádicos, permitindo adicionar múltiplos checks de uma vez:
+
+[source,typescript]
+----
+// Adicionar múltiplos checks em uma chamada
+await kv.atomic()
+  .check(
+    { key: ["users", "usr_001"], versionstamp: "abc" },
+    { key: ["posts", "post_123"], versionstamp: "def" },
+    { key: ["comments", "cmt_456"], versionstamp: "ghi" }
+  )
+  .set(["users", "usr_001"], updatedUser)
+  .commit();
+
+// Equivalente a:
+await kv.atomic()
+  .check({ key: ["users", "usr_001"], versionstamp: "abc" })
+  .check({ key: ["posts", "post_123"], versionstamp: "def" })
+  .check({ key: ["comments", "cmt_456"], versionstamp: "ghi" })
+  .set(["users", "usr_001"], updatedUser)
+  .commit();
+----
+
 ==== Mutações Especiais
 
 **sum, max, min** usam SQL com `json_extract`:
@@ -349,6 +635,27 @@ ON CONFLICT(key) DO UPDATE SET
 -- min
 ... MIN(COALESCE(...), ...) ...
 ----
+
+**Conversão de BigInt:**
+
+Operações `sum()`, `max()` e `min()` aceitam valores BigInt, mas internamente convertem para Number antes de armazenar:
+
+[source,typescript]
+----
+// Conversão automática de BigInt para Number
+await kv.atomic()
+  .sum(["counter"], 1n)  // BigInt convertido para Number(1)
+  .commit();
+
+// Validação de range
+await kv.atomic()
+  .sum(["counter"], BigInt(Number.MAX_SAFE_INTEGER) + 1n)  // Erro!
+  .commit();
+// Error: BigInt value exceeds safe integer range for sum operation.
+//        Use values between -9007199254740991 and 9007199254740991.
+----
+
+IMPORTANT: BigInt values devem estar dentro do range `Number.MIN_SAFE_INTEGER` a `Number.MAX_SAFE_INTEGER` (-(2^53-1) a (2^53-1)). Valores fora desse range lançam erro para evitar perda de precisão.
 
 **append, prepend** usam `json_each` e `json_group_array`:
 
@@ -465,28 +772,282 @@ ON CONFLICT(id) DO UPDATE SET
 
 === Triggers
 
-Callbacks podem ser registrados para reagir a modificações:
+Triggers permitem registrar callbacks que são executados automaticamente após modificações bem-sucedidas no KeyVal. Eles são úteis para reagir a mudanças de dados sem polling.
+
+==== Como Funcionam
+
+Os triggers são disparados **após o commit bem-sucedido** de operações `set` ou `delete`:
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                    kv.set(key, value)                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. Executar operação no banco                               │
+│  2. Se sucesso → commit                                      │
+│  3. Disparar triggers que combinam com o prefixo             │
+│     - Matching por array prefix                              │
+│     - Filtrar por tipo de evento ("set" ou "delete")         │
+│     - Executar handlers de forma assíncrona                  │
+│  4. Retornar resposta ao cliente                             │
+│     - Triggers NÃO bloqueiam a resposta                      │
+│     - Erros em triggers são logados, não propagados          │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+----
+
+==== Registro de Triggers
+
+Use `kv.addTrigger()` para registrar um trigger:
 
 [source,typescript]
 ----
-// Registro
 const unsubscribe = kv.addTrigger({
-  prefix: ["users"],
-  events: ["set", "delete"],
+  prefix: ["orders"],                    // Chaves que começam com ["orders"]
+  events: ["set", "delete"],             // Tipos de eventos a monitorar
   handler: async (event) => {
-    console.log(`${event.type} on ${event.key}`);
-  },
+    console.log(`${event.type} on key:`, event.key);
+
+    if (event.type === "set") {
+      console.log("New value:", event.value);
+      console.log("Versionstamp:", event.versionstamp);
+    }
+
+    // Exemplo: Atualizar cache, enviar notificação, etc.
+  }
 });
 
-// Disparo (interno, após cada set/delete)
-await this.fireTriggers("set", key, value, versionstamp);
+// Para cancelar o trigger
+unsubscribe();
 ----
 
-**Execução:**
+==== Matching por Prefixo
 
-- Síncrona (dentro da operação)
-- Erros são logados mas não propagados
-- Matching por prefixo (array prefix match)
+O sistema compara o prefixo do trigger com a chave modificada usando array matching:
+
+[source,typescript]
+----
+// Trigger registrado com prefix: ["users"]
+kv.addTrigger({
+  prefix: ["users"],
+  events: ["set"],
+  handler: async (event) => { /* ... */ }
+});
+
+// Dispara para:
+kv.set(["users", "usr_001"], user);           // ✓ Match
+kv.set(["users", "usr_001", "settings"], {}); // ✓ Match (sub-chave)
+
+// NÃO dispara para:
+kv.set(["posts", "post_001"], post);          // ✗ Prefixo diferente
+kv.set(["user"], data);                       // ✗ Prefixo mais curto
+----
+
+==== Tipos de Eventos
+
+[cols="1,2"]
+|===
+| Evento | Quando Dispara
+
+| `"set"`
+| Após `set()`, `atomic().set()`, ou mutações que criam/atualizam valores
+
+| `"delete"`
+| Após `delete()` ou `atomic().delete()`
+|===
+
+==== Objeto Event
+
+O handler recebe um objeto `TriggerEvent` com:
+
+[source,typescript]
+----
+interface TriggerEvent<T = unknown> {
+  type: "set" | "delete";
+  key: KvKey;                    // Chave que foi modificada
+  value?: T;                     // Valor (apenas para "set")
+  versionstamp?: string;         // Versionstamp (apenas para "set")
+}
+
+// Exemplo de uso:
+kv.addTrigger({
+  prefix: ["posts"],
+  events: ["set", "delete"],
+  handler: async (event) => {
+    if (event.type === "set") {
+      // event.value e event.versionstamp estão disponíveis
+      await updateSearchIndex(event.key, event.value);
+    } else {
+      // event.type === "delete"
+      await removeFromSearchIndex(event.key);
+    }
+  }
+});
+----
+
+==== Execução Assíncrona
+
+**Importante:** Os triggers são executados de forma assíncrona e **não bloqueiam** a resposta ao cliente:
+
+[source,typescript]
+----
+// Cliente faz request:
+await kv.set(["users", "usr_001"], user);
+
+// Internamente:
+// 1. Operação é commitada no banco
+// 2. Response é enviada ao cliente ← Cliente recebe aqui
+// 3. Triggers são disparados (assíncrono)
+// 4. Se trigger falha → erro é logado, mas cliente já recebeu sucesso
+----
+
+==== Tratamento de Erros
+
+Erros em triggers são **logados mas não propagados** para o cliente:
+
+[source,typescript]
+----
+kv.addTrigger({
+  prefix: ["orders"],
+  events: ["set"],
+  handler: async (event) => {
+    // Se isso lançar erro:
+    throw new Error("Failed to send notification");
+
+    // O erro será logado no console, mas:
+    // - A operação original (set) continua bem-sucedida
+    // - O cliente não recebe erro
+    // - Outros triggers continuam executando
+  }
+});
+----
+
+**Implicações:**
+
+- Use triggers para operações não-críticas (notificações, cache, etc.)
+- Para operações críticas, considere usar transações ou filas
+- Implemente retry logic dentro do handler se necessário
+
+==== Triggers em Operações Atômicas
+
+Triggers são disparados após o commit bem-sucedido de operações atômicas:
+
+[source,typescript]
+----
+// Registrar trigger
+const unsubscribe = kv.addTrigger({
+  prefix: ["orders"],
+  events: ["set", "delete"],
+  handler: async (event) => {
+    console.log(`Ordem ${event.type}:`, event.key, event.value);
+  }
+});
+
+// Operação atômica dispara o trigger
+await kv.atomic()
+  .set(["orders", "123"], { status: "paid" })
+  .commit();
+// Log: "Ordem set: ["orders", "123"] { status: "paid" }"
+----
+
+IMPORTANT: Operações `sum`, `max`, `min`, `append` e `prepend` disparam triggers como evento `"set"`, não com seu tipo específico.
+
+[source,typescript]
+----
+kv.addTrigger({
+  prefix: ["counters"],
+  events: ["set"],  // Captura sum, max, min também
+  handler: async (event) => {
+    console.log("Counter atualizado:", event.key, event.value);
+  }
+});
+
+await kv.atomic()
+  .sum(["counters", "visits"], 1n)
+  .commit();
+// Log: "Counter atualizado: ["counters", "visits"] 1"
+----
+
+==== Casos de Uso
+
+**Invalidação de Cache:**
+
+[source,typescript]
+----
+kv.addTrigger({
+  prefix: ["products"],
+  events: ["set", "delete"],
+  handler: async (event) => {
+    await cache.invalidate(`product:${event.key[1]}`);
+  }
+});
+----
+
+**Notificações em Tempo Real:**
+
+[source,typescript]
+----
+kv.addTrigger({
+  prefix: ["messages", channelId],
+  events: ["set"],
+  handler: async (event) => {
+    await websocket.broadcast(channelId, {
+      type: "new_message",
+      message: event.value
+    });
+  }
+});
+----
+
+**Auditoria:**
+
+[source,typescript]
+----
+kv.addTrigger({
+  prefix: ["admin"],
+  events: ["set", "delete"],
+  handler: async (event) => {
+    await kv.set(
+      ["audit_log", Date.now(), crypto.randomUUID()],
+      { action: event.type, key: event.key, timestamp: Date.now() }
+    );
+  }
+});
+----
+
+**Atualização de Índices Secundários:**
+
+[source,typescript]
+----
+kv.addTrigger({
+  prefix: ["users"],
+  events: ["set"],
+  handler: async (event) => {
+    const user = event.value as User;
+    // Atualizar índice por email
+    await kv.set(["users_by_email", user.email], event.key[1]);
+  }
+});
+----
+
+=== Acesso ao Adaptador de Banco
+
+O método `getAdapter()` retorna o adaptador de banco de dados subjacente:
+
+[source,typescript]
+----
+const adapter = kv.getAdapter();
+
+// Executar query SQL customizada (use com cuidado!)
+const result = await adapter.execute(
+  "SELECT COUNT(*) as total FROM kv_entries WHERE key LIKE ?",
+  ["users/%"]
+);
+console.log("Total de usuários:", result.rows[0].total);
+----
+
+WARNING: Use `getAdapter()` apenas para operações avançadas. Queries diretas podem quebrar invariantes do KeyVal.
 
 === Validação de Input
 
@@ -510,6 +1071,73 @@ Limites configurados em `validation.ts`:
 |===
 
 Validação ocorre no handler HTTP antes de qualquer operação de banco.
+
+=== Valores Padrão de Operações
+
+Esta seção documenta os valores padrão para parâmetros opcionais em operações do KeyVal.
+
+==== list() e paginate()
+
+[cols="1,1,2"]
+|===
+| Parâmetro | Padrão | Descrição
+
+| `limit`
+| 100
+| Número máximo de entries retornadas por chamada
+
+| `reverse`
+| false
+| Se true, retorna entries em ordem reversa
+|===
+
+[source,typescript]
+----
+// Sem especificar limit, retorna até 100 entries
+for await (const entry of kv.list(["users"])) {
+  // Máximo 100 entries
+}
+
+// Especificando limit customizado
+for await (const entry of kv.list(["users"], { limit: 500 })) {
+  // Máximo 500 entries
+}
+
+// paginate() segue os mesmos padrões
+const page = await kv.paginate(["users"]);  // limit: 100
+const page2 = await kv.paginate(["users"], { limit: 50 });  // limit: 50
+----
+
+==== transaction()
+
+[cols="1,1,2"]
+|===
+| Parâmetro | Padrão | Descrição
+
+| `maxRetries`
+| 0
+| Número de retries em caso de conflito (0 = sem retry)
+
+| `retryDelay`
+| 10ms
+| Delay base entre retries (usa exponential backoff)
+|===
+
+[source,typescript]
+----
+// Sem retry (padrão)
+const result = await kv.transaction(async (tx) => {
+  // Se conflito ocorrer, retorna { ok: false, error: "conflict" }
+});
+
+// Com retries configurados
+const result = await kv.transaction(async (tx) => {
+  // Tenta até 3 vezes com exponential backoff
+}, {
+  maxRetries: 3,
+  retryDelay: 10  // 10ms, 20ms, 40ms
+});
+----
 
 === Schema do Banco
 

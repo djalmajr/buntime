@@ -3,18 +3,32 @@
   "version": "1.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./index.ts"
   },
   "scripts": {
+    "build": "NODE_ENV=production bun scripts/build.ts",
+    "dev": "bun --hot index.dev.ts",
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
     "lint": "bun run lint:format && bun run lint:types"
   },
   "dependencies": {
-    "@buntime/shared": "workspace:*"
+    "@buntime/shared": "workspace:*",
+    "better-auth": "^1.4.6",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwind-merge": "^3.4.0"
   },
   "peerDependencies": {
     "hono": "^4.0.0",
     "typescript": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.6",
+    "@types/react-dom": "^19.2.3",
+    "bun-plugin-tailwind": "^0.1.2",
+    "tailwindcss": "^4.1.17"
   }
 }

@@ -1,0 +1,141 @@
+{
+  // Application settings
+  "appsDir": "../../../buntime-apps",
+  "poolSize": 100,
+  // "shell": "cpanel",  // uncomment to serve shell app by default
+
+  // Plugins
+  "plugins": [
+    "@buntime/plugin-metrics",
+    [
+      "@buntime/plugin-gateway",
+      {
+        "cors": {
+          "origin": ["http://localhost:4000", "http://localhost:4001", "http://localhost:8000"],
+          "credentials": true
+        }
+      }
+    ],
+    [
+      "@buntime/plugin-authn",
+      {
+        "provider": "keycloak",
+        "issuer": "http://localhost:8180/auth",
+        "realm": "buntime",
+        "clientId": "buntime-app",
+        "clientSecret": "${KEYCLOAK_CLIENT_SECRET}",
+        "useSessions": true,
+        "databasePath": "./data/auth.db",
+        "trustedOrigins": ["http://localhost:8000"],
+        "base": "/auth",
+        "publicRoutes": {
+          "ALL": ["/auth/**"]
+        }
+      }
+    ],
+    [
+      "@buntime/plugin-database",
+      {
+        "adapter": {
+          "type": "libsql",
+          "url": "http://localhost:8880"
+        }
+      }
+    ],
+    "@buntime/plugin-keyval",
+    [
+      "@buntime/plugin-proxy",
+      {
+        "rules": [
+          {
+            "name": "Auth App",
+            "pattern": "^/auth(/.*)?$",
+            "target": "http://localhost:4002",
+            "rewrite": "$1",
+            "base": "/auth",
+            "relativePaths": true,
+            "ws": true
+          },
+          {
+            "name": "Auth HMR",
+            "pattern": "^/auth/(_bun)(/.*)?$",
+            "target": "http://localhost:4002",
+            "rewrite": "/$1$2",
+            "ws": true
+          },
+          {
+            "name": "CPanel App",
+            "pattern": "^/cpanel(/.*)?$",
+            "target": "http://localhost:4000",
+            "rewrite": "$1",
+            "base": "/cpanel",
+            "relativePaths": true,
+            "ws": true
+          },
+          {
+            "name": "CPanel HMR",
+            "pattern": "^/(_bun|avatars)(/.*)?$",
+            "target": "http://localhost:4000",
+            "rewrite": "/$1$2",
+            "ws": true
+          },
+          {
+            "name": "Coder App",
+            "pattern": "^/coder(/.*)?$",
+            "target": "http://localhost:4001",
+            "rewrite": "$1",
+            "base": "/coder",
+            "relativePaths": true,
+            "ws": true
+          },
+          {
+            "name": "Coder HMR",
+            "pattern": "^/coder/(_bun)(/.*)?$",
+            "target": "http://localhost:4001",
+            "rewrite": "/$1$2",
+            "ws": true
+          },
+          {
+            "name": "Todos HTM App",
+            "pattern": "^/todos-htm(/.*)?$",
+            "target": "http://localhost:5000",
+            "rewrite": "$1",
+            "base": "/todos-htm"
+          },
+          {
+            "name": "Todos KV App",
+            "pattern": "^/todos-kv(/.*)?$",
+            "target": "http://localhost:5001",
+            "base": "/todos-kv",
+            "rewrite": "$1",
+            "relativePaths": true,
+            "ws": true
+          },
+          {
+            "name": "Todos KV HMR",
+            "pattern": "^/todos-kv/(_bun)(/.*)?$",
+            "target": "http://localhost:5001",
+            "rewrite": "/$1$2",
+            "ws": true
+          },
+          {
+            "name": "Playground App",
+            "pattern": "^/playground(/.*)?$",
+            "target": "http://localhost:5002",
+            "base": "/playground",
+            "rewrite": "$1",
+            "relativePaths": true,
+            "ws": true
+          },
+          {
+            "name": "Playground HMR",
+            "pattern": "^/playground/(_bun)(/.*)?$",
+            "target": "http://localhost:5002",
+            "rewrite": "/$1$2",
+            "ws": true
+          }
+        ]
+      }
+    ]
+  ]
+}

@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { Kv } from "./kv";
 import { initSchema } from "./schema";
-import type { KvTriggerEvent } from "./types";
 import { createTestAdapter } from "./test-helpers";
+import type { KvTriggerEvent } from "./types";
 
 describe("KvTriggers", () => {
   const adapter = createTestAdapter();

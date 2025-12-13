@@ -793,7 +793,7 @@ const routes = new Hono()
 export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugin {
   return {
     name: "@buntime/plugin-keyval",
-    mountPath: config.mountPath,
+    base: config.base,
     version: "1.0.0",
     dependencies: ["@buntime/plugin-database"],
 

@@ -1,5 +1,59 @@
-import type { Server, ServerWebSocket } from "bun";
+import type { BunFile, Server, ServerWebSocket } from "bun";
 import type { Hono, MiddlewareHandler } from "hono";
+
+/**
+ * Route handler type for Bun.serve routes
+ */
+export type RouteHandler = Response | BunFile | ((req: Request) => Response | Promise<Response>);
+
+/**
+ * Plugin server configuration
+ * Allows plugins to serve static files and API routes directly in main process
+ */
+export interface PluginServer {
+  /**
+   * Routes for Bun.serve({ routes })
+   * These are wrapped with auth check based on publicRoutes
+   * @example { "/login": htmlFile, "/api/health/*": () => new Response("OK") }
+   */
+  routes?: Record<string, RouteHandler>;
+
+  /**
+   * Fetch handler invoked in app.fetch
+   * Called after routes don't match, before Hono routes
+   * @example honoApp.fetch
+   */
+  fetch?: (req: Request) => Response | Promise<Response>;
+}
+
+/**
+ * Public routes configuration per HTTP method
+ * ALL applies to all methods, others are method-specific
+ *
+ * @example
+ * // Array format - applies to ALL methods
+ * publicRoutes: ["/health", "/api/public/**"]
+ *
+ * @example
+ * // Object format - method-specific
+ * publicRoutes: {
+ *   ALL: ["/health"],
+ *   GET: ["/api/users/**"],
+ *   POST: ["/api/webhook"]
+ * }
+ */
+export type PublicRoutesConfig =
+  | string[]
+  | {
+      ALL?: string[];
+      DELETE?: string[];
+      GET?: string[];
+      HEAD?: string[];
+      OPTIONS?: string[];
+      PATCH?: string[];
+      POST?: string[];
+      PUT?: string[];
+    };
 
 /**
  * Plugin configuration (Babel-style):
@@ -48,11 +102,11 @@ export interface BuntimeConfig {
  */
 export interface BasePluginConfig {
   /**
-   * Custom mount path for plugin routes
-   * @default `/_/{plugin-short-name}`
-   * @example "/kv" or "/api/metrics"
+   * Custom base path for plugin routes
+   * @default `/api/{plugin-short-name}`
+   * @example "/api/kv" or "/kv"
    */
-  mountPath?: string;
+  base?: string;
 }
 
 /**
@@ -119,8 +173,21 @@ export interface WorkerConfig {
   idleTimeout?: number;
   lowMemory?: boolean;
   maxRequests?: number;
+
+  /**
+   * Routes that bypass plugin onRequest hooks
+   * Routes are relative to the worker's base path (e.g., "/api/health" → "/{app}/api/health")
+   * Supports wildcards: * (single segment), ** (multiple segments)
+   */
+  publicRoutes?: PublicRoutesConfig;
+
   timeout?: number;
   ttl?: number;
+
+  /**
+   * Additional environment variables to pass to the worker
+   */
+  env?: Record<string, string>;
 }
 
 /**
@@ -142,6 +209,31 @@ export interface WorkerStats {
   idle: number;
   requestCount: number;
   status: "active" | "idle" | "terminated";
+}
+
+/**
+ * App registered by a plugin (served as worker)
+ * Different from APPS_DIR: no version convention, direct path mapping
+ */
+export interface PluginApp {
+  /** Filesystem directory containing the app */
+  dir: string;
+
+  /** Optional worker config overrides */
+  config?: Partial<WorkerConfig>;
+
+  /**
+   * URL path for this app (e.g., "/login", "/dashboard")
+   * @deprecated Use `routes` instead for explicit route matching
+   */
+  path?: string;
+
+  /**
+   * Routes that this app handles (glob patterns)
+   * Required for apps that need explicit route matching
+   * @example ["/login", "/register", "/api/auth/**"]
+   */
+  routes?: string[];
 }
 
 /**
@@ -223,15 +315,23 @@ export interface BuntimePlugin {
   onWorkerTerminate?: (worker: WorkerInstance, app: AppInfo) => void;
 
   /**
-   * Custom mount path for plugin routes
-   * @default `/_/{plugin-short-name}`
+   * Custom base path for plugin routes
+   * @default `/api/{plugin-short-name}`
    * @example "/api/kv" or "/kv"
    */
-  mountPath?: string;
+  base?: string;
+
+  /**
+   * Routes that bypass this plugin's onRequest hook
+   * These are absolute paths (not relative to base)
+   * Supports wildcards: * (single segment), ** (multiple segments)
+   * @example { ALL: ["/health"], GET: ["/api/public/**"] }
+   */
+  publicRoutes?: PublicRoutesConfig;
 
   /**
    * Internal routes for the plugin
-   * Mounted at `mountPath` or `/_/{plugin-short-name}/*` by default
+   * Mounted at `base` or `/api/{plugin-short-name}/*` by default
    */
   routes?: Hono;
 
@@ -239,6 +339,20 @@ export interface BuntimePlugin {
    * Alternative to onRequest - Hono middleware
    */
   middleware?: MiddlewareHandler;
+
+  /**
+   * Apps to register as workers
+   * These are served from the plugin's directory, not APPS_DIR
+   * Path is relative to base (e.g., "/login" → "/api/authn/login")
+   */
+  apps?: PluginApp[];
+
+  /**
+   * Server module for serving static files and API routes in main process
+   * - routes: goes to Bun.serve({ routes }) with auth wrapper
+   * - fetch: invoked in app.fetch (Hono)
+   */
+  server?: PluginServer;
 }
 
 /**

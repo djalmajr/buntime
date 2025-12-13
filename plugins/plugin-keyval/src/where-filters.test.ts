@@ -27,10 +27,24 @@ describe("Where Filters", () => {
 
   async function seedUsers() {
     const users = [
-      { id: 1, name: "Alice", email: "alice@example.com", age: 30, status: "active", tags: ["admin", "user"] },
+      {
+        id: 1,
+        name: "Alice",
+        email: "alice@example.com",
+        age: 30,
+        status: "active",
+        tags: ["admin", "user"],
+      },
       { id: 2, name: "Bob", email: "bob@test.com", age: 25, status: "inactive", tags: ["user"] },
       { id: 3, name: "Charlie", email: "charlie@example.com", age: 35, status: "active", tags: [] },
-      { id: 4, name: "Diana", email: "diana@test.com", age: 28, status: "pending", tags: ["moderator"] },
+      {
+        id: 4,
+        name: "Diana",
+        email: "diana@test.com",
+        age: 28,
+        status: "pending",
+        tags: ["moderator"],
+      },
       { id: 5, name: "Eve", email: null, age: 40, status: "active", tags: ["admin"] },
     ];
 
@@ -41,7 +55,10 @@ describe("Where Filters", () => {
     return users;
   }
 
-  async function collectList<T>(prefix: Parameters<typeof kv.list>[0], options?: Parameters<typeof kv.list>[1]) {
+  async function collectList<T>(
+    prefix: Parameters<typeof kv.list>[0],
+    options?: Parameters<typeof kv.list>[1],
+  ) {
     const entries: T[] = [];
     for await (const entry of kv.list<T>(prefix, options)) {
       entries.push(entry.value as T);

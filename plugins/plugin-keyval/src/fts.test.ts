@@ -192,9 +192,24 @@ describe("Full-Text Search", () => {
       });
 
       const posts = [
-        { id: 1, title: "JavaScript Basics", content: "Introduction to JavaScript programming", tags: "beginner" },
-        { id: 2, title: "Advanced TypeScript", content: "Deep dive into TypeScript features", tags: "advanced" },
-        { id: 3, title: "React Tutorial", content: "Building apps with React and JavaScript", tags: "frontend" },
+        {
+          id: 1,
+          title: "JavaScript Basics",
+          content: "Introduction to JavaScript programming",
+          tags: "beginner",
+        },
+        {
+          id: 2,
+          title: "Advanced TypeScript",
+          content: "Deep dive into TypeScript features",
+          tags: "advanced",
+        },
+        {
+          id: 3,
+          title: "React Tutorial",
+          content: "Building apps with React and JavaScript",
+          tags: "frontend",
+        },
       ];
 
       for (const post of posts) {
@@ -212,10 +227,19 @@ describe("Full-Text Search", () => {
       });
 
       await kv.set(["and_posts", 1], { title: "JavaScript Guide", content: "Learn JavaScript" });
-      await fts.indexDocument(["and_posts"], ["and_posts", 1], { title: "JavaScript Guide", content: "Learn JavaScript" });
+      await fts.indexDocument(["and_posts"], ["and_posts", 1], {
+        title: "JavaScript Guide",
+        content: "Learn JavaScript",
+      });
 
-      await kv.set(["and_posts", 2], { title: "Node Guide", content: "Server JavaScript with Node" });
-      await fts.indexDocument(["and_posts"], ["and_posts", 2], { title: "Node Guide", content: "Server JavaScript with Node" });
+      await kv.set(["and_posts", 2], {
+        title: "Node Guide",
+        content: "Server JavaScript with Node",
+      });
+      await fts.indexDocument(["and_posts"], ["and_posts", 2], {
+        title: "Node Guide",
+        content: "Server JavaScript with Node",
+      });
 
       const results = await fts.search(["and_posts"], "JavaScript AND Node");
       expect(results.length).toBe(1);
@@ -246,7 +270,10 @@ describe("Full-Text Search", () => {
       });
 
       await kv.set(["multi_posts", 1], { title: "JavaScript Basics", tags: "beginner" });
-      await fts.indexDocument(["multi_posts"], ["multi_posts", 1], { title: "JavaScript Basics", tags: "beginner" });
+      await fts.indexDocument(["multi_posts"], ["multi_posts", 1], {
+        title: "JavaScript Basics",
+        tags: "beginner",
+      });
 
       // "beginner" is only in tags field
       const results = await fts.search(["multi_posts"], "beginner");
@@ -261,7 +288,9 @@ describe("Full-Text Search", () => {
 
       for (let i = 1; i <= 5; i++) {
         await kv.set(["limit_posts", i], { title: `JavaScript Post ${i}` });
-        await fts.indexDocument(["limit_posts"], ["limit_posts", i], { title: `JavaScript Post ${i}` });
+        await fts.indexDocument(["limit_posts"], ["limit_posts", i], {
+          title: `JavaScript Post ${i}`,
+        });
       }
 
       const results = await fts.search(["limit_posts"], "JavaScript", { limit: 2 });

@@ -537,7 +537,7 @@ export default function proxyPlugin(config: ProxyConfig = {}): BuntimePlugin {
     name: "@buntime/plugin-proxy",
     version: "1.0.0",
     optionalDependencies: ["@buntime/plugin-keyval"],
-    mountPath: config.mountPath,
+    base: config.base,
     routes,
 
     async onInit(ctx: PluginContext) {

@@ -93,7 +93,7 @@ export default function metricsPlugin(pluginConfig: MetricsConfig = {}): Buntime
 
   return {
     name: "@buntime/plugin-metrics",
-    mountPath: pluginConfig.mountPath,
+    base: pluginConfig.base,
     version: "1.0.0",
 
     onInit(ctx: PluginContext) {

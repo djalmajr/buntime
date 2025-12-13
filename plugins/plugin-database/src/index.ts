@@ -127,7 +127,7 @@ const routes = new Hono()
 export default function databasePlugin(config: DatabasePluginConfig): BuntimePlugin {
   return {
     name: "@buntime/plugin-database",
-    mountPath: config.mountPath,
+    base: config.base,
     version: "1.0.0",
 
     async onInit(ctx: PluginContext) {

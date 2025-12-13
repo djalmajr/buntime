@@ -86,7 +86,7 @@ const routes = new Hono()
 export default function durableObjectsExtension(config: DurableObjectsConfig = {}): BuntimePlugin {
   return {
     name: "@buntime/plugin-durable",
-    mountPath: config.mountPath,
+    base: config.base,
     version: "1.0.0",
 
     async onInit(ctx: PluginContext) {

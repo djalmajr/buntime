@@ -140,7 +140,10 @@ export class KvFts {
 
     // Insert into FTS table
     const placeholders = fieldValues.map(() => "?").join(", ");
-    await this.adapter.execute(`INSERT INTO ${index.tableName} VALUES (${placeholders})`, fieldValues);
+    await this.adapter.execute(
+      `INSERT INTO ${index.tableName} VALUES (${placeholders})`,
+      fieldValues,
+    );
   }
 
   /**

@@ -21,3 +21,5 @@
 @.claude/rules/code-conventions/no-barrel-files.md
 
 @.claude/rules/code-conventions/lint-test-requirement.md
+
+- Ao usar lsof, use lsof -ti:4000-4005,5000-5005,8000 | xargs kill -9

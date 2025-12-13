@@ -56,7 +56,7 @@ apps/runner/
 │   │   ├── loader.ts     # Plugin loader
 │   │   └── registry.ts   # Plugin registry
 │   ├── routes/
-│   │   ├── internal/     # /_/* routes
+│   │   ├── internal/     # /api/* routes
 │   │   └── worker.ts     # /:app/* routes
 │   └── utils/
 │       ├── get-app-dir.ts
@@ -137,18 +137,18 @@ apps/runner/
 
 == Rotas da API
 
-=== Internal (`/_/*`)
+=== Internal (`/api/*`)
 
-* `GET /_/deployments` - Gerenciamento de deployments
-* `GET /_/metrics` - Métricas do pool (JSON)
-* `GET /_/sse` - Stream SSE
-* `GET /_/stats` - Stats completos
+* `GET /api/deployments` - Gerenciamento de deployments
+* `GET /api/metrics` - Métricas do pool (JSON)
+* `GET /api/sse` - Stream SSE
+* `GET /api/stats` - Stats completos
 
-=== Plugin (`/_/{name}/*`)
+=== Plugin (`/api/{name}/*`)
 
-* `/_/plugin-metrics/prometheus`
-* `/_/plugin-authn/well-known`
-* `/_/plugin-authz/policies`
+* `/api/metrics/prometheus`
+* `/api/authn/well-known`
+* `/api/authz/policies`
 
 === Worker (`/`)
 
@@ -179,8 +179,8 @@ bun build:bin        # Compile to binary
 [source]
 ----
 Request → Hono Router → Route?
-  ├── /_/* → Internal Routes
-  ├── /_/{plugin}/* → Plugin Routes
+  ├── /api/* → Internal Routes
+  ├── /api/{plugin}/* → Plugin Routes
   └── /:app/* → Worker Pool → Worker Thread
 ----
 

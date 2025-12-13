@@ -179,7 +179,7 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): Buntime
 
   return {
     name: "@buntime/plugin-gateway",
-    mountPath: pluginConfig.mountPath,
+    base: pluginConfig.base,
     version: "1.0.0",
     optionalDependencies: ["@buntime/plugin-authn"], // Run after authn if present
 

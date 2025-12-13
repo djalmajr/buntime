@@ -111,7 +111,7 @@ export function validateKey(key: unknown): KvKey {
 
   if (key.length === 0) {
     throw new HTTPException(400, {
-      message: "Key cannot be empty. Provide at least one key part, e.g. [\"users\", 123]",
+      message: 'Key cannot be empty. Provide at least one key part, e.g. ["users", 123]',
     });
   }
 
@@ -163,7 +163,7 @@ export function validateKeys(keys: unknown): KvKey[] {
 
   if (keys.length === 0) {
     throw new HTTPException(400, {
-      message: "Keys array cannot be empty. Provide at least one key, e.g. [[\"users\", 123]]",
+      message: 'Keys array cannot be empty. Provide at least one key, e.g. [["users", 123]]',
     });
   }
 

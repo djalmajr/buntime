@@ -1,0 +1,51 @@
+{
+  "browse": {
+    "description": "List entries by prefix",
+    "list": "List",
+    "prefixPlaceholder": "Prefix (e.g., users or users, 123)",
+    "title": "Browse Entries"
+  },
+  "cancel": "Cancel",
+  "confirmDelete": "Are you sure you want to delete this entry? This action cannot be undone.",
+  "confirmDeleteMultiple": "Are you sure you want to delete {{count}} entries? This action cannot be undone.",
+  "confirmDeleteTitle": "Delete Entry",
+  "delete": "Delete",
+  "deleteSelected": "Delete ({{count}})",
+  "description": "CRUD operations, listing, pagination, and filters",
+  "editValue": "Edit Value",
+  "entriesCount": "{{count}} entries",
+  "get": {
+    "description": "Get a single entry by key",
+    "fetch": "Get",
+    "keyPlaceholder": "Key (e.g., users, 123)",
+    "title": "Get Entry"
+  },
+  "key": "Key",
+  "noEntries": "No entries found. Click 'List' to load entries.",
+  "refresh": "Refresh",
+  "save": "Save",
+  "set": {
+    "description": "Create or update an entry",
+    "keyLabel": "Key",
+    "keyPlaceholder": "Key parts (e.g., users, 123)",
+    "save": "Save",
+    "title": "Set Entry",
+    "valueLabel": "Value (JSON)",
+    "valuePlaceholder": "{\"name\": \"Alice\"}"
+  },
+  "table": {
+    "actions": "Actions",
+    "empty": "No entries found. Try listing with a different prefix.",
+    "key": "Key",
+    "value": "Value",
+    "versionstamp": "Version"
+  },
+  "tabs": {
+    "browse": "Browse",
+    "get": "Get",
+    "set": "Set"
+  },
+  "title": "Entries",
+  "value": "Value",
+  "versionstamp": "Version"
+}

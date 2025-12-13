@@ -1,0 +1,9 @@
+{
+  // Minimal dev config without libsql-dependent plugins
+  "appsDir": "../../../buntime-apps",
+  "poolSize": 100,
+
+  "plugins": [
+    "@buntime/plugin-metrics"
+  ]
+}

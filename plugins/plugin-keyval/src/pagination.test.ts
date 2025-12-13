@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { Kv } from "./kv";
 import { initSchema } from "./schema";
 import { createTestAdapter } from "./test-helpers";
+import type { KvPaginateResult } from "./types";
 
 describe("Pagination", () => {
   const adapter = createTestAdapter();
@@ -94,7 +95,11 @@ describe("Pagination", () => {
       expect(page1.entries[0]?.value).toEqual({ id: 10, name: "Item 10" });
       expect(page1.entries[2]?.value).toEqual({ id: 8, name: "Item 8" });
 
-      const page2 = await kv.paginate(["items"], { limit: 3, reverse: true, cursor: page1.cursor! });
+      const page2 = await kv.paginate(["items"], {
+        limit: 3,
+        reverse: true,
+        cursor: page1.cursor!,
+      });
 
       expect(page2.entries[0]?.value).toEqual({ id: 7, name: "Item 7" });
     });
@@ -113,9 +118,10 @@ describe("Pagination", () => {
 
       const allEntries = [];
       let cursor: string | null = null;
+      let page: KvPaginateResult;
 
       do {
-        const page = await kv.paginate(["items"], { limit: 7, cursor: cursor ?? undefined });
+        page = await kv.paginate(["items"], { limit: 7, cursor: cursor ?? undefined });
         allEntries.push(...page.entries);
         cursor = page.cursor;
       } while (cursor !== null);

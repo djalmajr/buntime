@@ -1,0 +1,51 @@
+{
+  "browse": {
+    "description": "Listar entradas por prefixo",
+    "list": "Listar",
+    "prefixPlaceholder": "Prefixo (ex: users ou users, 123)",
+    "title": "Navegar Entradas"
+  },
+  "cancel": "Cancelar",
+  "confirmDelete": "Tem certeza que deseja excluir esta entrada? Esta acao nao pode ser desfeita.",
+  "confirmDeleteMultiple": "Tem certeza que deseja excluir {{count}} entradas? Esta acao nao pode ser desfeita.",
+  "confirmDeleteTitle": "Excluir Entrada",
+  "delete": "Excluir",
+  "deleteSelected": "Excluir ({{count}})",
+  "description": "Operacoes CRUD, listagem, paginacao e filtros",
+  "editValue": "Editar Valor",
+  "entriesCount": "{{count}} entradas",
+  "get": {
+    "description": "Buscar uma entrada pela chave",
+    "fetch": "Buscar",
+    "keyPlaceholder": "Chave (ex: users, 123)",
+    "title": "Buscar Entrada"
+  },
+  "key": "Chave",
+  "noEntries": "Nenhuma entrada encontrada. Clique em 'Listar' para carregar entradas.",
+  "refresh": "Atualizar",
+  "save": "Salvar",
+  "set": {
+    "description": "Criar ou atualizar uma entrada",
+    "keyLabel": "Chave",
+    "keyPlaceholder": "Partes da chave (ex: users, 123)",
+    "save": "Salvar",
+    "title": "Definir Entrada",
+    "valueLabel": "Valor (JSON)",
+    "valuePlaceholder": "{\"name\": \"Alice\"}"
+  },
+  "table": {
+    "actions": "Acoes",
+    "empty": "Nenhuma entrada encontrada. Tente listar com outro prefixo.",
+    "key": "Chave",
+    "value": "Valor",
+    "versionstamp": "Versao"
+  },
+  "tabs": {
+    "browse": "Navegar",
+    "get": "Buscar",
+    "set": "Definir"
+  },
+  "title": "Entradas",
+  "value": "Valor",
+  "versionstamp": "Versao"
+}

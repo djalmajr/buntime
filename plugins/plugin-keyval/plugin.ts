@@ -1,8 +1,14 @@
-import type { DatabaseService } from "@buntime/plugin-database";
+import type { AdapterType, DatabaseService } from "@buntime/plugin-database";
 import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
 import { initialize, shutdown } from "./server/services";
 
 export interface KeyValConfig extends BasePluginConfig {
+  /**
+   * Database adapter type to use (uses default if not specified)
+   * @example "libsql", "sqlite", "postgres"
+   */
+  database?: AdapterType;
+
   /**
    * Metrics settings
    */
@@ -49,15 +55,20 @@ export interface KeyValConfig extends BasePluginConfig {
  * - Prefix-based listing
  *
  * @example
- * ```typescript
- * // buntime.config.ts
- * export default {
- *   plugins: [
- *     "@buntime/plugin-database", // Required dependency
- *     ["@buntime/plugin-keyval", {
- *       metrics: { persistent: true },
+ * ```jsonc
+ * // buntime.jsonc
+ * {
+ *   "plugins": [
+ *     ["@buntime/plugin-database", {
+ *       "adapters": [
+ *         { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] }
+ *       ]
  *     }],
- *   ],
+ *     ["@buntime/plugin-keyval", {
+ *       "database": "libsql",
+ *       "metrics": { "persistent": true }
+ *     }]
+ *   ]
  * }
  * ```
  */
@@ -77,6 +88,7 @@ export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugi
       const kv = await initialize(
         database,
         {
+          adapterType: config.database,
           metrics: config.metrics,
           queue: config.queue,
         },
@@ -86,7 +98,8 @@ export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugi
       // Register kv service for other plugins (queue is accessible via kv.queue)
       ctx.registerService("kv", kv);
 
-      ctx.logger.info("KeyVal initialized (using plugin-database adapter)");
+      const dbType = config.database ?? database.getDefaultType();
+      ctx.logger.info(`KeyVal initialized (database: ${dbType})`);
     },
 
     async onShutdown() {

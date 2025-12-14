@@ -1,8 +1,14 @@
-import type { DatabaseService } from "@buntime/plugin-database";
+import type { AdapterType, DatabaseService } from "@buntime/plugin-database";
 import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
 import { initialize, shutdown } from "./server/services";
 
 export interface DurableObjectsConfig extends BasePluginConfig {
+  /**
+   * Database adapter type to use (uses default if not specified)
+   * @example "libsql", "sqlite", "postgres"
+   */
+  database?: AdapterType;
+
   /**
    * Time in ms before idle objects hibernate
    * @default 60000
@@ -32,8 +38,13 @@ export interface DurableObjectsConfig extends BasePluginConfig {
  * // buntime.jsonc
  * {
  *   "plugins": [
- *     ["@buntime/plugin-database", { "adapter": { "type": "libsql" } }],
+ *     ["@buntime/plugin-database", {
+ *       "adapters": [
+ *         { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] }
+ *       ]
+ *     }],
  *     ["@buntime/plugin-durable", {
+ *       "database": "libsql",
  *       "hibernateAfter": 60000,
  *       "maxObjects": 1000
  *     }]
@@ -56,7 +67,7 @@ export default function durableObjectsExtension(config: DurableObjectsConfig = {
         );
       }
 
-      const adapter = databaseService.getRootAdapter();
+      const adapter = databaseService.getRootAdapter(config.database);
 
       await initialize(
         adapter,
@@ -67,7 +78,8 @@ export default function durableObjectsExtension(config: DurableObjectsConfig = {
         ctx.logger,
       );
 
-      ctx.logger.info("Durable Objects initialized (using plugin-database)");
+      const dbType = config.database ?? databaseService.getDefaultType();
+      ctx.logger.info(`Durable Objects initialized (database: ${dbType})`);
     },
 
     async onShutdown() {

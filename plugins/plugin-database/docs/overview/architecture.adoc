@@ -11,6 +11,7 @@
 == Características Principais
 
 - **Abstração de Banco de Dados**: API unificada para diferentes bancos (libSQL, PostgreSQL, MySQL, SQLite).
+- **Múltiplos Adapters**: Suporte a configurar múltiplos adapters simultaneamente, cada plugin pode escolher qual usar.
 - **Multi-Tenancy**: Suporte a isolamento de dados por tenant (namespaces, schemas ou databases).
 - **Alta Disponibilidade**: Suporte a replicação e load balancing (especialmente com libSQL).
 - **Integração**: Fácil integração com outros plugins do ecossistema Buntime via injeção de dependência.
@@ -26,6 +27,32 @@
 
 == Componentes
 
-- **DatabaseService**: Gerencia adapters e tenants.
+- **DatabaseService**: Gerencia adapters e tenants. Expõe métodos para obter adapters por tipo.
 - **DatabaseAdapter**: Interface comum para execução de queries.
 - **Drivers**: Implementações específicas para cada banco (libSQL, Bun SQL).
+
+== Múltiplos Adapters
+
+O plugin suporta configurar múltiplos adapters simultaneamente:
+
+[source,jsonc]
+----
+{
+  "adapters": [
+    { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
+    { "type": "sqlite", "url": "file:./auth.db" }
+  ]
+}
+----
+
+Cada plugin consumidor pode escolher qual adapter usar:
+
+[source,typescript]
+----
+// Usar o adapter default
+const adapter = dbService.getRootAdapter();
+
+// Usar um tipo específico
+const libsqlAdapter = dbService.getRootAdapter("libsql");
+const sqliteAdapter = dbService.getRootAdapter("sqlite");
+----

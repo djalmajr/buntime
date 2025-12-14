@@ -40,18 +40,32 @@ Plugins are configured in `buntime.jsonc`:
   "required": ["@buntime/plugin-metrics", "@buntime/plugin-database"],
   "plugins": [
     "@buntime/plugin-metrics",
-    ["@buntime/plugin-database", { "adapter": { "type": "libsql" } }],
+    ["@buntime/plugin-database", {
+      "adapters": [
+        { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
+        { "type": "sqlite", "url": "file:./auth.db" }
+      ]
+    }],
     ["@buntime/plugin-proxy", { "rules": [...] }],
-    ["@buntime/plugin-authn", { "provider": "keycloak", ... }],
+    ["@buntime/plugin-authn", { "database": "sqlite", ... }],
     ["@buntime/plugin-gateway", { "rateLimit": { ... } }],
     ["@buntime/plugin-authz", { "policies": [...] }],
-    "@buntime/plugin-durable",
-    "@buntime/plugin-keyval"
+    ["@buntime/plugin-durable", { "database": "libsql" }],
+    ["@buntime/plugin-keyval", { "database": "libsql" }]
   ]
 }
 ```
 
-NOTE: libSQL URLs are auto-detected via environment variables:
+### Multiple Adapters
+
+- Each adapter type can appear only once
+- One adapter must have `default: true`
+- Plugins can specify `database: "libsql" | "sqlite" | ...` to choose adapter
+- If not specified, plugins use the default adapter
+
+### Auto-detection
+
+libSQL URLs are auto-detected via environment variables:
 - `LIBSQL_URL_0` = Primary (required)
 - `LIBSQL_URL_1`, `LIBSQL_URL_2`, ... = Replicas (optional)
 

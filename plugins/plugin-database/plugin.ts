@@ -1,7 +1,7 @@
 import type { BuntimePlugin, PluginContext, PluginLogger } from "@buntime/shared/types";
 import { setService } from "./server/api";
 import { DatabaseServiceImpl } from "./server/service";
-import type { DatabasePluginConfig, DatabaseService } from "./server/types";
+import type { AdapterConfig, DatabasePluginConfig, DatabaseService } from "./server/types";
 
 let service: DatabaseServiceImpl | null = null;
 let logger: PluginLogger;
@@ -32,34 +32,63 @@ function detectLibSqlUrls(): string[] {
 }
 
 /**
- * Process adapter config to substitute environment variables
+ * Process a single adapter config with env var substitution
  */
-function processAdapterConfig(config: DatabasePluginConfig): DatabasePluginConfig {
-  const adapter = { ...config.adapter };
+function processAdapter(adapter: AdapterConfig, log: PluginLogger): AdapterConfig {
+  const processed = { ...adapter, logger: log };
 
-  if ("authToken" in adapter && adapter.authToken) {
-    adapter.authToken = substituteEnvVars(adapter.authToken);
+  // Substitute env vars in authToken
+  if ("authToken" in processed && processed.authToken) {
+    processed.authToken = substituteEnvVars(processed.authToken);
   }
 
-  // Process urls array with env var substitution
-  if ("urls" in adapter && Array.isArray(adapter.urls)) {
-    adapter.urls = adapter.urls.map((url) => substituteEnvVars(url)).filter((url) => url);
+  // Substitute env vars in url (for sqlite/postgres/mysql)
+  if ("url" in processed && processed.url) {
+    processed.url = substituteEnvVars(processed.url);
+  }
+
+  // Process urls array with env var substitution (for libsql)
+  if ("urls" in processed && Array.isArray(processed.urls)) {
+    processed.urls = processed.urls.map((url) => substituteEnvVars(url)).filter((url) => url);
   }
 
   // Auto-detect libSQL URLs from environment and merge with config
-  if ("type" in adapter && adapter.type === "libsql") {
+  if (processed.type === "libsql") {
     const envUrls = detectLibSqlUrls();
-    const configUrls = (adapter as { urls?: string[] }).urls ?? [];
+    const configUrls = (processed as { urls?: string[] }).urls ?? [];
 
     // Merge: config urls first, then env urls (deduplicated via Set)
     const allUrls = [...new Set([...configUrls, ...envUrls])];
 
     if (allUrls.length > 0) {
-      (adapter as { urls: string[] }).urls = allUrls;
+      (processed as { urls: string[] }).urls = allUrls;
     }
   }
 
-  return { ...config, adapter };
+  return processed;
+}
+
+/**
+ * Process config to normalize adapters array and substitute env vars
+ */
+function processConfig(config: DatabasePluginConfig, log: PluginLogger): DatabasePluginConfig {
+  const processed = { ...config };
+
+  // Handle new format: adapters array
+  if (config.adapters && config.adapters.length > 0) {
+    processed.adapters = config.adapters.map((a) => processAdapter(a, log));
+    // Clear old format
+    processed.adapter = undefined;
+  }
+  // Handle old format: single adapter (backward compatibility)
+  else if (config.adapter) {
+    const adapter = processAdapter(config.adapter, log);
+    // Convert to new format with default: true
+    processed.adapters = [{ ...adapter, default: true }];
+    processed.adapter = undefined;
+  }
+
+  return processed;
 }
 
 /**
@@ -68,26 +97,34 @@ function processAdapterConfig(config: DatabasePluginConfig): DatabasePluginConfi
  * Provides a database abstraction layer with multi-tenancy support.
  * Other plugins can depend on this to get database access.
  *
- * URLs configuration for libSQL:
- * - urls[0] = Primary (writes + reads)
- * - urls[1..n] = Replicas (reads only, round-robin)
+ * Supports multiple adapters - each plugin can choose which to use.
  *
- * Auto-detection from environment:
- * - LIBSQL_URL_0 = Primary
- * - LIBSQL_URL_1, LIBSQL_URL_2, ... = Replicas
- *
- * @example
+ * @example Single adapter (backward compatible)
  * ```jsonc
- * // buntime.jsonc
  * {
  *   "plugins": [
  *     ["@buntime/plugin-database", {
  *       "adapter": {
  *         "type": "libsql",
- *         "urls": ["http://primary:8080", "http://replica1:8080"],
- *         "authToken": "${LIBSQL_TOKEN}"
+ *         "urls": ["http://primary:8080"]
  *       }
  *     }]
+ *   ]
+ * }
+ * ```
+ *
+ * @example Multiple adapters
+ * ```jsonc
+ * {
+ *   "plugins": [
+ *     ["@buntime/plugin-database", {
+ *       "adapters": [
+ *         { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
+ *         { "type": "sqlite", "url": "file:./auth.db" }
+ *       ]
+ *     }],
+ *     ["@buntime/plugin-keyval", { "database": "libsql" }],
+ *     ["@buntime/plugin-authn", { "database": "sqlite" }]
  *   ]
  * }
  * ```
@@ -101,12 +138,7 @@ export default function databasePlugin(config: DatabasePluginConfig): BuntimePlu
       logger = ctx.logger;
 
       // Process config with env var substitution
-      const processedConfig = processAdapterConfig(config);
-
-      // Add logger to adapter config
-      if (processedConfig.adapter) {
-        (processedConfig.adapter as { logger?: PluginLogger }).logger = logger;
-      }
+      const processedConfig = processConfig(config, logger);
 
       // Create service
       service = new DatabaseServiceImpl({

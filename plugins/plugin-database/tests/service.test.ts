@@ -33,7 +33,7 @@ describe("DatabaseServiceImpl", () => {
   });
 
   describe("initialization", () => {
-    it("should create service with libsql adapter", async () => {
+    it("should create service with libsql adapter (old format)", async () => {
       service = new DatabaseServiceImpl({
         config: {
           adapter: {
@@ -47,6 +47,22 @@ describe("DatabaseServiceImpl", () => {
       expect(service).toBeDefined();
       expect(service.getRootAdapter()).toBeDefined();
       expect(service.getRootAdapter().type).toBe("libsql");
+      expect(service.getDefaultType()).toBe("libsql");
+    });
+
+    it("should create service with adapters array (new format)", async () => {
+      const multiService = new DatabaseServiceImpl({
+        config: {
+          adapters: [{ type: "libsql", default: true, urls: ["file:/tmp/test-multi-1.db"] }],
+        },
+        logger: mockLogger,
+      });
+
+      expect(multiService).toBeDefined();
+      expect(multiService.getDefaultType()).toBe("libsql");
+      expect(multiService.getAvailableTypes()).toContain("libsql");
+
+      await multiService.close();
     });
 
     it("should log initialization", () => {
@@ -54,35 +70,112 @@ describe("DatabaseServiceImpl", () => {
     });
   });
 
+  describe("multiple adapters", () => {
+    it("should throw on duplicate adapter types", () => {
+      expect(() => {
+        new DatabaseServiceImpl({
+          config: {
+            adapters: [
+              { type: "libsql", urls: ["file:/tmp/test-dup-1.db"] },
+              { type: "libsql", urls: ["file:/tmp/test-dup-2.db"] },
+            ],
+          },
+          logger: mockLogger,
+        });
+      }).toThrow("Duplicate adapter type: libsql");
+    });
+
+    it("should throw on multiple defaults", () => {
+      expect(() => {
+        new DatabaseServiceImpl({
+          config: {
+            adapters: [
+              { type: "libsql", default: true, urls: ["file:/tmp/test-def-1.db"] },
+              { type: "sqlite", default: true, url: "file:/tmp/test-def-2.db" },
+            ],
+          },
+          logger: mockLogger,
+        });
+      }).toThrow("Multiple default adapters");
+    });
+
+    it("should use first adapter as default if none specified", async () => {
+      const noDefaultService = new DatabaseServiceImpl({
+        config: {
+          adapters: [{ type: "libsql", urls: ["file:/tmp/test-nodef.db"] }],
+        },
+        logger: mockLogger,
+      });
+
+      expect(noDefaultService.getDefaultType()).toBe("libsql");
+      await noDefaultService.close();
+    });
+
+    it("should throw if no adapters configured", () => {
+      expect(() => {
+        new DatabaseServiceImpl({
+          config: {
+            adapters: [],
+          },
+          logger: mockLogger,
+        });
+      }).toThrow("No adapters configured");
+    });
+  });
+
   describe("getAdapter", () => {
-    it("should return root adapter when no tenantId", async () => {
+    it("should return root adapter when no type specified", async () => {
       const adapter = await service.getAdapter();
       expect(adapter).toBe(service.getRootAdapter());
     });
 
-    it("should return root adapter for undefined tenantId", async () => {
-      const adapter = await service.getAdapter(undefined);
-      expect(adapter).toBe(service.getRootAdapter());
+    it("should return root adapter with explicit type", async () => {
+      const adapter = await service.getAdapter("libsql");
+      expect(adapter.type).toBe("libsql");
+    });
+
+    it("should throw for unknown adapter type", async () => {
+      await expect(service.getAdapter("postgres" as never)).rejects.toThrow(
+        'Adapter type "postgres" not configured',
+      );
     });
 
     it("should return tenant adapter for tenantId", async () => {
-      const adapter = await service.getAdapter("tenant1");
+      const adapter = await service.getAdapter(undefined, "tenant1");
       expect(adapter).toBeDefined();
       expect(adapter.tenantId).toBe("tenant1");
     });
 
     it("should cache tenant adapters", async () => {
-      const adapter1 = await service.getAdapter("tenant2");
-      const adapter2 = await service.getAdapter("tenant2");
+      const adapter1 = await service.getAdapter(undefined, "tenant2");
+      const adapter2 = await service.getAdapter(undefined, "tenant2");
       expect(adapter1).toBe(adapter2);
     });
   });
 
   describe("getRootAdapter", () => {
-    it("should return the root adapter", () => {
+    it("should return the default root adapter", () => {
       const adapter = service.getRootAdapter();
       expect(adapter).toBeDefined();
       expect(adapter.tenantId).toBe(null);
+    });
+
+    it("should return adapter for specific type", () => {
+      const adapter = service.getRootAdapter("libsql");
+      expect(adapter.type).toBe("libsql");
+    });
+  });
+
+  describe("getDefaultType", () => {
+    it("should return the default adapter type", () => {
+      expect(service.getDefaultType()).toBe("libsql");
+    });
+  });
+
+  describe("getAvailableTypes", () => {
+    it("should return all configured adapter types", () => {
+      const types = service.getAvailableTypes();
+      expect(types).toContain("libsql");
     });
   });
 
@@ -145,7 +238,7 @@ describe("DatabaseServiceImpl", () => {
       });
 
       // Get adapter to cache it
-      await deleteService.getAdapter("tenant-to-delete");
+      await deleteService.getAdapter(undefined, "tenant-to-delete");
 
       // Delete should try to close the cached adapter first
       // (will throw because admin URL not configured, but cache should be cleared)
@@ -173,7 +266,7 @@ describe("DatabaseServiceImpl", () => {
       });
 
       // Get a tenant adapter to populate cache
-      await closeService.getAdapter("test-tenant");
+      await closeService.getAdapter(undefined, "test-tenant");
 
       // Close should not throw
       await expect(closeService.close()).resolves.toBeUndefined();
@@ -191,9 +284,9 @@ describe("DatabaseServiceImpl", () => {
       });
 
       // Get multiple tenant adapters
-      await multiService.getAdapter("tenant-a");
-      await multiService.getAdapter("tenant-b");
-      await multiService.getAdapter("tenant-c");
+      await multiService.getAdapter(undefined, "tenant-a");
+      await multiService.getAdapter(undefined, "tenant-b");
+      await multiService.getAdapter(undefined, "tenant-c");
 
       // Close should close all without throwing
       await expect(multiService.close()).resolves.toBeUndefined();
@@ -226,7 +319,7 @@ describe("DatabaseServiceImpl with autoCreate", () => {
 
   it("should auto-create tenant on first access", async () => {
     // This should not throw even if tenant doesn't exist
-    const adapter = await service.getAdapter("auto-created-tenant");
+    const adapter = await service.getAdapter(undefined, "auto-created-tenant");
     expect(adapter).toBeDefined();
     expect(adapter.tenantId).toBe("auto-created-tenant");
   });

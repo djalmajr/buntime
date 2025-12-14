@@ -6,7 +6,29 @@
 :icons: font
 :source-highlighter: highlightjs
 
-O plugin suporta múltiplos adapters para diferentes bancos de dados. A escolha do adapter é feita na configuração.
+O plugin suporta múltiplos adapters para diferentes bancos de dados. Cada tipo de adapter pode aparecer apenas uma vez na configuração, e um deve ser marcado como `default: true`.
+
+== Configuração Múltipla
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapters": [
+        { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
+        { "type": "sqlite", "url": "file:./auth.db" }
+      ]
+    }]
+  ]
+}
+----
+
+Regras:
+
+- Cada tipo pode aparecer apenas uma vez
+- Um adapter deve ter `default: true` (ou o primeiro será usado)
+- Plugins consumidores escolhem qual adapter usar via parâmetro `database`
 
 == libSQL
 
@@ -25,6 +47,7 @@ Adapter para libSQL (fork do SQLite mantido pela Turso). É o adapter recomendad
 ----
 {
   type: "libsql",
+  default?: true,                          // Marcar como adapter default
   urls: [                                  // urls[0] = Primary, urls[1..n] = Réplicas
     "http://localhost:8080",
     "http://replica:8080"
@@ -50,6 +73,7 @@ Adapter para PostgreSQL usando o cliente nativo do Bun (`bun:sql`).
 ----
 {
   type: "postgres",
+  default?: true,                          // Marcar como adapter default
   url: "postgresql://user:pass@localhost:5432/db"
 }
 ----
@@ -69,6 +93,7 @@ Adapter para MySQL usando o cliente nativo do Bun (`bun:sql`).
 ----
 {
   type: "mysql",
+  default?: true,                          // Marcar como adapter default
   url: "mysql://user:pass@localhost:3306/db"
 }
 ----
@@ -88,6 +113,7 @@ Adapter para SQLite local usando o cliente nativo do Bun (`bun:sqlite`).
 ----
 {
   type: "sqlite",
+  default?: true,        // Marcar como adapter default
   url: "file:./data.db", // Banco padrão
   baseDir?: "./data"     // Diretório onde os bancos dos tenants serão criados
 }

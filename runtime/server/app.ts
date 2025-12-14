@@ -120,13 +120,7 @@ async function servePluginApp(
 /**
  * Create the main Hono app with unified routing
  */
-export function createApp({
-  getAppDir,
-  pluginsInfo,
-  pool,
-  registry,
-  workers,
-}: AppDeps) {
+export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: AppDeps) {
   const app = new HonoApp();
 
   // Build plugin routes map: base -> { plugin, routes }

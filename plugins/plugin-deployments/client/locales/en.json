@@ -57,6 +57,7 @@
     "placeholder": "Folder name",
     "placeholderApp": "my-app or my-app@1.0.0",
     "placeholderVersion": "1.0.0",
+    "selectRoot": "Select destination",
     "title": "New Folder"
   },
   "rename": {

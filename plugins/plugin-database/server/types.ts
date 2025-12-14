@@ -88,6 +88,8 @@ export interface DatabaseAdapter {
 export interface LibSqlAdapterConfig {
   /** Auth token for remote databases */
   authToken?: string;
+  /** Mark as default adapter (only one allowed) */
+  default?: boolean;
   /** Logger instance */
   logger?: PluginLogger;
   type: "libsql";
@@ -105,6 +107,8 @@ export interface LibSqlAdapterConfig {
 export interface BunSqlAdapterConfig {
   /** Base directory for SQLite files (only for sqlite type) */
   baseDir?: string;
+  /** Mark as default adapter (only one allowed) */
+  default?: boolean;
   /** Logger instance */
   logger?: PluginLogger;
   type: "mysql" | "postgres" | "sqlite";
@@ -121,8 +125,18 @@ export type AdapterConfig = BunSqlAdapterConfig | LibSqlAdapterConfig;
  * Plugin-database configuration
  */
 export interface DatabasePluginConfig extends BasePluginConfig {
-  /** Database adapter configuration */
-  adapter: AdapterConfig;
+  /**
+   * Database adapter configuration (single adapter)
+   * @deprecated Use `adapters` array instead
+   */
+  adapter?: AdapterConfig;
+
+  /**
+   * Database adapters configuration (multiple adapters)
+   * Each adapter type can only appear once.
+   * One adapter should have `default: true`.
+   */
+  adapters?: AdapterConfig[];
 
   /** Multi-tenancy settings */
   tenancy?: {
@@ -143,27 +157,44 @@ export interface DatabasePluginConfig extends BasePluginConfig {
 export interface DatabaseService {
   /**
    * Get adapter for a specific tenant
-   * If tenantId is not provided, uses root adapter
+   * @param type - Adapter type (uses default if not specified)
+   * @param tenantId - Tenant ID (uses root adapter if not specified)
    */
-  getAdapter(tenantId?: string): Promise<DatabaseAdapter>;
+  getAdapter(type?: AdapterType, tenantId?: string): Promise<DatabaseAdapter>;
 
   /**
-   * Create a new tenant
+   * Create a new tenant on the specified adapter
+   * @param tenantId - Tenant ID to create
+   * @param type - Adapter type (uses default if not specified)
    */
-  createTenant(tenantId: string): Promise<void>;
+  createTenant(tenantId: string, type?: AdapterType): Promise<void>;
 
   /**
-   * Delete a tenant
+   * Delete a tenant from the specified adapter
+   * @param tenantId - Tenant ID to delete
+   * @param type - Adapter type (uses default if not specified)
    */
-  deleteTenant(tenantId: string): Promise<void>;
+  deleteTenant(tenantId: string, type?: AdapterType): Promise<void>;
 
   /**
-   * List all tenants
+   * List all tenants from the specified adapter
+   * @param type - Adapter type (uses default if not specified)
    */
-  listTenants(): Promise<string[]>;
+  listTenants(type?: AdapterType): Promise<string[]>;
 
   /**
    * Get the root adapter (no tenant isolation)
+   * @param type - Adapter type (uses default if not specified)
    */
-  getRootAdapter(): DatabaseAdapter;
+  getRootAdapter(type?: AdapterType): DatabaseAdapter;
+
+  /**
+   * Get the default adapter type
+   */
+  getDefaultType(): AdapterType;
+
+  /**
+   * Get all available adapter types
+   */
+  getAvailableTypes(): AdapterType[];
 }

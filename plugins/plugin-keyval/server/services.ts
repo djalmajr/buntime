@@ -1,4 +1,4 @@
-import type { DatabaseAdapter, DatabaseService } from "@buntime/plugin-database";
+import type { AdapterType, DatabaseAdapter, DatabaseService } from "@buntime/plugin-database";
 import type { PluginContext } from "@buntime/shared/types";
 import { setApiState } from "./api";
 import { Kv } from "./kv";
@@ -10,6 +10,8 @@ let adapter: DatabaseAdapter;
 let logger: PluginContext["logger"];
 
 interface KvServiceConfig {
+  /** Database adapter type to use (uses default if not specified) */
+  adapterType?: AdapterType;
   metrics?: {
     persistent?: boolean;
     flushInterval?: number;
@@ -30,8 +32,8 @@ export async function initialize(
 ): Promise<Kv> {
   logger = pluginLogger;
 
-  // Get root adapter (or tenant-specific adapter via middleware if needed)
-  adapter = database.getRootAdapter();
+  // Get root adapter for the specified type (or default)
+  adapter = database.getRootAdapter(config.adapterType);
 
   // Initialize schema
   await initSchema(adapter);

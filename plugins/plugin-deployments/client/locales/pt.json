@@ -57,6 +57,7 @@
     "placeholder": "Nome da pasta",
     "placeholderApp": "minha-app ou minha-app@1.0.0",
     "placeholderVersion": "1.0.0",
+    "selectRoot": "Selecione o destino",
     "title": "Nova Pasta"
   },
   "rename": {

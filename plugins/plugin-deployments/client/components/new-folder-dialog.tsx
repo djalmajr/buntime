@@ -34,50 +34,73 @@ function isFlatFormat(name: string): boolean {
 }
 
 interface NewFolderDialogProps {
+  /**
+   * Depth level in the folder hierarchy:
+   * - 1: inside virtual root folder - create app or app@version
+   * - 2: inside app folder (nested, not inside version) - create version
+   * - 2+: inside version (flat or nested) - create any folder
+   */
   depth: number;
+  /** Whether we're inside a version folder (flat or nested) */
+  isInsideVersion: boolean;
   onClose: () => void;
   onCreate: (name: string) => void;
   open: boolean;
 }
 
-export function NewFolderDialog({ depth, onClose, onCreate, open }: NewFolderDialogProps) {
+export function NewFolderDialog({
+  depth,
+  isInsideVersion,
+  onClose,
+  onCreate,
+  open,
+}: NewFolderDialogProps) {
   const { t } = useTranslation("deployments");
   const [name, setName] = useState("");
+
+  // Determine folder type based on depth and whether inside version
+  // - depth 1: create app or app@version
+  // - depth 2+ and inside version: create any folder
+  // - depth 2 and NOT inside version (nested app folder): create version
+  const folderType = useMemo(() => {
+    if (depth === 1) return "app";
+    if (isInsideVersion) return "any";
+    return "version";
+  }, [depth, isInsideVersion]);
 
   const validation = useMemo(() => {
     const trimmed = name.trim();
     if (!trimmed) return { error: null, isValid: false };
 
-    // depth 0 = root -> kebab-case (app-name) OR flat format (app-name@version)
-    if (depth === 0) {
+    if (folderType === "app") {
+      // Inside virtual root folder -> kebab-case (app-name) OR flat format (app-name@version)
       const isKebab = KEBAB_CASE_REGEX.test(trimmed);
       const isFlat = isFlatFormat(trimmed);
       if (!isKebab && !isFlat) {
         return { error: t("validation.appOrFlat"), isValid: false };
       }
-    }
-    // depth 1 = inside nested app (version) -> semver
-    else if (depth === 1) {
+    } else if (folderType === "version") {
+      // Inside nested app folder (not in version) -> semver
       if (!SEMVER_REGEX.test(trimmed)) {
         return { error: t("validation.semver"), isValid: false };
       }
     }
-    // depth >= 2 = inside version (flat or nested) -> any name allowed
+    // folderType === "any" -> any name allowed
 
     return { error: null, isValid: true };
-  }, [depth, name, t]);
+  }, [folderType, name, t]);
 
   const placeholder = useMemo(() => {
-    if (depth === 0) return t("newFolder.placeholderApp");
-    if (depth === 1) return t("newFolder.placeholderVersion");
+    if (folderType === "app") return t("newFolder.placeholderApp");
+    if (folderType === "version") return t("newFolder.placeholderVersion");
     return t("newFolder.placeholder");
-  }, [depth, t]);
+  }, [folderType, t]);
 
   const description = useMemo(() => {
-    if (depth === 0) return t("newFolder.descriptionApp");
-    if (depth === 1) return t("newFolder.descriptionVersion");
+    if (folderType === "app") return t("newFolder.descriptionApp");
+    if (folderType === "version") return t("newFolder.descriptionVersion");
     return t("newFolder.description");
-  }, [depth, t]);
+  }, [folderType, t]);
 
   const handleCreate = () => {
     if (validation.isValid) {
@@ -93,22 +116,21 @@ export function NewFolderDialog({ depth, onClose, onCreate, open }: NewFolderDia
     }
   };
 
+  const handleOpenChange = (isOpen: boolean) => {
+    if (!isOpen) {
+      setName("");
+      onClose();
+    }
+  };
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(isOpen) => {
-        if (!isOpen) {
-          setName("");
-          onClose();
-        }
-      }}
-    >
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("newFolder.title")}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-2">
+        <div className="space-y-3">
           <Input
             placeholder={placeholder}
             value={name}

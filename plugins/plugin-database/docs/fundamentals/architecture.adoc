@@ -10,6 +10,30 @@
 
 O `plugin-database` atua como a fundação de persistência do Buntime. Diferente de um ORM tradicional, seu objetivo não é mapear objetos para tabelas, mas sim fornecer uma **abstração de conectividade e execução SQL** que seja resiliente, multi-tenant e agnóstica ao banco de dados subjacente, permitindo que outros plugins (como `keyval`, `authn`, `authz`) operem sem acoplamento direto a um driver específico.
 
+=== Múltiplos Adapters
+
+O plugin suporta configurar múltiplos adapters simultaneamente. Cada plugin consumidor pode escolher qual adapter usar:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapters": [
+        { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
+        { "type": "sqlite", "url": "file:./auth.db" }
+      ]
+    }],
+    ["@buntime/plugin-keyval", { "database": "libsql" }],
+    ["@buntime/plugin-authn", { "database": "sqlite" }]
+  ]
+}
+----
+
+- Cada tipo pode aparecer apenas uma vez
+- Um adapter deve ter `default: true`
+- Plugins que não especificam `database` usam o default
+
 === Diagrama de Componentes
 
 [source]
@@ -18,18 +42,20 @@ O `plugin-database` atua como a fundação de persistência do Buntime. Diferent
 │                       Application / Plugins                 │
 │                                                             │
 │  const db = ctx.getService<DatabaseService>("database");    │
-│  const adapter = await db.getAdapter("tenant-123");         │
+│  const adapter = db.getRootAdapter("libsql");               │
 └──────────────────────────────┬──────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                  @buntime/plugin-database                   │
 │                                                             │
-│  ┌────────────────────┐      ┌───────────────────────────┐  │
-│  │  DatabaseService   │──────│  TenantManager (Service)  │  │
-│  └─────────┬──────────┘      └───────────────────────────┘  │
+│  ┌────────────────────┐                                     │
+│  │  DatabaseService   │                                     │
+│  │  - adapters: Map   │                                     │
+│  │  - defaultType     │                                     │
+│  └─────────┬──────────┘                                     │
 │            │                                                │
-│            │ resolves adapter for tenant                    │
+│            │ resolves adapter by type                       │
 │            ▼                                                │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │                   DatabaseAdapter                     │  │

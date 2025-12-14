@@ -14,25 +14,46 @@ O serviço principal registrado no container de injeção de dependência como `
 
 [source,typescript]
 ----
+type AdapterType = "libsql" | "mysql" | "postgres" | "sqlite";
+
 interface DatabaseService {
   /**
-   * Obtém um adapter para um tenant específico.
-   * Se tenantId não for fornecido, tenta detectar do contexto ou usa o default.
+   * Obtém um adapter para um tipo e tenant específicos.
+   * @param type - Tipo do adapter (usa default se não especificado)
+   * @param tenantId - ID do tenant (usa root adapter se não especificado)
    */
-  getAdapter(tenantId?: string): Promise<DatabaseAdapter>;
+  getAdapter(type?: AdapterType, tenantId?: string): Promise<DatabaseAdapter>;
 
   /**
    * Obtém o adapter root (sem isolamento de tenant).
-   * Útil para operações administrativas ou globais.
+   * @param type - Tipo do adapter (usa default se não especificado)
    */
-  getRootAdapter(): DatabaseAdapter;
+  getRootAdapter(type?: AdapterType): DatabaseAdapter;
+
+  /**
+   * Retorna o tipo do adapter default.
+   */
+  getDefaultType(): AdapterType;
+
+  /**
+   * Retorna todos os tipos de adapters disponíveis.
+   */
+  getAvailableTypes(): AdapterType[];
 
   // Gerenciamento de tenants
-  createTenant(tenantId: string): Promise<void>;
-  deleteTenant(tenantId: string): Promise<void>;
-  listTenants(): Promise<string[]>;
+  createTenant(tenantId: string, type?: AdapterType): Promise<void>;
+  deleteTenant(tenantId: string, type?: AdapterType): Promise<void>;
+  listTenants(type?: AdapterType): Promise<string[]>;
 }
 ----
+
+=== Resolução de Adapter
+
+O parâmetro `type` é opcional em todos os métodos:
+
+- Se não especificado, usa o adapter marcado como `default: true`
+- Se nenhum adapter tem `default: true`, o primeiro adapter da lista é usado
+- Se o tipo especificado não existir, lança um erro
 
 == DatabaseAdapter
 
@@ -66,9 +87,11 @@ interface DatabaseAdapter {
 }
 ----
 
-== Exemplo de Uso
+== Exemplos de Uso
 
-Exemplo de como consumir o serviço em outro plugin:
+=== Adapter Default
+
+Exemplo de como consumir o serviço usando o adapter default:
 
 [source,typescript]
 ----
@@ -80,11 +103,11 @@ export default function myPlugin(): BuntimePlugin {
       // 1. Obter o serviço
       const dbService = ctx.getService<DatabaseService>("database");
 
-      // 2. Obter adapter para um tenant específico
-      const tenantAdapter = await dbService.getAdapter("tenant-123");
+      // 2. Obter adapter root (usa default)
+      const adapter = dbService.getRootAdapter();
 
       // 3. Executar queries
-      const users = await tenantAdapter.execute(
+      const users = await adapter.execute(
         "SELECT * FROM users WHERE active = ?",
         [true]
       );
@@ -92,5 +115,52 @@ export default function myPlugin(): BuntimePlugin {
       console.log(users);
     }
   };
+}
+----
+
+=== Adapter Específico
+
+Exemplo de como consumir um tipo específico de adapter:
+
+[source,typescript]
+----
+export default function myPlugin(): BuntimePlugin {
+  return {
+    name: "my-plugin",
+
+    async onInit(ctx: PluginContext) {
+      const dbService = ctx.getService<DatabaseService>("database");
+
+      // Usar libsql para cache
+      const cacheAdapter = dbService.getRootAdapter("libsql");
+
+      // Usar sqlite para dados locais
+      const localAdapter = dbService.getRootAdapter("sqlite");
+
+      // Listar adapters disponíveis
+      const types = dbService.getAvailableTypes(); // ["libsql", "sqlite"]
+      const defaultType = dbService.getDefaultType(); // "libsql"
+    }
+  };
+}
+----
+
+=== Com Multi-Tenancy
+
+Exemplo com isolamento de tenant:
+
+[source,typescript]
+----
+async function handleRequest(ctx: PluginContext, tenantId: string) {
+  const dbService = ctx.getService<DatabaseService>("database");
+
+  // Obter adapter para um tenant específico (usa default type)
+  const tenantAdapter = await dbService.getAdapter(undefined, tenantId);
+
+  // Ou especificar o tipo
+  const libsqlTenant = await dbService.getAdapter("libsql", tenantId);
+
+  // Executar queries isoladas por tenant
+  const users = await tenantAdapter.execute("SELECT * FROM users");
 }
 ----

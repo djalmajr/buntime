@@ -15,9 +15,11 @@ bun add @buntime/plugin-database
 
 == Configuração
 
-A configuração é feita através do arquivo `buntime.jsonc` (ou `.json`).
+A configuração é feita através do arquivo `buntime.jsonc`.
 
-=== Básica (libSQL)
+=== Adapter Único (formato simples)
+
+WARNING: O formato `adapter` singular está deprecated. Use `adapters` array.
 
 [source,jsonc]
 ----
@@ -33,7 +35,43 @@ A configuração é feita através do arquivo `buntime.jsonc` (ou `.json`).
 }
 ----
 
+O formato acima é automaticamente convertido para:
+
+[source,jsonc]
+----
+{
+  "adapters": [
+    { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] }
+  ]
+}
+----
+
 NOTE: Se `urls` não for definido, o plugin detecta automaticamente via variáveis de ambiente `LIBSQL_URL_0`, `LIBSQL_URL_1`, etc.
+
+=== Múltiplos Adapters
+
+Permite que diferentes plugins usem diferentes bancos de dados:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapters": [
+        { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
+        { "type": "sqlite", "url": "file:./auth.db" }
+      ]
+    }],
+    ["@buntime/plugin-keyval", { "database": "libsql" }],
+    ["@buntime/plugin-authn", { "database": "sqlite" }],
+    "@buntime/plugin-durable"
+  ]
+}
+----
+
+- Cada tipo de adapter pode aparecer apenas uma vez
+- Um adapter deve ter `default: true` (ou o primeiro será usado como default)
+- Plugins que não especificam `database` usam o adapter default
 
 === Com Multi-Tenancy
 
@@ -42,11 +80,14 @@ NOTE: Se `urls` não for definido, o plugin detecta automaticamente via variáve
 {
   "plugins": [
     ["@buntime/plugin-database", {
-      "adapter": {
-        "type": "libsql",
-        "urls": ["${LIBSQL_URL_0}"],
-        "authToken": "${LIBSQL_TOKEN}"
-      },
+      "adapters": [
+        {
+          "type": "libsql",
+          "default": true,
+          "urls": ["${LIBSQL_URL_0}"],
+          "authToken": "${LIBSQL_TOKEN}"
+        }
+      ],
       "tenancy": {
         "autoCreate": true
       }
@@ -77,14 +118,17 @@ O plugin detecta automaticamente e distribui leituras entre as réplicas.
 {
   "plugins": [
     ["@buntime/plugin-database", {
-      "adapter": {
-        "type": "libsql",
-        "urls": [
-          "http://primary:8080",
-          "http://replica1:8080",
-          "http://replica2:8080"
-        ]
-      }
+      "adapters": [
+        {
+          "type": "libsql",
+          "default": true,
+          "urls": [
+            "http://primary:8080",
+            "http://replica1:8080",
+            "http://replica2:8080"
+          ]
+        }
+      ]
     }]
   ]
 }

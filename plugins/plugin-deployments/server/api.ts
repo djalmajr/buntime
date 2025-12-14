@@ -15,9 +15,10 @@ export function setAppsDirs(dirs: string[]): void {
 
   for (const dir of dirs) {
     let name = basename(dir);
-    nameCounts[name] = (nameCounts[name] || 0) + 1;
-    if (nameCounts[name] > 1) {
-      name = `${name}-${nameCounts[name]}`;
+    const count = (nameCounts[name] || 0) + 1;
+    nameCounts[name] = count;
+    if (count > 1) {
+      name = `${name}-${count}`;
     }
     dirNameMap.set(name, dir);
   }
@@ -51,7 +52,7 @@ function resolvePath(path: string): { baseDir: string; relativePath: string; roo
   }
 
   const parts = path.split("/");
-  const rootName = parts[0];
+  const rootName = parts[0] ?? "";
   const relativePath = parts.slice(1).join("/");
 
   const baseDir = dirNameMap.get(rootName);
@@ -181,7 +182,10 @@ export const api = new Hono()
 
     // For now, only allow moves within the same appsDir
     if (source.baseDir !== dest.baseDir) {
-      throw new ValidationError("Cannot move between different apps directories", "CROSS_DIR_MOVE_NOT_SUPPORTED");
+      throw new ValidationError(
+        "Cannot move between different apps directories",
+        "CROSS_DIR_MOVE_NOT_SUPPORTED",
+      );
     }
 
     const dir = new DirInfo(source.baseDir, source.relativePath);
@@ -318,7 +322,7 @@ export const api = new Hono()
     const errors: string[] = [];
     for (const path of paths) {
       try {
-        const { baseDir, relativePath, rootName } = resolvePath(path);
+        const { baseDir, relativePath } = resolvePath(path);
         if (!baseDir || !relativePath) {
           errors.push(`${path}: Cannot delete apps directory`);
           continue;

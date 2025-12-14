@@ -16,7 +16,7 @@ export interface DeploymentsConfig extends BasePluginConfig {
  * - Fragment UI for deployments management
  * - API endpoints for file operations (list, upload, download, etc.)
  */
-export default function deploymentsPlugin(pluginConfig: DeploymentsConfig = {}): BuntimePlugin {
+export default function deploymentsPlugin(_pluginConfig: DeploymentsConfig = {}): BuntimePlugin {
   return {
     name: "@buntime/plugin-deployments",
 

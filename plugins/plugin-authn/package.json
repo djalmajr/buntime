@@ -2,8 +2,11 @@
   "name": "@buntime/plugin-authn",
   "version": "1.0.0",
   "type": "module",
+  "buntime": {
+    "entrypoint": "dist/index.js"
+  },
   "exports": {
-    ".": "./index.ts"
+    ".": "./plugin.ts"
   },
   "scripts": {
     "build": "NODE_ENV=production bun scripts/build.ts",

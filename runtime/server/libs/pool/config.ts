@@ -59,13 +59,13 @@ export interface WorkerConfig {
 }
 
 /**
- * Load worker configuration from worker.jsonc or package.json#workerConfig
+ * Load worker configuration from buntime.jsonc or package.json#buntime
  */
 export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
   let config: Partial<WorkerConfigFile> | undefined;
 
-  // Try worker.jsonc first
-  const jsoncPath = join(appDir, "worker.jsonc");
+  // Try buntime.jsonc first
+  const jsoncPath = join(appDir, "buntime.jsonc");
   try {
     const file = Bun.file(jsoncPath);
     if (await file.exists()) {
@@ -75,19 +75,19 @@ export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
     }
   } catch (err) {
     if (err instanceof Error && !err.message.includes("Cannot find module")) {
-      throw new Error(`[worker.jsonc] Failed to parse ${jsoncPath}: ${err.message}`);
+      throw new Error(`[buntime.jsonc] Failed to parse ${jsoncPath}: ${err.message}`);
     }
   }
 
-  // Fallback to package.json#workerConfig
+  // Fallback to package.json#buntime
   if (!config) {
     const pkgPath = join(appDir, "package.json");
     try {
       const file = Bun.file(pkgPath);
       if (await file.exists()) {
         const pkg = await file.json();
-        if (pkg.workerConfig) {
-          config = pkg.workerConfig;
+        if (pkg.buntime) {
+          config = pkg.buntime;
         }
       }
     } catch {
@@ -100,7 +100,7 @@ export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
 
   if (error) {
     const err = error.issues.map((v) => `${v.path.join(".")}: ${v.message}`).join(", ");
-    throw new Error(`[workerConfig] Invalid config in ${appDir}: ${err}`);
+    throw new Error(`[buntime] Invalid config in ${appDir}: ${err}`);
   }
 
   return {

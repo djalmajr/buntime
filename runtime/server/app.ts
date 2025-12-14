@@ -6,16 +6,7 @@ import type { WorkerConfig } from "@/libs/pool/config";
 import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
 import type { PluginRegistry } from "@/plugins/registry";
-
-/**
- * Get the default base path for a plugin
- * @example "@buntime/plugin-keyval" -> "/api/keyval"
- */
-function getDefaultBase(pluginName: string): string {
-  // Remove scope and "plugin-" prefix: @buntime/plugin-keyval -> keyval
-  const shortName = pluginName.replace(/^@[^/]+\//, "").replace(/^plugin-/, "");
-  return `/api/${shortName}`;
-}
+import { getPluginBase } from "@/utils/plugin-paths";
 
 export interface AppDeps {
   deployments: Hono;
@@ -147,7 +138,7 @@ export function createApp({
 
   if (registry) {
     for (const plugin of registry.getAll()) {
-      const base = plugin.base ?? getDefaultBase(plugin.name);
+      const base = plugin.base ?? getPluginBase(plugin.name);
 
       if (plugin.routes) {
         // Check plugin-vs-plugin collision

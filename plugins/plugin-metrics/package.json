@@ -2,8 +2,11 @@
   "name": "@buntime/plugin-metrics",
   "version": "1.0.0",
   "type": "module",
+  "buntime": {
+    "entrypoint": "index.ts"
+  },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./plugin.ts"
   },
   "scripts": {
     "lint:format": "bun biome check --write",

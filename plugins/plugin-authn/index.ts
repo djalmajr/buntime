@@ -1,31 +1,14 @@
-import type { BuntimePlugin } from "@buntime/shared/types";
-import { type AuthnConfig, createPluginDefinition } from "./plugin";
+import { join } from "node:path";
+import { createStaticHandler } from "@buntime/shared/utils/static-handler";
+import { api, routes } from "./server/api";
 
-/**
- * Authentication plugin for Buntime
- *
- * Uses better-auth with Keycloak for session-based authentication.
- * Serves a login page at /login and handles OAuth at /api/auth/*.
- *
- * @example
- * ```typescript
- * // buntime.jsonc
- * {
- *   "plugins": [
- *     ["@buntime/plugin-authn", {
- *       "issuer": "${KEYCLOAK_URL}",
- *       "realm": "${KEYCLOAK_REALM}",
- *       "clientId": "${KEYCLOAK_CLIENT_ID}",
- *       "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
- *     }]
- *   ]
- * }
- * ```
- */
-export default function authnPlugin(config: AuthnConfig = {}): BuntimePlugin {
-  return createPluginDefinition(config);
-}
+const clientDir = join(import.meta.dir, "dist/client");
 
-// Named exports
-export { authnPlugin };
-export type { AuthnConfig } from "./plugin";
+export default {
+  routes: {
+    "/api/*": api.fetch,
+    "/session": routes.fetch,
+    "/logout": routes.fetch,
+  },
+  fetch: createStaticHandler(clientDir),
+};

@@ -6,7 +6,6 @@ export interface PluginInfo {
   dependencies: string[];
   name: string;
   optionalDependencies: string[];
-  version: string;
 }
 
 export function usePlugins() {

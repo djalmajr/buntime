@@ -1,4 +1,3 @@
-import type { FragmentConfig } from "@buntime/piercing";
 import type { BunFile, Server, ServerWebSocket } from "bun";
 import type { Hono, MiddlewareHandler } from "hono";
 
@@ -6,6 +5,68 @@ import type { Hono, MiddlewareHandler } from "hono";
  * Route handler type for Bun.serve routes
  */
 export type RouteHandler = Response | BunFile | ((req: Request) => Response | Promise<Response>);
+
+/**
+ * Menu item for plugin navigation in the shell (C-Panel)
+ * Supports nested menus via `items` property
+ */
+export interface MenuItem {
+  /** Display title */
+  title: string;
+
+  /** Icon identifier (e.g., "lucide:scroll-text") */
+  icon: string;
+
+  /** Route path (e.g., "/logs") */
+  path: string;
+
+  /** Sort priority (lower = earlier in menu) */
+  priority?: number;
+
+  /** Nested menu items */
+  items?: MenuItem[];
+}
+
+/**
+ * Sandbox strategy for fragment isolation
+ *
+ * - "none": No sandbox, fragment shares context with shell (default for internal plugins)
+ * - "monkey-patch": Intercepts History API, prevents URL changes (lightweight)
+ * - "iframe": Full isolation via iframe (for untrusted external apps)
+ * - "service-worker": Intercepts all requests, injects sandbox script (for external apps needing shared styles)
+ */
+export type SandboxStrategy = "none" | "monkey-patch" | "iframe" | "service-worker";
+
+/**
+ * Fragment sandbox type (excludes "none" - if no sandbox needed, don't define fragment)
+ */
+export type FragmentType = "monkey-patch" | "iframe" | "service-worker";
+
+/**
+ * Fragment configuration for plugins that can be embedded in the shell
+ */
+export interface FragmentOptions {
+  /**
+   * Sandbox type for isolating the fragment
+   * - "monkey-patch": Intercepts History API (lightweight, recommended for most cases)
+   * - "iframe": Full isolation via iframe (for untrusted external apps)
+   * - "service-worker": Intercepts all requests (for external apps needing shared styles)
+   */
+  type: FragmentType;
+
+  /**
+   * External origin for iframe/service-worker types
+   * Required when type is "iframe" or "service-worker"
+   * @example "https://legacy-app.company.com"
+   */
+  origin?: string;
+
+  /**
+   * Custom styles to inject before fragment loads (reduces flash)
+   * @example "body { opacity: 0; transition: opacity 0.2s; }"
+   */
+  preloadStyles?: string;
+}
 
 /**
  * Plugin server configuration
@@ -261,9 +322,6 @@ export interface BuntimePlugin {
   /** Unique plugin name (e.g., "@buntime/metrics") */
   name: string;
 
-  /** Plugin version (semver) */
-  version: string;
-
   /**
    * Required dependencies on other plugins
    * These plugins must be loaded before this one
@@ -334,8 +392,9 @@ export interface BuntimePlugin {
 
   /**
    * Custom base path for plugin routes
-   * @default `/api/{plugin-short-name}`
-   * @example "/api/kv" or "/kv"
+   * All routes are mounted at /{base}/*
+   * @default `/{plugin-short-name}` (e.g., "@buntime/plugin-keyval" → "/keyval")
+   * @example "/kv" or "/custom-path"
    */
   base?: string;
 
@@ -348,8 +407,8 @@ export interface BuntimePlugin {
   publicRoutes?: PublicRoutesConfig;
 
   /**
-   * Internal routes for the plugin
-   * Mounted at `base` or `/api/{plugin-short-name}/*` by default
+   * Hono routes for the plugin API
+   * Mounted at /{base}/* (e.g., "/keyval/api/*")
    */
   routes?: Hono;
 
@@ -359,13 +418,6 @@ export interface BuntimePlugin {
   middleware?: MiddlewareHandler;
 
   /**
-   * Apps to register as workers
-   * These are served from the plugin's directory, not APPS_DIR
-   * Path is relative to base (e.g., "/login" → "/api/authn/login")
-   */
-  apps?: PluginApp[];
-
-  /**
    * Server module for serving static files and API routes in main process
    * - routes: goes to Bun.serve({ routes }) with auth wrapper
    * - fetch: invoked in app.fetch (Hono)
@@ -373,17 +425,51 @@ export interface BuntimePlugin {
   server?: PluginServer;
 
   /**
-   * Micro-frontend fragment configuration for piercing architecture
-   * Allows plugins to provide UI fragments that get "pierced" into the main shell
+   * Fragment configuration for embedding this plugin in the shell (C-Panel)
+   * The plugin's UI is served from its base path and "pierced" into the shell
+   *
+   * If not defined, the plugin has no fragment (API-only plugin)
    *
    * @example
+   * // Monkey-patch for internal plugins (recommended)
    * fragment: {
-   *   fragmentId: "deployments",
-   *   prePierceRoutes: ["/cpanel/deployments*"],
-   *   fetchFragment: (req) => deploymentWorker.fetch(req),
+   *   type: "monkey-patch",
+   * }
+   *
+   * @example
+   * // Full isolation with iframe for untrusted external apps
+   * fragment: {
+   *   type: "iframe",
+   *   origin: "https://external-app.com",
+   * }
+   *
+   * @example
+   * // Service worker for external apps needing shared styles
+   * fragment: {
+   *   type: "service-worker",
+   *   origin: "https://legacy-app.com",
    * }
    */
-  fragment?: Omit<FragmentConfig, "fragmentId"> & { fragmentId?: string };
+  fragment?: FragmentOptions;
+
+  /**
+   * Menu items for the shell navigation (C-Panel sidebar)
+   * Supports nested menus via `items` property
+   *
+   * @example
+   * menus: [
+   *   { title: "Logs", icon: "lucide:scroll-text", path: "/logs" },
+   *   {
+   *     title: "Reports",
+   *     icon: "lucide:file-text",
+   *     path: "/reports",
+   *     items: [
+   *       { title: "Daily", icon: "lucide:calendar", path: "/reports/daily" },
+   *     ],
+   *   },
+   * ]
+   */
+  menus?: MenuItem[];
 }
 
 /**

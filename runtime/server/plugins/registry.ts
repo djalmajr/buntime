@@ -1,5 +1,3 @@
-import type { FragmentConfig, PiercingGatewayConfig } from "@buntime/piercing";
-import { PiercingGateway } from "@buntime/piercing/gateway";
 import { getLogger } from "@buntime/shared/logger";
 import type {
   AppInfo,
@@ -11,24 +9,17 @@ import type {
 import type { Server, ServerWebSocket } from "bun";
 import { getPublicRoutesForMethod } from "@/utils/get-public-routes";
 import { globArrayToRegex } from "@/utils/glob-to-regex";
-
-/**
- * Get default fragment ID from plugin name
- * @example "@buntime/plugin-deployments" -> "deployments"
- */
-function getDefaultFragmentId(pluginName: string): string {
-  return pluginName.replace(/^@[^/]+\//, "").replace(/^plugin-/, "");
-}
+import { getPluginBase } from "@/utils/plugin-paths";
 
 /**
  * Registry for managing loaded plugins
  */
 export class PluginRegistry {
   private plugins: Map<string, BuntimePlugin> = new Map();
+  private pluginDirs: Map<string, string> = new Map(); // pluginName -> directory
   private order: string[] = [];
   private mountedPaths: Map<string, string> = new Map(); // path -> pluginName
   private services: Map<string, unknown> = new Map(); // serviceName -> service
-  private piercingGateway?: PiercingGateway;
 
   /**
    * Register a service for other plugins to use
@@ -48,9 +39,11 @@ export class PluginRegistry {
   }
 
   /**
-   * Register a plugin
+   * Register a plugin with its directory
+   * @param plugin The plugin to register
+   * @param dir The plugin's directory (for spawning as worker)
    */
-  register(plugin: BuntimePlugin): void {
+  register(plugin: BuntimePlugin, dir?: string): void {
     if (this.plugins.has(plugin.name)) {
       throw new Error(`Plugin "${plugin.name}" is already registered`);
     }
@@ -68,7 +61,17 @@ export class PluginRegistry {
     }
 
     this.plugins.set(plugin.name, plugin);
+    if (dir) {
+      this.pluginDirs.set(plugin.name, dir);
+    }
     this.order.push(plugin.name);
+  }
+
+  /**
+   * Get the directory of a plugin
+   */
+  getPluginDir(name: string): string | undefined {
+    return this.pluginDirs.get(name);
   }
 
   /**
@@ -277,79 +280,46 @@ export class PluginRegistry {
 
   /**
    * Resolve a plugin app by pathname
-   * Returns the app directory and config if found
+   * Returns the plugin directory and base path if the plugin is a worker app
    *
-   * Checks both:
-   * - Legacy `path` field (prefix matching)
-   * - New `routes` field (glob pattern matching)
+   * All plugins with a directory are workers (structure: server/, client/, plugin.ts, index.ts)
+   * - API routes: /{base}/api/*
+   * - Fragment UI (if has fragment): /{base}/
    */
   resolvePluginApp(
     pathname: string,
   ): { dir: string; basePath: string; config?: Record<string, unknown> } | undefined {
+    // Check each plugin with a directory (directory = is a worker app)
     for (const plugin of this.getAll()) {
-      if (!plugin.apps) continue;
+      const dir = this.pluginDirs.get(plugin.name);
+      if (!dir) continue;
 
-      for (const app of plugin.apps) {
-        // Routes are absolute (no mountPath prefix)
-        if (app.routes && app.routes.length > 0) {
-          const regex = globArrayToRegex(app.routes);
-          if (regex?.test(pathname)) {
-            // basePath is the first route without glob (for relative pathname calculation)
-            const basePath = app.routes[0]?.replace(/\/?\*+$/, "") || "";
-            return { dir: app.dir, basePath, config: app.config };
-          }
-        }
+      const basePath = plugin.base ?? getPluginBase(plugin.name);
 
-        // path is also absolute
-        if (app.path !== undefined) {
-          if (pathname === app.path || pathname.startsWith(`${app.path}/`)) {
-            return { dir: app.dir, basePath: app.path, config: app.config };
-          }
-        }
+      // Check if pathname matches this plugin's base path
+      if (pathname === basePath || pathname.startsWith(`${basePath}/`)) {
+        return { dir, basePath };
       }
     }
+
     return undefined;
   }
 
   /**
-   * Get all paths reserved by plugin apps
+   * Get all paths reserved by plugin apps (plugins with directory)
    */
   getReservedPaths(): Map<string, string> {
-    const reserved = new Map<string, string>();
+    const paths = new Map<string, string>();
 
     for (const plugin of this.getAll()) {
-      if (!plugin.apps) continue;
+      const dir = this.pluginDirs.get(plugin.name);
+      if (!dir) continue;
 
-      for (const app of plugin.apps) {
-        // Routes are absolute
-        if (app.routes && app.routes.length > 0) {
-          for (const route of app.routes) {
-            // Remove glob patterns for reservation (just base path)
-            const cleanRoute = route.replace(/\*+$/, "").replace(/\/+$/, "");
-            reserved.set(cleanRoute, plugin.name);
-
-            // Also reserve the first path segment for top-level conflicts
-            const segments = cleanRoute.split("/").filter(Boolean);
-            if (segments[0]) {
-              reserved.set(`/${segments[0]}`, plugin.name);
-            }
-          }
-        }
-
-        // path is also absolute
-        if (app.path !== undefined) {
-          reserved.set(app.path, plugin.name);
-
-          // Also reserve the first path segment for top-level conflicts
-          const segments = app.path.split("/").filter(Boolean);
-          if (segments[0]) {
-            reserved.set(`/${segments[0]}`, plugin.name);
-          }
-        }
-      }
+      const basePath = plugin.base ?? getPluginBase(plugin.name);
+      paths.set(basePath, plugin.name);
     }
 
-    return reserved;
+    return paths;
   }
 
   /**
@@ -514,69 +484,24 @@ export class PluginRegistry {
   }
 
   /**
-   * Collect all fragment configurations from plugins
-   * Returns an array of FragmentConfig for plugins that define fragments
-   */
-  collectFragments(): FragmentConfig[] {
-    const fragments: FragmentConfig[] = [];
-
-    for (const plugin of this.getAll()) {
-      if (!plugin.fragment) continue;
-
-      const fragmentId = plugin.fragment.fragmentId ?? getDefaultFragmentId(plugin.name);
-
-      fragments.push({
-        ...plugin.fragment,
-        fragmentId,
-      });
-
-      console.log(`[PluginRegistry] Collected fragment: ${fragmentId} from ${plugin.name}`);
-    }
-
-    return fragments;
-  }
-
-  /**
-   * Create or get the PiercingGateway instance
-   * Registers all plugin fragments with the gateway
-   *
-   * @param config - Gateway configuration (getShellHtml is required)
-   * @returns PiercingGateway instance, or undefined if no fragments are registered
-   */
-  createPiercingGateway(config: PiercingGatewayConfig): PiercingGateway | undefined {
-    const fragments = this.collectFragments();
-
-    if (fragments.length === 0) {
-      return undefined;
-    }
-
-    if (this.piercingGateway) {
-      return this.piercingGateway;
-    }
-
-    this.piercingGateway = new PiercingGateway(config);
-
-    for (const fragment of fragments) {
-      this.piercingGateway.registerFragment(fragment);
-    }
-
-    console.log(`[PluginRegistry] PiercingGateway created with ${fragments.length} fragments`);
-
-    return this.piercingGateway;
-  }
-
-  /**
-   * Get the existing PiercingGateway instance (if created)
-   */
-  getPiercingGateway(): PiercingGateway | undefined {
-    return this.piercingGateway;
-  }
-
-  /**
-   * Check if any plugins have fragments registered
+   * Check if any plugins have fragment UI (embeddable in shell)
    */
   hasFragments(): boolean {
-    return this.getAll().some((p) => p.fragment);
+    return this.getAll().some((p) => p.fragment !== undefined);
+  }
+
+  /**
+   * Get all plugins that are fragment-enabled (can be embedded in shell)
+   */
+  getFragmentPlugins(): BuntimePlugin[] {
+    return this.getAll().filter((p) => p.fragment !== undefined);
+  }
+
+  /**
+   * Check if a plugin has fragment enabled
+   */
+  isFragmentEnabled(plugin: BuntimePlugin): boolean {
+    return plugin.fragment !== undefined;
   }
 }
 

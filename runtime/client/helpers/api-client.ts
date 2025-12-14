@@ -14,7 +14,6 @@ interface PluginInfo {
   dependencies: string[];
   name: string;
   optionalDependencies: string[];
-  version: string;
 }
 
 const API_BASE = location.origin;

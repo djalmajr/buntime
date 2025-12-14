@@ -51,10 +51,12 @@ export function useBreadcrumbs({
     const result: Array<{ label: BreadcrumbLabel; path: string }> = [];
 
     for (const match of matches) {
-      const loaderData = match.loaderData as {
-        breadcrumb?: BreadcrumbLabel;
-        breadcrumbs?: Array<{ label: BreadcrumbLabel; path: string }>;
-      } | undefined;
+      const loaderData = match.loaderData as
+        | {
+            breadcrumb?: BreadcrumbLabel;
+            breadcrumbs?: Array<{ label: BreadcrumbLabel; path: string }>;
+          }
+        | undefined;
 
       // Support breadcrumbs array (for dynamic routes like deployments)
       if (loaderData?.breadcrumbs) {

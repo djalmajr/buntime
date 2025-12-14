@@ -11,7 +11,7 @@ console.log("Building plugin-authn...");
 
 const [serverResult, clientResult] = await Promise.all([
   Bun.build({
-    entrypoints: ["./app/index.ts"],
+    entrypoints: ["./index.ts"],
     external: ["@buntime/shared", "hono", "better-auth"],
     minify: true,
     outdir: "./dist",
@@ -19,7 +19,7 @@ const [serverResult, clientResult] = await Promise.all([
     target: "bun",
   }),
   Bun.build({
-    entrypoints: ["./app/client/index.html"],
+    entrypoints: ["./client/index.html"],
     minify: true,
     outdir: "./dist/client",
     plugins: [tailwind],

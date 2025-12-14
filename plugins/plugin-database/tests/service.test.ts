@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
 import { unlink } from "node:fs/promises";
-import { DatabaseServiceImpl } from "../src/service";
+import { DatabaseServiceImpl } from "../server/service";
 
 const TEST_DB_PATH = "/tmp/test-service.db";
 

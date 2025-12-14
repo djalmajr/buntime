@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { unlink } from "node:fs/promises";
-import { LibSqlAdapter } from "../src/adapters/libsql";
+import { LibSqlAdapter } from "../server/adapters/libsql";
 
 const TEST_DB_PATH = "/tmp/test-libsql.db";
 

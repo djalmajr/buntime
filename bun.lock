@@ -24,7 +24,7 @@
         "hono": "^4.7.10",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
-        "redaxios": "",
+        "redaxios": "^0.5.1",
       },
       "devDependencies": {
         "@types/react": "^19.2.5",
@@ -158,9 +158,18 @@
       "version": "1.0.0",
       "dependencies": {
         "@buntime/shared": "workspace:*",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
+      },
+      "devDependencies": {
+        "@types/react": "^19.2.6",
+        "@types/react-dom": "^19.2.3",
+        "bun-plugin-tailwind": "^0.1.2",
+        "tailwindcss": "^4.1.17",
       },
       "peerDependencies": {
         "hono": "^4.0.0",
+        "typescript": "^5.0.0",
       },
     },
     "plugins/plugin-keyval": {
@@ -184,9 +193,18 @@
       "version": "1.0.0",
       "dependencies": {
         "@buntime/shared": "workspace:*",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
+      },
+      "devDependencies": {
+        "@types/react": "^19.2.6",
+        "@types/react-dom": "^19.2.3",
+        "bun-plugin-tailwind": "^0.1.2",
+        "tailwindcss": "^4.1.17",
       },
       "peerDependencies": {
         "hono": "^4.0.0",
+        "typescript": "^5.0.0",
       },
     },
     "plugins/plugin-metrics": {

@@ -1,5 +1,5 @@
 import type { Context, MiddlewareHandler } from "hono";
-import { MESSAGE_BUS_STATE_HEADER, ServerMessageBus } from "../message-bus/server-message-bus";
+import { ServerMessageBus } from "../message-bus/server-message-bus";
 import type { FragmentConfig, MessageBusState, PiercingGatewayConfig } from "../types";
 import { concatenateStreams, stringToStream, wrapStreamInText } from "./stream-utils";
 
@@ -101,11 +101,28 @@ export class PiercingGateway {
     }
 
     try {
+      // Check if fragment should be included
+      if (fragment.shouldBeIncluded) {
+        const shouldInclude = await fragment.shouldBeIncluded(ctx.req.raw);
+        if (!shouldInclude) {
+          return ctx.text(`Fragment "${fragmentId}" not available`, 403);
+        }
+      }
+
       // Create message bus from request state
       const messageBus = ServerMessageBus.fromRequest(ctx.req.raw);
 
+      // Build the request for the fragment
+      let fragmentRequest = messageBus.toRequest(ctx.req.raw);
+
+      // Apply request transformation if defined
+      if (fragment.transformRequest) {
+        fragmentRequest = await fragment.transformRequest(fragmentRequest);
+        // Re-apply message bus headers after transformation
+        fragmentRequest = messageBus.toRequest(fragmentRequest);
+      }
+
       // Fetch the fragment SSR content
-      const fragmentRequest = messageBus.toRequest(ctx.req.raw);
       const response = await fragment.fetchFragment(fragmentRequest);
 
       if (!response.body) {
@@ -189,14 +206,24 @@ export class PiercingGateway {
     const shellHtml = await this.config.getShellHtml(ctx.req.raw);
 
     // Find fragments that should be pre-pierced for this route
-    const fragmentsToPrePierce = this.getFragmentsToPrePierce(ctx.req.raw);
+    const fragmentsToPrePierce = await this.getFragmentsToPrePierce(ctx.req.raw);
 
     // Fetch all pre-pierce fragments in parallel
     const fragmentStreams = await Promise.all(
       fragmentsToPrePierce.map(async (fragment) => {
         try {
           const messageBus = new ServerMessageBus(messageBusState);
-          const fragmentRequest = messageBus.toRequest(ctx.req.raw);
+
+          // Build the request for the fragment
+          let fragmentRequest = messageBus.toRequest(ctx.req.raw);
+
+          // Apply request transformation if defined
+          if (fragment.transformRequest) {
+            fragmentRequest = await fragment.transformRequest(fragmentRequest);
+            // Re-apply message bus headers after transformation
+            fragmentRequest = messageBus.toRequest(fragmentRequest);
+          }
+
           const response = await fragment.fetchFragment(fragmentRequest);
 
           if (!response.body) return null;
@@ -234,22 +261,36 @@ export class PiercingGateway {
 
   /**
    * Get fragments that should be pre-pierced for the current request
+   * Checks both route matching and shouldBeIncluded condition
    */
-  private getFragmentsToPrePierce(request: Request): FragmentConfig[] {
+  private async getFragmentsToPrePierce(request: Request): Promise<FragmentConfig[]> {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
-    return Array.from(this.fragments.values()).filter((fragment) => {
+    const candidates = Array.from(this.fragments.values()).filter((fragment) => {
       if (!fragment.prePierceRoutes || fragment.prePierceRoutes.length === 0) {
         return false;
       }
 
       return fragment.prePierceRoutes.some((route) => {
         // Simple glob matching: * matches any characters
-        const regex = new RegExp("^" + route.replace(/\*/g, ".*").replace(/\?/g, ".") + "$");
+        const regex = new RegExp(`^${route.replace(/\*/g, ".*").replace(/\?/g, ".")}$`);
         return regex.test(pathname);
       });
     });
+
+    // Check shouldBeIncluded for each candidate in parallel
+    const results = await Promise.all(
+      candidates.map(async (fragment) => {
+        if (!fragment.shouldBeIncluded) {
+          return fragment; // No condition, include by default
+        }
+        const shouldInclude = await fragment.shouldBeIncluded(request);
+        return shouldInclude ? fragment : null;
+      }),
+    );
+
+    return results.filter((f): f is FragmentConfig => f !== null);
   }
 
   /**
@@ -273,19 +314,19 @@ export class PiercingGateway {
    */
   private injectScriptsIntoHtml(html: string, state: MessageBusState): string {
     const stateJson = JSON.stringify(state);
-    const scripts = getMessageBusInlineScript(stateJson) + "\n" + getPiercingComponentsScript();
+    const scripts = `${getMessageBusInlineScript(stateJson)}\n${getPiercingComponentsScript()}`;
 
     // Inject before </head>
     const headEndIndex = html.indexOf("</head>");
     if (headEndIndex !== -1) {
-      return html.slice(0, headEndIndex) + scripts + "\n" + html.slice(headEndIndex);
+      return `${html.slice(0, headEndIndex)}${scripts}\n${html.slice(headEndIndex)}`;
     }
 
     // Fallback: inject at start of body
     const bodyStartIndex = html.indexOf("<body");
     if (bodyStartIndex !== -1) {
       const bodyTagEnd = html.indexOf(">", bodyStartIndex);
-      return html.slice(0, bodyTagEnd + 1) + scripts + "\n" + html.slice(bodyTagEnd + 1);
+      return `${html.slice(0, bodyTagEnd + 1)}${scripts}\n${html.slice(bodyTagEnd + 1)}`;
     }
 
     // Last resort: prepend

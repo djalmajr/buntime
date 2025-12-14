@@ -108,6 +108,14 @@ interface ParsedPlugin {
 }
 
 /**
+ * Resolved plugin module with its directory
+ */
+interface ResolvedPluginModule {
+  module: PluginModule;
+  dir: string;
+}
+
+/**
  * Load plugins from configuration
  */
 export class PluginLoader {
@@ -141,8 +149,8 @@ export class PluginLoader {
       const { name, options } = parsePluginConfig(pluginConfig);
 
       // Load plugin module to get dependencies
-      const mod = await this.resolvePluginModule(name);
-      const plugin = await resolvePlugin(mod, options);
+      const { module } = await this.resolvePluginModule(name);
+      const plugin = await resolvePlugin(module, options);
 
       // Filter optional dependencies to only those that are configured
       const optionalDeps = (plugin.optionalDependencies || []).filter((dep) =>
@@ -256,23 +264,33 @@ export class PluginLoader {
    * 1. Built-in plugins (always available, embedded in binary)
    * 2. External plugins from ./plugins/ directory
    * 3. Node modules (dev/bundle mode only)
+   *
+   * Returns both the module and its directory for worker spawning
    */
-  private async resolvePluginModule(name: string): Promise<PluginModule> {
+  private async resolvePluginModule(name: string): Promise<ResolvedPluginModule> {
     // 1. Try built-in plugins first (works in compiled binary)
     const builtinFactory = await getBuiltinPlugin(name);
     if (builtinFactory) {
-      return builtinFactory;
+      // Built-in plugins don't have a directory (embedded in binary)
+      return { module: builtinFactory, dir: "" };
     }
 
     // 2. Try external plugins directory
     const externalPath = await this.resolveExternalPlugin(name);
     if (externalPath) {
-      return await import(externalPath);
+      const module = await import(externalPath);
+      // External plugins: directory is parent of the resolved file
+      const dir = dirname(externalPath);
+      return { module, dir };
     }
 
     // 3. Try node_modules (dev/bundle mode)
     try {
-      return await import(name);
+      const module = await import(name);
+      // Resolve the package directory from node_modules
+      const resolvedPath = Bun.resolveSync(name, process.cwd());
+      const dir = dirname(resolvedPath);
+      return { module, dir };
     } catch {
       throw new Error(
         `Could not resolve plugin "${name}". ` +
@@ -290,12 +308,12 @@ export class PluginLoader {
       throw new Error(`Plugin "${name}" is already loaded`);
     }
 
-    const mod = await this.resolvePluginModule(name);
-    const plugin = await resolvePlugin(mod, options);
+    const { module, dir } = await this.resolvePluginModule(name);
+    const plugin = await resolvePlugin(module, options);
 
     // Validate plugin structure
-    if (!plugin.name || !plugin.version) {
-      throw new Error(`Plugin "${name}" is missing required fields (name, version)`);
+    if (!plugin.name) {
+      throw new Error(`Plugin "${name}" is missing required field: name`);
     }
 
     // Validate dependencies are loaded (already sorted topologically, so this should pass)
@@ -348,10 +366,10 @@ export class PluginLoader {
       await plugin.onInit(context);
     }
 
-    // Register plugin
-    this.registry.register(plugin);
+    // Register plugin with its directory (for spawning as worker)
+    this.registry.register(plugin, dir || undefined);
 
-    logger.info(`Loaded: ${plugin.name}@${plugin.version}`);
+    logger.info(`Loaded: ${plugin.name}${dir ? ` (${dir})` : ""}`);
 
     return plugin;
   }

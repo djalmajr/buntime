@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./plugin.ts"
+  },
+  "buntime": {
+    "entrypoint": "index.ts"
   },
   "scripts": {
     "lint:format": "bun biome check --write",

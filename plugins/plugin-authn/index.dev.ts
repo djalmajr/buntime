@@ -1,5 +1,5 @@
-import client from "./app/client/index.html";
-import server from "./app/server";
+import client from "./client/index.html";
+import { api, routes } from "./server/api";
 
 const PORT = 4002;
 
@@ -11,8 +11,9 @@ const app = Bun.serve({
     "/login": client,
   },
   routes: {
-    "/api/*": server.fetch,
-    "/api": server.fetch,
+    "/api/*": api.fetch,
+    "/session": routes.fetch,
+    "/logout": routes.fetch,
   },
   development: {
     console: true,

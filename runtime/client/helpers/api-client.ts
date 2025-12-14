@@ -5,7 +5,6 @@ import type { GatewayRoutesType } from "@buntime/plugin-gateway";
 import type { KeyvalRoutesType } from "@buntime/plugin-keyval";
 import type { MetricsRoutesType } from "@buntime/plugin-metrics";
 import type { ProxyRoutesType } from "@buntime/plugin-proxy";
-import type { DeploymentRoutesType } from "@buntime/runtime/routes/deployments";
 import type { PluginsInfoRoutesType } from "@buntime/runtime/routes/plugins-info";
 import { hc } from "hono/client";
 
@@ -31,12 +30,12 @@ export async function initPluginBases(): Promise<void> {
 
   for (const plugin of plugins) {
     const name = plugin.name.replace(/^@[^/]+\//, "").replace(/^plugin-/, "");
-    bases[name] = plugin.base ?? `/api/${name}`;
+    bases[name] = plugin.base ?? `/p/${name}/api`;
   }
 }
 
 function getBase(name: string): string {
-  return bases[name] ?? `/api/${name}`;
+  return bases[name] ?? `/p/${name}/api`;
 }
 
 // Lazy-initialized clients cache
@@ -50,9 +49,6 @@ function getClient<T>(name: string, factory: () => T): T {
 export const api = {
   get authz() {
     return getClient("authz", () => hc<AuthzRoutesType>(`${API_BASE}${getBase("authz")}`));
-  },
-  get deployments() {
-    return getClient("deployments", () => hc<DeploymentRoutesType>(`${API_BASE}/api/deployments`));
   },
   get durable() {
     return getClient("durable", () => hc<DurableRoutesType>(`${API_BASE}${getBase("durable")}`));

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "exports": {
+    "./build": "./src/build.ts",
     "./errors": "./src/errors.ts",
     "./logger": "./src/logger/index.ts",
     "./types": "./src/types/plugin.ts",
@@ -13,6 +14,11 @@
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
     "lint": "bun run lint:format && bun run lint:types"
+  },
+  "dependencies": {
+    "@zomme/bun-plugin-i18next": "^0.1.1",
+    "@zomme/bun-plugin-iconify": "^0.1.2",
+    "bun-plugin-tailwind": "^0.1.2"
   },
   "peerDependencies": {
     "@buntime/piercing": "workspace:*",

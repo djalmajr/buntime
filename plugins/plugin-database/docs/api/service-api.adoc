@@ -1,0 +1,96 @@
+= Service API
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+Esta seção documenta a API TypeScript exposta para outros plugins e para a aplicação.
+
+== DatabaseService
+
+O serviço principal registrado no container de injeção de dependência como `"database"`.
+
+[source,typescript]
+----
+interface DatabaseService {
+  /**
+   * Obtém um adapter para um tenant específico.
+   * Se tenantId não for fornecido, tenta detectar do contexto ou usa o default.
+   */
+  getAdapter(tenantId?: string): Promise<DatabaseAdapter>;
+
+  /**
+   * Obtém o adapter root (sem isolamento de tenant).
+   * Útil para operações administrativas ou globais.
+   */
+  getRootAdapter(): DatabaseAdapter;
+
+  // Gerenciamento de tenants
+  createTenant(tenantId: string): Promise<void>;
+  deleteTenant(tenantId: string): Promise<void>;
+  listTenants(): Promise<string[]>;
+}
+----
+
+== DatabaseAdapter
+
+Interface unificada para execução de operações no banco de dados.
+
+[source,typescript]
+----
+interface DatabaseAdapter {
+  readonly type: AdapterType; // 'libsql' | 'postgres' | 'mysql' | 'sqlite'
+  readonly tenantId: string | null;
+
+  /**
+   * Executa uma query SQL e retorna todas as linhas.
+   */
+  execute<T>(sql: string, args?: unknown[]): Promise<T[]>;
+
+  /**
+   * Executa uma query SQL e retorna a primeira linha ou null.
+   */
+  executeOne<T>(sql: string, args?: unknown[]): Promise<T | null>;
+
+  /**
+   * Executa múltiplos statements em batch (útil para libSQL).
+   */
+  batch(statements: Statement[]): Promise<void>;
+
+  /**
+   * Executa uma função dentro de uma transação.
+   */
+  transaction<T>(fn: (tx: TransactionAdapter) => Promise<T>): Promise<T>;
+}
+----
+
+== Exemplo de Uso
+
+Exemplo de como consumir o serviço em outro plugin:
+
+[source,typescript]
+----
+export default function myPlugin(): BuntimePlugin {
+  return {
+    name: "my-plugin",
+
+    async onInit(ctx: PluginContext) {
+      // 1. Obter o serviço
+      const dbService = ctx.getService<DatabaseService>("database");
+
+      // 2. Obter adapter para um tenant específico
+      const tenantAdapter = await dbService.getAdapter("tenant-123");
+
+      // 3. Executar queries
+      const users = await tenantAdapter.execute(
+        "SELECT * FROM users WHERE active = ?",
+        [true]
+      );
+
+      console.log(users);
+    }
+  };
+}
+----

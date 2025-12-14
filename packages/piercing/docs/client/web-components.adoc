@@ -1,0 +1,546 @@
+== Web Components
+
+O Piercing utiliza dois Web Components customizados para gerenciar fragmentos no DOM: `<piercing-fragment-host>` e `<piercing-fragment-outlet>`. Estes componentes trabalham em conjunto para implementar o padrão de "piercing", permitindo que fragmentos sejam renderizados via SSR e posteriormente movidos para seus destinos finais no DOM.
+
+=== PiercingFragmentHost
+
+O `PiercingFragmentHost` é um elemento customizado que encapsula o conteúdo SSR de um fragmento. Ele gerencia o ciclo de vida do fragmento, incluindo limpeza de recursos, observação de estilos e integração com o message bus.
+
+==== Atributos
+
+[cols="1,1,3"]
+|===
+| Atributo | Tipo | Descrição
+
+| `fragment-id`
+| string
+| Identificador único do fragmento (obrigatório)
+|===
+
+==== Propriedades
+
+[cols="1,1,3"]
+|===
+| Propriedade | Tipo | Descrição
+
+| `fragmentId`
+| string
+| ID do fragmento obtido do atributo `fragment-id`
+
+| `messageBus`
+| FragmentMessageBus
+| Instância do message bus isolada para este fragmento
+
+| `isPierced`
+| boolean
+| Indica se o fragmento está dentro de um outlet
+|===
+
+==== Métodos
+
+[cols="1,3"]
+|===
+| Método | Descrição
+
+| `pierceInto(outlet: Element): void`
+| Move o fragment host para dentro de um elemento outlet, preservando foco e estado
+
+| `onCleanup(handler: () => void): void`
+| Registra um callback para ser executado quando o fragmento for removido do DOM
+|===
+
+==== Ciclo de Vida
+
+[source,typescript]
+----
+// Conexão
+connectedCallback(): void {
+  // 1. Valida presença do atributo fragment-id
+  // 2. Inicializa o fragmentId
+  // 3. Se não pierced, inicia observador de estilos
+}
+
+// Desconexão
+disconnectedCallback(): void {
+  // 1. Limpa todos os handlers do message bus
+  // 2. Executa callbacks registrados via onCleanup()
+  // 3. Remove observadores de mutação
+}
+----
+
+==== Exemplo de Uso
+
+[source,html]
+----
+<!-- Fragment host gerado via SSR -->
+<piercing-fragment-host fragment-id="health">
+  <div class="health-dashboard">
+    <!-- Conteúdo do fragmento -->
+  </div>
+  <link rel="stylesheet" href="/health/styles.css">
+  <script type="module" src="/health/client.js"></script>
+</piercing-fragment-host>
+----
+
+==== Gerenciamento de Estilos
+
+O `PiercingFragmentHost` converte automaticamente links de folhas de estilo externas em estilos inline quando o fragmento não está dentro de um outlet. Isso é necessário porque fragmentos podem ter CSS de diferentes origens.
+
+[source,typescript]
+----
+// Processo automático de embedação de estilos
+private embedExternalStyles(): void {
+  const styleLinks = this.querySelectorAll('link[href][rel="stylesheet"]');
+
+  for (const link of styleLinks) {
+    if (link.sheet) {
+      // Extrai CSS rules
+      let cssText = "";
+      for (const rule of link.sheet.cssRules) {
+        cssText += `${rule.cssText}\n`;
+      }
+
+      // Substitui link por style inline
+      const style = document.createElement("style");
+      style.textContent = cssText;
+      link.replaceWith(style);
+    }
+  }
+}
+----
+
+==== Preservação de Foco
+
+Durante o processo de piercing, o foco é preservado automaticamente:
+
+[source,typescript]
+----
+pierceInto(outlet: Element): void {
+  // Captura elemento com foco
+  const activeElement = this.contains(document.activeElement)
+    ? (document.activeElement as HTMLElement)
+    : null;
+
+  // Desabilita cleanup temporariamente
+  this.cleanup = false;
+  outlet.appendChild(this);
+  this.cleanup = true;
+
+  // Restaura foco
+  activeElement?.focus();
+
+  // Para observação de estilos
+  this.removeStylesObserver();
+}
+----
+
+=== PiercingFragmentOutlet
+
+O `PiercingFragmentOutlet` é um elemento placeholder que marca onde um fragmento deve ser renderizado. Ele é responsável por buscar fragmentos sob demanda ou receber fragmentos pré-renderizados via piercing.
+
+==== Atributos
+
+[cols="1,1,3"]
+|===
+| Atributo | Tipo | Descrição
+
+| `fragment-id`
+| string
+| ID do fragmento a ser carregado (obrigatório se `src` não for especificado)
+
+| `src`
+| string
+| URL direta para buscar o fragmento (alternativa ao `fragment-id`)
+
+| `sandbox`
+| SandboxStrategy
+| Estratégia de isolamento: `"none"`, `"monkey-patch"`, `"iframe"`, `"service-worker"` (padrão: `"none"`)
+
+| `origin`
+| string
+| Origem externa (obrigatório para `iframe` e `service-worker`)
+|===
+
+==== Propriedades
+
+[cols="1,1,3"]
+|===
+| Propriedade | Tipo | Descrição
+
+| `piercingFragmentOutlet`
+| boolean
+| Marcador constante (`true`) para identificação como outlet
+
+| `fragmentHost`
+| PiercingFragmentHost \| null
+| Referência ao fragment host atual
+|===
+
+==== Estratégias de Sandbox
+
+[cols="1,3"]
+|===
+| Estratégia | Descrição
+
+| `none`
+| Sem isolamento, compartilha contexto com aplicação principal
+
+| `monkey-patch`
+| Intercepta History API para isolar navegação
+
+| `iframe`
+| Isolamento completo via iframe (carrega fragmento em contexto separado)
+
+| `service-worker`
+| Interceptação via Service Worker
+|===
+
+==== Exemplos de Uso
+
+[source,html]
+----
+<!-- Plugin interno sem isolamento -->
+<piercing-fragment-outlet fragment-id="logs" />
+
+<!-- Aplicação externa com monkey-patch -->
+<piercing-fragment-outlet
+  fragment-id="legacy"
+  sandbox="monkey-patch"
+/>
+
+<!-- Aplicação externa com iframe -->
+<piercing-fragment-outlet
+  fragment-id="external"
+  sandbox="iframe"
+  origin="https://external-app.com"
+/>
+
+<!-- URL customizada -->
+<piercing-fragment-outlet
+  src="/custom/fragment/path"
+  sandbox="none"
+/>
+----
+
+==== Ciclo de Vida
+
+[source,typescript]
+----
+async connectedCallback(): Promise<void> {
+  // 1. Obtém atributos (fragment-id, sandbox, origin, src)
+  // 2. Valida presença de fragment-id ou src
+
+  // Se sandbox é iframe:
+  if (sandbox === "iframe") {
+    // Inicializa sandbox iframe (iframe gerencia próprio carregamento)
+    await this.initIframeSandbox(fragmentId, origin);
+    return;
+  }
+
+  // Para outras estratégias:
+  // 3. Inicializa sandbox (monkey-patch/service-worker)
+  // 4. Busca fragment host existente no DOM (pré-pierced)
+
+  if (this.fragmentHost) {
+    // 5a. Move fragment host para este outlet
+    this.fragmentHost.pierceInto(this);
+  } else {
+    // 5b. Busca fragmento sob demanda via fetch
+    const stream = await this.fetchFragment(url);
+    await this.streamFragmentInto(fragmentId, stream);
+  }
+}
+
+disconnectedCallback(): void {
+  // 1. Limpa sandbox
+  // 2. Registra fragment-id como desmontado
+  // 3. Remove referência ao fragment host
+}
+----
+
+==== Busca de Fragmentos
+
+O outlet busca fragmentos via fetch, enviando o estado atual do message bus:
+
+[source,typescript]
+----
+private async fetchFragment(url: string): Promise<ReadableStream> {
+  const state = getGlobalBus().state;
+
+  const response = await fetch(url, {
+    headers: {
+      "x-message-bus-state": JSON.stringify(state),
+    },
+  });
+
+  if (!response.body) {
+    throw new Error(`Empty response when fetching fragment from "${url}"`);
+  }
+
+  return response.body;
+}
+----
+
+==== Streaming HTML
+
+O outlet utiliza `DOMParser` para processar HTML de forma segura:
+
+[source,typescript]
+----
+private async streamFragmentInto(
+  fragmentId: string,
+  stream: ReadableStream
+): Promise<void> {
+  // 1. Lê todo o stream
+  const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
+  let html = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    html += value;
+  }
+
+  // 2. Parse HTML via DOMParser
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+
+  // 3. Move elementos do body para o outlet
+  this.clearChildren();
+  while (doc.body.firstChild) {
+    this.appendChild(doc.body.firstChild);
+  }
+
+  // 4. Re-executa scripts de módulo se fragmento foi desmontado antes
+  if (unmountedFragmentIds.has(fragmentId)) {
+    this.rerunModuleScripts();
+  }
+}
+----
+
+==== Re-execução de Scripts
+
+Quando um fragmento é desmontado e remontado, seus scripts de módulo são re-executados:
+
+[source,typescript]
+----
+private rerunModuleScripts(): void {
+  const scripts = this.querySelectorAll('script[type="module"][src]');
+
+  for (const script of scripts) {
+    const src = (script as HTMLScriptElement).src;
+    import(/* @vite-ignore */ src).then((module) => module.default?.());
+  }
+}
+----
+
+IMPORTANT: Scripts de módulo devem exportar uma função `default` para serem re-executáveis.
+
+=== Registro de Componentes
+
+A função `registerPiercingComponents()` registra ambos os Web Components no custom elements registry. Deve ser chamada uma única vez no início da aplicação.
+
+[source,typescript]
+----
+import { registerPiercingComponents } from "@buntime/piercing/client";
+
+// No entry point da aplicação
+registerPiercingComponents();
+----
+
+==== Implementação
+
+[source,typescript]
+----
+export function registerPiercingComponents(): void {
+  if (typeof window === "undefined") return;
+
+  if (!customElements.get("piercing-fragment-host")) {
+    customElements.define("piercing-fragment-host", PiercingFragmentHost);
+  }
+
+  if (!customElements.get("piercing-fragment-outlet")) {
+    customElements.define("piercing-fragment-outlet", PiercingFragmentOutlet);
+  }
+}
+----
+
+==== Suporte TypeScript
+
+Para usar os componentes em JSX/TSX, adicione as seguintes declarações ao seu projeto:
+
+[source,typescript]
+----
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      "piercing-fragment-host": {
+        "fragment-id": string;
+      } & Record<string, unknown>;
+
+      "piercing-fragment-outlet": {
+        "fragment-id"?: string;
+        "src"?: string;
+        "sandbox"?: "none" | "monkey-patch" | "iframe" | "service-worker";
+        "origin"?: string;
+      } & Record<string, unknown>;
+    }
+  }
+}
+----
+
+=== FragmentMessageBus
+
+Cada `PiercingFragmentHost` possui uma instância isolada de `FragmentMessageBus`, que é um wrapper do message bus global com rastreamento de cleanup.
+
+==== Métodos
+
+[cols="1,3"]
+|===
+| Método | Descrição
+
+| `dispatch(eventName: string, value: JSONValue): void`
+| Envia evento para o message bus global
+
+| `listen<T>(eventName: string, callback: MessageBusCallback<T>): () => void`
+| Escuta eventos do message bus, registrando cleanup automático
+
+| `latestValue<T>(eventName: string): T \| undefined`
+| Obtém o último valor publicado em um evento
+
+| `clearAllHandlers(): void`
+| Remove todos os listeners registrados via este bus
+|===
+
+==== Acesso via Fragment Client
+
+[source,typescript]
+----
+import { getBus } from "@buntime/piercing/fragment-client";
+
+const bus = getBus();
+
+// Enviar evento
+bus.dispatch("user:updated", { id: 123, name: "João" });
+
+// Escutar evento
+const unsubscribe = bus.listen("user:updated", (data) => {
+  console.log("User updated:", data);
+});
+
+// Cleanup é automático quando fragment é desmontado
+// Mas pode limpar manualmente se necessário
+unsubscribe();
+----
+
+==== Symbol Compartilhado
+
+O message bus é acessível via symbol global:
+
+[source,typescript]
+----
+const MESSAGE_BUS_PROP = Symbol.for("piercing:fragment-message-bus");
+
+// No fragment host
+[MESSAGE_BUS_PROP] = new FragmentMessageBus();
+
+// No fragment client
+const host = document.querySelector("piercing-fragment-host");
+const bus = host?.[MESSAGE_BUS_PROP];
+----
+
+=== Fluxo Completo de Renderização
+
+==== Pre-Piercing (SSR)
+
+[source]
+----
+1. Servidor renderiza HTML com fragment-host
+   ↓
+2. HTML contém <piercing-fragment-host fragment-id="logs">
+   ↓
+3. Browser registra componentes via registerPiercingComponents()
+   ↓
+4. Fragment host conecta e inicializa message bus
+----
+
+==== Piercing
+
+[source]
+----
+5. Outlet conecta: <piercing-fragment-outlet fragment-id="logs">
+   ↓
+6. Outlet encontra fragment-host no DOM
+   ↓
+7. Outlet chama fragmentHost.pierceInto(outlet)
+   ↓
+8. Fragment host move-se para dentro do outlet
+   ↓
+9. Foco e estado preservados
+----
+
+==== Lazy Loading
+
+[source]
+----
+5. Outlet conecta: <piercing-fragment-outlet fragment-id="metrics">
+   ↓
+6. Fragment não encontrado no DOM
+   ↓
+7. Outlet busca via fetch(/piercing-fragment/metrics)
+   ↓
+8. Stream HTML via DOMParser
+   ↓
+9. Fragment-host criado e inserido no outlet
+----
+
+=== Gerenciamento de Estado
+
+==== Fragmentos Desmontados
+
+O outlet mantém um set de IDs de fragmentos desmontados:
+
+[source,typescript]
+----
+private static unmountedFragmentIds = new Set<string>();
+
+disconnectedCallback(): void {
+  if (this.fragmentHost) {
+    // Registra fragmento como desmontado
+    PiercingFragmentOutlet.unmountedFragmentIds.add(
+      this.fragmentHost.fragmentId
+    );
+  }
+}
+----
+
+Quando um fragmento é remontado, seus scripts de módulo são re-executados:
+
+[source,typescript]
+----
+if (PiercingFragmentOutlet.unmountedFragmentIds.has(fragmentId)) {
+  this.rerunModuleScripts();
+}
+----
+
+==== Cleanup Condicional
+
+O fragment host desabilita cleanup durante movimentação no DOM:
+
+[source,typescript]
+----
+pierceInto(outlet: Element): void {
+  this.cleanup = false;  // Desabilita cleanup
+  outlet.appendChild(this);
+  this.cleanup = true;   // Reabilita cleanup
+}
+
+disconnectedCallback(): void {
+  if (this.cleanup) {
+    // Só limpa se não está sendo movido
+    this[MESSAGE_BUS_PROP].clearAllHandlers();
+  }
+}
+----
+
+Isso previne limpeza acidental de recursos durante operações de piercing.

@@ -7,29 +7,89 @@ import type { DatabaseAdapter, LibSqlAdapterConfig, Statement, TransactionAdapte
  * Multi-tenancy: Uses namespaces via Admin API
  * - Each tenant gets its own isolated namespace
  * - Namespace selection via URL path: /v1/dev/{namespace}
+ *
+ * Replication: Supports multiple read replicas for load balancing
+ * - urls[0] = Primary (writes + reads)
+ * - urls[1..n] = Replicas (reads only, round-robin)
  */
 export class LibSqlAdapter implements DatabaseAdapter {
   readonly type = "libsql" as const;
   readonly tenantId: string | null;
 
-  private readonly adminUrl: string | null;
+  private readonly primaryUrl: string;
   private readonly authToken: string | undefined;
   private readonly client: Client;
+  private readonly replicaClients: Client[];
   private readonly config: LibSqlAdapterConfig;
+  private replicaIndex = 0;
 
   constructor(config: LibSqlAdapterConfig, tenantId: string | null = null) {
+    if (!config.urls || config.urls.length === 0) {
+      throw new Error("LibSqlAdapter requires at least one URL in urls[]");
+    }
+
     this.config = config;
     this.tenantId = tenantId;
     this.authToken = config.authToken;
-    this.adminUrl = config.adminUrl ?? null;
+
+    // First URL is primary, rest are replicas
+    const [primaryUrl, ...replicaUrls] = config.urls.filter((url) => url?.trim());
+
+    if (!primaryUrl) {
+      throw new Error("LibSqlAdapter requires at least one valid URL");
+    }
+
+    this.primaryUrl = primaryUrl;
 
     // Build URL for tenant namespace
-    const url = tenantId ? this.buildTenantUrl(config.url, tenantId) : config.url;
+    const resolvedPrimaryUrl = tenantId ? this.buildTenantUrl(primaryUrl, tenantId) : primaryUrl;
 
+    // Primary client (for writes and as fallback for reads)
     this.client = createClient({
       authToken: config.authToken,
-      url,
+      url: resolvedPrimaryUrl,
     });
+
+    // Create replica clients
+    this.replicaClients = replicaUrls.map((url) =>
+      createClient({
+        authToken: config.authToken,
+        url: tenantId ? this.buildTenantUrl(url, tenantId) : url,
+      }),
+    );
+
+    if (replicaUrls.length > 0) {
+      config.logger?.info(
+        `LibSQL adapter initialized with ${replicaUrls.length} replica(s)${tenantId ? ` for tenant ${tenantId}` : ""}`,
+      );
+    }
+  }
+
+  /**
+   * Get a client for read operations (uses replicas with round-robin)
+   */
+  private getReadClient(): Client {
+    // If no replicas, use primary
+    if (this.replicaClients.length === 0) {
+      return this.client;
+    }
+
+    // Round-robin between replicas
+    const client = this.replicaClients[this.replicaIndex];
+    if (!client) {
+      // Fallback to primary if replica client is undefined (shouldn't happen)
+      return this.client;
+    }
+
+    this.replicaIndex = (this.replicaIndex + 1) % this.replicaClients.length;
+    return client;
+  }
+
+  /**
+   * Get a client for write operations (always primary)
+   */
+  private getWriteClient(): Client {
+    return this.client;
   }
 
   /**
@@ -55,7 +115,11 @@ export class LibSqlAdapter implements DatabaseAdapter {
   }
 
   async execute<T = unknown>(sql: string, args?: unknown[]): Promise<T[]> {
-    const result = await this.client.execute({
+    // Determine if it's a read or write operation
+    const isWrite = /^\s*(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|REPLACE)/i.test(sql);
+    const client = isWrite ? this.getWriteClient() : this.getReadClient();
+
+    const result = await client.execute({
       sql,
       args: (args ?? []) as (string | number | boolean | null | Uint8Array | bigint)[],
     });
@@ -68,7 +132,9 @@ export class LibSqlAdapter implements DatabaseAdapter {
   }
 
   async batch(statements: Statement[]): Promise<void> {
-    await this.client.batch(
+    // Batch operations are always writes
+    const client = this.getWriteClient();
+    await client.batch(
       statements.map((s) => ({
         sql: s.sql,
         args: (s.args ?? []) as (string | number | boolean | null | Uint8Array | bigint)[],
@@ -77,6 +143,7 @@ export class LibSqlAdapter implements DatabaseAdapter {
   }
 
   async transaction<T>(fn: (tx: TransactionAdapter) => Promise<T>): Promise<T> {
+    // Transactions are always on primary
     const tx = await this.client.transaction();
 
     try {
@@ -112,14 +179,8 @@ export class LibSqlAdapter implements DatabaseAdapter {
   }
 
   async createTenant(tenantId: string): Promise<void> {
-    if (!this.adminUrl) {
-      this.config.logger?.warn(
-        "Admin URL not configured, skipping namespace creation. Namespace will be created on first access.",
-      );
-      return;
-    }
-
-    const response = await fetch(`${this.adminUrl}/v1/namespaces/${tenantId}/create`, {
+    // Admin API uses the same endpoint as the primary URL
+    const response = await fetch(`${this.primaryUrl}/v1/namespaces/${tenantId}/create`, {
       headers: this.authToken ? { Authorization: `Bearer ${this.authToken}` } : undefined,
       method: "POST",
     });
@@ -134,11 +195,7 @@ export class LibSqlAdapter implements DatabaseAdapter {
   }
 
   async deleteTenant(tenantId: string): Promise<void> {
-    if (!this.adminUrl) {
-      throw new Error("Admin URL not configured, cannot delete namespace");
-    }
-
-    const response = await fetch(`${this.adminUrl}/v1/namespaces/${tenantId}`, {
+    const response = await fetch(`${this.primaryUrl}/v1/namespaces/${tenantId}`, {
       headers: this.authToken ? { Authorization: `Bearer ${this.authToken}` } : undefined,
       method: "DELETE",
     });
@@ -152,11 +209,7 @@ export class LibSqlAdapter implements DatabaseAdapter {
   }
 
   async listTenants(): Promise<string[]> {
-    if (!this.adminUrl) {
-      throw new Error("Admin URL not configured, cannot list namespaces");
-    }
-
-    const response = await fetch(`${this.adminUrl}/v1/namespaces`, {
+    const response = await fetch(`${this.primaryUrl}/v1/namespaces`, {
       headers: this.authToken ? { Authorization: `Bearer ${this.authToken}` } : undefined,
     });
 
@@ -171,5 +224,8 @@ export class LibSqlAdapter implements DatabaseAdapter {
 
   async close(): Promise<void> {
     this.client.close();
+    for (const replica of this.replicaClients) {
+      replica.close();
+    }
   }
 }

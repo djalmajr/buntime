@@ -32,29 +32,51 @@ Plugins are configured in `buntime.jsonc`:
 
 ```jsonc
 {
-  "required": ["@buntime/plugin-metrics"],
+  "required": ["@buntime/plugin-metrics", "@buntime/plugin-database"],
   "plugins": [
     "@buntime/plugin-metrics",
+    ["@buntime/plugin-database", { "adapter": { "type": "libsql" } }],
     ["@buntime/plugin-proxy", { "rules": [...] }],
     ["@buntime/plugin-authn", { "provider": "keycloak", ... }],
     ["@buntime/plugin-gateway", { "rateLimit": { ... } }],
     ["@buntime/plugin-authz", { "policies": [...] }],
-    ["@buntime/plugin-durable", { "libsqlUrl": "${LIBSQL_URL}" }],
-    ["@buntime/plugin-keyval", { "libsqlUrl": "${LIBSQL_URL}" }]
+    "@buntime/plugin-durable",
+    "@buntime/plugin-keyval"
   ]
 }
 ```
 
+NOTE: libSQL URLs are auto-detected via environment variables:
+- `LIBSQL_URL_0` = Primary (required)
+- `LIBSQL_URL_1`, `LIBSQL_URL_2`, ... = Replicas (optional)
+
 ## Plugin Routes
 
-Each plugin mounts its routes at `/api/{plugin-name}/*`:
+**All plugins are mounted under `/p/` prefix** - this is enforced by the runtime and cannot be changed.
 
-- `/api/metrics/*` - Metrics endpoints
-- `/api/authn/*` - Authentication endpoints
-- `/api/gateway/*` - Gateway endpoints
-- `/api/authz/*` - Authorization endpoints
-- `/api/durable/*` - Durable actors management
-- `/api/keyval/*` - KeyVal REST API
+### Default Paths
+
+- **Base path**: `/p/{name}` (e.g., `/p/keyval`)
+- **Fragment UI**: `/p/{name}/` (React app if plugin has client)
+- **API routes**: `/p/{name}/api/*` (REST endpoints)
+
+### Custom Base
+
+You can customize the base via config, but it will always be prefixed with `/p/`:
+
+```jsonc
+["@buntime/plugin-database", { "base": "db" }]     // → /p/db
+["@buntime/plugin-database", { "base": "/mydb" }]  // → /p/mydb
+```
+
+### Examples
+
+- `/p/metrics/api/*` - Metrics endpoints
+- `/p/keyval/api/*` - KeyVal REST API
+- `/p/health/` - Health dashboard UI
+- `/p/logs/` - Logs viewer UI
+
+The `/p/` prefix ensures plugin routes don't conflict with app workers.
 
 ## Related SDKs
 

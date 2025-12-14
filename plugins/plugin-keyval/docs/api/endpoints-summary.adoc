@@ -1,0 +1,229 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+== Resumo dos Endpoints
+
+=== Keys
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/keys/:key`
+| Buscar uma chave
+
+| POST
+| `/keys/batch`
+| Buscar múltiplas chaves (get com array)
+
+| PUT
+| `/keys/:key`
+| Criar/atualizar uma chave
+
+| DELETE
+| `/keys/:key`
+| Deletar uma chave e suas sub-chaves
+
+| GET
+| `/keys`
+| Listar por prefixo
+
+| DELETE
+| `/keys`
+| Deletar por prefixo
+
+| POST
+| `/keys/paginate`
+| Listar com paginação por cursor
+
+| POST
+| `/keys/count`
+| Contar entradas por prefixo
+
+| GET
+| `/keys/count`
+| Conta entries por prefixo
+|===
+
+=== Transações
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| POST
+| `/atomic`
+| Executar operação atômica
+
+| POST
+| `/transaction`
+| Executar transação com snapshot
+|===
+
+=== Filas
+
+==== Estados da Fila
+
+[cols="1,3"]
+|===
+| Status | Descrição
+
+| `pending`
+| Aguardando processamento
+
+| `processing`
+| Em processamento (locked)
+|===
+
+NOTE: Mensagens processadas com sucesso são deletadas (não marcadas como 'delivered'). Mensagens que falharam são movidas para a DLQ e deletadas da fila principal (não marcadas como 'failed').
+
+==== Fallback Keys
+
+Mensagens podem especificar chaves de fallback para salvar o valor automaticamente se falharem:
+
+[source,typescript]
+----
+await kv.queue.enqueue(message, {
+  keysIfUndelivered: [["failed_jobs", jobId]]
+});
+----
+
+==== Backoff Customizável
+
+[source,typescript]
+----
+await kv.queue.enqueue(message, {
+  backoffSchedule: [1000, 5000, 30000]  // 1s, 5s, 30s entre retries
+});
+----
+
+Padrão: `[1000, 5000, 10000]` (máximo 4 tentativas)
+
+==== Endpoints
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| POST
+| `/queue/enqueue`
+| Enfileirar mensagem
+
+| GET
+| `/queue/poll`
+| Obter próxima mensagem (polling)
+
+| GET
+| `/queue/listen`
+| SSE para receber mensagens
+
+| POST
+| `/queue/ack`
+| Confirmar processamento
+
+| POST
+| `/queue/nack`
+| Rejeitar mensagem (retry)
+
+| GET
+| `/queue/stats`
+| Estatísticas da fila
+|===
+
+=== Dead Letter Queue
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/queue/dlq`
+| Listar mensagens na DLQ
+
+| GET
+| `/queue/dlq/:id`
+| Obter mensagem específica
+
+| POST
+| `/queue/dlq/:id/requeue`
+| Reprocessar mensagem
+
+| DELETE
+| `/queue/dlq/:id`
+| Deletar mensagem
+
+| DELETE
+| `/queue/dlq`
+| Limpar toda DLQ
+|===
+
+=== Watch
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/watch`
+| SSE para observar chaves
+
+| GET
+| `/watch/poll`
+| Polling para observar chaves
+
+| GET
+| `/watch/prefix`
+| SSE para observar prefixo
+
+| GET
+| `/watch/prefix/poll`
+| Polling para observar prefixo
+|===
+
+=== Full-Text Search
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| POST
+| `/indexes`
+| Criar índice FTS
+
+| GET
+| `/indexes`
+| Listar índices
+
+| DELETE
+| `/indexes`
+| Remover índice
+
+| GET
+| `/search`
+| Buscar (query params)
+
+| POST
+| `/search`
+| Buscar com filtros
+|===
+
+=== Métricas
+
+[cols="1,2,2"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/metrics`
+| Métricas em JSON
+
+| GET
+| `/metrics/prometheus`
+| Métricas em formato Prometheus
+|===
+

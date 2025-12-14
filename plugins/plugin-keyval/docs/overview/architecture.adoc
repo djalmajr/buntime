@@ -1,0 +1,88 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+== Arquitetura do Plugin
+
+=== Componentes
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                        Aplicação                            │
+│                    (Worker/App Buntime)                     │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ HTTP
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   @buntime/keyval                           │
+│                   (Cliente HTTP)                            │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ HTTP
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                @buntime/plugin-keyval                       │
+│                   (Plugin Server)                           │
+│   Rotas: /api/keyval/*                                      │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ libSQL Protocol
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      libSQL Server                          │
+│                  (SQLite distribuído)                       │
+└─────────────────────────────────────────────────────────────┘
+----
+
+=== Schema do Banco
+
+==== Tabela de Entradas KV
+
+[source,sql]
+----
+CREATE TABLE kv_entries (
+  key BLOB PRIMARY KEY,        -- Chave codificada em bytes
+  value BLOB NOT NULL,         -- Valor serializado em JSON
+  versionstamp TEXT NOT NULL,  -- Versão para controle de concorrência
+  expires_at INTEGER           -- Unix timestamp de expiração (opcional)
+);
+
+CREATE INDEX idx_kv_expires ON kv_entries(expires_at)
+  WHERE expires_at IS NOT NULL;
+----
+
+==== Tabela de Fila de Mensagens
+
+[source,sql]
+----
+CREATE TABLE kv_queue (
+  id TEXT PRIMARY KEY,              -- UUID da mensagem
+  value BLOB NOT NULL,              -- Payload serializado
+  ready_at INTEGER NOT NULL,        -- Quando ficará disponível
+  attempts INTEGER DEFAULT 0,       -- Tentativas de entrega
+  max_attempts INTEGER DEFAULT 5,   -- Máximo de tentativas
+  backoff_schedule TEXT,            -- JSON array de delays
+  keys_if_undelivered TEXT,         -- Fallback keys
+  status TEXT DEFAULT 'pending',    -- pending | processing
+  locked_until INTEGER,             -- Lock timestamp
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+----
+
+==== Dead Letter Queue
+
+[source,sql]
+----
+CREATE TABLE kv_dlq (
+  id TEXT PRIMARY KEY,
+  original_id TEXT NOT NULL,
+  value BLOB NOT NULL,
+  error_message TEXT,
+  attempts INTEGER NOT NULL,
+  original_created_at INTEGER NOT NULL,
+  failed_at INTEGER NOT NULL
+);
+----

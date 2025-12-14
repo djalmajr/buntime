@@ -1,0 +1,31 @@
+= Arquitetura
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+**plugin-database** fornece uma camada de abstração unificada para acesso a banco de dados no Buntime. Ele foi projetado para permitir que outros plugins e a aplicação acessem dados de forma agnóstica ao banco de dados subjacente, com suporte nativo a multi-tenancy.
+
+== Características Principais
+
+- **Abstração de Banco de Dados**: API unificada para diferentes bancos (libSQL, PostgreSQL, MySQL, SQLite).
+- **Multi-Tenancy**: Suporte a isolamento de dados por tenant (namespaces, schemas ou databases).
+- **Alta Disponibilidade**: Suporte a replicação e load balancing (especialmente com libSQL).
+- **Integração**: Fácil integração com outros plugins do ecossistema Buntime via injeção de dependência.
+
+== Fluxo de Dados
+
+1. **Requisição**: Chega uma requisição HTTP.
+2. **Identificação do Tenant**: O plugin identifica o tenant (ex: via header `X-Tenant-ID`).
+3. **Resolução do Adapter**: O `DatabaseService` retorna o adapter correto para aquele tenant.
+   - Para libSQL: Um namespace específico.
+   - Para Postgres: Um schema específico.
+4. **Execução**: A query é executada no banco de dados apropriado.
+
+== Componentes
+
+- **DatabaseService**: Gerencia adapters e tenants.
+- **DatabaseAdapter**: Interface comum para execução de queries.
+- **Drivers**: Implementações específicas para cada banco (libSQL, Bun SQL).

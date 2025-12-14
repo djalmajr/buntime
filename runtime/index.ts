@@ -25,6 +25,9 @@ function buildRoutes() {
     [`${SHELL_BASE_PATH}/*`]: client,
   };
 
+  // Note: Fragment routes removed - fragments are now served directly from /p/{plugin}
+  // The piercing outlet fetches from /p/{plugin} and assets are served from the same path
+
   return { ...baseRoutes, ...spaRoutes };
 }
 

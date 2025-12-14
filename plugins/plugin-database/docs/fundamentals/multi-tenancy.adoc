@@ -1,0 +1,117 @@
+= Multi-Tenancy
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+O suporte a Multi-Tenancy é um cidadão de primeira classe no `plugin-database`. Ele permite que uma única instância da aplicação sirva múltiplos clientes (tenants) com isolamento de dados.
+
+== Estratégias de Isolamento
+
+A implementação varia drasticamente dependendo do adapter escolhido.
+
+=== 1. libSQL: Namespaces (Recomendado)
+
+O `sqld` (servidor libSQL) suporta namespaces. Cada namespace age como um banco SQLite completamente isolado, mas compartilha a mesma instância de servidor e recursos.
+
+*   **Isolamento**: Total (arquivos físicos separados ou logicamente segregados no storage engine).
+*   **Criação**: Via HTTP Admin API.
+*   **Conexão**: A URL muda para incluir o namespace (ex: `http://tenant-a.your-db.com` ou via header `x-namespace`).
+*   **Ideal para**: SaaS B2B com milhares de tenants pequenos/médios.
+
+=== 2. PostgreSQL: Schemas
+
+Usa o recurso nativo de `SCHEMA` do Postgres.
+
+*   **Isolamento**: Lógico. Tabelas residem em namespaces diferentes (`tenant_a.users`, `tenant_b.users`).
+*   **Criação**: `CREATE SCHEMA "tenant_a"`.
+*   **Conexão**: Define `search_path` na conexão.
+*   **Prós**: Compartilha pool de recursos do Postgres eficientemente.
+*   **Contras**: Nomes de schemas devem ser sanitizados cuidadosamente.
+
+=== 3. MySQL/MariaDB: Databases
+
+Usa databases separados.
+
+*   **Isolamento**: Database.
+*   **Criação**: `CREATE DATABASE tenant_a`.
+*   **Conexão**: Conecta no database específico.
+*   **Contras**: Alto overhead se houver milhares de databases (MySQL não lida bem com 10k+ databases em uma instância).
+
+=== 4. SQLite (Local): Arquivos
+
+Cada tenant é um arquivo `.db` ou `.sqlite` no disco.
+
+*   **Isolamento**: Físico (arquivo).
+*   **Configuração**: `baseDir` define a pasta raiz.
+*   **Path**: `${baseDir}/${tenantId}.sqlite`.
+*   **Ideal para**: Desenvolvimento local ou ambientes embarcados.
+
+== Resolução de Tenant
+
+Como o plugin sabe qual tenant usar?
+
+O `DatabaseService` não "adivinha" o tenant magicamente em chamadas internas, mas facilita a integração com camadas HTTP.
+
+=== Extração Automática (Contexto HTTP)
+
+Se você usar middlewares do Buntime, o tenant pode ser extraído de:
+
+1.  **Subdomínio**: `tenant-a.app.com` -> `tenant-a`
+2.  **Header**: `X-Tenant-ID: tenant-a`
+3.  **Path**: `/api/tenant-a/...` (menos comum)
+
+No código do seu plugin:
+
+[source,typescript]
+----
+// Em um handler HTTP
+const tenantId = req.headers.get("X-Tenant-ID");
+const adapter = await db.getAdapter(tenantId);
+----
+
+== Gerenciamento de Ciclo de Vida
+
+=== Criação Automática (`autoCreate`)
+
+Se habilitado na configuração:
+
+[source,json]
+----
+"tenancy": {
+  "autoCreate": true
+}
+----
+
+Ao pedir um adapter para um tenant inexistente:
+
+1.  O plugin verifica a existência.
+2.  Se não existe, executa a lógica de provisionamento (ex: chama API do Turso/libSQL).
+3.  Aguardar propagação (se necessário).
+4.  Retorna o adapter pronto.
+
+*Atenção*: Isso pode adicionar latência na primeira requisição de um novo tenant.
+
+=== Migrações (Schema Migration)
+
+O plugin **não** gerencia migrações de schema automaticamente dentro das tabelas (ex: `CREATE TABLE users`). Isso é responsabilidade da aplicação ou de um plugin de migração dedicado.
+
+Quando um novo tenant é criado via `autoCreate`, ele vem **vazio**.
+Você deve implementar um hook ou usar um sistema de migração que detecte o novo banco e aplique o SQL inicial.
+
+Exemplo de padrão sugerido:
+
+[source,typescript]
+----
+const adapter = await db.getAdapter(tenantId);
+
+// Check simples se precisa inicializar
+try {
+  await adapter.execute("SELECT 1 FROM metadata LIMIT 1");
+} catch {
+  // Tabela não existe, rodar script de init
+  await runMigrations(adapter);
+}
+----

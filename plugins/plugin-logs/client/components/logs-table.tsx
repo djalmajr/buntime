@@ -1,4 +1,16 @@
 import { useEffect, useState } from "react";
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
+import { Skeleton } from "~/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "~/components/ui/table";
 
 type LogLevel = "debug" | "error" | "info" | "warn";
 
@@ -17,8 +29,18 @@ interface LogStats {
   total: number;
 }
 
-// Get base path from <base> tag or default to ""
 function getBasePath(): string {
+  // First, try to get base from piercing-fragment-outlet's data attribute
+  // This is set when the fragment is loaded inside a shell (e.g., cpanel)
+  const outlet = document.querySelector("piercing-fragment-outlet[data-fragment-base]");
+  if (outlet) {
+    const fragmentBase = outlet.getAttribute("data-fragment-base");
+    if (fragmentBase) {
+      return fragmentBase.replace(/\/$/, "");
+    }
+  }
+
+  // Fall back to document's base tag (for standalone mode at /p/logs)
   const base = document.querySelector("base");
   if (base) {
     const href = base.getAttribute("href") || "";
@@ -27,19 +49,11 @@ function getBasePath(): string {
   return "";
 }
 
-const levelColors: Record<LogLevel, string> = {
-  debug: "bg-gray-100 text-gray-700",
-  error: "bg-red-100 text-red-700",
-  info: "bg-blue-100 text-blue-700",
-  warn: "bg-yellow-100 text-yellow-700",
-};
-
-const levelButtonColors: Record<LogLevel | "all", string> = {
-  all: "bg-gray-100 hover:bg-gray-200",
-  debug: "bg-gray-100 hover:bg-gray-200 text-gray-700",
-  error: "bg-red-100 hover:bg-red-200 text-red-700",
-  info: "bg-blue-100 hover:bg-blue-200 text-blue-700",
-  warn: "bg-yellow-100 hover:bg-yellow-200 text-yellow-700",
+const levelVariant: Record<LogLevel, "debug" | "info" | "warning" | "destructive"> = {
+  debug: "debug",
+  error: "destructive",
+  info: "info",
+  warn: "warning",
 };
 
 export function LogsTable() {
@@ -73,7 +87,6 @@ export function LogsTable() {
 
     fetchLogs();
 
-    // Setup SSE for real-time updates
     const eventSource = new EventSource(`${basePath}/api/logs/sse`);
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -96,102 +109,102 @@ export function LogsTable() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+      <div className="p-6 space-y-4">
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-64 w-full" />
       </div>
     );
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold mb-2">Logs</h1>
-          <p className="text-sm text-gray-500">
-            Total: {stats.total} entries ({stats.counts.error} errors, {stats.counts.warn} warnings)
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            className={`px-3 py-1.5 text-sm rounded ${filter === null ? "ring-2 ring-offset-1 ring-gray-400" : ""} ${levelButtonColors.all}`}
-            onClick={() => setFilter(null)}
-            type="button"
-          >
-            All
-          </button>
-          <button
-            className={`px-3 py-1.5 text-sm rounded ${filter === "error" ? "ring-2 ring-offset-1 ring-red-400" : ""} ${levelButtonColors.error}`}
-            onClick={() => setFilter("error")}
-            type="button"
-          >
-            Errors
-          </button>
-          <button
-            className={`px-3 py-1.5 text-sm rounded ${filter === "warn" ? "ring-2 ring-offset-1 ring-yellow-400" : ""} ${levelButtonColors.warn}`}
-            onClick={() => setFilter("warn")}
-            type="button"
-          >
-            Warnings
-          </button>
-          <button
-            className={`px-3 py-1.5 text-sm rounded ${filter === "info" ? "ring-2 ring-offset-1 ring-blue-400" : ""} ${levelButtonColors.info}`}
-            onClick={() => setFilter("info")}
-            type="button"
-          >
-            Info
-          </button>
-          <button
-            className="px-3 py-1.5 text-sm bg-gray-200 hover:bg-gray-300 rounded ml-4"
-            onClick={handleClear}
-            type="button"
-          >
-            Clear
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="px-3 py-2 text-xs font-medium text-gray-500">Time</th>
-              <th className="px-3 py-2 text-xs font-medium text-gray-500">Level</th>
-              <th className="px-3 py-2 text-xs font-medium text-gray-500">Source</th>
-              <th className="px-3 py-2 text-xs font-medium text-gray-500">Message</th>
-              <th className="px-3 py-2 text-xs font-medium text-gray-500">Meta</th>
-            </tr>
-          </thead>
-          <tbody>
-            {logs.length === 0 ? (
-              <tr>
-                <td className="px-3 py-8 text-center text-gray-500" colSpan={5}>
-                  No logs yet
-                </td>
-              </tr>
-            ) : (
-              logs.map((entry, idx) => (
-                <tr className="border-b hover:bg-gray-50" key={`${entry.timestamp}-${idx}`}>
-                  <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
-                    {new Date(entry.timestamp).toLocaleTimeString()}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs font-medium ${levelColors[entry.level]}`}
-                    >
-                      {entry.level}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-sm text-gray-600 font-mono">{entry.source}</td>
-                  <td className="px-3 py-2 text-sm">{entry.message}</td>
-                  <td className="px-3 py-2 text-xs text-gray-400 font-mono">
-                    {entry.meta ? JSON.stringify(entry.meta) : "-"}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+    <div className="p-4 space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-2xl">Logs</CardTitle>
+              <CardDescription>
+                Total: {stats.total} entries ({stats.counts.error} errors, {stats.counts.warn}{" "}
+                warnings)
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant={filter === null ? "default" : "outline"}
+                onClick={() => setFilter(null)}
+              >
+                All
+              </Button>
+              <Button
+                size="sm"
+                variant={filter === "error" ? "destructive" : "outline"}
+                onClick={() => setFilter("error")}
+              >
+                Errors
+              </Button>
+              <Button
+                size="sm"
+                variant={filter === "warn" ? "secondary" : "outline"}
+                onClick={() => setFilter("warn")}
+              >
+                Warnings
+              </Button>
+              <Button
+                size="sm"
+                variant={filter === "info" ? "secondary" : "outline"}
+                onClick={() => setFilter("info")}
+              >
+                Info
+              </Button>
+              <Button className="ml-4" size="sm" variant="outline" onClick={handleClear}>
+                Clear
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Time</TableHead>
+                <TableHead>Level</TableHead>
+                <TableHead>Source</TableHead>
+                <TableHead>Message</TableHead>
+                <TableHead>Meta</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {logs.length === 0 ? (
+                <TableRow>
+                  <TableCell className="py-8 text-center text-muted-foreground" colSpan={5}>
+                    No logs yet
+                  </TableCell>
+                </TableRow>
+              ) : (
+                logs.map((entry, idx) => (
+                  <TableRow key={`${entry.timestamp}-${idx}`}>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {new Date(entry.timestamp).toLocaleTimeString()}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={levelVariant[entry.level]}>{entry.level}</Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-muted-foreground">
+                      {entry.source}
+                    </TableCell>
+                    <TableCell>{entry.message}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {entry.meta ? JSON.stringify(entry.meta) : "-"}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -1,0 +1,707 @@
+== Worker Pool
+
+O Worker Pool é o núcleo do runtime Buntime, gerenciando o ciclo de vida de workers Bun que executam aplicações isoladas.
+
+=== Arquitetura
+
+[source]
+----
+server/libs/pool/
+├── pool.ts          # WorkerPool - gerenciamento do cache LRU
+├── instance.ts      # WorkerInstance - lifecycle e IPC
+├── wrapper.ts       # Código executado dentro do worker thread
+├── config.ts        # Carregamento e validação de configuração
+├── metrics.ts       # Coleta de métricas do pool
+└── types.ts         # Tipos de mensagens IPC e apps
+----
+
+==== Fluxo de Execução
+
+[source]
+----
+Request → WorkerPool.getOrCreate()
+            ├─ Cache hit? → WorkerInstance.fetch()
+            │                 ├─ Serializa Request → postMessage
+            │                 └─ Aguarda Response ← onmessage
+            │
+            └─ Cache miss? → new WorkerInstance()
+                               ├─ new Worker(wrapper.ts)
+                               ├─ Aguarda READY
+                               └─ Armazena no cache LRU
+----
+
+=== WorkerPool
+
+Classe principal que gerencia o cache de workers.
+
+==== Responsabilidades
+
+* Gerenciar cache LRU de `WorkerInstance`
+* Controlar lifecycle (criação, eviction, cleanup)
+* Coletar métricas de pool (hit rate, latência, workers ativos)
+* Aplicar políticas de TTL e max requests
+
+==== Configuração
+
+[source,typescript]
+----
+interface PoolConfig {
+  maxSize: number;  // Número máximo de workers no cache
+}
+----
+
+O pool usa `QuickLRU` para cache com eviction automática:
+
+[source,typescript]
+----
+const pool = new WorkerPool({ maxSize: 50 });
+
+// Cache key: "app-name@version"
+const worker = await pool.getOrCreate("/apps/todos-kv/v1", config);
+----
+
+==== Cache Strategy
+
+O pool implementa cache LRU com políticas baseadas em tempo:
+
+[cols="1,2"]
+|===
+| Política | Comportamento
+
+| `ttl = 0`
+| Worker é descartado após cada request (stateless)
+
+| `ttl > 0`
+| Worker permanece no cache até TTL expirar
+
+| Cache hit
+| Worker existente e saudável é reutilizado
+
+| Cache miss
+| Novo worker é criado e armazenado no cache
+
+| Eviction
+| Worker mais antigo é terminado quando cache está cheio
+|===
+
+==== Lifecycle Management
+
+[source,typescript]
+----
+// Criação e caching
+const worker = await pool.getOrCreate(appDir, config);
+
+// Health check periódico
+setInterval(() => {
+  if (!worker.isHealthy()) pool.retire(key);
+}, ttlMs / 2);
+
+// Eviction automática
+cache.onEviction = (key, instance) => {
+  metrics.recordEviction();
+  instance.terminate();
+  cleanupTimer(key);
+};
+
+// Shutdown gracioso
+pool.shutdown();  // Termina todos os workers
+----
+
+=== WorkerInstance
+
+Representa um worker Bun individual executando uma aplicação.
+
+==== Responsabilidades
+
+* Spawnar worker thread via `new Worker(wrapper.ts)`
+* Gerenciar comunicação IPC (postMessage/onmessage)
+* Implementar timeout e health checks
+* Serializar Request/Response entre threads
+
+==== Lifecycle
+
+[source]
+----
+new WorkerInstance(appDir, entrypoint, config)
+  │
+  ├─ new Worker(wrapper.ts, { env, smol })
+  │   └─ Aguarda READY message
+  │
+  ├─ fetch(request) → Promise<Response>
+  │   ├─ Serializa Request → ArrayBuffer
+  │   ├─ postMessage({ type: "REQUEST", req, reqId })
+  │   ├─ Aguarda onmessage({ type: "RESPONSE", res })
+  │   └─ Deserializa Response ← ArrayBuffer
+  │
+  ├─ Health checks
+  │   ├─ age < ttlMs
+  │   ├─ idle < idleTimeoutMs
+  │   └─ requestCount < maxRequests
+  │
+  └─ terminate()
+      ├─ postMessage({ type: "TERMINATE" })
+      └─ worker.terminate()
+----
+
+==== Estados
+
+[cols="1,2"]
+|===
+| Estado | Condição
+
+| `active`
+| Última requisição há menos de `idleTimeoutMs`
+
+| `idle`
+| Última requisição há mais de `idleTimeoutMs`
+|===
+
+==== IPC Protocol
+
+A comunicação entre main thread e worker usa mensagens estruturadas:
+
+[source,typescript]
+----
+// Main → Worker
+type WorkerMessage =
+  | { type: "REQUEST"; reqId: string; req: SerializedRequest }
+  | { type: "IDLE" }
+  | { type: "TERMINATE" };
+
+// Worker → Main
+type WorkerResponse =
+  | { type: "READY" }
+  | { type: "RESPONSE"; reqId: string; res: SerializedResponse }
+  | { type: "ERROR"; reqId: string; error: string };
+----
+
+==== Built-in Routes
+
+O wrapper trata automaticamente certas rotas:
+
+[cols="1,2"]
+|===
+| Rota | Comportamento
+
+| `/health`
+| Retorna "OK" (200) sem chamar o handler fetch da aplicação
+|===
+
+==== Request Flow
+
+[source,typescript]
+----
+// 1. Serialização (main thread)
+const body = await req.arrayBuffer();
+const message = {
+  type: "REQUEST",
+  reqId: crypto.randomUUID(),
+  req: {
+    body,
+    headers: Object.fromEntries(req.headers.entries()),
+    method: req.method,
+    url: req.url,
+  },
+};
+
+// 2. Transferência (zero-copy via transferList)
+worker.postMessage(message, [body]);
+
+// 3. Processamento (worker thread)
+const request = new Request(req.url, req);
+const response = await app.fetch(request);
+
+// 4. Resposta (worker → main)
+const resBody = await response.arrayBuffer();
+self.postMessage({ type: "RESPONSE", reqId, res: { body: resBody, ... } }, [resBody]);
+----
+
+==== Timeout Handling
+
+Cada request tem timeout configurável:
+
+[source,typescript]
+----
+const timeout = setTimeout(() => {
+  reject(new Error(`Worker timeout after ${timeoutMs}ms`));
+  if (ttlMs === 0) this.terminate();  // Workers stateless são descartados
+}, timeoutMs);
+
+worker.addEventListener("message", (data) => {
+  clearTimeout(timeout);
+  resolve(data.res);
+});
+----
+
+=== Wrapper
+
+Código executado dentro do worker thread. Responsável por carregar a aplicação e processar requests.
+
+==== Responsabilidades
+
+* Carregar entrypoint da aplicação (`import(ENTRYPOINT)`)
+* Validar exports (`fetch` ou `routes`)
+* Processar mensagens IPC
+* Executar auto-install se configurado
+* Injetar `<base href>` em HTML para SPAs
+
+==== Inicialização
+
+[source,typescript]
+----
+// 1. Parse de env vars
+const { APP_DIR, ENTRYPOINT, WORKER_CONFIG } = Bun.env;
+const config: WorkerConfig = JSON.parse(WORKER_CONFIG);
+
+// 2. Auto-install (opcional)
+if (config.autoInstall) {
+  Bun.spawnSync(["bun", "install", "--frozen-lockfile"], { cwd: APP_DIR });
+}
+
+// 3. Import da aplicação
+const app: WorkerApp = (await import(ENTRYPOINT)).default;
+
+// 4. Validação
+if (!app || (typeof app.fetch !== "function" && !app.routes)) {
+  throw new Error("Module must export default with fetch method or routes");
+}
+
+// 5. Notifica main thread
+self.postMessage({ type: "READY" });
+----
+
+==== Tipos de Aplicação
+
+O wrapper suporta três formatos de aplicação:
+
+===== 1. Fetch-based (Hono, Express, etc.)
+
+[source,typescript]
+----
+// app.ts
+export default {
+  fetch(req: Request) {
+    return new Response("Hello");
+  },
+};
+----
+
+===== 2. Routes-based (Declarativo)
+
+[source,typescript]
+----
+// app.ts
+export default {
+  routes: {
+    "/": new Response("Home"),
+    "/api/users": (req) => fetch("https://api.example.com/users"),
+    "/api/posts/:id": {
+      GET: (req) => new Response(`Post ${req.params.id}`),
+      DELETE: (req) => new Response("Deleted", { status: 204 }),
+    },
+  },
+};
+----
+
+O wrapper converte `routes` para Hono internamente:
+
+[source,typescript]
+----
+const srv = new Hono();
+
+for (const [path, value] of Object.entries(app.routes)) {
+  if (value instanceof Response) {
+    srv.all(path, () => value);
+  } else if (typeof value === "function") {
+    srv.all(path, (c) => value(c.req.raw));
+  } else if (typeof value === "object") {
+    for (const [method, fn] of Object.entries(value)) {
+      srv.on(method, path, (c) => fn(c.req.raw));
+    }
+  }
+}
+----
+
+===== Blob/BunFile
+
+Routes podem também aceitar valores `Blob` (incluindo `BunFile`):
+
+[source,typescript]
+----
+// app.ts
+export default {
+  routes: {
+    "/": new Response("Home"),
+    "/file": Bun.file("./public/index.html"), // BunFile (extends Blob)
+    "/image": new Blob([imageData], { type: "image/png" }),
+    "/api/users": (req) => fetch("https://api.example.com/users"),
+  },
+};
+----
+
+===== 3. SPA (HTML entrypoint)
+
+[source,typescript]
+----
+// buntime.jsonc
+{
+  "entrypoint": "index.html"
+}
+----
+
+HTML files são servidos via `serveStatic` com injeção de `<base href>`.
+
+==== Base Path Injection
+
+Para SPAs sob subpaths (ex: `/cpanel`), o wrapper injeta `<base href>`:
+
+[source,typescript]
+----
+// 1. Main thread adiciona header
+req.headers.set("x-base", "/cpanel");
+
+// 2. Worker detecta HTML + header
+const isHtml = headers["content-type"]?.includes("text/html");
+const base = req.headers["x-base"];
+
+if (isHtml && base) {
+  const html = text.replace("<head>", `<head><base href="${base}/" />`);
+  body = new TextEncoder().encode(html).buffer;
+}
+----
+
+Isso permite que o router da SPA funcione corretamente:
+
+[source,typescript]
+----
+// client/index.tsx
+const baseElement = document.querySelector("base");
+const basepath = baseElement?.getAttribute("href")?.slice(0, -1) || "";
+
+const router = createRouter({ basepath });
+----
+
+==== Lifecycle Hooks
+
+Aplicações podem implementar hooks opcionais:
+
+[source,typescript]
+----
+export default {
+  fetch(req: Request) { ... },
+
+  onIdle() {
+    // Chamado quando worker fica idle (idleTimeoutMs)
+    console.log("Worker idle, pode fazer cleanup");
+  },
+
+  onTerminate() {
+    // Chamado antes de worker.terminate()
+    console.log("Worker terminando, fechar conexões");
+  },
+};
+----
+
+=== Configuração
+
+Workers são configurados via `buntime.jsonc` ou `package.json#buntime`.
+
+==== Schema
+
+[source,typescript]
+----
+interface WorkerConfigFile {
+  // Executar bun install antes de carregar app
+  autoInstall?: boolean;  // default: false
+
+  // Arquivo de entrada relativo ao appDir
+  entrypoint?: string;  // default: auto-detect (index.ts, index.html)
+
+  // Timeout após período idle
+  idleTimeout?: number | string;  // default: 60 (segundos)
+
+  // Modo low-memory (Bun smol)
+  lowMemory?: boolean;  // default: false
+
+  // Número máximo de requests antes de reciclar worker
+  maxRequests?: number;  // default: 1000
+
+  // Rotas públicas (sem autenticação)
+  publicRoutes?: string[] | Record<HTTPMethod, string[]>;
+
+  // Timeout por request
+  timeout?: number | string;  // default: 30 (segundos)
+
+  // Tempo de vida do worker no cache
+  ttl?: number | string;  // default: 0 (stateless)
+}
+----
+
+==== Duration Format
+
+Valores de tempo aceitam número (segundos) ou string:
+
+[source,typescript]
+----
+{
+  "timeout": 30,       // 30 segundos
+  "timeout": "30s",    // 30 segundos
+  "timeout": "500ms",  // 500 milissegundos
+  "timeout": "5m",     // 5 minutos
+  "timeout": "1h",     // 1 hora
+  "timeout": "2d",     // 2 dias
+  "timeout": "1w",     // 1 semana
+  "timeout": "1y",     // 1 ano
+  "ttl": "10m",
+  "idleTimeout": "2m"
+}
+----
+
+Formatos suportados: `ms`, `s`, `m`, `h`, `d`, `w`, `y`
+
+==== Exemplo Completo
+
+[source,jsonc]
+----
+// apps/todos-kv/v1/buntime.jsonc
+{
+  "entrypoint": "index.ts",
+  "timeout": "30s",
+  "ttl": "5m",
+  "idleTimeout": "2m",
+  "maxRequests": 500,
+  "autoInstall": true,
+  "lowMemory": false,
+  "publicRoutes": {
+    "GET": ["/health", "/metrics"],
+    "POST": ["/api/webhooks/:id"]
+  }
+}
+----
+
+=== Métricas
+
+O pool coleta métricas em tempo real:
+
+==== Pool Metrics
+
+[source,typescript]
+----
+interface PoolMetrics {
+  activeWorkers: number;          // Workers ativos no cache
+  avgResponseTimeMs: number;      // Latência média (últimos 100 requests)
+  evictions: number;              // Total de evictions
+  hitRate: number;                // % de cache hits
+  hits: number;                   // Total de cache hits
+  memoryUsageMB: number;          // Memória heap usada
+  misses: number;                 // Total de cache misses
+  requestsPerSecond: number;      // Taxa de requests
+  totalRequests: number;          // Total de requests processados
+  totalWorkersFailed: number;     // Total de workers que falharam
+  totalWorkersCreated: number;    // Total de workers criados
+  uptimeMs: number;               // Tempo de uptime do pool
+}
+----
+
+==== Implementação
+
+O `WorkerMetrics` usa circular buffer para latências:
+
+[source,typescript]
+----
+// Circular buffer - O(1) instead of O(n) shift
+private requestTimes = new Float64Array(100);
+private requestTimesIndex = 0;
+
+recordRequest(durationMs: number) {
+  this.requestTimes[this.requestTimesIndex] = durationMs;
+  this.requestTimesIndex = (this.requestTimesIndex + 1) % 100;
+}
+----
+
+==== Worker Stats
+
+Cada `WorkerInstance` expõe estatísticas individuais:
+
+[source,typescript]
+----
+worker.getStats()
+// {
+//   age: 120000,          // ms desde criação
+//   idle: 5000,           // ms desde última requisição
+//   requestCount: 42,     // requests processados
+//   status: "active"      // "active" | "idle"
+// }
+----
+
+=== Spawning Dinâmico
+
+O pool cria workers sob demanda:
+
+==== Cache Hit (Worker Reutilizado)
+
+[source,typescript]
+----
+// Request para app já em cache
+const worker = await pool.getOrCreate("/apps/todos-kv/v1", config);
+// ✓ Cache hit - worker existente retornado
+// ✓ metrics.recordHit()
+// ✓ worker.touch() - atualiza lastUsedAt
+----
+
+==== Cache Miss (Worker Criado)
+
+[source,typescript]
+----
+// Request para app novo ou evicted
+const worker = await pool.getOrCreate("/apps/todos-kv/v2", config);
+// ✓ Cache miss
+// ✓ metrics.recordMiss()
+// ✓ metrics.recordWorkerCreated()
+// ✓ new WorkerInstance(appDir, entry, config)
+// ✓ cache.set(key, instance)
+----
+
+==== Eviction (Worker Removido)
+
+[source,typescript]
+----
+// Cache cheio (maxSize atingido)
+cache.onEviction = (key, instance) => {
+  metrics.recordEviction();
+  instance.terminate();        // Envia TERMINATE + worker.terminate()
+  cleanupTimer(key);           // Remove health check timer
+};
+----
+
+==== Health Checks
+
+Workers são verificados periodicamente:
+
+[source,typescript]
+----
+// Agendado após criação
+scheduleCleanup(key, instance, config) {
+  const interval = Math.min(config.idleTimeoutMs, config.ttlMs) / 2;
+
+  const timer = setInterval(() => {
+    if (!instance.isHealthy()) {
+      this.retire(key);  // Remove do cache e termina
+    }
+  }, interval);
+}
+
+// Health check
+isHealthy() {
+  const { age, idle } = this.getStats();
+
+  return (
+    age < this.config.ttlMs &&
+    idle < this.config.idleTimeoutMs &&
+    this.requestCount < this.config.maxRequests
+  );
+}
+----
+
+=== Isolamento
+
+Cada worker executa em thread isolado com:
+
+==== Memory Isolation
+
+* Heap separado por worker
+* Modo `smol` disponível (low-memory)
+* Garbage collection independente
+
+==== Environment Isolation
+
+[source,typescript]
+----
+new Worker(WORKER_PATH, {
+  env: {
+    ...Bun.env,           // Runtime env vars
+    ...config.env,        // App-specific env vars
+    APP_DIR: appDir,
+    ENTRYPOINT: entry,
+    WORKER_CONFIG: JSON.stringify(config),
+    WORKER_ID: this.id,
+  },
+  smol: config.lowMemory,
+});
+----
+
+==== Module Isolation
+
+* Cada worker importa módulos independentemente
+* Cache de módulos por worker
+* Versões diferentes do mesmo app não conflitam
+
+=== Boas Práticas
+
+==== DO
+
+* Use `ttl > 0` para apps com state (conexões DB, caches)
+* Configure `maxRequests` para evitar memory leaks
+* Use `idleTimeout` para liberar recursos
+* Configure `timeout` apropriado para operações longas
+* Use `publicRoutes` para endpoints sem autenticação
+
+[source,jsonc]
+----
+{
+  "ttl": "10m",           // Cache worker por 10 minutos
+  "maxRequests": 1000,    // Recicla após 1000 requests
+  "idleTimeout": "2m",    // Termina se idle por 2 minutos
+  "timeout": "30s"        // Timeout de 30s por request
+}
+----
+
+==== DON'T
+
+* Não use `ttl = 0` para apps com warm-up custoso
+* Não configure `timeout` muito baixo para operações lentas
+* Não use `autoInstall` em produção (pré-instale dependências)
+* Não armazene state global no worker (pode ser reciclado)
+
+[source,typescript]
+----
+// ERRADO - state global pode ser perdido
+let cache = new Map();
+
+export default {
+  fetch(req) {
+    cache.set(key, value);  // Perdido quando worker é reciclado
+  }
+};
+
+// CORRETO - use external storage
+import { kv } from "@buntime/keyval";
+
+export default {
+  async fetch(req) {
+    await kv.set(key, value);  // Persistido externamente
+  }
+};
+----
+
+==== Monitoramento
+
+Use métricas para tuning:
+
+[source,typescript]
+----
+const metrics = pool.getMetrics();
+
+// Hit rate baixo? Aumente maxSize ou ttl
+if (metrics.hitRate < 0.5) {
+  pool = new WorkerPool({ maxSize: 100 });
+}
+
+// Latência alta? Verifique workers individuais
+const workerStats = pool.getWorkerStats();
+for (const [key, stats] of Object.entries(workerStats)) {
+  if (stats.requestCount > config.maxRequests) {
+    console.warn(`Worker ${key} perto do limite`);
+  }
+}
+----

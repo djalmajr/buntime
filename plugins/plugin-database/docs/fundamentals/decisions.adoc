@@ -1,0 +1,58 @@
+= Decisões de Design
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+Este documento explica as escolhas arquiteturais feitas durante o desenvolvimento do `plugin-database`, justificando o "porquê" das coisas serem como são.
+
+== libSQL como "Cidadão de Primeira Classe"
+
+Embora o plugin suporte múltiplos adapters, o **libSQL** (fork do SQLite) recebe atenção especial e é a recomendação padrão para o Buntime.
+
+=== Por que libSQL?
+
+1.  **Modelo de Namespaces**: O libSQL tem suporte nativo a "bancos de dados virtuais" (namespaces) dentro de uma única instância física. Isso resolve o problema de **Multi-Tenancy** de forma elegante e escalável, sem o overhead de milhares de arquivos SQLite ou databases Postgres separados.
+2.  **Replicação na Borda**: O protocolo de replicação do libSQL permite ter réplicas de leitura rodando geograficamente próximas ao usuário, o que alinha com a filosofia de performance do Bun.
+3.  **HTTP API**: A capacidade de operar via HTTP torna o plugin compatível com ambientes serverless/edge onde conexões TCP persistentes são problemáticas.
+
+=== Trade-off: Consistência Eventual
+
+Ao adotar o modelo de replicação do libSQL (Primary/Replica), aceitamos o trade-off da **consistência eventual** para leituras nas réplicas.
+
+*   **Decisão**: O padrão é maximizar performance de leitura.
+*   **Mitigação**: Desenvolvedores que precisam de consistência forte ("Read Your Writes") devem usar o adapter do Primary ou configurar o sistema para forçar leitura no Primary em fluxos críticos.
+
+== Abstração SQL Unificada
+
+Optamos por fornecer uma interface `execute(sql)` crua ao invés de um Query Builder ou ORM embutido.
+
+=== Por que SQL Puro?
+
+1.  **Menor Denominador Comum**: SQL é a linguagem universal. Tentar criar uma abstração sobre SQL (como um ORM) inevitavelmente limita o poder do banco de dados ou cria "leaky abstractions".
+2.  **Performance**: Query Builders adicionam overhead de CPU no runtime. Strings SQL puras são passadas diretamente.
+3.  **Flexibilidade**: Permite que o usuário use qualquer feature específica do banco (ex: JSON functions do SQLite, Arrays do Postgres) sem esperar suporte do plugin.
+4.  **Ecossistema**: O usuário pode usar um ORM externo (Prisma, Drizzle, Kysely) por cima do nosso driver se quiser, mas o plugin base permanece leve.
+
+== Multi-Tenancy Explicito vs Implícito
+
+=== A Escolha: Isolamento Forte
+
+Decidimos por um modelo de **Isolamento Forte** onde cada tenant tem seu próprio "banco" lógico (Namespace/Schema), ao invés de usar uma coluna `tenant_id` em todas as tabelas (Row-Level Security).
+
+*   **Prós**:
+    *   **Segurança**: Impossível vazar dados entre tenants por esquecer um `WHERE tenant_id = ?`.
+    *   **Backup/Restore**: Possível fazer backup de apenas um tenant.
+    *   **Desempenho**: Índices menores, tabelas menores.
+*   **Contras**:
+    *   **Gerenciamento**: Requer criação dinâmica de schemas/namespaces.
+    *   **Migrações**: Schema migrations precisam rodar em N tenants (resolvido por ferramentas de orquestração).
+
+== Injeção de Dependência
+
+O plugin registra um serviço `database` no container ao invés de exportar uma instância global.
+
+*   **Motivo**: Permite testabilidade (mocking do banco em testes) e suporte a múltiplas instâncias do plugin se necessário (embora raro).
+*   **Contexto**: Em serverless, globais são perigosas/imprevisíveis. O contexto `PluginContext` garante escopo correto.

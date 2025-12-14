@@ -90,8 +90,8 @@ function createPluginDefinition(config: AuthnConfig): BuntimePlugin {
 
   // Public routes that skip onRequest hooks
   const publicRoutes: PublicRoutesConfig = {
-    ALL: ["/auth/api", "/auth/api/**"],
-    GET: ["/auth/login", "/auth/login/**"],
+    ALL: ["/p/auth/api", "/p/auth/api/**"],
+    GET: ["/p/auth/login", "/p/auth/login/**"],
   };
 
   // Store config in environment for worker access
@@ -107,8 +107,8 @@ function createPluginDefinition(config: AuthnConfig): BuntimePlugin {
     name: "@buntime/plugin-authn",
     optionalDependencies: ["@buntime/plugin-proxy"],
 
-    // Custom base path (default would be /authn)
-    base: "/auth",
+    // Custom base path (default would be /p/authn)
+    base: "/p/auth",
 
     publicRoutes,
 
@@ -125,7 +125,7 @@ function createPluginDefinition(config: AuthnConfig): BuntimePlugin {
 
       // Skip public routes (handled by registry)
       // Skip auth routes (handled by proxy/worker)
-      if (url.pathname.startsWith("/auth/")) {
+      if (url.pathname.startsWith("/p/auth/")) {
         return;
       }
 
@@ -145,7 +145,7 @@ function createPluginDefinition(config: AuthnConfig): BuntimePlugin {
       }
 
       // Redirect to login
-      const loginUrl = new URL(config.loginPath ?? "/auth/login", url.origin);
+      const loginUrl = new URL(config.loginPath ?? "/p/auth/login", url.origin);
       loginUrl.searchParams.set("redirect", url.pathname + url.search);
       return Response.redirect(loginUrl.toString());
     },

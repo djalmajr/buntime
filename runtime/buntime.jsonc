@@ -1,5 +1,5 @@
 {
-  "appsDir": ["../../buntime-apps", "../examples"],
+  "appsDirs": ["../../buntime-apps", "../examples"],
   "poolSize": 100,
   "plugins": [
     "@buntime/plugin-metrics",
@@ -11,7 +11,7 @@
       {
         "adapter": {
           "type": "libsql",
-          "url": "http://localhost:8880"
+          "urls": ["http://localhost:8880"]
         }
       }
     ],

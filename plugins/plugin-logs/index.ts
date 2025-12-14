@@ -2,8 +2,8 @@ import { join } from "node:path";
 import { createStaticHandler } from "@buntime/shared/utils/static-handler";
 import { api } from "./server/api";
 
-// Path to dist/client directory (built by scripts/build.ts)
-const clientDir = join(import.meta.dir, "dist/client");
+// Path to client directory (relative to dist/index.js, built by scripts/build.ts)
+const clientDir = join(import.meta.dir, "client");
 
 // Worker entrypoint - Bun.serve format
 export default {

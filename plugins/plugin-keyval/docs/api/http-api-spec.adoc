@@ -1,3 +1,10 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
 == HTTP API Specification
 
 Esta seção documenta a API REST completa do plugin KeyVal, incluindo todos os endpoints disponíveis, parâmetros, schemas de requisição/resposta e exemplos de uso.

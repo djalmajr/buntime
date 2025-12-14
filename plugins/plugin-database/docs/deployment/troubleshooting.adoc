@@ -1,0 +1,54 @@
+= Troubleshooting
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+Guia para resolver problemas comuns com o plugin de banco de dados.
+
+== Erros Comuns
+
+=== "Tenant not found"
+
+*   **Sintoma**: Chamada `getAdapter('xyz')` falha.
+*   **Causa**: O tenant 'xyz' não existe e `autoCreate` está desligado, ou falhou ao criar.
+*   **Solução**: Verifique se o tenant foi criado ou habilite `autoCreate: true`. Verifique logs para erros de criação (ex: falha de auth na Admin API do libSQL).
+
+=== "SQLITE_BUSY: database is locked"
+
+*   **Sintoma**: Erros de timeout em escritas no libSQL/SQLite.
+*   **Causa**: Concorrência de escritas excessiva. SQLite permite apenas um escritor por vez.
+*   **Solução**:
+    1.  Ative o modo WAL (`PRAGMA journal_mode=WAL;`) se estiver usando SQLite local.
+    2.  Reduza a duração das transações.
+    3.  Use filas para serializar escritas.
+
+=== "Connection refused"
+
+*   **Sintoma**: Não conecta ao banco.
+*   **Causa**: URL errada, banco down, ou firewall.
+*   **Debug**:
+    *   Verifique a variável de ambiente (ex: `LIBSQL_URL_0`).
+    *   Tente conectar via CLI (`curl` ou `psql`) de dentro do container/ambiente.
+
+== Debugging
+
+=== Logs Detalhados
+
+Habilite logs de debug no Buntime para ver as queries sendo executadas (cuidado: pode logar dados sensíveis).
+
+[source,bash]
+----
+LOG_LEVEL=debug bun run start
+----
+
+=== Health Check
+
+Use o endpoint de health para verificar conectividade básica:
+
+[source,bash]
+----
+curl http://localhost:3000/api/database/health
+----

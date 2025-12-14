@@ -1,10 +1,10 @@
+import type { DatabaseAdapter } from "@buntime/plugin-database";
 import type { PluginContext } from "@buntime/shared/types";
-import type { Client } from "@libsql/client/http";
 import { DurableObjectRegistry } from "./registry";
 import { initDatabase } from "./storage";
 
 // Module-level state
-let client: Client;
+let adapter: DatabaseAdapter;
 let registry: DurableObjectRegistry;
 let logger: PluginContext["logger"];
 
@@ -12,19 +12,19 @@ let logger: PluginContext["logger"];
  * Initialize durable objects service
  */
 export async function initialize(
-  db: Client,
+  db: DatabaseAdapter,
   config: {
     hibernateAfter: number;
     maxObjects: number;
   },
   pluginLogger: PluginContext["logger"],
 ): Promise<void> {
-  client = db;
+  adapter = db;
   logger = pluginLogger;
 
-  await initDatabase(client);
+  await initDatabase(adapter);
 
-  registry = new DurableObjectRegistry(client, {
+  registry = new DurableObjectRegistry(adapter, {
     hibernateAfter: config.hibernateAfter,
     maxObjects: config.maxObjects,
   });
@@ -35,7 +35,7 @@ export async function initialize(
  */
 export async function shutdown(): Promise<void> {
   await registry?.shutdown();
-  client?.close();
+  // Don't close the adapter - it's managed by plugin-database
 }
 
 /**

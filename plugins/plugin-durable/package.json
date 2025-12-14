@@ -9,14 +9,16 @@
     "entrypoint": "index.ts"
   },
   "scripts": {
+    "build": "bun scripts/build.ts",
+    "dev": "bun scripts/build.ts --watch",
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
     "lint": "bun run lint:format && bun run lint:types"
   },
   "dependencies": {
     "@buntime/durable": "workspace:*",
+    "@buntime/plugin-database": "workspace:*",
     "@buntime/shared": "workspace:*",
-    "@libsql/client": "^0.15.0",
     "quick-lru": "^7.0.0"
   },
   "peerDependencies": {

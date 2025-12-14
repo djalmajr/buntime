@@ -1,0 +1,1194 @@
+== Sistema de Plugins
+
+=== Visao Geral
+
+O sistema de plugins do Buntime permite extensibilidade modular do runtime atraves de componentes reutilizaveis. Plugins podem interceptar requests, modificar responses, fornecer APIs proprias, gerenciar workers e integrar-se ao ciclo de vida do servidor.
+
+*Caracteristicas Principais*:
+
+* **Lifecycle Hooks**: Interceptacao em diferentes estagios do request/response
+* **Dependency Management**: Resolucao automatica de dependencias entre plugins
+* **Priority Ordering**: Execucao ordenada baseada em dependencias
+* **Service Registry**: Compartilhamento de servicos entre plugins
+* **Fragment Support**: Plugins podem fornecer UI embeddable no shell
+
+=== Arquitetura
+
+==== Componentes
+
+[source]
+----
+┌────────────────────────────────────────────────────────────┐
+│                      buntime.jsonc                          │
+│  plugins: [                                                 │
+│    "@buntime/plugin-metrics",                               │
+│    ["@buntime/plugin-authn", { ... }]                       │
+│  ]                                                           │
+└────────────────┬───────────────────────────────────────────┘
+                 │
+                 ▼
+┌────────────────────────────────────────────────────────────┐
+│                    PluginLoader                             │
+│  • Parse configuration (Babel-style)                        │
+│  • Resolve modules (builtin/external/npm)                   │
+│  • Topological sort by dependencies                         │
+│  • Initialize plugins in order                              │
+└────────────────┬───────────────────────────────────────────┘
+                 │
+                 ▼
+┌────────────────────────────────────────────────────────────┐
+│                   PluginRegistry                            │
+│  • Store loaded plugins                                     │
+│  • Run lifecycle hooks                                      │
+│  • Service registry                                         │
+│  • Route resolution                                         │
+│  • Public routes management                                 │
+└────────────────┬───────────────────────────────────────────┘
+                 │
+     ┌───────────┴───────────┬────────────────┬──────────┐
+     ▼                       ▼                ▼          ▼
+┌──────────┐        ┌──────────────┐   ┌──────────┐  ┌─────────┐
+│ Metrics  │        │    AuthN     │   │  Gateway │  │ KeyVal  │
+│ (prio 0) │        │   (prio 10)  │   │ (prio 15)│  │(prio 30)│
+└──────────┘        └──────────────┘   └──────────┘  └─────────┘
+  onRequest           onRequest          onRequest     routes
+----
+
+==== Resolucao de Plugins
+
+O `PluginLoader` resolve plugins em tres estagios:
+
+*1. Built-in Plugins (Embedded)*:
+
+Plugins compilados no binario, sempre disponiveis:
+
+[source,typescript]
+----
+const staticPlugins = {
+  "@buntime/plugin-authn": authn,
+  "@buntime/plugin-authz": authz,
+  "@buntime/plugin-gateway": gateway,
+  "@buntime/plugin-metrics": metrics,
+  "@buntime/plugin-proxy": proxy,
+};
+
+const lazyPlugins = {
+  "@buntime/plugin-keyval": () => import("@buntime/plugin-keyval"),
+  "@buntime/plugin-durable": () => import("@buntime/plugin-durable"),
+  "@buntime/plugin-database": () => import("@buntime/plugin-database"),
+};
+----
+
+Plugins com dependencias nativas (libsql) usam lazy loading para evitar bundling de binarios nativos.
+
+*2. External Plugins (./plugins/)*:
+
+Plugins locais no diretorio `./plugins/`:
+
+[source]
+----
+./plugins/
+├── custom-auth.ts              # ./plugins/custom-auth.ts
+└── company-metrics/
+    └── index.ts                # ./plugins/company-metrics/index.ts
+----
+
+*3. Node Modules (Dev/Bundle Mode)*:
+
+Plugins instalados via npm:
+
+[source,bash]
+----
+bun add @company/buntime-plugin-sso
+----
+
+==== Topological Sorting
+
+Plugins sao carregados em ordem baseada em dependencias usando o algoritmo de Kahn:
+
+[source,typescript]
+----
+// Configuracao
+{
+  "plugins": [
+    "@buntime/plugin-keyval",     // dependencies: ["@buntime/plugin-database"]
+    "@buntime/plugin-authn",      // dependencies: []
+    "@buntime/plugin-database"    // dependencies: []
+  ]
+}
+
+// Ordem de carregamento (apos sort)
+1. @buntime/plugin-database   (sem dependencias)
+2. @buntime/plugin-keyval     (depende de database)
+3. @buntime/plugin-authn      (sem dependencias)
+----
+
+*Tipos de Dependencias*:
+
+* **dependencies**: Obrigatorias, falha se nao configurado
+* **optionalDependencies**: Opcionais, carregadas se disponivel
+
+[source,typescript]
+----
+export default function createPlugin(): BuntimePlugin {
+  return {
+    name: "@buntime/plugin-keyval",
+    dependencies: ["@buntime/plugin-database"],  // Obrigatorio
+    optionalDependencies: ["@buntime/plugin-metrics"],  // Opcional
+    // ...
+  };
+}
+----
+
+=== Lifecycle Hooks
+
+==== onInit
+
+Chamado quando o plugin e inicializado, antes do servidor iniciar.
+
+*Assinatura*:
+
+[source,typescript]
+----
+onInit?: (ctx: PluginContext) => Promise<void> | void;
+----
+
+*Context*:
+
+[source,typescript]
+----
+interface PluginContext {
+  config: Record<string, unknown>;        // Configuracao do plugin
+  globalConfig: GlobalPluginConfig;       // buntime.jsonc (appsDir, poolSize)
+  logger: PluginLogger;                   // Logger com contexto do plugin
+  pool?: unknown;                         // WorkerPool instance
+  registerService<T>(name: string, service: T): void;
+  getService<T>(name: string): T | undefined;
+}
+----
+
+*Exemplo*:
+
+[source,typescript]
+----
+export default function createPlugin(config: KeyValConfig): BuntimePlugin {
+  let db: DatabaseAdapter;
+  let kv: Kv;
+
+  return {
+    name: "@buntime/plugin-keyval",
+    dependencies: ["@buntime/plugin-database"],
+
+    async onInit(ctx) {
+      // Obter servico de outro plugin
+      db = ctx.getService<DatabaseAdapter>("database")!;
+
+      // Inicializar KV
+      kv = new Kv({ db, logger: ctx.logger });
+      await kv.init();
+
+      // Registrar servico para outros plugins
+      ctx.registerService("kv", kv);
+
+      ctx.logger.info("KeyVal initialized");
+    },
+  };
+}
+----
+
+==== onRequest
+
+Chamado para cada request antes de chegar ao worker.
+
+*Assinatura*:
+
+[source,typescript]
+----
+onRequest?: (
+  req: Request,
+  app?: AppInfo
+) => Promise<Request | Response | undefined> | Request | Response | undefined;
+----
+
+*Retornos Possiveis*:
+
+* **Request**: Request modificado (continua pipeline)
+* **Response**: Short-circuit (retorna imediatamente)
+* **undefined**: Continua com request original
+
+*Exemplo (AuthN)*:
+
+[source,typescript]
+----
+async onRequest(req: Request, app?: AppInfo) {
+  const authHeader = req.headers.get("Authorization");
+
+  if (!authHeader) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  // Validar token
+  const user = await validateToken(authHeader);
+
+  if (!user) {
+    return new Response("Invalid token", { status: 401 });
+  }
+
+  // Injetar usuario no request
+  const newReq = new Request(req, {
+    headers: {
+      ...Object.fromEntries(req.headers),
+      "x-user-id": user.id,
+      "x-user-email": user.email,
+    },
+  });
+
+  return newReq;
+}
+----
+
+*Ordem de Execucao*:
+
+Plugins executam onRequest em ordem de registro (apos sort topologico):
+
+[source]
+----
+Request
+  |
+  ├─> Metrics.onRequest     (prio 0, coleta metricas)
+  ├─> Proxy.onRequest       (prio 5, pode short-circuit)
+  ├─> AuthN.onRequest       (prio 10, injeta identidade)
+  ├─> Gateway.onRequest     (prio 15, rate limit)
+  └─> Worker.fetch
+----
+
+==== onResponse
+
+Chamado apos o worker gerar a response, antes de enviar ao cliente.
+
+*Assinatura*:
+
+[source,typescript]
+----
+onResponse?: (res: Response, app: AppInfo) => Promise<Response> | Response;
+----
+
+*Exemplo (Metrics)*:
+
+[source,typescript]
+----
+async onResponse(res: Response, app: AppInfo) {
+  const duration = performance.now() - startTime;
+
+  metrics.recordRequest({
+    app: app.name,
+    status: res.status,
+    duration,
+    method: req.method,
+  });
+
+  return res;  // Retorna response inalterado
+}
+----
+
+==== onWorkerSpawn
+
+Chamado quando um worker e criado.
+
+*Assinatura*:
+
+[source,typescript]
+----
+onWorkerSpawn?: (worker: WorkerInstance, app: AppInfo) => void;
+----
+
+*Exemplo*:
+
+[source,typescript]
+----
+onWorkerSpawn(worker, app) {
+  logger.info(`Worker spawned: ${worker.id} for ${app.name}`);
+
+  // Registrar worker em sistema de monitoramento
+  monitoring.registerWorker(worker.id, app.name);
+}
+----
+
+==== onWorkerTerminate
+
+Chamado quando um worker e terminado.
+
+*Assinatura*:
+
+[source,typescript]
+----
+onWorkerTerminate?: (worker: WorkerInstance, app: AppInfo) => void;
+----
+
+*Exemplo*:
+
+[source,typescript]
+----
+onWorkerTerminate(worker, app) {
+  logger.info(`Worker terminated: ${worker.id} (${worker.stats.requestCount} requests)`);
+
+  monitoring.unregisterWorker(worker.id);
+}
+----
+
+==== onServerStart
+
+Chamado apos o `Bun.serve()` iniciar.
+
+*Assinatura*:
+
+[source,typescript]
+----
+onServerStart?: (server: Server<unknown>) => void;
+----
+
+*Uso*: Acesso ao server instance para WebSocket upgrades.
+
+*Exemplo*:
+
+[source,typescript]
+----
+let server: Server;
+
+export default function createPlugin(): BuntimePlugin {
+  return {
+    name: "@buntime/plugin-metrics",
+
+    onServerStart(srv) {
+      server = srv;
+      logger.info(`Server started on port ${server.port}`);
+    },
+
+    websocket: {
+      open(ws) {
+        logger.info("WebSocket connected");
+      },
+    },
+  };
+}
+----
+
+==== onShutdown
+
+Chamado quando o runtime esta sendo encerrado.
+
+*Assinatura*:
+
+[source,typescript]
+----
+onShutdown?: () => Promise<void> | void;
+----
+
+*Ordem*: Plugins executam shutdown em ordem reversa (LIFO).
+
+*Exemplo*:
+
+[source,typescript]
+----
+async onShutdown() {
+  logger.info("Shutting down KeyVal plugin");
+
+  // Flush metricas pendentes
+  await metrics.flush();
+
+  // Fechar conexoes DB
+  await db.close();
+
+  logger.info("KeyVal shutdown complete");
+}
+----
+
+=== Public Routes
+
+Plugins e workers podem definir rotas publicas que pulam hooks `onRequest` (ex: autenticacao).
+
+==== Formato de Configuracao
+
+*Array (todos metodos)*:
+
+[source,typescript]
+----
+publicRoutes: ["/health", "/api/public/**"]
+----
+
+*Object (por metodo HTTP)*:
+
+[source,typescript]
+----
+publicRoutes: {
+  ALL: ["/health"],
+  GET: ["/api/users/**"],
+  POST: ["/api/webhook"]
+}
+----
+
+==== Wildcards
+
+* **\*** - Match um segmento: `/api/*/health`
+* **\**** - Match multiplos segmentos: `/api/**`
+
+==== Plugin vs Worker Public Routes
+
+*Plugin Public Routes*:
+
+Paths absolutos, configuraveis em `buntime.jsonc`:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-authn", {
+      "publicRoutes": {
+        "ALL": ["/health"],
+        "POST": ["/api/authn/login", "/api/authn/register"]
+      }
+    }]
+  ]
+}
+----
+
+*Worker Public Routes*:
+
+Paths relativos ao worker, configuraveis em `worker.jsonc`:
+
+[source,jsonc]
+----
+{
+  "publicRoutes": {
+    "GET": ["/api/health", "/api/public/**"]
+  }
+}
+----
+
+Transformados em paths absolutos pelo runtime:
+
+[source]
+----
+Worker: todos-kv
+Base: /todos-kv
+
+/api/health  →  /todos-kv/api/health
+/api/public/** → /todos-kv/api/public/**
+----
+
+==== Merge de Public Routes
+
+Config routes sao adicionadas as routes do plugin:
+
+[source,typescript]
+----
+// Plugin define
+publicRoutes: {
+  POST: ["/api/authn/login"]
+}
+
+// Config adiciona
+publicRoutes: {
+  POST: ["/api/authn/register"]
+}
+
+// Resultado final
+publicRoutes: {
+  POST: ["/api/authn/login", "/api/authn/register"]
+}
+----
+
+=== Service Registry
+
+Plugins podem registrar servicos para compartilhar funcionalidades.
+
+==== Registrando um Servico
+
+[source,typescript]
+----
+async onInit(ctx) {
+  const db = await createDatabase(ctx.config);
+
+  // Registrar servico
+  ctx.registerService("database", db);
+
+  ctx.logger.info("Database service registered");
+}
+----
+
+==== Consumindo um Servico
+
+[source,typescript]
+----
+async onInit(ctx) {
+  // Obter servico de outro plugin
+  const db = ctx.getService<DatabaseAdapter>("database");
+
+  if (!db) {
+    throw new Error("Database service not available");
+  }
+
+  // Usar servico
+  const kv = new Kv({ db });
+}
+----
+
+==== Exemplo Completo
+
+[source,typescript]
+----
+// Plugin Database
+export default function createDatabase(config: DbConfig): BuntimePlugin {
+  let adapter: DatabaseAdapter;
+
+  return {
+    name: "@buntime/plugin-database",
+
+    async onInit(ctx) {
+      adapter = new DatabaseAdapter(config.libsqlUrl);
+      await adapter.connect();
+
+      // Registrar servico
+      ctx.registerService("database", adapter);
+    },
+
+    async onShutdown() {
+      await adapter.close();
+    },
+  };
+}
+
+// Plugin KeyVal
+export default function createKeyVal(): BuntimePlugin {
+  let kv: Kv;
+
+  return {
+    name: "@buntime/plugin-keyval",
+    dependencies: ["@buntime/plugin-database"],
+
+    async onInit(ctx) {
+      // Consumir servico
+      const db = ctx.getService<DatabaseAdapter>("database")!;
+      kv = new Kv({ db });
+
+      // Registrar proprio servico
+      ctx.registerService("kv", kv);
+    },
+  };
+}
+----
+
+=== Plugin Server Module
+
+Plugins podem servir arquivos estaticos e APIs diretamente no processo principal via `server.routes` e `server.fetch`.
+
+==== Server Routes
+
+Routes sao mapeadas para `Bun.serve({ routes })` com wrapper de autenticacao.
+
+[source,typescript]
+----
+export default function createPlugin(): BuntimePlugin {
+  return {
+    name: "@buntime/plugin-authn",
+
+    server: {
+      routes: {
+        // Arquivo estatico
+        "/login": Bun.file("./public/login.html"),
+
+        // Handler function
+        "/api/health/*": () => new Response("OK"),
+
+        // Handler async
+        "/api/user": async (req) => {
+          const user = await getUser(req);
+          return Response.json(user);
+        },
+      },
+    },
+
+    publicRoutes: {
+      GET: ["/login", "/api/health/**"],
+    },
+  };
+}
+----
+
+==== Server Fetch
+
+Handler invocado apos routes nao matcharem, antes de routes Hono.
+
+[source,typescript]
+----
+export default function createPlugin(): BuntimePlugin {
+  const app = new Hono();
+
+  app.get("/api/users", (c) => c.json({ users: [] }));
+
+  return {
+    name: "@buntime/plugin-api",
+
+    server: {
+      fetch: app.fetch,
+    },
+  };
+}
+----
+
+==== Ordem de Resolucao
+
+[source]
+----
+Request
+  |
+  ├─> Bun.serve routes (server.routes de todos plugins)
+  │   ├─> /login (plugin-authn)
+  │   └─> /api/health/* (plugin-authn)
+  │
+  ├─> server.fetch (de cada plugin em ordem)
+  │   ├─> plugin-authn.server.fetch
+  │   ├─> plugin-keyval.server.fetch
+  │   └─> plugin-gateway.server.fetch
+  │
+  └─> Hono app.routes (agregacao de todos plugin.routes)
+      ├─> /api/keyval/* (plugin-keyval)
+      └─> /api/metrics/* (plugin-metrics)
+----
+
+=== Fragment Support
+
+Plugins podem fornecer UI embeddable no shell (C-Panel) via `fragment`.
+
+==== Fragment Options
+
+[source,typescript]
+----
+interface FragmentOptions {
+  type: "monkey-patch" | "iframe" | "service-worker";
+  origin?: string;              // Obrigatorio para iframe/service-worker
+  preloadStyles?: string;       // CSS para reduzir flash
+}
+----
+
+==== Tipos de Fragment
+
+*Monkey-Patch (Recomendado)*:
+
+Intercepta History API, previne mudancas de URL.
+
+[source,typescript]
+----
+export default function createPlugin(): BuntimePlugin {
+  return {
+    name: "@buntime/plugin-keyval",
+    base: "/keyval",
+
+    fragment: {
+      type: "monkey-patch",
+    },
+
+    menus: [
+      { title: "KeyVal", icon: "lucide:database", path: "/keyval" },
+    ],
+  };
+}
+----
+
+*Iframe (Full Isolation)*:
+
+Carrega app externo em iframe, isolamento completo.
+
+[source,typescript]
+----
+fragment: {
+  type: "iframe",
+  origin: "https://external-app.company.com",
+}
+----
+
+*Service Worker (Shared Styles)*:
+
+Intercepta requests, injeta sandbox script. Para apps externos que precisam compartilhar estilos.
+
+[source,typescript]
+----
+fragment: {
+  type: "service-worker",
+  origin: "https://legacy-app.company.com",
+  preloadStyles: "body { opacity: 0; transition: opacity 0.2s; }",
+}
+----
+
+==== Menu Items
+
+Plugins definem items de menu para navegacao no shell.
+
+[source,typescript]
+----
+menus: [
+  {
+    title: "Logs",
+    icon: "lucide:scroll-text",
+    path: "/logs",
+    priority: 10,
+  },
+  {
+    title: "Reports",
+    icon: "lucide:file-text",
+    path: "/reports",
+    items: [
+      { title: "Daily", icon: "lucide:calendar", path: "/reports/daily" },
+      { title: "Monthly", icon: "lucide:calendar-range", path: "/reports/monthly" },
+    ],
+  },
+]
+----
+
+=== Criando um Plugin Customizado
+
+==== Estrutura Basica
+
+[source,typescript]
+----
+import type { BuntimePlugin, PluginContext } from "@buntime/shared/types";
+
+export default function createMyPlugin(config: MyPluginConfig): BuntimePlugin {
+  return {
+    name: "@company/my-plugin",
+
+    async onInit(ctx) {
+      ctx.logger.info("Plugin initialized", { config: ctx.config });
+    },
+
+    async onRequest(req, app) {
+      ctx.logger.debug("Request received", { url: req.url });
+      return req;  // Continue pipeline
+    },
+
+    async onShutdown() {
+      ctx.logger.info("Plugin shutdown");
+    },
+  };
+}
+----
+
+==== Factory Function
+
+Plugins sao factory functions que recebem configuracao e retornam `BuntimePlugin`.
+
+*Formato*:
+
+[source,typescript]
+----
+export type PluginFactory = (
+  config?: Record<string, unknown>
+) => BuntimePlugin | Promise<BuntimePlugin>;
+----
+
+*Exemplos*:
+
+[source,typescript]
+----
+// Sync factory
+export default function createPlugin(config: MyConfig): BuntimePlugin {
+  return { name: "my-plugin", /* ... */ };
+}
+
+// Async factory
+export default async function createPlugin(config: MyConfig): Promise<BuntimePlugin> {
+  const db = await initializeDb(config);
+  return { name: "my-plugin", /* ... */ };
+}
+
+// Default export
+export default function createPlugin(config: MyConfig) {
+  return { name: "my-plugin", /* ... */ };
+}
+----
+
+==== Exemplo Completo: Rate Limiter
+
+[source,typescript]
+----
+import type { BuntimePlugin, PluginContext } from "@buntime/shared/types";
+
+interface RateLimitConfig {
+  maxRequests: number;
+  windowMs: number;
+}
+
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+export default function createRateLimiter(config: RateLimitConfig): BuntimePlugin {
+  const limits = new Map<string, RateLimitEntry>();
+  const defaultConfig = { maxRequests: 100, windowMs: 60000 };
+  const cfg = { ...defaultConfig, ...config };
+
+  function getClientKey(req: Request): string {
+    const forwarded = req.headers.get("x-forwarded-for");
+    const ip = forwarded ? forwarded.split(",")[0] : "unknown";
+    return ip || "unknown";
+  }
+
+  function checkRateLimit(key: string): boolean {
+    const now = Date.now();
+    const entry = limits.get(key);
+
+    if (!entry || now > entry.resetAt) {
+      limits.set(key, {
+        count: 1,
+        resetAt: now + cfg.windowMs,
+      });
+      return true;
+    }
+
+    if (entry.count >= cfg.maxRequests) {
+      return false;
+    }
+
+    entry.count++;
+    return true;
+  }
+
+  return {
+    name: "@company/rate-limiter",
+
+    async onInit(ctx: PluginContext) {
+      ctx.logger.info("Rate limiter initialized", {
+        maxRequests: cfg.maxRequests,
+        windowMs: cfg.windowMs,
+      });
+
+      // Cleanup expired entries every minute
+      setInterval(() => {
+        const now = Date.now();
+        for (const [key, entry] of limits.entries()) {
+          if (now > entry.resetAt) {
+            limits.delete(key);
+          }
+        }
+      }, 60000);
+    },
+
+    async onRequest(req: Request) {
+      const key = getClientKey(req);
+      const allowed = checkRateLimit(key);
+
+      if (!allowed) {
+        return new Response("Too Many Requests", {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.ceil(cfg.windowMs / 1000)),
+          },
+        });
+      }
+
+      return req;
+    },
+  };
+}
+----
+
+*Configuracao*:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@company/rate-limiter", {
+      "maxRequests": 1000,
+      "windowMs": 60000
+    }]
+  ]
+}
+----
+
+==== Exemplo Completo: Custom Logger
+
+[source,typescript]
+----
+import { Hono } from "hono";
+import type { BuntimePlugin, PluginContext } from "@buntime/shared/types";
+
+interface LogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+  meta?: Record<string, unknown>;
+}
+
+export default function createCustomLogger(): BuntimePlugin {
+  const logs: LogEntry[] = [];
+  const maxLogs = 1000;
+
+  function addLog(level: string, message: string, meta?: Record<string, unknown>) {
+    logs.push({
+      timestamp: new Date().toISOString(),
+      level,
+      message,
+      meta,
+    });
+
+    // Keep only last maxLogs entries
+    if (logs.length > maxLogs) {
+      logs.shift();
+    }
+  }
+
+  const app = new Hono();
+
+  // API para obter logs
+  app.get("/api/logs", (c) => {
+    const level = c.req.query("level");
+    const limit = Number(c.req.query("limit")) || 100;
+
+    let filtered = logs;
+    if (level) {
+      filtered = logs.filter((log) => log.level === level);
+    }
+
+    return c.json({
+      logs: filtered.slice(-limit),
+      total: filtered.length,
+    });
+  });
+
+  return {
+    name: "@company/custom-logger",
+    base: "/logs",
+
+    routes: app,
+
+    fragment: {
+      type: "monkey-patch",
+    },
+
+    menus: [
+      {
+        title: "Logs",
+        icon: "lucide:scroll-text",
+        path: "/logs",
+      },
+    ],
+
+    async onInit(ctx: PluginContext) {
+      ctx.logger.info("Custom logger initialized");
+    },
+
+    async onRequest(req: Request, app) {
+      const start = performance.now();
+
+      addLog("info", "Request received", {
+        url: req.url,
+        method: req.method,
+        app: app?.name,
+      });
+
+      return req;
+    },
+
+    async onResponse(res: Response, app) {
+      const duration = performance.now();
+
+      addLog("info", "Response sent", {
+        status: res.status,
+        duration,
+        app: app.name,
+      });
+
+      return res;
+    },
+  };
+}
+----
+
+=== Best Practices
+
+==== Use Dependencies
+
+Declare dependencias explicitas para garantir ordem de carregamento:
+
+[source,typescript]
+----
+export default function createPlugin(): BuntimePlugin {
+  return {
+    name: "@company/my-plugin",
+    dependencies: ["@buntime/plugin-database"],  // Obrigatorio
+    optionalDependencies: ["@buntime/plugin-metrics"],  // Opcional
+  };
+}
+----
+
+==== Registre Servicos
+
+Exponha funcionalidades para outros plugins via service registry:
+
+[source,typescript]
+----
+async onInit(ctx) {
+  const cache = new CacheService(ctx.config);
+  ctx.registerService("cache", cache);
+}
+----
+
+==== Use Logger com Contexto
+
+Use o logger fornecido para ter contexto automatico:
+
+[source,typescript]
+----
+async onRequest(req: Request, app) {
+  ctx.logger.info("Processing request", { url: req.url, app: app?.name });
+}
+----
+
+==== Graceful Shutdown
+
+Implemente `onShutdown` para cleanup de recursos:
+
+[source,typescript]
+----
+async onShutdown() {
+  await cache.flush();
+  await db.close();
+  clearInterval(cleanupTimer);
+}
+----
+
+==== Public Routes
+
+Declare rotas publicas para evitar overhead de autenticacao:
+
+[source,typescript]
+----
+publicRoutes: {
+  GET: ["/health", "/metrics"],
+  POST: ["/webhook/**"],
+}
+----
+
+==== Error Handling
+
+Trate erros gracefully nos hooks:
+
+[source,typescript]
+----
+async onRequest(req: Request) {
+  try {
+    return await processRequest(req);
+  } catch (error) {
+    ctx.logger.error("Request processing failed", { error });
+    return new Response("Internal Server Error", { status: 500 });
+  }
+}
+----
+
+=== Debugging
+
+==== Logs
+
+Use o logger do plugin para debugging:
+
+[source,typescript]
+----
+ctx.logger.debug("Cache hit", { key, ttl });
+ctx.logger.info("Request processed", { duration });
+ctx.logger.warn("Rate limit approaching", { count, limit });
+ctx.logger.error("Database error", { error });
+----
+
+==== Plugin Registry
+
+Inspecionar plugins carregados:
+
+[source,typescript]
+----
+const registry = loader.getRegistry();
+console.log("Loaded plugins:", registry.getAll().map((p) => p.name));
+console.log("Plugin count:", registry.size);
+----
+
+==== Dependency Graph
+
+Verificar ordem de carregamento:
+
+[source,bash]
+----
+# Logs do PluginLoader mostram ordem
+[PluginLoader] Loaded: @buntime/plugin-database
+[PluginLoader] Loaded: @buntime/plugin-keyval
+[PluginLoader] Loaded: @buntime/plugin-metrics
+----
+
+==== Service Registry
+
+Verificar servicos registrados:
+
+[source,typescript]
+----
+const db = ctx.getService<DatabaseAdapter>("database");
+if (!db) {
+  ctx.logger.error("Database service not available");
+}
+----
+
+=== Limitacoes e Consideracoes
+
+==== Circular Dependencies
+
+Dependencias circulares sao detectadas e causam erro:
+
+[source]
+----
+Plugin A depends on B
+Plugin B depends on A
+→ Error: Circular dependency detected
+----
+
+==== Service Availability
+
+Servicos so estao disponiveis apos o plugin que os registra ser inicializado:
+
+[source,typescript]
+----
+// Plugin A (depende de B)
+dependencies: ["plugin-b"]  // Garante que B carrega primeiro
+
+async onInit(ctx) {
+  const service = ctx.getService("service-b");  // Sempre disponivel
+}
+----
+
+==== Hook Performance
+
+Hooks `onRequest`/`onResponse` sao chamados para cada request. Evite operacoes pesadas:
+
+[source,typescript]
+----
+// Evite
+async onRequest(req) {
+  await heavyDatabaseQuery();  // Adiciona latencia
+}
+
+// Prefira
+async onRequest(req) {
+  const cached = cache.get(key);  // Operacao rapida
+  if (cached) return cached;
+}
+----
+
+==== Public Routes Precedence
+
+Public routes de plugins tem precedencia sobre workers:
+
+[source]
+----
+Plugin define: /api/health (public)
+Worker define: /api/health
+
+→ Plugin handler e executado, worker nao recebe request
+----

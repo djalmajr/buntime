@@ -1,3 +1,10 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
 == Troubleshooting
 
 Este documento lista problemas comuns e suas soluções.
@@ -621,7 +628,7 @@ import { initSchema } from "@buntime/plugin-keyval/schema";
 await initSchema(adapter);
 
 // 2. Verificar banco correto
-console.log('Database URL:', process.env.LIBSQL_URL);
+console.log('Database URL:', process.env.LIBSQL_URL_0);
 
 // 3. Verificar tabelas existentes
 const tables = await adapter.execute(`

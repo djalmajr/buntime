@@ -285,6 +285,7 @@ export class PluginRegistry {
    * All plugins with a directory are workers (structure: server/, client/, plugin.ts, index.ts)
    * - API routes: /{base}/api/*
    * - Fragment UI (if has fragment): /{base}/
+   * - Standalone access: /{base}/ (without shell)
    */
   resolvePluginApp(
     pathname: string,

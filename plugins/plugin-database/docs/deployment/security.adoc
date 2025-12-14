@@ -1,0 +1,38 @@
+= Segurança
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+== Sanitização de SQL
+
+O plugin utiliza **Prepared Statements** (Bindings) para todas as execuções de SQL onde parâmetros são passados.
+
+[source,typescript]
+----
+// SEGURO
+await adapter.execute("SELECT * FROM users WHERE id = ?", [userId]);
+
+// PERIGOSO (Nunca faça isso)
+await adapter.execute(`SELECT * FROM users WHERE id = '${userId}'`);
+----
+
+O driver subjacente (libSQL ou bun:sql) trata o escaping dos valores, prevenindo SQL Injection clássico.
+
+== Isolamento de Tenants
+
+A segurança do multi-tenancy depende da correta resolução do tenant.
+
+*   **Identificação**: Nunca confie cegamente em inputs do usuário para definir o tenant ID se isso permitir acesso a dados de outros.
+*   **Validação**: O `TenantManager` deve validar se o tenant existe e se o usuário tem permissão para acessá-lo (geralmente feito no plugin de autenticação, antes de chegar ao banco).
+*   **Conexão**: O adapter retornado pelo `getAdapter(tenantId)` é isolado. Não é possível fazer "cross-database queries" acidentalmente a menos que o driver permita (ex: Postgres schemas podem ser acessados se as permissões do usuário do banco forem muito permissivas).
+
+**Recomendação para Postgres**: Garanta que o usuário do banco usado na conexão tenha permissão `USAGE` apenas nos schemas que ele deve acessar, ou use um usuário "dono" que cria schemas mas a aplicação cuida do roteamento.
+
+== Credenciais
+
+*   Nunca comite credenciais (`postgres://...`) no código. Use variáveis de ambiente.
+*   Para libSQL, use tokens de curta duração se possível, ou rotacione tokens periodicamente.
+*   O plugin suporta injeção de segredos via `process.env`.

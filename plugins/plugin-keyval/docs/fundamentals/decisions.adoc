@@ -1,3 +1,10 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
 == Decisões de Design
 
 Este documento explica as decisões arquiteturais do plugin KeyVal, incluindo alternativas consideradas, trade-offs, e contexto histórico.
@@ -473,8 +480,7 @@ merge(local, remote) → consistent
 
 1. **Workload read-heavy**: Maioria das apps lê mais que escreve
 2. **Sem deadlocks**: Impossível por design
-3. **Compatível com Deno KV**: API similar
-4. **Simples de implementar**: Só precisa de versionstamp
+3. **Simples de implementar**: Só precisa de versionstamp
 
 ==== Trade-offs Aceitos
 

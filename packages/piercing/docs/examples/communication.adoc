@@ -1,0 +1,530 @@
+== Padrões de Comunicação
+
+Este exemplo demonstra diferentes padrões de comunicação entre shell e fragmentos usando o MessageBus.
+
+=== Shell para Fragmento
+
+O shell pode despachar eventos que todos os fragmentos escutam:
+
+[source,typescript]
+----
+import { getBus } from "@buntime/piercing/client";
+
+const bus = getBus();
+
+// Shell: notificar mudança de tema
+function changeTheme(newTheme: "light" | "dark") {
+  // Atualizar tema localmente
+  document.documentElement.setAttribute("data-theme", newTheme);
+
+  // Notificar fragmentos
+  bus.dispatch("theme:changed", newTheme);
+}
+
+// Shell: broadcast de notificação
+function showGlobalNotification(message: string, type: string) {
+  bus.dispatch("notification:global", {
+    message,
+    type,
+    timestamp: Date.now(),
+  });
+}
+
+// Shell: atualizar dados do usuário
+async function updateUserProfile(userId: string) {
+  const response = await fetch(`/api/users/${userId}`);
+  const user = await response.json();
+
+  // Notificar fragmentos sobre novo perfil
+  bus.dispatch("user:updated", user);
+}
+
+// Configurar listeners de UI
+document.getElementById("theme-toggle")?.addEventListener("click", () => {
+  const current = document.documentElement.getAttribute("data-theme");
+  changeTheme(current === "dark" ? "light" : "dark");
+});
+----
+
+Fragmento escutando eventos do shell:
+
+[source,tsx]
+----
+import { useEffect, useState } from "react";
+import { getPiercingClient } from "@buntime/piercing/client";
+
+function MyFragment() {
+  const piercing = getPiercingClient();
+  const [theme, setTheme] = useState("light");
+
+  useEffect(() => {
+    // Escutar mudanças de tema
+    const cleanup = piercing.on<string>("theme:changed", (newTheme) => {
+      setTheme(newTheme);
+      console.log("Theme changed to:", newTheme);
+    });
+
+    return cleanup;
+  }, [piercing]);
+
+  return <div className={`fragment theme-${theme}`}>Content</div>;
+}
+----
+
+=== Fragmento para Shell
+
+Fragmentos podem notificar o shell sobre ações importantes:
+
+[source,tsx]
+----
+import { getPiercingClient } from "@buntime/piercing/client";
+
+function DeploymentFragment() {
+  const piercing = getPiercingClient();
+
+  const handleDeploy = async () => {
+    // Notificar shell que deploy começou
+    piercing.dispatch("deployment:started", {
+      id: "deploy-123",
+      timestamp: Date.now(),
+    });
+
+    try {
+      await performDeploy();
+
+      // Notificar sucesso
+      piercing.dispatch("deployment:completed", {
+        id: "deploy-123",
+        status: "success",
+      });
+
+      // Pedir ao shell para mostrar notificação
+      piercing.dispatch("notification:show", {
+        type: "success",
+        message: "Deploy concluído com sucesso",
+      });
+
+      // Navegar para página de detalhes
+      piercing.navigate("/deployments/deploy-123");
+    } catch (error) {
+      piercing.dispatch("deployment:completed", {
+        id: "deploy-123",
+        status: "failed",
+        error: error.message,
+      });
+
+      piercing.dispatch("notification:show", {
+        type: "error",
+        message: "Falha no deploy",
+      });
+    }
+  };
+
+  return <button onClick={handleDeploy}>Deploy</button>;
+}
+----
+
+Shell escutando eventos de fragmentos:
+
+[source,typescript]
+----
+import { getBus } from "@buntime/piercing/client";
+
+const bus = getBus();
+
+// Escutar notificações de fragmentos
+bus.listen("notification:show", (payload) => {
+  const { type, message } = payload;
+
+  const toast = createToast(type, message);
+  document.body.appendChild(toast);
+
+  setTimeout(() => toast.remove(), 3000);
+});
+
+// Escutar navegação de fragmentos
+bus.listen("navigation:request", (payload) => {
+  const { url, replace } = payload;
+
+  if (replace) {
+    window.history.replaceState(null, "", url);
+  } else {
+    window.history.pushState(null, "", url);
+  }
+
+  // Atualizar active state da navegação
+  updateActiveNavigation(url);
+});
+
+// Escutar eventos de deploy para atualizar badge
+bus.listen("deployment:started", () => {
+  updateDeploymentBadge("running");
+});
+
+bus.listen("deployment:completed", (payload) => {
+  updateDeploymentBadge(payload.status);
+});
+
+function createToast(type: string, message: string) {
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  return toast;
+}
+
+function updateDeploymentBadge(status: string) {
+  const badge = document.getElementById("deployment-badge");
+  if (badge) {
+    badge.textContent = status;
+    badge.className = `badge badge-${status}`;
+  }
+}
+
+function updateActiveNavigation(url: string) {
+  document.querySelectorAll("nav a").forEach((link) => {
+    link.classList.toggle("active", link.getAttribute("href") === url);
+  });
+}
+----
+
+=== Fragmento para Fragmento
+
+Fragmentos podem se comunicar diretamente via MessageBus:
+
+[source,tsx]
+----
+// Fragment A: Cart
+function CartFragment() {
+  const piercing = getPiercingClient();
+  const [items, setItems] = useState([]);
+
+  const addItem = (product) => {
+    const newItems = [...items, product];
+    setItems(newItems);
+
+    // Notificar outros fragmentos sobre mudança no carrinho
+    piercing.dispatch("cart:updated", {
+      items: newItems,
+      total: calculateTotal(newItems),
+      count: newItems.length,
+    });
+  };
+
+  return (
+    <div>
+      <h2>Carrinho ({items.length})</h2>
+      {/* ... */}
+    </div>
+  );
+}
+
+// Fragment B: Product List
+function ProductListFragment() {
+  const piercing = getPiercingClient();
+  const [cartCount, setCartCount] = useState(0);
+
+  useEffect(() => {
+    // Escutar mudanças no carrinho de outro fragmento
+    return piercing.on("cart:updated", (payload) => {
+      setCartCount(payload.count);
+    });
+  }, [piercing]);
+
+  const handleAddToCart = (product) => {
+    // Despachar evento para o fragmento de carrinho
+    piercing.dispatch("cart:add-item", product);
+  };
+
+  return (
+    <div>
+      <h2>Produtos</h2>
+      <span className="cart-badge">{cartCount}</span>
+      {/* ... */}
+    </div>
+  );
+}
+
+// Fragment C: Checkout
+function CheckoutFragment() {
+  const piercing = getPiercingClient();
+  const [cartData, setCartData] = useState(null);
+
+  useEffect(() => {
+    // Escutar mudanças no carrinho
+    return piercing.on("cart:updated", (payload) => {
+      setCartData(payload);
+    });
+  }, [piercing]);
+
+  const handleCheckout = async () => {
+    if (!cartData) return;
+
+    // Processar checkout
+    await processCheckout(cartData);
+
+    // Notificar carrinho para limpar
+    piercing.dispatch("cart:clear", null);
+
+    // Notificar sucesso
+    piercing.dispatch("notification:show", {
+      type: "success",
+      message: "Compra realizada com sucesso",
+    });
+
+    // Navegar para confirmação
+    piercing.navigate("/checkout/confirmation");
+  };
+
+  return (
+    <div>
+      <h2>Checkout</h2>
+      <p>Total: R$ {cartData?.total}</p>
+      <button onClick={handleCheckout}>Finalizar Compra</button>
+    </div>
+  );
+}
+----
+
+=== Sincronização de Estado
+
+Padrão para manter estado sincronizado entre múltiplos fragmentos:
+
+[source,typescript]
+----
+// Shared state manager (pode estar no shell ou em um fragmento)
+import { getBus } from "@buntime/piercing/client";
+
+class SharedStateManager {
+  private bus = getBus();
+  private state: Record<string, any> = {};
+
+  constructor() {
+    // Escutar requisições de estado
+    this.bus.listen("state:get", (payload) => {
+      const { key, requestId } = payload;
+
+      this.bus.dispatch(`state:response:${requestId}`, {
+        key,
+        value: this.state[key],
+      });
+    });
+
+    // Escutar updates de estado
+    this.bus.listen("state:set", (payload) => {
+      const { key, value } = payload;
+
+      this.state[key] = value;
+
+      // Broadcast mudança para todos
+      this.bus.dispatch(`state:changed:${key}`, value);
+    });
+  }
+
+  get(key: string): Promise<any> {
+    const requestId = crypto.randomUUID();
+
+    return new Promise((resolve) => {
+      const cleanup = this.bus.listen(`state:response:${requestId}`, (payload) => {
+        cleanup();
+        resolve(payload.value);
+      });
+
+      this.bus.dispatch("state:get", { key, requestId });
+
+      // Timeout após 5s
+      setTimeout(() => {
+        cleanup();
+        resolve(undefined);
+      }, 5000);
+    });
+  }
+
+  set(key: string, value: any) {
+    this.bus.dispatch("state:set", { key, value });
+  }
+
+  subscribe(key: string, callback: (value: any) => void) {
+    return this.bus.listen(`state:changed:${key}`, callback);
+  }
+}
+
+// Usar em fragmentos
+const stateManager = new SharedStateManager();
+
+// Fragment A
+async function loadUserPreferences() {
+  const prefs = await stateManager.get("userPreferences");
+  console.log("Loaded prefs:", prefs);
+}
+
+function saveUserPreferences(prefs: any) {
+  stateManager.set("userPreferences", prefs);
+}
+
+// Fragment B
+function watchUserPreferences() {
+  const cleanup = stateManager.subscribe("userPreferences", (prefs) => {
+    console.log("Preferences changed:", prefs);
+    updateUI(prefs);
+  });
+
+  return cleanup;
+}
+----
+
+=== Padrão Request/Response
+
+Implementar comunicação request/response entre fragmentos:
+
+[source,typescript]
+----
+import { getPiercingClient } from "@buntime/piercing/client";
+
+class PiercingRPC {
+  private piercing = getPiercingClient();
+  private pendingRequests = new Map<string, (response: any) => void>();
+
+  constructor() {
+    // Escutar respostas
+    this.piercing.on("rpc:response", (payload) => {
+      const { requestId, result, error } = payload;
+      const resolver = this.pendingRequests.get(requestId);
+
+      if (resolver) {
+        this.pendingRequests.delete(requestId);
+
+        if (error) {
+          resolver({ error });
+        } else {
+          resolver({ result });
+        }
+      }
+    });
+
+    // Escutar requisições
+    this.piercing.on("rpc:request", async (payload) => {
+      const { requestId, method, params } = payload;
+
+      try {
+        const result = await this.handleMethod(method, params);
+
+        this.piercing.dispatch("rpc:response", {
+          requestId,
+          result,
+        });
+      } catch (error) {
+        this.piercing.dispatch("rpc:response", {
+          requestId,
+          error: error.message,
+        });
+      }
+    });
+  }
+
+  call(method: string, params: any): Promise<any> {
+    const requestId = crypto.randomUUID();
+
+    return new Promise((resolve, reject) => {
+      // Registrar resolver
+      this.pendingRequests.set(requestId, (response) => {
+        if (response.error) {
+          reject(new Error(response.error));
+        } else {
+          resolve(response.result);
+        }
+      });
+
+      // Enviar requisição
+      this.piercing.dispatch("rpc:request", {
+        requestId,
+        method,
+        params,
+      });
+
+      // Timeout após 10s
+      setTimeout(() => {
+        if (this.pendingRequests.has(requestId)) {
+          this.pendingRequests.delete(requestId);
+          reject(new Error("Request timeout"));
+        }
+      }, 10000);
+    });
+  }
+
+  private async handleMethod(method: string, params: any): Promise<any> {
+    // Implementar métodos disponíveis
+    switch (method) {
+      case "getDeployments":
+        return this.getDeployments(params);
+      case "createDeployment":
+        return this.createDeployment(params);
+      default:
+        throw new Error(`Unknown method: ${method}`);
+    }
+  }
+
+  private async getDeployments(params: any) {
+    // Implementação
+    return [];
+  }
+
+  private async createDeployment(params: any) {
+    // Implementação
+    return { id: "deploy-123" };
+  }
+}
+
+// Usar em fragmentos
+const rpc = new PiercingRPC();
+
+// Fragment A
+async function loadDeployments() {
+  try {
+    const deployments = await rpc.call("getDeployments", { limit: 10 });
+    console.log("Loaded deployments:", deployments);
+  } catch (error) {
+    console.error("Failed to load deployments:", error);
+  }
+}
+
+// Fragment B
+async function createNewDeployment(data: any) {
+  try {
+    const result = await rpc.call("createDeployment", data);
+    console.log("Created deployment:", result);
+  } catch (error) {
+    console.error("Failed to create deployment:", error);
+  }
+}
+----
+
+=== Resumo dos Padrões
+
+[cols="1,2,2"]
+|===
+| Padrão | Uso | Exemplo
+
+| Event Broadcasting
+| Shell notifica todos os fragmentos
+| Mudança de tema, logout
+
+| Event Listening
+| Fragmento reage a eventos do shell
+| Atualizar UI quando tema mudar
+
+| Fragment-to-Shell
+| Fragmento pede ação do shell
+| Mostrar notificação, navegar
+
+| Fragment-to-Fragment
+| Comunicação direta entre fragmentos
+| Carrinho atualiza badge de produtos
+
+| Shared State
+| Estado compartilhado centralizado
+| Preferências do usuário, cache
+
+| Request/Response
+| Chamada assíncrona com resposta
+| Buscar dados de outro fragmento
+|===

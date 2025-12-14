@@ -5,10 +5,14 @@ Stateful actors plugin for Buntime runner (similar to Cloudflare Durable Objects
 ## Features
 
 - Singleton instances by ID
-- Persistent storage via libSQL
+- Persistent storage via `@buntime/plugin-database`
 - Request serialization (single-threaded execution)
 - Automatic hibernation and wake-up
 - LRU cache for active actors
+
+## Requirements
+
+Requires `@buntime/plugin-database` to be configured before this plugin.
 
 ## Endpoints
 
@@ -22,8 +26,6 @@ Stateful actors plugin for Buntime runner (similar to Cloudflare Durable Objects
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `libsqlUrl` | `string` | `"file:./durable.db"` | libSQL database URL (supports `${ENV}`) |
-| `libsqlToken` | `string` | - | libSQL auth token (supports `${ENV}`) |
 | `maxObjects` | `number` | `1000` | Max actors in memory |
 | `hibernateAfter` | `number` | `60000` | Idle timeout before hibernation (ms) |
 
@@ -31,18 +33,23 @@ Stateful actors plugin for Buntime runner (similar to Cloudflare Durable Objects
 
 ### Server Configuration
 
-```typescript
-// buntime.config.ts
-export default {
-  plugins: [
+```jsonc
+// buntime.jsonc
+{
+  "plugins": [
+    ["@buntime/plugin-database", { "adapter": { "type": "libsql" } }],
     ["@buntime/plugin-durable", {
-      libsqlUrl: "${LIBSQL_URL}",
-      libsqlToken: "${LIBSQL_TOKEN}",
-      maxObjects: 500,
-      hibernateAfter: 30000,
-    }],
-  ],
+      "maxObjects": 500,
+      "hibernateAfter": 30000
+    }]
+  ]
 }
+```
+
+Environment variables:
+
+```bash
+LIBSQL_URL_0=http://localhost:8880  # Primary database
 ```
 
 ### Client Usage (in workers)

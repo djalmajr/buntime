@@ -86,17 +86,17 @@ export interface DatabaseAdapter {
  * Configuration for LibSQL adapter
  */
 export interface LibSqlAdapterConfig {
-  /** Admin API URL for namespace management (e.g., "http://localhost:8082") */
-  adminUrl?: string;
   /** Auth token for remote databases */
   authToken?: string;
   /** Logger instance */
   logger?: PluginLogger;
-  /** Replica URL for eventual consistency reads */
-  replicaUrl?: string;
   type: "libsql";
-  /** Primary database URL */
-  url: string;
+  /**
+   * Database URLs (first is primary, rest are replicas)
+   * - urls[0] = Primary (writes + reads, also used for Admin API)
+   * - urls[1..n] = Replicas (reads only, round-robin)
+   */
+  urls: string[];
 }
 
 /**

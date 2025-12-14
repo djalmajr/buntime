@@ -1,308 +1,185 @@
-= @buntime/piercing
+= Piercing
 :toc: left
 :toclevels: 3
 :sectnums:
+:sectnumlevels: 5
 :icons: font
+:source-highlighter: highlightjs
 
-Micro-frontend library for Buntime plugins using Fragment Piercing architecture.
+ifdef::env-github[]
+:tip-caption: 💡
+:note-caption: ℹ️
+:important-caption: ⚠️
+:caution-caption: 🔥
+:warning-caption: ⚠️
+endif::[]
 
-== Overview
+toc::[]
 
-This library enables plugins to serve their own UI as independent fragments that get "pierced" into the main dashboard shell. Inspired by https://blog.cloudflare.com/fragment-piercing/[Cloudflare's Fragment Piercing].
+== Introdução
 
-=== Key Features
+Piercing é um framework de micro-frontends com suporte completo a SSR (Server-Side Rendering), permitindo compor fragmentos de interface de múltiplas aplicações em uma única página com hidratação progressiva e comunicação em tempo real.
 
-- **SSR Streaming**: Fragments are server-rendered and streamed to the client
-- **Pre-piercing**: Fragments can be embedded in the initial HTML response
-- **Lazy Loading**: Fragments not pre-pierced are fetched on demand
-- **MessageBus**: Framework-agnostic communication between fragments
-- **Style Isolation**: External stylesheets are embedded to avoid CORS issues
+=== O que é Piercing?
 
-== Installation
+Piercing permite que você:
 
-[source,bash]
-----
-bun add @buntime/piercing
-----
-
-== Quick Start
-
-=== Server (Gateway)
+* **Componha fragmentos SSR** - Integre múltiplos fragmentos renderizados no servidor em uma única resposta HTML
+* **Compartilhe estado** - Use MessageBus isomórfico para comunicação entre fragmentos (cliente e servidor)
+* **Hidratação progressiva** - Fragmentos são pré-renderizados no servidor e hidratados progressivamente no cliente
+* **Isolamento seguro** - Suporte a múltiplas estratégias de sandbox (none, monkey-patch, iframe, service-worker)
 
 [source,typescript]
 ----
-import { Hono } from "hono";
 import { PiercingGateway } from "@buntime/piercing";
 
-const app = new Hono();
-
 const gateway = new PiercingGateway({
-  getShellHtml: async (req) => {
-    // Return your shell/dashboard HTML
-    return `<!DOCTYPE html>
-      <html>
-        <head><title>Dashboard</title></head>
-        <body>
-          <nav>...</nav>
-          <main id="content"></main>
-        </body>
-      </html>`;
-  },
-  generateMessageBusState: async (state, req) => ({
+  getShellHtml: async (request) => shellHtml,
+  generateMessageBusState: async (state, request) => ({
     ...state,
-    theme: "dark",
-    user: { name: "John" },
+    user: { id: 1, name: "Alice" },
   }),
 });
 
-// Register fragments
 gateway.registerFragment({
-  fragmentId: "deployments",
-  prePierceRoutes: ["/dashboard/deployments*"],
-  fetchFragment: async (req) => {
-    // Fetch SSR content from fragment worker
-    return fragmentWorker.fetch(req);
-  },
+  fragmentId: "header",
+  fetchFragment: async (request) => headerApp.fetch(request),
+  prePierceRoutes: ["/"],
 });
 
-// Add middleware
-app.use("*", gateway.middleware());
-----
-
-=== Client (Shell)
-
-[source,typescript]
-----
-import { registerPiercingComponents, getBus } from "@buntime/piercing/client";
-
-// Register web components
-registerPiercingComponents();
-
-// Listen for events from fragments
-getBus().listen("navigate", (path) => {
-  router.push(path);
-});
-----
-
-=== Client (Fragment)
-
-[source,tsx]
-----
-import { getBus } from "@buntime/piercing/client";
-
-function DeploymentsFragment() {
-  const handleDeploy = () => {
-    getBus().dispatch("notification", {
-      type: "success",
-      message: "Deployed!",
-    });
-  };
-
-  return <button onClick={handleDeploy}>Deploy</button>;
-}
-----
-
-== API Reference
-
-=== Server Exports
-
-[source,typescript]
-----
-import {
-  PiercingGateway,
-  ServerMessageBus,
-  MESSAGE_BUS_STATE_HEADER,
-  // Stream utilities
-  concatenateStreams,
-  wrapStreamInText,
-  transformStream,
-  stringToStream,
-} from "@buntime/piercing";
-----
-
-==== PiercingGateway
-
-Main gateway class that handles fragment routing and HTML injection.
-
-[source,typescript]
-----
-interface PiercingGatewayConfig {
-  getShellHtml: (request: Request) => Promise<string>;
-  generateMessageBusState?: (
-    state: MessageBusState,
-    request: Request,
-  ) => MessageBusState | Promise<MessageBusState>;
-  shouldPiercingBeEnabled?: (request: Request) => boolean | Promise<boolean>;
-}
-
-class PiercingGateway {
-  constructor(config: PiercingGatewayConfig);
-  registerFragment(config: FragmentConfig): void;
-  getFragments(): FragmentConfig[];
-  middleware(): MiddlewareHandler;
-}
-----
-
-==== FragmentConfig
-
-[source,typescript]
-----
-interface FragmentConfig {
-  fragmentId: string;
-  framework?: "react" | "qwik" | "solid" | "vue";
-  prePiercingStyles?: string;
-  prePierceRoutes?: string[];
-  fetchFragment: (request: Request) => Promise<Response>;
-  serveAssets?: (request: Request) => Promise<Response>;
-}
-----
-
-=== Client Exports
-
-[source,typescript]
-----
-import {
-  registerPiercingComponents,
-  PiercingFragmentHost,
-  PiercingFragmentOutlet,
-  getBus,
-  dispatch,
-  subscribe,
-} from "@buntime/piercing/client";
-----
-
-==== MessageBus API
-
-[source,typescript]
-----
-const bus = getBus();
-
-// Dispatch an event
-bus.dispatch("eventName", { data: "value" });
-
-// Listen for events
-const cleanup = bus.listen("eventName", (value) => {
-  console.log("Received:", value);
+gateway.registerFragment({
+  fragmentId: "sidebar",
+  fetchFragment: async (request) => sidebarApp.fetch(request),
+  framework: "react",
 });
 
-// Get latest value
-const latest = bus.latestValue("eventName");
-
-// Cleanup when done
-cleanup();
+// Handle request
+const response = await gateway.handleRequest(request);
 ----
 
-==== Web Components
+=== Quando usar Piercing?
 
-Use in your JSX/HTML:
-
-[source,html]
-----
-<!-- Outlet where fragment will be pierced -->
-<piercing-fragment-outlet fragment-id="deployments"></piercing-fragment-outlet>
-
-<!-- Host wraps the fragment content (usually generated by gateway) -->
-<piercing-fragment-host fragment-id="deployments">
-  <!-- Fragment SSR content here -->
-</piercing-fragment-host>
-----
-
-== How It Works
-
-[source]
-----
-1. Browser requests /dashboard/deployments
-                    │
-                    ▼
-2. Gateway intercepts HTML request
-   - Fetches shell HTML
-   - Checks prePierceRoutes for matching fragments
-   - Fetches fragment SSR content in parallel
-   - Injects MessageBus state script
-   - Combines shell + fragments
-                    │
-                    ▼
-3. Browser receives combined HTML
-   <html>
-     <head>
-       <script>window.__PIERCING_MESSAGE_BUS_STATE__ = {...}</script>
-     </head>
-     <body>
-       <nav>...</nav>
-       <main>
-         <piercing-fragment-outlet fragment-id="deployments">
-         </piercing-fragment-outlet>
-       </main>
-       <!-- Pre-pierced fragment -->
-       <piercing-fragment-host fragment-id="deployments">
-         <div>Deployments UI</div>
-       </piercing-fragment-host>
-     </body>
-   </html>
-                    │
-                    ▼
-4. Web components initialize
-   - PiercingFragmentOutlet finds matching host
-   - Moves host content into outlet ("piercing")
-   - Fragment is now in place!
-----
-
-== Route Patterns
-
-The `prePierceRoutes` option supports glob patterns:
-
-[cols="1,2"]
+[cols="1,1"]
 |===
-| Pattern | Matches
+| Bom para: | Evitar para:
 
-| `/dashboard/deployments`
-| Exact match only
+| Micro-frontends com SSR
+| Aplicações monolíticas simples
 
-| `/dashboard/deployments/*`
-| Any path under deployments
+| Composição de equipes independentes
+| Projetos com única equipe
 
-| `/dashboard/*/edit`
-| Any edit page under dashboard
+| Migração gradual de sistemas legados
+| Greenfield sem necessidade de isolamento
+
+| Reutilização de componentes entre apps
+| Componentes compartilhados via biblioteca
+
+| A/B testing e feature flags por fragmento
+| A/B testing simples no cliente
+
+| Isolamento de dependências
+| Dependências unificadas
 |===
 
-== Buntime Plugin Integration
+== Arquitetura
 
-Buntime plugins can define fragments via the `fragment` field:
+Visão geral da arquitetura do Piercing.
 
-[source,typescript]
-----
-import type { BuntimePlugin } from "@buntime/shared/types";
+include::docs/architecture/overview.adoc[leveloffset=+1]
 
-const plugin: BuntimePlugin = {
-  name: "@buntime/plugin-deployments",
-  version: "1.0.0",
+include::docs/architecture/ssr-flow.adoc[leveloffset=+1]
 
-  // Fragment configuration
-  fragment: {
-    // Optional: defaults to plugin short name ("deployments")
-    fragmentId: "deployments",
+include::docs/architecture/hydration.adoc[leveloffset=+1]
 
-    // Routes that should pre-pierce this fragment
-    prePierceRoutes: ["/cpanel/deployments*"],
+== Gateway
 
-    // Fetch SSR content for the fragment
-    fetchFragment: async (req) => {
-      // Return the fragment's rendered HTML
-      return deploymentsWorker.fetch(req);
-    },
+O PiercingGateway é responsável por compor fragmentos SSR em uma única resposta HTML.
 
-    // Optional: serve static assets for the fragment
-    serveAssets: async (req) => {
-      return serveStatic(req);
-    },
-  },
+include::docs/gateway/configuration.adoc[leveloffset=+1]
 
-  // ... other plugin config
-};
-----
+include::docs/gateway/fragments.adoc[leveloffset=+1]
 
-The runner automatically:
+include::docs/gateway/streaming.adoc[leveloffset=+1]
 
-1. Collects fragments from all plugins
-2. Creates a PiercingGateway when fragments are registered
-3. Enables piercing middleware for the shell routes
+include::docs/gateway/shell.adoc[leveloffset=+1]
+
+== MessageBus
+
+Sistema isomórfico de comunicação entre fragmentos.
+
+include::docs/message-bus/introduction.adoc[leveloffset=+1]
+
+include::docs/message-bus/server-side.adoc[leveloffset=+1]
+
+include::docs/message-bus/client-side.adoc[leveloffset=+1]
+
+include::docs/message-bus/state-transfer.adoc[leveloffset=+1]
+
+== Client SDK
+
+SDK para desenvolver fragmentos que rodam no Piercing.
+
+include::docs/client/fragment-client.adoc[leveloffset=+1]
+
+include::docs/client/fragment-host.adoc[leveloffset=+1]
+
+include::docs/client/hooks.adoc[leveloffset=+1]
+
+include::docs/client/web-components.adoc[leveloffset=+1]
+
+== Sandbox
+
+Estratégias de isolamento para execução segura de fragmentos.
+
+include::docs/sandbox/strategies.adoc[leveloffset=+1]
+
+include::docs/sandbox/none.adoc[leveloffset=+1]
+
+include::docs/sandbox/monkey-patch.adoc[leveloffset=+1]
+
+include::docs/sandbox/iframe.adoc[leveloffset=+1]
+
+include::docs/sandbox/service-worker.adoc[leveloffset=+1]
+
+== Frameworks
+
+Integração com frameworks populares.
+
+include::docs/frameworks/react.adoc[leveloffset=+1]
+
+include::docs/frameworks/qwik.adoc[leveloffset=+1]
+
+include::docs/frameworks/solid.adoc[leveloffset=+1]
+
+include::docs/frameworks/vue.adoc[leveloffset=+1]
+
+== Exemplos
+
+Casos de uso práticos e patterns recomendados.
+
+include::docs/examples/basic-composition.adoc[leveloffset=+1]
+
+include::docs/examples/auth-integration.adoc[leveloffset=+1]
+
+include::docs/examples/feature-flags.adoc[leveloffset=+1]
+
+include::docs/examples/ab-testing.adoc[leveloffset=+1]
+
+include::docs/examples/navigation.adoc[leveloffset=+1]
+
+== Referência de API
+
+include::docs/api/piercing-gateway.adoc[leveloffset=+1]
+
+include::docs/api/message-bus.adoc[leveloffset=+1]
+
+include::docs/api/fragment-client.adoc[leveloffset=+1]
+
+include::docs/api/sandbox.adoc[leveloffset=+1]
+
+include::docs/api/stream-utils.adoc[leveloffset=+1]
+
+== Limitações
+
+include::docs/limitations.adoc[leveloffset=+1]

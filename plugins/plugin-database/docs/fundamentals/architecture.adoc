@@ -1,0 +1,125 @@
+= Arquitetura
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+== Visão Geral
+
+O `plugin-database` atua como a fundação de persistência do Buntime. Diferente de um ORM tradicional, seu objetivo não é mapear objetos para tabelas, mas sim fornecer uma **abstração de conectividade e execução SQL** que seja resiliente, multi-tenant e agnóstica ao banco de dados subjacente, permitindo que outros plugins (como `keyval`, `authn`, `authz`) operem sem acoplamento direto a um driver específico.
+
+=== Diagrama de Componentes
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                       Application / Plugins                 │
+│                                                             │
+│  const db = ctx.getService<DatabaseService>("database");    │
+│  const adapter = await db.getAdapter("tenant-123");         │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  @buntime/plugin-database                   │
+│                                                             │
+│  ┌────────────────────┐      ┌───────────────────────────┐  │
+│  │  DatabaseService   │──────│  TenantManager (Service)  │  │
+│  └─────────┬──────────┘      └───────────────────────────┘  │
+│            │                                                │
+│            │ resolves adapter for tenant                    │
+│            ▼                                                │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │                   DatabaseAdapter                     │  │
+│  │ (Interface: execute, executeOne, batch, transaction)  │  │
+│  └───────────────────────────────────────────────────────┘  │
+│            │                       │                        │
+│            ▼                       ▼                        │
+│  ┌───────────────────┐   ┌───────────────────┐              │
+│  │   LibSqlAdapter   │   │   BunSqlAdapter   │              │
+│  │   (HTTP/gRPC)     │   │   (Native FFI)    │              │
+│  └─────────┬─────────┘   └─────────┬─────────┘              │
+│            │                       │                        │
+└────────────┼───────────────────────┼────────────────────────┘
+             │                       │
+             ▼                       ▼
+    ┌────────────────┐      ┌────────────────┐
+    │  libSQL Server │      │  Postgres/MySQL│
+    │  (sqld)        │      │  (Native)      │
+    └────────────────┘      └────────────────┘
+----
+
+== Padrões de Design
+
+=== Adapter Pattern
+
+O plugin utiliza o padrão Adapter para normalizar as diferenças entre os drivers subjacentes. Embora SQL seja um padrão, a forma como os drivers executam queries, gerenciam transações e reportam erros varia drasticamente.
+
+O contrato `DatabaseAdapter` garante que:
+
+1.  **Execução**: `execute<T>(sql, args)` sempre retorna `Promise<T[]>`.
+2.  **Binding**: Parâmetros são sempre passados como array `?` ou `$1` (dependendo do dialeto, normalizado internamente).
+3.  **Transações**: `transaction(tx => ...)` gerencia o escopo automaticamente.
+
+=== Service Registry
+
+O plugin expõe o `DatabaseService` através do sistema de injeção de dependência do Buntime. Isso permite:
+
+*   **Inversão de Controle**: Plugins consumidores não instanciam o banco.
+*   **Lazy Loading**: Conexões só são abertas quando solicitadas.
+*   **Singleton/Pool**: O serviço gerencia o ciclo de vida das conexões.
+
+=== Multi-Tenancy Transparente
+
+A arquitetura foi desenhada com "Tenancy First". Não é um add-on, é o core do sistema.
+
+1.  **Tenant Resolution**: O serviço resolve o adapter correto baseado no Tenant ID.
+2.  **Isolation**: O adapter retornado já está "scopado" para aquele tenant.
+3.  **Security**: Um plugin nunca deve conseguir acessar dados de outro tenant acidentalmente se usar a API corretamente.
+
+== Fluxo de Execução
+
+=== 1. Resolução do Adapter
+
+Quando `dbService.getAdapter("tenant-A")` é chamado:
+
+1.  Verifica se já existe uma instância ativa para `tenant-A` no cache.
+2.  Se não, determina a configuração para `tenant-A`:
+    *   **libSQL**: Calcula a URL do namespace (ex: `http://tenant-a.primary.com`).
+    *   **Postgres**: Configura o `search_path` ou cria nova pool para o database.
+3.  Instancia o adapter.
+4.  (Opcional) Executa hooks de "Ensure Tenant" (criação automática).
+
+=== 2. Execução de Query
+
+Quando `adapter.execute("SELECT * FROM users")` é chamado:
+
+1.  **Normalização**: A query é inspecionada.
+2.  **Roteamento**:
+    *   Se for `libSQL` com réplicas: Decide entre Primary ou Replica baseado na operação (SELECT vai para réplica).
+    *   Se for `Postgres`: Usa a pool de conexão.
+3.  **Execução**: Envia para o driver.
+4.  **Tratamento de Erro**: Captura erros nativos e converte para exceções padronizadas se necessário.
+5.  **Logging**: Registra métricas de latência e erro.
+
+== Camadas de Responsabilidade
+
+=== DatabaseService
+
+*   Gerenciamento do ciclo de vida dos adapters.
+*   Cache de instâncias (Connection Pooling lógico).
+*   API de gerenciamento de tenants (Create/Delete/List).
+
+=== Adapters (LibSqlAdapter, BunSqlAdapter)
+
+*   Implementação específica do driver.
+*   Gerenciamento de conexão física.
+*   Tradução de dialetos SQL (se necessário).
+*   Estratégias de Load Balancing (para libSQL).
+
+=== Drivers (libsql-client, bun:sql)
+
+*   Protocolo de rede (HTTP, TCP, Socket).
+*   Parsing de resultados brutos.

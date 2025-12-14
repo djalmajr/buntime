@@ -1,3 +1,10 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
 == Segurança
 
 === Autenticação
@@ -18,9 +25,14 @@ Todas as requisições HTTP passam pelo middleware de autenticação do Buntime 
       "url": "https://auth.example.com",
       "realm": "production"
     }],
-    ["@buntime/plugin-keyval", {
-      "libsqlUrl": "libsql://..."
-    }]
+    ["@buntime/plugin-database", {
+      "adapter": {
+        "type": "libsql",
+        "urls": ["libsql://..."],
+        "authToken": "${LIBSQL_TOKEN}"
+      }
+    }],
+    "@buntime/plugin-keyval"
   ]
 }
 ----
@@ -29,11 +41,18 @@ Todas as requisições HTTP passam pelo middleware de autenticação do Buntime 
 
 O acesso ao banco de dados libSQL requer token de autenticação:
 
-[source,typescript]
+[source,jsonc]
 ----
 {
-  "libsqlUrl": "http://libsql:8080",
-  "libsqlToken": "${LIBSQL_TOKEN}"  // Variável de ambiente
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapter": {
+        "type": "libsql",
+        "urls": ["http://libsql:8080"],
+        "authToken": "${LIBSQL_TOKEN}"  // Variável de ambiente
+      }
+    }]
+  ]
 }
 ----
 
@@ -85,15 +104,26 @@ await kv.set(["tenant:other:", "users", "456"], userData); // Negado
 
 ==== Conexões TLS
 
-Use sempre o protocolo `libsql://` para conexões criptografadas:
+Use sempre HTTPS para conexões ao libSQL em produção:
 
-[source,typescript]
+[source,jsonc]
 ----
-// CORRETO - TLS habilitado (produção)
-"libsqlUrl": "https://libsql.internal:8080"
+// CORRETO - HTTPS habilitado (produção)
+{
+  "adapter": {
+    "type": "libsql",
+    "urls": ["https://libsql.internal:8080"],
+    "authToken": "${LIBSQL_TOKEN}"
+  }
+}
 
-// HTTP OK apenas em rede interna isolada
-"libsqlUrl": "http://libsql:8080"
+// HTTP OK apenas em rede interna isolada (desenvolvimento)
+{
+  "adapter": {
+    "type": "libsql",
+    "urls": ["http://libsql:8080"]
+  }
+}
 ----
 
 ==== Exposição Interna vs Externa

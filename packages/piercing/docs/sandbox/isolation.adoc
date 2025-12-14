@@ -1,0 +1,444 @@
+== Isolamento e Segurança
+
+Esta seção explica os conceitos de isolamento no Piercing, considerações de segurança e implicações de performance.
+
+=== Por Que Isolar Fragmentos?
+
+Microfrontends compartilham o mesmo contexto de navegador, criando potenciais problemas:
+
+**Conflitos de Navegação:**
+
+* Múltiplos fragmentos tentando usar History API simultaneamente
+* Links em fragmentos alterando a URL global sem coordenação
+* Conflitos entre roteadores de diferentes SPAs
+
+**Poluição de Escopo Global:**
+
+* Variáveis globais de um fragmento afetando outros
+* Conflitos de nomes em `window` e `document`
+* Event listeners globais interferindo entre fragmentos
+
+**Segurança:**
+
+* Código externo não confiável com acesso total ao DOM
+* Scripts maliciosos acessando dados sensíveis da shell
+* XSS via fragmentos comprometidos
+
+**Gestão de Estado:**
+
+* Estado compartilhado acidentalmente entre fragmentos
+* Race conditions em atualizações de estado global
+* Dificuldade em depurar problemas de estado
+
+=== Níveis de Isolamento
+
+O Piercing oferece três níveis de isolamento, implementados pelas estratégias de sandbox:
+
+==== Nível 0: Sem Isolamento (none)
+
+Fragmentos executam diretamente no contexto global. Não há proteção.
+
+**Riscos:**
+
+* Qualquer fragmento pode acessar/modificar qualquer parte do DOM
+* Variáveis globais podem colidir
+* Navegação não coordenada
+* Código malicioso tem acesso total
+
+**Quando aceitar este risco:**
+
+* Código 100% interno e confiável
+* Fragmentos desenvolvidos pela mesma equipe
+* Performance é crítica e segurança não é preocupação
+
+==== Nível 1: Isolamento de Navegação (monkey-patch, service-worker)
+
+Intercepta APIs de navegação mas scripts ainda executam no contexto principal.
+
+**Proteções:**
+
+* History API interceptada (previne alterações não coordenadas de URL)
+* Cliques em links interceptados
+* Eventos de navegação centralizados via MessageBus
+
+**Riscos ainda presentes:**
+
+* Acesso total ao DOM da shell
+* Pode modificar estilos globais
+* Pode acessar variáveis e funções globais
+* Código malicioso ainda tem acesso amplo
+
+**Quando usar:**
+
+* Fragmentos internos com navegação complexa
+* SPAs que precisam de roteamento isolado
+* Cenários onde compartilhamento de estilos é importante
+
+==== Nível 2: Isolamento Completo (iframe)
+
+Renderiza fragmento em iframe com contexto JavaScript e DOM separados.
+
+**Proteções:**
+
+* JavaScript executa em contexto isolado
+* DOM completamente separado
+* Acesso limitado via `postMessage`
+* Atributo `sandbox` restringe capacidades do iframe
+
+**Limitações:**
+
+* Comunicação restrita (apenas via mensagens)
+* Não compartilha estilos (requer CSS inline ou `preloadStyles`)
+* Limitações do iframe (fullscreen, dialogs, scroll)
+
+**Quando usar:**
+
+* Fragmentos externos não confiáveis
+* Aplicações de terceiros
+* Requisitos de segurança rigorosos
+
+=== SandboxConfig
+
+Interface de configuração para estratégias de sandbox.
+
+[source,typescript]
+----
+interface SandboxConfig {
+  /** Identificador único do fragmento */
+  fragmentId: string;
+
+  /** Estratégia de sandbox a usar */
+  strategy: SandboxStrategy;
+
+  /** Origem externa (obrigatória para iframe/service-worker) */
+  origin?: string;
+
+  /** Caminho de montagem na shell (ex: "/cpanel/external") */
+  mountPath: string;
+
+  /** Permitir comunicação via MessageBus */
+  allowMessageBus?: boolean;
+
+  /** Estilos para injetar antes do fragmento carregar */
+  preloadStyles?: string;
+}
+----
+
+**Campos:**
+
+* **fragmentId**: Identificador único para rastreamento e debugging
+* **strategy**: Uma de `"none"` | `"monkey-patch"` | `"iframe"` | `"service-worker"`
+* **origin**: URL base do fragmento externo (ex: `"https://external.com"`)
+  - Obrigatório para `iframe` e `service-worker`
+  - Não usado em `none` e `monkey-patch`
+* **mountPath**: Caminho onde fragmento é montado na shell (ex: `"/admin"`)
+  - Usado para reescrever URLs relativas
+  - Base para roteamento do fragmento
+* **allowMessageBus**: Se `true`, permite comunicação via MessageBus (padrão: `true`)
+  - Desabilite para fragmentos que não precisam de comunicação
+  - Reduz overhead em fragmentos isolados
+* **preloadStyles**: CSS a injetar no container antes do fragmento carregar
+  - Útil para estados de loading em iframes
+  - Evita flash de conteúdo não estilizado
+
+**Exemplo:**
+
+[source,typescript]
+----
+const config: SandboxConfig = {
+  fragmentId: "external-dashboard",
+  strategy: "iframe",
+  origin: "https://dashboard.external.com",
+  mountPath: "/dashboard",
+  allowMessageBus: true,
+  preloadStyles: `
+    .loading-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+  `
+};
+----
+
+=== SandboxStrategyHandler
+
+Interface que todas as estratégias de sandbox devem implementar.
+
+[source,typescript]
+----
+interface SandboxStrategyHandler {
+  /** Inicializa o sandbox antes de carregar o fragmento */
+  init(): void | Promise<void>;
+
+  /** Limpa recursos quando fragmento é removido */
+  cleanup(): void;
+
+  /** Manipula eventos de navegação do fragmento */
+  onNavigate?(event: SandboxNavigateEvent): void;
+}
+----
+
+**Métodos:**
+
+* **init()**: Configura o sandbox
+  - Cria iframes, registra Service Workers, ou patcha APIs
+  - Pode ser assíncrono (ex: aguardar registro de SW)
+  - Chamado antes de renderizar o fragmento
+* **cleanup()**: Remove o sandbox
+  - Restaura APIs patcheadas
+  - Remove iframes ou unregister SW
+  - Limpa event listeners
+  - Sempre chamado quando fragmento é desmontado
+* **onNavigate()**: Opcional, manipula navegação da shell para o fragmento
+  - Usado principalmente em `iframe` para sincronizar rotas
+  - Recebe eventos de navegação da shell
+  - Atualiza o estado do fragmento
+
+**Ciclo de Vida:**
+
+[source]
+----
+1. createSandbox(config) → SandboxStrategyHandler
+2. handler.init() → Configura isolamento
+3. [Fragmento renderiza e executa]
+4. handler.onNavigate(event) → Sincroniza navegação (opcional)
+5. handler.cleanup() → Remove isolamento
+----
+
+=== SandboxNavigateEvent
+
+Evento de navegação emitido por fragmentos sandboxed.
+
+[source,typescript]
+----
+interface SandboxNavigateEvent {
+  /** Tipo de ação de navegação */
+  action: "push" | "replace" | "pop";
+
+  /** ID do fragmento que originou o evento */
+  fragmentId: string;
+
+  /** Estado da navegação (history.state) */
+  state: JSONValue;
+
+  /** URL completa incluindo mountPath */
+  url: string;
+
+  /** Campos adicionais permitidos */
+  [key: string]: JSONValue;
+}
+----
+
+**Campos:**
+
+* **action**: Tipo de navegação
+  - `"push"`: Nova entrada no histórico (`history.pushState`)
+  - `"replace"`: Substitui entrada atual (`history.replaceState`)
+  - `"pop"`: Navegação back/forward (evento `popstate`)
+* **fragmentId**: Identifica qual fragmento gerou o evento
+* **state**: Objeto de estado associado à navegação (serializado como JSON)
+* **url**: URL completa incluindo o `mountPath` do fragmento
+
+**Exemplo:**
+
+[source,typescript]
+----
+// Fragmento em /admin clica em link para /users
+{
+  action: "push",
+  fragmentId: "admin-app",
+  state: null,
+  url: "/admin/users"
+}
+
+// Fragmento faz pushState com estado customizado
+{
+  action: "push",
+  fragmentId: "admin-app",
+  state: { userId: 123, tab: "settings" },
+  url: "/admin/users/123"
+}
+
+// Usuário clica em voltar
+{
+  action: "pop",
+  fragmentId: "admin-app",
+  state: { userId: 123 },
+  url: "/admin/users"
+}
+----
+
+=== Considerações de Segurança
+
+==== Content Security Policy (CSP)
+
+Fragmentos em iframes devem ter CSP apropriada:
+
+[source,typescript]
+----
+// Servidor do fragmento deve retornar headers:
+Content-Security-Policy:
+  default-src 'self';
+  script-src 'self' 'unsafe-inline';
+  connect-src 'self' https://api.example.com;
+----
+
+==== Atributo sandbox do iframe
+
+O Piercing usa estas permissões:
+
+[source,html]
+----
+<iframe
+  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+  src="https://external.com">
+</iframe>
+----
+
+**Permissões:**
+
+* `allow-scripts`: Permite JavaScript (necessário para SPAs)
+* `allow-same-origin`: Permite acesso a localStorage/cookies
+* `allow-forms`: Permite envio de formulários
+* `allow-popups`: Permite `window.open()` (ex: OAuth)
+
+**Não incluído (proteções):**
+
+* `allow-top-navigation`: Previne fragmento de redirecionar a shell
+* `allow-modals`: Previne `alert()`, `confirm()`, `prompt()`
+
+==== Validação de Origem
+
+Sempre valide origem em comunicação via `postMessage`:
+
+[source,typescript]
+----
+window.addEventListener("message", (e) => {
+  // SEMPRE validar origem
+  if (e.origin !== "https://trusted-fragment.com") {
+    console.warn("Mensagem de origem não confiável:", e.origin);
+    return;
+  }
+
+  // Processar mensagem
+  handleMessage(e.data);
+});
+----
+
+==== Sanitização de Dados
+
+Sanitize dados recebidos de fragmentos antes de renderizar:
+
+[source,typescript]
+----
+import DOMPurify from "dompurify";
+
+// Fragmento envia HTML
+window.addEventListener("message", (e) => {
+  if (e.data.type === "UPDATE_CONTENT") {
+    // Sanitize antes de usar textContent ou DOMPurify
+    const clean = DOMPurify.sanitize(e.data.html);
+    container.textContent = clean;
+  }
+});
+----
+
+=== Implicações de Performance
+
+==== Overhead por Estratégia
+
+[cols="1,1,3"]
+|===
+| Estratégia | Overhead | Impacto
+
+| none
+| Nenhum
+| Performance nativa
+
+| monkey-patch
+| Baixo
+| ~1-2ms por navegação, event delegation
+
+| iframe
+| Médio
+| +50-100ms inicial (criação de contexto), memória duplicada
+
+| service-worker
+| Médio
+| +100-200ms inicial (registro SW), latência de rede
+|===
+
+==== Memória
+
+* **none/monkey-patch**: Compartilham memória da shell
+* **iframe**: Contexto separado (~5-10MB adicional por iframe)
+* **service-worker**: Cache do SW (~1-2MB)
+
+==== Otimizações
+
+**Lazy loading de fragmentos:**
+
+[source,typescript]
+----
+// Não carregar fragmento até ser necessário
+if (route.startsWith("/admin")) {
+  const handler = createSandbox(adminConfig);
+  await handler.init();
+}
+----
+
+**Reuso de iframes:**
+
+[source,typescript]
+----
+// Manter iframe em cache quando possível
+const iframeCache = new Map<string, HTMLIFrameElement>();
+
+function getOrCreateIframe(fragmentId: string) {
+  return iframeCache.get(fragmentId) || createNewIframe(fragmentId);
+}
+----
+
+**Preload de Service Worker:**
+
+[source,typescript]
+----
+// Inicializar SW no startup, antes de precisar
+window.addEventListener("load", async () => {
+  await initPiercingServiceWorker();
+});
+----
+
+=== Debugging
+
+**Chrome DevTools:**
+
+* **Monkey-patch**: Use breakpoints normais, scripts no contexto principal
+* **Iframe**: Abra DevTools do iframe via `Inspect element` dentro do iframe
+* **Service-worker**: Chrome DevTools > Application > Service Workers
+
+**Logs:**
+
+Todas as estratégias logam ativação/desativação:
+
+[source]
+----
+[Piercing] Monkey-patch sandbox activated for: admin-app
+[Piercing] Iframe sandbox activated for: external-dashboard
+[Piercing] Service-worker sandbox activated for: third-party-widget
+----
+
+**Eventos de Navegação:**
+
+Escute eventos para debugging:
+
+[source,typescript]
+----
+import { listen } from '@buntime/piercing';
+
+listen("fragment:navigate", (event) => {
+  console.log("Navigation:", event);
+});
+----

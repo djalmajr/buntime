@@ -1,0 +1,325 @@
+== MessageBus API
+
+Sistema de comunicação baseado em eventos entre fragmentos e shell, com suporte a buses escopados e globais.
+
+=== Função getBus()
+
+Retorna o `MessageBus` apropriado para um dado elemento, navegando pela árvore DOM.
+
+[source,typescript]
+----
+import { getBus } from '@buntime/piercing/client';
+
+// Em um componente React
+function MyComponent() {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const bus = getBus(ref.current);
+
+    // Escuta eventos
+    return bus.listen('event', (value) => {
+      console.log('Recebido:', value);
+    });
+  }, []);
+
+  return <div ref={ref}>...</div>;
+}
+
+// Em vanilla JS
+const element = document.getElementById('my-element');
+const bus = getBus(element);
+bus.dispatch('myEvent', { data: 'value' });
+----
+
+**Parâmetros:**
+
+- `element` - Elemento inicial para buscar (opcional)
+
+**Retorna:** `MessageBus` - Bus escopado ao fragmento ou bus global
+
+=== Resolução de Bus baseada em DOM
+
+A função `getBus()` navega pela árvore DOM buscando:
+
+1. Elemento com Symbol `piercing:fragment-message-bus` anexado
+2. Elemento `<piercing-fragment-host>` com bus anexado
+3. Se não encontrar, retorna bus global via adapter
+
+[source,typescript]
+----
+// Dentro de um fragmento
+const fragmentElement = document.querySelector('[data-fragment]');
+const fragmentBus = getBus(fragmentElement);
+// Retorna: bus escopado ao fragmento
+
+// Fora de qualquer fragmento
+const globalElement = document.body;
+const globalBus = getBus(globalElement);
+// Retorna: bus global (adapter do PiercingClient)
+----
+
+=== Interface MessageBus
+
+[source,typescript]
+----
+interface MessageBus {
+  readonly state: MessageBusState;
+  dispatch(eventName: string, value: JSONValue): void;
+  listen<T extends JSONValue>(
+    eventName: string,
+    callback: (value: T, eventName?: string) => void
+  ): () => void;
+  latestValue<T extends JSONValue>(eventName: string): T | undefined;
+}
+----
+
+==== Propriedade state
+
+Estado atual compartilhado. Propriedade somente leitura.
+
+[source,typescript]
+----
+const bus = getBus(element);
+console.log('Estado atual:', bus.state);
+console.log('Usuário:', bus.state.user);
+----
+
+==== Método dispatch()
+
+Dispara um evento no bus.
+
+[source,typescript]
+----
+dispatch(eventName: string, value: JSONValue): void
+----
+
+**Parâmetros:**
+
+- `eventName` - Nome do evento
+- `value` - Valor a enviar
+
+**Exemplo:**
+
+[source,typescript]
+----
+const bus = getBus(element);
+
+bus.dispatch('cart:updated', {
+  items: 3,
+  total: 59.99
+});
+
+bus.dispatch('theme', 'dark');
+----
+
+==== Método listen()
+
+Escuta eventos no bus.
+
+[source,typescript]
+----
+listen<T extends JSONValue>(
+  eventName: string,
+  callback: (value: T, eventName?: string) => void
+): () => void
+----
+
+**Parâmetros:**
+
+- `eventName` - Nome do evento a escutar (use `"*"` para escutar todos)
+- `callback` - Função chamada quando o evento é disparado
+
+**Retorna:** Função de cleanup para parar de escutar
+
+**Exemplo:**
+
+[source,typescript]
+----
+const bus = getBus(element);
+
+// Escuta evento específico
+const cleanup1 = bus.listen('theme', (theme) => {
+  console.log('Tema:', theme);
+});
+
+// Escuta todos os eventos
+const cleanup2 = bus.listen('*', (value, eventName) => {
+  console.log(`Evento ${eventName}:`, value);
+});
+
+// Parar de escutar
+cleanup1();
+cleanup2();
+----
+
+==== Método latestValue()
+
+Retorna o valor mais recente de um evento.
+
+[source,typescript]
+----
+latestValue<T extends JSONValue>(eventName: string): T | undefined
+----
+
+**Parâmetros:**
+
+- `eventName` - Nome do evento
+
+**Retorna:** Valor mais recente ou `undefined` se nunca foi disparado
+
+**Exemplo:**
+
+[source,typescript]
+----
+const bus = getBus(element);
+
+bus.dispatch('counter', 42);
+
+const value = bus.latestValue<number>('counter');
+console.log(value); // 42
+
+const notFound = bus.latestValue('inexistente');
+console.log(notFound); // undefined
+----
+
+=== Bus Escopado vs Bus Global
+
+==== Bus Escopado (Fragment Bus)
+
+Fragmentos dentro de um `<piercing-fragment-host>` recebem um bus escopado:
+
+- Eventos são isolados dentro do fragmento
+- Outros fragmentos não escutam eventos escopados
+- Útil para comunicação interna do fragmento
+
+[source,typescript]
+----
+// Dentro de um fragmento
+const fragmentElement = document.querySelector('[data-fragment-id="cart"]');
+const bus = getBus(fragmentElement);
+
+// Evento escopado ao fragmento "cart"
+bus.dispatch('item-added', { id: 123 });
+
+// Apenas componentes dentro do fragmento "cart" receberão
+bus.listen('item-added', (item) => {
+  console.log('Item adicionado no carrinho:', item);
+});
+----
+
+==== Bus Global
+
+Elementos fora de fragmentos ou sem bus escopado recebem o bus global:
+
+- Eventos são compartilhados entre todos os fragmentos
+- Útil para comunicação inter-fragmentos
+- Usa adapter do `PiercingClient`
+
+[source,typescript]
+----
+// Fora de qualquer fragmento
+const bus = getBus(document.body);
+
+// Evento global - todos os fragmentos podem escutar
+bus.dispatch('user:logged-in', { userId: '123' });
+
+// Qualquer fragmento pode escutar
+bus.listen('user:logged-in', (user) => {
+  console.log('Usuário logado:', user);
+});
+----
+
+=== Comunicação entre Fragmentos
+
+[source,typescript]
+----
+// Fragmento A: Dispara evento global
+const busA = getBus(elementA);
+busA.dispatch('product:selected', {
+  productId: 'abc-123',
+  name: 'Widget'
+});
+
+// Fragmento B: Escuta evento global
+const busB = getBus(elementB);
+busB.listen('product:selected', (product) => {
+  console.log('Produto selecionado:', product.name);
+});
+----
+
+=== Padrão de Uso com React
+
+[source,typescript]
+----
+import { getBus } from '@buntime/piercing/client';
+import { useEffect, useRef, useState } from 'react';
+
+function CartWidget() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [items, setItems] = useState(0);
+
+  useEffect(() => {
+    const bus = getBus(ref.current);
+
+    // Inicializa com valor atual
+    const currentItems = bus.latestValue<number>('cart:items');
+    if (currentItems !== undefined) {
+      setItems(currentItems);
+    }
+
+    // Escuta mudanças
+    return bus.listen<number>('cart:items', (value) => {
+      setItems(value);
+    });
+  }, []);
+
+  const addItem = () => {
+    const bus = getBus(ref.current);
+    const newCount = items + 1;
+    bus.dispatch('cart:items', newCount);
+  };
+
+  return (
+    <div ref={ref}>
+      <span>Items: {items}</span>
+      <button onClick={addItem}>Adicionar</button>
+    </div>
+  );
+}
+----
+
+=== SSR (Server-Side Rendering)
+
+Em ambientes SSR, `getBus()` retorna um bus no-op.
+
+[source,typescript]
+----
+// Seguro em SSR
+const bus = getBus(element);
+const state = bus.state; // {}
+bus.dispatch('event', {}); // no-op
+----
+
+=== Wildcard Listener
+
+Use `"*"` para escutar todos os eventos:
+
+[source,typescript]
+----
+const bus = getBus(element);
+
+const cleanup = bus.listen('*', (value, eventName) => {
+  console.log(`[${eventName}]:`, value);
+});
+
+bus.dispatch('event1', { a: 1 });
+// Log: [event1]: { a: 1 }
+
+bus.dispatch('event2', { b: 2 });
+// Log: [event2]: { b: 2 }
+
+cleanup();
+----
+
+NOTE: Com bus global, wildcard listener escuta mudanças de estado via `onStateChange()`.

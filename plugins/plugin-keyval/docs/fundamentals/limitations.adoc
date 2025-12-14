@@ -1,3 +1,10 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
 == Limitações e Restrições
 
 Este documento descreve as limitações conhecidas do plugin KeyVal. Entender essas restrições é essencial para evitar problemas em produção.

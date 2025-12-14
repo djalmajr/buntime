@@ -1,3 +1,10 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
 == Full-Text Search (FTS)
 
 O KeyVal oferece suporte nativo a busca de texto completo (Full-Text Search) usando FTS5 do SQLite. Diferente de queries SQL simples com LIKE, o FTS5 fornece busca indexada e otimizada com suporte a operadores booleanos, relevância e tokenização multilíngue.

@@ -1,0 +1,36 @@
+= Performance e Tuning
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+== Connection Pooling
+
+=== libSQL (HTTP)
+
+*   **Pooling**: O cliente HTTP usa o `Agent` global do runtime para reutilizar conexões TCP (Keep-Alive).
+*   **Tuning**: Ajuste o `maxSockets` do agente global se estiver vendo gargalos de DNS ou TCP handshake.
+
+=== PostgreSQL / MySQL (bun:sql)
+
+*   `bun:sql` gerencia o pool nativamente.
+*   **Pool Size**: Atualmente o tamanho do pool é gerenciado automaticamente pelo Bun. Em ambientes de alta carga, monitore o número de conexões abertas no banco (`SELECT count(*) FROM pg_stat_activity`).
+
+== Caching de Adapters
+
+O `DatabaseService` cacheia as instâncias de adapters.
+
+*   Isso é bom para performance (evita re-setup).
+*   Se você tem **milhares** de tenants acessados raramente, isso pode consumir memória.
+*   *Tuning Futuro*: Implementar eviction policy (LRU) para fechar conexões de tenants inativos.
+
+== Latência de Rede
+
+*   **Localidade**: Mantenha o compute (Buntime) próximo do banco de dados.
+*   **Replicação**: Use réplicas de leitura (`replicaUrls`) no libSQL para reduzir latência de `SELECT` em regiões distantes do Primary.
+
+== Prepared Statements
+
+Sempre use queries parametrizadas. Além da segurança, muitos bancos (como Postgres) otimizam o plano de execução para prepared statements reutilizados.

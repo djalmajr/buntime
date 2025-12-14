@@ -384,4 +384,24 @@ const create$ = useCreateCampaign();
 {templates$.data?.data.map(...)}
 ----
 
+== Fundamentals
+
+include::docs/fundamentals/worker-pool.adoc[leveloffset=+1]
+
+include::docs/fundamentals/plugin-system.adoc[leveloffset=+1]
+
+include::docs/fundamentals/server-core.adoc[leveloffset=+1]
+
+include::docs/fundamentals/client-architecture.adoc[leveloffset=+1]
+
+== API Reference
+
+include::docs/api/routes.adoc[leveloffset=+1]
+
+== Deployment
+
+include::docs/deployment/configuration.adoc[leveloffset=+1]
+
+== Operations
+
 include::docs/logging.adoc[leveloffset=+1]

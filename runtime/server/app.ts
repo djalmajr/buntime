@@ -9,7 +9,6 @@ import type { PluginRegistry } from "@/plugins/registry";
 import { getPluginBase } from "@/utils/plugin-paths";
 
 export interface AppDeps {
-  deployments: Hono;
   getAppDir: (appName: string) => string | undefined;
   pluginsInfo: Hono;
   pool?: WorkerPool;
@@ -122,7 +121,6 @@ async function servePluginApp(
  * Create the main Hono app with unified routing
  */
 export function createApp({
-  deployments,
   getAppDir,
   pluginsInfo,
   pool,
@@ -160,8 +158,11 @@ export function createApp({
   }
 
   // Mount API routes
-  app.route("/api/deployments", deployments);
   app.route("/api/plugins", pluginsInfo);
+
+  // Note: Fragment routes (/f/:fragmentId) have been removed
+  // Fragments are now served directly from /p/{plugin} (unified with plugin routes)
+  // The piercing outlet fetches from /p/{plugin} and assets are served from the same path
 
   // Single catch-all that handles: server.fetch -> onRequest -> plugin routes -> worker routes
   app.all("*", async (ctx) => {

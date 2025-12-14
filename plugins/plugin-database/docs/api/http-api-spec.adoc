@@ -1,0 +1,98 @@
+= API HTTP
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+O plugin expõe alguns endpoints REST para gerenciamento e monitoramento.
+
+== Base URL
+
+Por padrão, os endpoints estão em `/p/database/api`.
+
+O caminho pode ser customizado via configuração, mas sempre fica sob `/p/`:
+
+[source,jsonc]
+----
+["@buntime/plugin-database", { "base": "db" }]
+----
+
+Neste caso, os endpoints ficam em `/p/db/api/*`.
+
+NOTE: O prefixo `/p/` é obrigatório e adicionado automaticamente pelo runtime para evitar conflitos com rotas de aplicações.
+
+== Endpoints
+
+=== Health Check
+
+Verifica a saúde da conexão com o banco de dados.
+
+`GET /p/database/api/health`
+
+**Response:**
+
+[source,json]
+----
+{
+  "status": "healthy"
+}
+----
+
+=== Tenants
+
+Gerenciamento de tenants (namespaces).
+
+==== Listar Tenants
+
+`GET /p/database/api/tenants`
+
+**Response:**
+
+[source,json]
+----
+{
+  "tenants": ["default", "tenant-1", "tenant-2"]
+}
+----
+
+==== Criar Tenant
+
+Cria um novo tenant (namespace).
+
+`POST /p/database/api/tenants`
+
+**Body:**
+
+[source,json]
+----
+{
+  "id": "tenant-new"
+}
+----
+
+**Response:**
+
+[source,json]
+----
+{
+  "ok": true,
+  "id": "tenant-new"
+}
+----
+
+==== Deletar Tenant
+
+Remove um tenant existente.
+
+`DELETE /p/database/api/tenants/:id`
+
+**Response:**
+
+[source,json]
+----
+{
+  "ok": true
+}
+----

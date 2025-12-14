@@ -1,0 +1,183 @@
+== Client Message Bus
+
+O `ClientMessageBus` é a implementação do Message Bus para o lado cliente (browser), com singleton global e integração React.
+
+=== Singleton Global
+
+O `ClientMessageBus` usa o padrão singleton para garantir uma única instância global no browser:
+
+[source,typescript]
+----
+import { ClientMessageBus } from "@piercing/message-bus/client-message-bus";
+
+// Sempre retorna a mesma instância
+const bus1 = ClientMessageBus.getInstance();
+const bus2 = ClientMessageBus.getInstance();
+
+console.log(bus1 === bus2); // true
+----
+
+A instância é armazenada em `window.__PIERCING_MESSAGE_BUS__`.
+
+=== Inicialização com Estado
+
+O servidor pode injetar estado inicial no cliente usando `window.__PIERCING_MESSAGE_BUS_STATE__`:
+
+[source,html]
+----
+<!DOCTYPE html>
+<html>
+  <head>
+    <script>
+      window.__PIERCING_MESSAGE_BUS_STATE__ = {
+        theme: "dark",
+        user: { id: "123", name: "João" }
+      };
+    </script>
+  </head>
+  <body>...</body>
+</html>
+----
+
+O `ClientMessageBus` detecta automaticamente este estado ao ser instanciado pela primeira vez:
+
+[source,typescript]
+----
+// Acessa o estado injetado pelo servidor
+const bus = ClientMessageBus.getInstance();
+const theme = bus.latestValue("theme"); // "dark"
+----
+
+=== subscribe()
+
+Função utilitária para escutar eventos sem precisar obter a instância do bus:
+
+[source,typescript]
+----
+import { subscribe } from "@piercing/message-bus/client-message-bus";
+
+const unsubscribe = subscribe("user:login", (user) => {
+  console.log("Usuário:", user.name);
+});
+
+// Remover listener
+unsubscribe();
+----
+
+Equivalente a:
+
+[source,typescript]
+----
+const bus = ClientMessageBus.getInstance();
+const unsubscribe = bus.listen("user:login", callback);
+----
+
+=== dispatch()
+
+Função utilitária para disparar eventos:
+
+[source,typescript]
+----
+import { dispatch } from "@piercing/message-bus/client-message-bus";
+
+dispatch("theme:change", "dark");
+dispatch("user:logout", null);
+----
+
+Equivalente a:
+
+[source,typescript]
+----
+const bus = ClientMessageBus.getInstance();
+bus.dispatch("theme:change", "dark");
+----
+
+=== useMessageBus()
+
+Hook React para integração com componentes:
+
+[source,typescript]
+----
+import { useMessageBus } from "@piercing/message-bus/client-message-bus";
+
+function ThemeToggle() {
+  const [theme, setTheme] = useMessageBus<string>("theme");
+
+  return (
+    <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+      Tema: {theme}
+    </button>
+  );
+}
+----
+
+O hook retorna uma tupla:
+
+1. `value` - O último valor do evento (ou `undefined`)
+2. `dispatch` - Função para disparar novos valores
+
+NOTE: A implementação atual é um placeholder. Fragmentos que usam React devem implementar a lógica de re-render com `useState` e `useEffect`.
+
+=== getBus()
+
+Função utilitária para obter a instância global:
+
+[source,typescript]
+----
+import { getBus } from "@piercing/message-bus/client-message-bus";
+
+const bus = getBus();
+bus.dispatch("event", { data: "value" });
+----
+
+Equivalente a `ClientMessageBus.getInstance()`.
+
+=== Exemplo Completo
+
+[source,typescript]
+----
+import { dispatch, subscribe, useMessageBus } from "@piercing/message-bus/client-message-bus";
+
+// Componente React
+function UserProfile() {
+  const [user, setUser] = useMessageBus("user");
+
+  if (!user) {
+    return <div>Não logado</div>;
+  }
+
+  return (
+    <div>
+      <h1>{user.name}</h1>
+      <button onClick={() => setUser(null)}>Logout</button>
+    </div>
+  );
+}
+
+// Código fora de componentes
+subscribe("user:login", (user) => {
+  console.log("Login:", user.name);
+  dispatch("notification", {
+    type: "success",
+    message: `Bem-vindo, ${user.name}!`
+  });
+});
+
+// Listener wildcard
+subscribe("*", (value, eventName) => {
+  console.log(`[${eventName}]`, value);
+});
+----
+
+=== Restrições
+
+O `ClientMessageBus` só funciona em ambiente browser. Tentar usar em Node.js ou Bun lança erro:
+
+[source,typescript]
+----
+// Em Node.js/Bun (servidor)
+ClientMessageBus.getInstance();
+// Error: ClientMessageBus can only be used in browser
+----
+
+Para código isomórfico, use `typeof window !== "undefined"` antes de acessar o client bus.

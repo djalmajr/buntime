@@ -1,0 +1,90 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+== Instalação e Configuração
+
+=== Instalação
+
+[source,bash]
+----
+# O plugin é instalado junto com o Buntime
+bun add @buntime/plugin-keyval
+----
+
+IMPORTANT: O plugin KeyVal depende do `@buntime/plugin-database` para acesso ao banco de dados. Certifique-se de que o plugin-database esteja configurado antes do plugin-keyval.
+
+=== Configuração do Plugin
+
+==== buntime.jsonc
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    "@buntime/plugin-database",  // Dependência obrigatória
+    ["@buntime/plugin-keyval", {
+      "metrics": {
+        "persistent": false,       // Armazenar métricas no banco de dados
+        "flushInterval": 30000     // Intervalo de flush em ms
+      },
+      "queue": {
+        "cleanupInterval": 60000,  // Intervalo de limpeza (0 para desabilitar)
+        "lockDuration": 30000      // Duração do lock durante processamento (30s)
+      }
+    }]
+  ]
+}
+----
+
+NOTE: A configuração do banco de dados (URL do libSQL, réplica, token) é feita no `@buntime/plugin-database`.
+
+==== Variáveis de Ambiente
+
+[source,bash]
+----
+# Desenvolvimento local (apenas primary)
+LIBSQL_URL_0=http://localhost:8880
+
+# Produção com réplicas
+LIBSQL_URL_0=http://primary:8080       # Primary (obrigatório)
+LIBSQL_URL_1=http://replica1:8080      # Replica 1 (opcional)
+LIBSQL_URL_2=http://replica2:8080      # Replica 2 (opcional)
+
+# Autenticação (opcional)
+LIBSQL_TOKEN=your-jwt-token
+----
+
+TIP: Para detalhes sobre replicação (como funciona, fluxo de dados, configuração), consulte a documentação do link:../../../plugin-database/docs/adapters/libsql-replication.adoc[@buntime/plugin-database].
+
+==== Docker Compose
+
+[source,yaml]
+----
+services:
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8880:8080"  # HTTP API
+      - "8881:5001"  # gRPC (replicação)
+    environment:
+      SQLD_NODE: primary
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+      SQLD_GRPC_LISTEN_ADDR: 0.0.0.0:5001
+      SQLD_DISABLE_AUTH: "true"
+
+  libsql-replica:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8882:8080"
+    environment:
+      SQLD_NODE: replica
+      SQLD_PRIMARY_URL: http://libsql:5001
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+      SQLD_DISABLE_AUTH: "true"
+    depends_on:
+      - libsql
+----

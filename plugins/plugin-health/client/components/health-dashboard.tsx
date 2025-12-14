@@ -1,6 +1,18 @@
 import { useEffect, useState } from "react";
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
+import { Skeleton } from "~/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "~/components/ui/table";
 
-type HealthStatus = "healthy" | "degraded" | "unhealthy";
+type HealthStatus = "degraded" | "healthy" | "unhealthy";
 
 interface HealthCheck {
   details?: Record<string, unknown>;
@@ -17,8 +29,18 @@ interface HealthReport {
   uptime: number;
 }
 
-// Get base path from <base> tag or default to ""
 function getBasePath(): string {
+  // First, try to get base from piercing-fragment-outlet's data attribute
+  // This is set when the fragment is loaded inside a shell (e.g., cpanel)
+  const outlet = document.querySelector("piercing-fragment-outlet[data-fragment-base]");
+  if (outlet) {
+    const fragmentBase = outlet.getAttribute("data-fragment-base");
+    if (fragmentBase) {
+      return fragmentBase.replace(/\/$/, "");
+    }
+  }
+
+  // Fall back to document's base tag (for standalone mode at /p/health)
   const base = document.querySelector("base");
   if (base) {
     const href = base.getAttribute("href") || "";
@@ -39,12 +61,17 @@ function formatUptime(ms: number): string {
   return `${seconds}s`;
 }
 
-const statusColors: Record<HealthStatus, { bg: string; icon: string; ring: string; text: string }> =
-  {
-    degraded: { bg: "bg-yellow-100", icon: "!", ring: "ring-yellow-400", text: "text-yellow-700" },
-    healthy: { bg: "bg-green-100", icon: "\u2713", ring: "ring-green-400", text: "text-green-700" },
-    unhealthy: { bg: "bg-red-100", icon: "\u2717", ring: "ring-red-400", text: "text-red-700" },
-  };
+const statusVariant: Record<HealthStatus, "success" | "warning" | "destructive"> = {
+  degraded: "warning",
+  healthy: "success",
+  unhealthy: "destructive",
+};
+
+const statusIcon: Record<HealthStatus, string> = {
+  degraded: "!",
+  healthy: "\u2713",
+  unhealthy: "\u2717",
+};
 
 export function HealthDashboard() {
   const [report, setReport] = useState<HealthReport | null>(null);
@@ -67,15 +94,16 @@ export function HealthDashboard() {
   useEffect(() => {
     fetchHealth();
 
-    // Refresh every 10 seconds
     const interval = setInterval(fetchHealth, 10000);
     return () => clearInterval(interval);
   }, [basePath]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+      <div className="p-6 space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-4 w-64" />
+        <Skeleton className="h-64 w-full" />
       </div>
     );
   }
@@ -83,77 +111,69 @@ export function HealthDashboard() {
   if (!report) {
     return (
       <div className="p-6">
-        <div className="text-center text-gray-500">Failed to load health status</div>
+        <Card>
+          <CardContent className="py-8">
+            <p className="text-center text-muted-foreground">Failed to load health status</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
-  const overall = statusColors[report.status];
-
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <h1 className="text-2xl font-bold">System Health</h1>
-          <span
-            className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${overall.bg} ${overall.text}`}
-          >
-            <span>{overall.icon}</span>
-            {report.status.charAt(0).toUpperCase() + report.status.slice(1)}
-          </span>
-        </div>
-        <p className="text-sm text-gray-500">
-          Uptime: {formatUptime(report.uptime)} | Last checked:{" "}
-          {new Date(report.timestamp).toLocaleTimeString()}
-        </p>
-      </div>
+    <div className="p-4 space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <CardTitle className="text-2xl">System Health</CardTitle>
+            <Badge variant={statusVariant[report.status]}>
+              <span>{statusIcon[report.status]}</span>
+              {report.status.charAt(0).toUpperCase() + report.status.slice(1)}
+            </Badge>
+          </div>
+          <CardDescription>
+            Uptime: {formatUptime(report.uptime)} | Last checked:{" "}
+            {new Date(report.timestamp).toLocaleTimeString()}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Component</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Message</TableHead>
+                <TableHead>Latency</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {report.checks.map((check) => {
+                const latencyStr =
+                  check.latency !== undefined ? `${check.latency.toFixed(1)}ms` : "-";
 
-      <div className="bg-white rounded-lg border shadow-sm">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Component</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Status</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Message</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Latency</th>
-            </tr>
-          </thead>
-          <tbody>
-            {report.checks.map((check) => {
-              const colors = statusColors[check.status];
-              const latencyStr =
-                check.latency !== undefined ? `${check.latency.toFixed(1)}ms` : "-";
+                return (
+                  <TableRow key={check.name}>
+                    <TableCell className="font-medium">{check.name}</TableCell>
+                    <TableCell>
+                      <Badge variant={statusVariant[check.status]}>
+                        <span>{statusIcon[check.status]}</span>
+                        {check.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{check.message || "-"}</TableCell>
+                    <TableCell className="font-mono text-muted-foreground">{latencyStr}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
-              return (
-                <tr className="border-b hover:bg-gray-50" key={check.name}>
-                  <td className="px-4 py-3">
-                    <span className="font-medium">{check.name}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${colors.bg} ${colors.text}`}
-                    >
-                      <span>{colors.icon}</span>
-                      {check.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{check.message || "-"}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500 font-mono">{latencyStr}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-4 flex justify-end">
-        <button
-          className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded"
-          onClick={fetchHealth}
-          type="button"
-        >
+      <div className="flex justify-end">
+        <Button variant="outline" onClick={fetchHealth}>
           Refresh
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -1,0 +1,322 @@
+== Estratégias de Sandbox
+
+O Piercing oferece quatro estratégias de isolamento de fragmentos, cada uma com trade-offs diferentes entre isolamento, performance e complexidade.
+
+=== Tipos de Estratégia
+
+==== none - Sem Isolamento
+
+Fragmentos executam diretamente no escopo global da shell, sem nenhum isolamento.
+
+[source,typescript]
+----
+const config: SandboxConfig = {
+  fragmentId: "my-plugin",
+  strategy: "none",
+  mountPath: "/my-plugin"
+};
+
+const handler = createSandbox(config);
+// Retorna null - sem isolamento ativo
+----
+
+**Quando usar:**
+
+* Plugins internos confiáveis
+* Aplicações que precisam de acesso total ao DOM da shell
+* Cenários onde performance máxima é crítica
+
+**Vantagens:**
+
+* Performance máxima (sem overhead)
+* Acesso completo ao DOM e APIs globais
+* Compartilhamento de estilos e estado
+
+**Desvantagens:**
+
+* Sem isolamento de segurança
+* Poluição do escopo global
+* Conflitos de navegação e estado
+* Não recomendado para código externo
+
+==== monkey-patch - Interceptação de APIs
+
+Intercepta APIs globais (History API, cliques em links) para prevenir que fragmentos alterem a URL do navegador sem controle.
+
+[source,typescript]
+----
+const config: SandboxConfig = {
+  fragmentId: "internal-app",
+  strategy: "monkey-patch",
+  mountPath: "/admin",
+  allowMessageBus: true
+};
+
+const handler = createSandbox(config);
+await handler.init();
+----
+
+**Quando usar:**
+
+* Plugins internos que precisam de isolamento de navegação
+* SPAs que usam History API
+* Aplicações que compartilham estilos com a shell
+
+**Vantagens:**
+
+* Leve (baixo overhead)
+* Compartilha DOM e estilos com a shell
+* Integração com MessageBus automática
+* Intercepta navegação sem modificar o código do fragmento
+
+**Desvantagens:**
+
+* Não há isolamento completo (scripts executam no contexto principal)
+* Não protege contra código malicioso
+* Pode não funcionar com frameworks que patcheam History API
+
+**Como funciona:**
+
+1. Intercepta `history.pushState` e `history.replaceState`
+2. Intercepta cliques em elementos `<a>` via event delegation
+3. Escuta eventos `popstate` (back/forward)
+4. Reescreve URLs para incluir o `mountPath`
+5. Emite eventos `fragment:navigate` para a shell
+6. Ponte com Client SDK via eventos `piercing:*`
+
+==== iframe - Isolamento Completo
+
+Renderiza o fragmento em um iframe isolado, com comunicação via `postMessage`.
+
+[source,typescript]
+----
+const container = document.getElementById("fragment-container");
+
+const config: SandboxConfig = {
+  fragmentId: "external-app",
+  strategy: "iframe",
+  origin: "https://external.com",
+  mountPath: "/external",
+  allowMessageBus: true,
+  preloadStyles: ".loading { display: flex; }"
+};
+
+const handler = createSandbox(config, container);
+await handler.init();
+----
+
+**Quando usar:**
+
+* Aplicações externas não confiáveis
+* Aplicações legadas com poluição global
+* Cenários que requerem isolamento completo de JavaScript e DOM
+
+**Vantagens:**
+
+* Isolamento completo de JS e DOM
+* Segurança máxima
+* Proteção contra scripts maliciosos
+* Não interfere com a shell
+
+**Desvantagens:**
+
+* Não compartilha estilos (requer `preloadStyles` ou CSS inline)
+* Comunicação limitada (apenas via `postMessage`)
+* Quirks de iframe (scroll, dialogs, etc.)
+* Requer script de integração no fragmento
+
+**Como funciona:**
+
+1. Cria um `<iframe>` com atributo `sandbox`
+2. Carrega a origem externa no iframe
+3. Injeta estilos de preload no container
+4. Escuta mensagens via `postMessage`
+5. Fragmento deve incluir script de cliente (ver Client SDK)
+
+**Script de Cliente:**
+
+Aplicações externas devem incluir o script de cliente para comunicação:
+
+[source,html]
+----
+<script src="/_piercing/iframe-client.js"></script>
+----
+
+Ou usar o Client SDK:
+
+[source,typescript]
+----
+import { getPiercingClient } from '@buntime/piercing/client';
+
+const piercing = getPiercingClient();
+piercing.onStateChange((state) => console.log('State:', state));
+----
+
+==== service-worker - Interceptação de Rede
+
+Registra um Service Worker que intercepta requisições ao fragmento, injetando scripts de sandbox em respostas HTML.
+
+[source,typescript]
+----
+// Inicializar SW uma vez no startup
+await initPiercingServiceWorker("/_piercing/sw.js");
+
+// Criar sandbox para fragmento
+const config: SandboxConfig = {
+  fragmentId: "external-spa",
+  strategy: "service-worker",
+  origin: "https://external.com",
+  mountPath: "/external",
+  allowMessageBus: true
+};
+
+const handler = createSandbox(config);
+await handler.init();
+----
+
+**Quando usar:**
+
+* Aplicações externas que precisam compartilhar estilos com a shell
+* SPAs externas com navegação complexa
+* Cenários onde modificação de respostas HTTP é necessária
+
+**Vantagens:**
+
+* Compartilha DOM e estilos (fragmento renderiza na shell)
+* Intercepta e modifica respostas HTML
+* Pode reescrever URLs em assets
+* Não requer modificação do código do fragmento
+
+**Desvantagens:**
+
+* Requer suporte a Service Worker (não funciona em todos os navegadores)
+* Setup mais complexo (requer servir script SW)
+* Latência adicional na primeira carga (registro do SW)
+* Debugging pode ser mais difícil
+
+**Como funciona:**
+
+1. Registra Service Worker no escopo `/`
+2. SW intercepta requisições ao `mountPath` do fragmento
+3. SW busca conteúdo da origem externa
+4. Injeta script de sandbox no HTML
+5. Script intercepta History API e links
+6. Eventos de navegação são enviados à shell via `postMessage`
+
+=== Comparação de Estratégias
+
+[cols="1,1,1,1,1"]
+|===
+| Estratégia | Isolamento | Performance | Compartilha Estilos | Caso de Uso
+
+| none
+| Nenhum
+| Máxima
+| Sim
+| Plugins internos confiáveis
+
+| monkey-patch
+| Navegação apenas
+| Alta
+| Sim
+| Plugins internos com routing
+
+| iframe
+| Completo
+| Média
+| Não
+| Apps externos não confiáveis
+
+| service-worker
+| Médio
+| Média
+| Sim
+| Apps externos que precisam de estilos da shell
+|===
+
+=== Função createSandbox()
+
+Cria um handler de sandbox baseado na estratégia configurada.
+
+[source,typescript]
+----
+function createSandbox(
+  config: SandboxConfig,
+  container?: HTMLElement
+): SandboxStrategyHandler | null
+----
+
+**Parâmetros:**
+
+* `config` - Configuração do sandbox (ver `SandboxConfig`)
+* `container` - Elemento container (obrigatório para estratégia `iframe`)
+
+**Retorno:**
+
+* `SandboxStrategyHandler` - Handler da estratégia escolhida
+* `null` - Se estratégia for `"none"` ou inválida
+
+**Exceções:**
+
+* Lança erro se estratégia `iframe` não receber `container`
+* Lança erro se estratégia `iframe` ou `service-worker` não tiver `origin`
+
+**Exemplo:**
+
+[source,typescript]
+----
+// Monkey-patch
+const handler = createSandbox({
+  fragmentId: "admin",
+  strategy: "monkey-patch",
+  mountPath: "/admin"
+});
+
+if (handler) {
+  await handler.init();
+  // ...
+  handler.cleanup();
+}
+
+// Iframe (requer container)
+const container = document.getElementById("app");
+const handler = createSandbox(
+  {
+    fragmentId: "external",
+    strategy: "iframe",
+    origin: "https://external.com",
+    mountPath: "/external"
+  },
+  container
+);
+
+if (handler) {
+  await handler.init();
+}
+----
+
+=== Escolhendo a Estratégia
+
+**Use `none` quando:**
+
+* Fragmento é código interno confiável
+* Performance é crítica
+* Fragmento precisa de acesso total ao DOM
+
+**Use `monkey-patch` quando:**
+
+* Fragmento é interno mas precisa de isolamento de navegação
+* Fragmento usa History API ou links
+* Compartilhamento de estilos é importante
+
+**Use `iframe` quando:**
+
+* Fragmento é código externo não confiável
+* Isolamento completo é necessário
+* Segurança é prioridade máxima
+
+**Use `service-worker` quando:**
+
+* Fragmento é externo mas precisa de estilos da shell
+* Modificação de respostas HTTP é necessária
+* Navegador suporta Service Workers

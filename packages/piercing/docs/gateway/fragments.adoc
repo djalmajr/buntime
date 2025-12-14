@@ -1,0 +1,450 @@
+== Fragmentos
+
+Fragmentos são micro-frontends independentes que podem ser integrados dinamicamente em uma aplicação host via Piercing.
+
+=== Interface FragmentConfig
+
+A configuração de um fragmento é definida pela interface `FragmentConfig`:
+
+[source,typescript]
+----
+interface FragmentConfig {
+  fragmentId: string;
+  fetchFragment: (request: Request) => Promise<Response>;
+  framework?: "react" | "qwik" | "solid" | "vue";
+  prePiercingStyles?: string;
+  prePierceRoutes?: string[];
+  serveAssets?: (request: Request) => Promise<Response>;
+  shouldBeIncluded?: (request: Request) => boolean | Promise<boolean>;
+  transformRequest?: (request: Request) => Request | Promise<Request>;
+}
+----
+
+=== Propriedades
+
+==== `fragmentId` (obrigatório)
+
+Identificador único do fragmento.
+
+[source,typescript]
+----
+{
+  fragmentId: "navigation-menu",
+  // ...
+}
+----
+
+IMPORTANT: IDs duplicados são ignorados. O primeiro fragmento registrado com um ID específico prevalece.
+
+==== `fetchFragment` (obrigatório)
+
+Função que busca o conteúdo SSR do fragmento.
+
+[source,typescript]
+----
+{
+  fetchFragment: async (request) => {
+    // Busca o fragmento de um servidor remoto
+    return fetch("https://fragment-service.com/navigation", {
+      method: request.method,
+      headers: request.headers,
+    });
+  },
+}
+----
+
+A função recebe uma requisição (possivelmente transformada por `transformRequest`) e deve retornar uma resposta HTTP com o conteúdo HTML do fragmento.
+
+==== `framework` (opcional)
+
+Indica o framework utilizado pelo fragmento para otimizações futuras.
+
+[source,typescript]
+----
+{
+  framework: "react",
+  // ou "qwik", "solid", "vue"
+}
+----
+
+Valores aceitos: `"react"`, `"qwik"`, `"solid"`, `"vue"`
+
+==== `prePiercingStyles` (opcional)
+
+CSS aplicado antes do piercing para transições visuais suaves.
+
+[source,typescript]
+----
+{
+  prePiercingStyles: `
+    .navigation {
+      opacity: 1;
+      transition: opacity 0.3s ease;
+    }
+  `,
+}
+----
+
+Os estilos são injetados dentro de uma tag `<style>` no elemento `<piercing-fragment-host>`. Ver <<pre-piercing.adoc>> para detalhes.
+
+==== `prePierceRoutes` (opcional)
+
+Array de padrões de rota onde o fragmento deve ser pré-injetado no HTML.
+
+[source,typescript]
+----
+{
+  prePierceRoutes: [
+    "/dashboard",
+    "/dashboard/*",
+    "/settings/*",
+  ],
+}
+----
+
+Suporta wildcards:
+
+- `*` - Qualquer sequência de caracteres
+- `?` - Qualquer caractere único
+
+[source,typescript]
+----
+{
+  prePierceRoutes: [
+    "/users/*",      // /users/123, /users/abc/profile
+    "/posts/*/edit", // /posts/123/edit
+    "/api/?.json",   // /api/1.json, /api/a.json
+  ],
+}
+----
+
+==== `serveAssets` (opcional)
+
+Função que serve assets estáticos do fragmento.
+
+[source,typescript]
+----
+{
+  serveAssets: async (request) => {
+    const url = new URL(request.url);
+    const filePath = `./fragments/navigation/dist${url.pathname}`;
+    return new Response(Bun.file(filePath));
+  },
+}
+----
+
+Quando definida, o gateway serve requisições do padrão `/_fragment/:id/*`:
+
+[source,http]
+----
+GET /_fragment/navigation-menu/assets/logo.png
+----
+
+Essa requisição é transformada em:
+
+[source,http]
+----
+GET /assets/logo.png (passada para serveAssets)
+----
+
+==== `shouldBeIncluded` (opcional)
+
+Função que determina se o fragmento deve ser incluído na resposta.
+
+[source,typescript]
+----
+{
+  shouldBeIncluded: async (request) => {
+    // Incluir apenas para usuários autenticados
+    const token = request.headers.get("Authorization");
+    if (!token) return false;
+
+    const user = await validateToken(token);
+    return user !== null;
+  },
+}
+----
+
+Casos de uso:
+
+- Verificação de autenticação
+- Feature flags
+- A/B testing
+- Permissões de acesso
+
+Se retornar `false`:
+
+- No SSR direto (`/piercing-fragment/:id`): retorna HTTP 403
+- No pre-piercing: fragmento é ignorado silenciosamente
+
+==== `transformRequest` (opcional)
+
+Função que transforma a requisição antes de passá-la para `fetchFragment`.
+
+[source,typescript]
+----
+{
+  transformRequest: (request) => {
+    const url = new URL(request.url);
+
+    // Adiciona parâmetro de query
+    url.searchParams.set("version", "v2");
+
+    // Adiciona header customizado
+    const headers = new Headers(request.headers);
+    headers.set("X-Fragment-Version", "2.0");
+
+    return new Request(url.toString(), {
+      method: request.method,
+      headers,
+      body: request.body,
+    });
+  },
+}
+----
+
+Casos de uso:
+
+- Reescrita de URLs
+- Adição de parâmetros de query
+- Injeção de headers customizados
+- Modificação de corpo da requisição
+
+NOTE: Os headers do message bus são reaplicados após a transformação para garantir consistência do estado.
+
+=== Registro de Fragmentos
+
+==== Método `registerFragment()`
+
+[source,typescript]
+----
+const gateway = new PiercingGateway({
+  getShellHtml: async () => "...",
+});
+
+gateway.registerFragment({
+  fragmentId: "header",
+  fetchFragment: async (request) => {
+    return fetch("https://fragments.example.com/header", {
+      headers: request.headers,
+    });
+  },
+  framework: "react",
+  prePierceRoutes: ["/", "/dashboard/*"],
+  prePiercingStyles: ".header { min-height: 60px; }",
+});
+----
+
+==== Registro de Múltiplos Fragmentos
+
+[source,typescript]
+----
+const fragments = [
+  {
+    fragmentId: "header",
+    fetchFragment: async (req) => fetch("https://cdn.com/header", { headers: req.headers }),
+    prePierceRoutes: ["/*"],
+  },
+  {
+    fragmentId: "sidebar",
+    fetchFragment: async (req) => fetch("https://cdn.com/sidebar", { headers: req.headers }),
+    prePierceRoutes: ["/dashboard/*"],
+    shouldBeIncluded: async (req) => {
+      const user = await getUser(req);
+      return user?.role === "admin";
+    },
+  },
+  {
+    fragmentId: "footer",
+    fetchFragment: async (req) => fetch("https://cdn.com/footer", { headers: req.headers }),
+    prePierceRoutes: ["/*"],
+  },
+];
+
+fragments.forEach((config) => gateway.registerFragment(config));
+----
+
+=== Requisições de SSR de Fragmentos
+
+Quando o gateway recebe uma requisição para `/piercing-fragment/:id`:
+
+1. Localiza o fragmento pelo `fragmentId`
+2. Verifica `shouldBeIncluded` (se definido)
+3. Cria um `ServerMessageBus` a partir dos headers da requisição
+4. Aplica `transformRequest` (se definido)
+5. Chama `fetchFragment` com a requisição transformada
+6. Envolve o conteúdo em `<piercing-fragment-host>`:
+
+[source,html]
+----
+<piercing-fragment-host fragment-id="header">
+  <style>.header { min-height: 60px; }</style>
+  <!-- Conteúdo do fragmento -->
+  <header>...</header>
+</piercing-fragment-host>
+----
+
+=== Requisições de Assets de Fragmentos
+
+Quando o gateway recebe uma requisição para `/_fragment/:id/*`:
+
+1. Localiza o fragmento pelo `fragmentId`
+2. Verifica se `serveAssets` está definido
+3. Cria uma nova requisição com o caminho do asset:
+
+[source,typescript]
+----
+// Requisição original:
+// GET /_fragment/header/assets/logo.png
+
+// Transformada em:
+// GET /assets/logo.png
+----
+
+4. Chama `serveAssets` com a requisição transformada
+
+Exemplo de implementação com Bun:
+
+[source,typescript]
+----
+{
+  serveAssets: async (request) => {
+    const url = new URL(request.url);
+    const file = Bun.file(`./dist${url.pathname}`);
+
+    if (await file.exists()) {
+      return new Response(file);
+    }
+
+    return new Response("Not Found", { status: 404 });
+  },
+}
+----
+
+=== Recuperação de Fragmentos Registrados
+
+Use `getFragments()` para listar fragmentos registrados:
+
+[source,typescript]
+----
+const fragments = gateway.getFragments();
+
+fragments.forEach((fragment) => {
+  console.log(`Fragment: ${fragment.fragmentId}`);
+  console.log(`  Framework: ${fragment.framework || "not specified"}`);
+  console.log(`  Pre-pierce routes: ${fragment.prePierceRoutes?.join(", ") || "none"}`);
+});
+----
+
+=== Tratamento de Erros
+
+==== Fragmento Não Encontrado
+
+Requisição para `/piercing-fragment/unknown` retorna:
+
+[source,http]
+----
+HTTP/1.1 404 Not Found
+Content-Type: text/plain
+
+Fragment "unknown" not found
+----
+
+==== Fragmento Não Permitido
+
+Quando `shouldBeIncluded` retorna `false`:
+
+[source,http]
+----
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain
+
+Fragment "header" not available
+----
+
+==== Erro ao Buscar Fragmento
+
+[source,http]
+----
+HTTP/1.1 500 Internal Server Error
+Content-Type: text/plain
+
+Error fetching fragment "header"
+----
+
+Erro é logado no console do servidor:
+
+[source,console]
+----
+[PiercingGateway] Error fetching fragment "header": TypeError: fetch failed
+----
+
+==== Asset Não Suportado
+
+Quando `serveAssets` não está definido:
+
+[source,http]
+----
+HTTP/1.1 404 Not Found
+Content-Type: text/plain
+
+Fragment "header" does not serve assets
+----
+
+=== Exemplo Completo
+
+[source,typescript]
+----
+import { PiercingGateway } from "@buntime/piercing/gateway";
+
+const gateway = new PiercingGateway({
+  getShellHtml: async () => {
+    return await Bun.file("./dist/index.html").text();
+  },
+});
+
+// Fragmento de navegação global
+gateway.registerFragment({
+  fragmentId: "navigation",
+  framework: "react",
+  prePierceRoutes: ["/*"],
+  prePiercingStyles: ".nav { min-height: 64px; background: #fff; }",
+
+  fetchFragment: async (request) => {
+    return fetch("https://nav.example.com/render", {
+      headers: request.headers,
+    });
+  },
+
+  serveAssets: async (request) => {
+    const url = new URL(request.url);
+    return new Response(Bun.file(`./fragments/nav/dist${url.pathname}`));
+  },
+});
+
+// Fragmento condicional de admin
+gateway.registerFragment({
+  fragmentId: "admin-panel",
+  framework: "react",
+  prePierceRoutes: ["/admin/*"],
+
+  shouldBeIncluded: async (request) => {
+    const user = await getUserFromRequest(request);
+    return user?.role === "admin";
+  },
+
+  fetchFragment: async (request) => {
+    return fetch("https://admin.example.com/panel", {
+      headers: request.headers,
+    });
+  },
+
+  transformRequest: (request) => {
+    const url = new URL(request.url);
+    url.searchParams.set("theme", "dark");
+    return new Request(url.toString(), request);
+  },
+});
+
+export default gateway;
+----

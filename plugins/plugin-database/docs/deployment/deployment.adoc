@@ -1,0 +1,48 @@
+= Deploy
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+O deploy do `plugin-database` geralmente envolve configurar as variáveis de ambiente corretas para conectar aos serviços de banco de dados provisionados.
+
+== Docker
+
+O plugin não requer container adicional, ele roda dentro do runtime do Buntime. No entanto, ele depende de bancos de dados externos.
+
+Exemplo de `docker-compose.yml` para desenvolvimento com libSQL (sqld):
+
+[source,yaml]
+----
+services:
+  app:
+    build: .
+    environment:
+      - LIBSQL_URL_0=http://libsql:8080
+    depends_on:
+      - libsql
+
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - SQLD_NODE=primary
+----
+
+== Serverless (Cloudflare Workers / Bun)
+
+Como o plugin suporta adapters HTTP (para libSQL), ele é compatível com ambientes que não permitem conexões TCP persistentes ou que têm limites de tempo de execução estritos.
+
+Certifique-se de usar a configuração de adapter `libsql` com URL `http://` ou `https://`.
+
+== Migrações em Produção
+
+Recomendamos que migrações de schema sejam executadas em uma etapa separada do pipeline de CD (Continuous Deployment), antes do deploy da nova versão da aplicação.
+
+Exemplo de comando de pipeline:
+`bun run migrate:up`
+
+O plugin em si não executa migrações automáticas no startup para evitar conflitos em ambientes escalados (múltiplas instâncias tentando migrar ao mesmo tempo).

@@ -1,0 +1,845 @@
+== Rotas da API
+
+O servidor Buntime expõe quatro grupos principais de rotas: deployments, plugins info, piercing fragments e worker routes.
+
+=== Deployments API
+
+Gerencia o ciclo de vida de aplicações worker (upload, listagem, download, exclusão, etc.).
+
+Base path: `/api/deployments`
+
+==== GET /api/deployments/list
+
+Lista o conteúdo de um diretório de apps.
+
+Query Parameters:
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `path`
+| string
+| Caminho relativo do diretório (opcional, padrão: raiz)
+|===
+
+Exemplo:
+
+[source,bash]
+----
+GET /api/deployments/list?path=my-app
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true,
+  "data": {
+    "entries": [
+      {
+        "name": "1.0.0",
+        "type": "directory",
+        "size": 4096,
+        "mtime": 1702500000000
+      },
+      {
+        "name": "index.ts",
+        "type": "file",
+        "size": 2048,
+        "mtime": 1702500000000
+      }
+    ],
+    "path": "my-app"
+  }
+}
+----
+
+==== POST /api/deployments/mkdir
+
+Cria um novo diretório.
+
+Request Body:
+
+[source,json]
+----
+{
+  "path": "my-app/1.0.0"
+}
+----
+
+Validações:
+
+- Verifica conflitos com rotas de plugins (top-level apenas)
+- Não permite nomes que conflitem com `/api/*` ou rotas registradas por plugins
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+Erros:
+
+[source,json]
+----
+{
+  "error": "App name \"api\" conflicts with plugin \"@buntime/plugin-metrics\". Choose a different name.",
+  "code": "APP_NAME_CONFLICT"
+}
+----
+
+==== DELETE /api/deployments/delete
+
+Remove um arquivo ou diretório.
+
+Request Body:
+
+[source,json]
+----
+{
+  "path": "my-app/1.0.0"
+}
+----
+
+Validações:
+
+- Não permite deletar raiz (`""` ou `"/"`)
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+==== POST /api/deployments/rename
+
+Renomeia um arquivo ou diretório.
+
+Request Body:
+
+[source,json]
+----
+{
+  "path": "my-app/1.0.0",
+  "newName": "1.0.1"
+}
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+==== POST /api/deployments/move
+
+Move um arquivo ou diretório para outro local.
+
+Request Body:
+
+[source,json]
+----
+{
+  "path": "my-app/1.0.0",
+  "destPath": "archived/my-app/1.0.0"
+}
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+==== POST /api/deployments/upload
+
+Faz upload de arquivos para um diretório específico. Suporta arquivos ZIP (extraídos automaticamente) e arquivos individuais.
+
+Content-Type: `multipart/form-data`
+
+Form Data:
+
+[cols="1,1,3"]
+|===
+| Campo | Tipo | Descrição
+
+| `path`
+| string
+| Diretório de destino (opcional, padrão: raiz)
+
+| `files`
+| File[]
+| Array de arquivos para upload
+
+| `paths`
+| string[]
+| Caminhos relativos correspondentes a cada arquivo (opcional)
+|===
+
+Validações:
+
+- Verifica conflitos com rotas de plugins (top-level apenas)
+- Extrai automaticamente arquivos `.zip`
+
+Exemplo (cURL):
+
+[source,bash]
+----
+curl -X POST http://localhost:8000/api/deployments/upload \
+  -F "path=my-app/1.0.0" \
+  -F "files=@index.html" \
+  -F "files=@index.ts" \
+  -F "paths=index.html" \
+  -F "paths=index.ts"
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+==== GET /api/deployments/refresh
+
+Invalida o cache `.dirinfo` de um diretório, forçando recarregamento.
+
+Query Parameters:
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `path`
+| string
+| Caminho do diretório (opcional, padrão: raiz)
+|===
+
+Exemplo:
+
+[source,bash]
+----
+GET /api/deployments/refresh?path=my-app
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+==== POST /api/deployments/refresh
+
+Versão POST da rota refresh (aceita JSON).
+
+Request Body:
+
+[source,json]
+----
+{
+  "path": "my-app"
+}
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+==== GET /api/deployments/download
+
+Baixa um arquivo ou diretório (diretórios são compactados como ZIP).
+
+Query Parameters:
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `path`
+| string
+| Caminho do arquivo ou diretório (obrigatório)
+|===
+
+Exemplo:
+
+[source,bash]
+----
+GET /api/deployments/download?path=my-app/1.0.0
+----
+
+Resposta:
+
+- Arquivo: Stream do arquivo com `Content-Disposition: attachment`
+- Diretório: ZIP stream (exclui `.dirinfo`)
+
+Headers:
+
+[source,http]
+----
+Content-Disposition: attachment; filename="1.0.0.zip"
+Content-Type: application/zip
+----
+
+==== POST /api/deployments/delete-batch
+
+Remove múltiplos arquivos ou diretórios em uma única operação.
+
+Request Body:
+
+[source,json]
+----
+{
+  "paths": [
+    "my-app/1.0.0",
+    "my-app/1.0.1",
+    "old-app"
+  ]
+}
+----
+
+Comportamento:
+
+- Ignora raiz (`""` ou `"/"`) silenciosamente
+- Continua processando mesmo se houver erros
+- Retorna lista de erros (se houver)
+
+Resposta (sucesso completo):
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+Resposta (com erros):
+
+[source,json]
+----
+{
+  "success": true,
+  "errors": [
+    "my-app/2.0.0: Path not found"
+  ]
+}
+----
+
+==== POST /api/deployments/move-batch
+
+Move múltiplos arquivos ou diretórios para um destino comum.
+
+Request Body:
+
+[source,json]
+----
+{
+  "paths": [
+    "my-app/1.0.0",
+    "my-app/1.0.1"
+  ],
+  "destPath": "archived"
+}
+----
+
+Comportamento:
+
+- Continua processando mesmo se houver erros
+- Retorna lista de erros (se houver)
+
+Resposta (sucesso completo):
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+Resposta (com erros):
+
+[source,json]
+----
+{
+  "success": true,
+  "errors": [
+    "my-app/2.0.0: Path not found"
+  ]
+}
+----
+
+==== GET /api/deployments/download-batch
+
+Baixa múltiplos arquivos ou diretórios como um único arquivo ZIP.
+
+Query Parameters:
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `paths`
+| string
+| Lista de caminhos separados por vírgula
+|===
+
+Exemplo:
+
+[source,bash]
+----
+GET /api/deployments/download-batch?paths=my-app/1.0.0,other-app/2.0.0
+----
+
+Comportamento:
+
+- Cria diretório temporário (`/tmp/buntime-download-*`)
+- Copia todos os itens para o temporário
+- Compacta como ZIP (exclui `.dirinfo`)
+- Remove temporário após streaming
+
+Resposta:
+
+Headers:
+
+[source,http]
+----
+Content-Disposition: attachment; filename="download-1702500000000.zip"
+Content-Type: application/zip
+----
+
+=== Plugins Info API
+
+Retorna informações sobre todos os plugins carregados.
+
+Base path: `/api/plugins`
+
+==== GET /api/plugins
+
+Lista todos os plugins carregados com suas configurações.
+
+Exemplo:
+
+[source,bash]
+----
+GET /api/plugins
+----
+
+Resposta:
+
+[source,json]
+----
+[
+  {
+    "name": "@buntime/plugin-metrics",
+    "base": "/api/metrics",
+    "fragment": {
+      "enabled": true,
+      "type": "iframe",
+      "origin": "http://localhost:8000/api/metrics",
+      "preloadStyles": "index.css"
+    },
+    "menus": [
+      {
+        "label": "Metrics",
+        "path": "/api/metrics",
+        "icon": "lucide:activity"
+      }
+    ],
+    "dependencies": [],
+    "optionalDependencies": []
+  },
+  {
+    "name": "@buntime/plugin-keyval",
+    "base": "/api/keyval",
+    "fragment": {
+      "enabled": true,
+      "type": "module",
+      "preloadStyles": "index.css"
+    },
+    "menus": [
+      {
+        "label": "KeyVal",
+        "path": "/api/keyval",
+        "icon": "lucide:database"
+      }
+    ],
+    "dependencies": [],
+    "optionalDependencies": []
+  },
+  {
+    "name": "@buntime/plugin-authn",
+    "base": "/api/authn",
+    "fragment": {
+      "enabled": false
+    },
+    "menus": [],
+    "dependencies": [],
+    "optionalDependencies": []
+  }
+]
+----
+
+Estrutura de Plugin:
+
+[cols="1,1,3"]
+|===
+| Campo | Tipo | Descrição
+
+| `name`
+| string
+| Nome do plugin (package name)
+
+| `base`
+| string
+| Base path das rotas do plugin
+
+| `fragment.enabled`
+| boolean
+| Se o plugin tem interface visual
+
+| `fragment.type`
+| "iframe" \| "module"
+| Tipo de carregamento do frontend (opcional)
+
+| `fragment.origin`
+| string
+| Origem para iframes (opcional)
+
+| `fragment.preloadStyles`
+| string
+| Arquivo CSS para preload (opcional)
+
+| `menus`
+| array
+| Items de navegação para sidebar
+
+| `dependencies`
+| string[]
+| Plugins obrigatórios
+
+| `optionalDependencies`
+| string[]
+| Plugins opcionais
+|===
+
+=== Piercing Fragment API
+
+Gerencia o carregamento dinâmico de fragmentos de plugins para o web component `piercing-fragment-outlet`.
+
+==== ALL /piercing-fragment/:fragmentId
+
+Serve o HTML de um fragmento de plugin.
+
+===== Parameters
+
+[cols="1,1,2"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `fragmentId`
+| string (path)
+| Nome curto do plugin (ex: "logs" para "@buntime/plugin-logs")
+|===
+
+===== Response
+
+Sucesso (200):
+
+Retorna a resposta HTML do plugin com injeção apropriada do base path.
+
+Erros:
+
+- `404 Not Found` - Fragmento não encontrado ou plugin não tem configuração de fragmento
+- `503 Service Unavailable` - Worker indisponível
+- `500 Internal Server Error` - Erro na execução do worker
+
+IMPORTANT: Erros relacionados a plugins podem usar formato simplificado `{ "error": "message" }` ao invés do formato padronizado com `code`.
+
+==== ALL /piercing-fragment/:fragmentId/*
+
+Serve caminhos aninhados dentro de um fragmento de plugin (mesmo comportamento da rota acima, mas para rotas aninhadas).
+
+=== Worker Routes
+
+Roteamento dinâmico para aplicações worker. Suporta versionamento semântico e descoberta automática de apps.
+
+==== Formato de Apps
+
+O runtime suporta dois formatos de diretório:
+
+Flat (app@version):
+
+[source]
+----
+apps/
+  my-app@1.0.0/
+  my-app@1.0.1/
+  my-app@2.0.0/
+----
+
+Nested (app/version):
+
+[source]
+----
+apps/
+  my-app/
+    1.0.0/
+    1.0.1/
+    2.0.0/
+----
+
+==== Resolução de Versões
+
+O runtime usa semver para encontrar a versão correta:
+
+[cols="1,2,2"]
+|===
+| Request | Descrição | Resolve para
+
+| `/my-app/*`
+| Versão mais recente
+| `2.0.0`
+
+| `/my-app@1/*`
+| Versão mais recente 1.x.x
+| `1.0.1`
+
+| `/my-app@1.0/*`
+| Versão mais recente 1.0.x
+| `1.0.1`
+
+| `/my-app@1.0.0/*`
+| Versão exata
+| `1.0.0`
+
+| `/my-app@^1.0.0/*`
+| Range semver
+| `1.0.1`
+|===
+
+==== Entrypoints
+
+O runtime busca entrypoints nesta ordem de prioridade:
+
+1. `index.html` (servido como SPA estático)
+2. `index.ts` (worker JavaScript)
+3. `index.js` (worker JavaScript)
+4. `index.mjs` (worker JavaScript)
+
+Entrypoints podem ser customizados em `worker.jsonc`:
+
+[source,json]
+----
+{
+  "entrypoint": "server.ts"
+}
+----
+
+==== ALL /:app/*
+
+Roteia todas as requisições para uma aplicação worker.
+
+Path Parameters:
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `app`
+| string
+| Nome da aplicação com versão opcional
+|===
+
+Exemplos:
+
+[source,bash]
+----
+# Versão mais recente
+GET /my-app/users
+
+# Versão específica
+GET /my-app@1.0.0/users
+
+# Range semver
+GET /my-app@^1.0.0/users
+----
+
+Processo:
+
+1. Verifica se é plugin app (rotas registradas por plugins)
+2. Resolve versão no APPS_DIR usando semver
+3. Carrega worker config (`worker.jsonc`)
+4. Encontra entrypoint (HTML ou TS/JS)
+5. Cria/reutiliza worker do pool
+6. Injeta header `x-base` com base path (`/my-app`)
+7. Encaminha requisição
+
+Headers Especiais:
+
+[cols="1,3"]
+|===
+| Header | Descrição
+
+| `x-base`
+| Base path injetado pelo runtime (ex: `/my-app`)
+|===
+
+Resposta:
+
+- Depende da aplicação worker
+- Para SPAs (index.html): serve assets estáticos e fallback para index.html
+
+==== GET /*
+
+Rota fallback para a raiz (quando nenhuma outra rota corresponde).
+
+Comportamento:
+
+- Se `shell` está configurado no runtime: roteia para app shell
+- Caso contrário: retorna texto `"Buntime v{version}"`
+
+Exemplo com shell:
+
+[source,bash]
+----
+GET /
+# Redireciona para shell app configurado
+----
+
+Exemplo sem shell:
+
+[source,bash]
+----
+GET /
+# Retorna: "Buntime v1.0.0"
+----
+
+==== Plugin Apps
+
+Plugins podem registrar apps próprios que são servidos como workers:
+
+[source,typescript]
+----
+// No plugin
+{
+  name: "@buntime/plugin-keyval",
+  apps: [
+    {
+      basePath: "/api/keyval",
+      dir: "/path/to/plugin-keyval/app",
+      config: { workers: 2 }
+    }
+  ]
+}
+----
+
+Processo:
+
+1. Plugin registra app durante inicialização
+2. Requisições para `/api/keyval/*` são interceptadas
+3. Runtime carrega worker do diretório do plugin
+4. Worker recebe pathname relativo ao basePath
+
+Diferenças de apps normais:
+
+- Não usa APPS_DIR (usa diretório do plugin)
+- Não suporta versionamento
+- Integrado ao ciclo de vida do plugin
+
+=== Arquitetura de Roteamento
+
+Ordem de resolução de rotas:
+
+1. **Plugin Routes** - Rotas montadas por plugins via Hono (ex: `/api/metrics/*`)
+2. **Deployments API** - `/api/deployments/*` (rotas montadas)
+3. **Piercing Fragment API** - `/piercing-fragment/:fragmentId/*` (rotas montadas)
+4. **Plugins Info API** - `/api/plugins` (rota montada)
+5. **Plugin Apps** - Apps registrados por plugins (ex: `/api/keyval/*`) (catch-all handler)
+6. **Worker Routes** - Apps em APPS_DIR (ex: `/my-app/*`) (catch-all handler)
+7. **Shell/Fallback** - Raiz `/` (catch-all handler)
+
+NOTE: Rotas 1-4 são montadas no Hono e têm prioridade sobre os catch-all handlers (5-7) que processam requisições não capturadas pelas rotas montadas.
+
+=== Estrutura de Erros
+
+Todas as rotas retornam erros no formato padronizado:
+
+[source,json]
+----
+{
+  "error": "Mensagem de erro legível",
+  "code": "ERROR_CODE"
+}
+----
+
+NOTE: Rotas relacionadas a plugins (como Piercing Fragment API e Plugin Apps) podem usar formato simplificado `{ "error": "message" }` sem o campo `code`.
+
+Códigos de erro comuns:
+
+[cols="1,2,2"]
+|===
+| Código | Descrição | Status HTTP
+
+| `APP_NAME_CONFLICT`
+| Nome de app conflita com plugin
+| 400
+
+| `APP_NAME_RESERVED`
+| Nome de app reservado por plugin
+| 400
+
+| `PATH_REQUIRED`
+| Path obrigatório ausente
+| 400
+
+| `PATHS_REQUIRED`
+| Paths obrigatórios ausentes
+| 400
+
+| `PATH_AND_NAME_REQUIRED`
+| Path e newName obrigatórios
+| 400
+
+| `DEST_PATH_REQUIRED`
+| Destination path obrigatório
+| 400
+
+| `CANNOT_DELETE_ROOT`
+| Tentativa de deletar raiz
+| 400
+
+| `NO_FILES_PROVIDED`
+| Upload sem arquivos
+| 400
+
+| `DOWNLOAD_FAILED`
+| Falha ao criar download
+| 400
+
+| `FILE_NOT_FOUND`
+| Arquivo não encontrado
+| 404
+|===

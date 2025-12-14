@@ -10,12 +10,14 @@ export function getPluginShortName(pluginName: string): string {
  * Get the default base path for a plugin
  * Used for both API routes and fragment apps
  *
- * All plugin routes are under /{base}/*:
- * - Fragment UI: /{base}/
- * - API routes: /{base}/api/*
+ * All plugin routes are under /p/{name}/*:
+ * - Fragment UI: /p/{name}/
+ * - API routes: /p/{name}/api/*
  *
- * @example "@buntime/plugin-keyval" -> "/keyval"
+ * The /p/ prefix ensures plugin routes don't conflict with app workers.
+ *
+ * @example "@buntime/plugin-keyval" -> "/p/keyval"
  */
 export function getPluginBase(pluginName: string): string {
-  return `/${getPluginShortName(pluginName)}`;
+  return `/p/${getPluginShortName(pluginName)}`;
 }

@@ -1,0 +1,129 @@
+= Internals e Implementação
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+Este documento detalha o funcionamento interno do `plugin-database`, focado em como o `DatabaseService` e os adapters funcionam "debaixo do capô".
+
+== Gerenciamento de Conexões e Cache
+
+O `DatabaseService` mantém um cache de adapters instanciados para evitar recriação de objetos e conexões desnecessárias.
+
+=== Mapa de Adapters
+
+Internamente, o serviço mantém:
+
+[source,typescript]
+----
+private adapters = new Map<string, DatabaseAdapter>();
+----
+
+A chave do mapa é o `tenantId`. Para o adapter root, usa-se uma chave especial (ex: `__root__`).
+
+*   **Cache Hit**: Se o adapter existe, é retornado imediatamente.
+*   **Cache Miss**: Um novo adapter é instanciado, configurado e armazenado.
+
+=== Ciclo de Vida do Adapter
+
+1.  **Instanciação**: O construtor do adapter é leve. Conexões de rede geralmente não são abertas aqui.
+2.  **Primeiro Uso**: A conexão real (TCP socket ou HTTP handshake) ocorre na primeira query (Lazy Connection), dependendo do driver subjacente.
+3.  **Idle**: Adapters ociosos podem ser limpos se implementarmos um mecanismo de LRU/TTL (atualmente mantidos enquanto o plugin roda).
+4.  **Close**: No shutdown do plugin, iteramos sobre `adapters.values()` chamando `close()` em cada um.
+
+== Implementação dos Adapters
+
+=== LibSqlAdapter
+
+O adaptador para libSQL é o mais complexo devido ao suporte a HTTP, WebSockets e Replicação.
+
+==== Cliente HTTP/WebSocket
+
+Usa a biblioteca `@libsql/client`.
+
+*   **Modo HTTP**: Stateless. Cada `execute` é um fetch. Ideal para serverless.
+*   **Modo WebSocket**: Stateful. Mantém conexão persistente. Melhor latência.
+
+==== Lógica de Replicação
+
+Se `replicaUrls` são fornecidos, o adapter implementa um Load Balancer interno simples:
+
+[source,typescript]
+----
+// Simplificado
+class LibSqlAdapter {
+  private replicas: Client[];
+  private primary: Client;
+  private replicaIndex = 0;
+
+  async execute(sql: string) {
+    if (isReadQuery(sql) && this.replicas.length > 0) {
+      const replica = this.replicas[this.replicaIndex];
+      this.replicaIndex = (this.replicaIndex + 1) % this.replicas.length;
+      return replica.execute(sql);
+    }
+    return this.primary.execute(sql);
+  }
+}
+----
+
+*   **Write Routing**: `INSERT`, `UPDATE`, `DELETE`, `BEGIN` sempre vão para o Primary.
+*   **Read Routing**: `SELECT` vai para réplicas (Round-Robin).
+
+==== Transaction Handling
+
+No libSQL via HTTP, transações são tratadas de forma especial. O cliente `@libsql/client` suporta transações interativas mesmo sobre HTTP (usando sessões/tokens de transação).
+
+[source,typescript]
+----
+async transaction(fn) {
+  const tx = await this.client.transaction();
+  try {
+    const result = await fn(new TransactionAdapter(tx));
+    await tx.commit();
+    return result;
+  } catch (e) {
+    await tx.rollback();
+    throw e;
+  }
+}
+----
+
+=== BunSqlAdapter
+
+O adaptador para PostgreSQL/MySQL usa o cliente nativo `bun:sql`.
+
+==== Connection Pooling
+
+O `bun:sql` gerencia seu próprio pool de conexões nativas. O `BunSqlAdapter` é essencialmente um wrapper ao redor da instância `SQL` do Bun.
+
+==== Multi-Tenancy com Postgres
+
+Para Postgres, a estratégia de multi-tenancy pode variar:
+
+1.  **Schema-based**: O adapter configura o `search_path` para o tenant antes de executar a query.
+    *   *Desafio*: `bun:sql` não suporta facilmente "sessão por query" no mesmo pool.
+    *   *Solução*: Frequentemente requer instanciar um novo cliente `SQL` com a connection string apontando o schema ou executar `SET search_path` dentro de uma transação.
+    *   *Implementação Atual*: A implementação foca em **Database-per-tenant** ou **Schema-per-tenant** criando novas instâncias de cliente.
+
+== Auto-Criação de Tenants
+
+Quando `autoCreate: true` está configurado, o fluxo é:
+
+1.  Usuário pede `getAdapter("novo-tenant")`.
+2.  Service detecta que não tem adapter.
+3.  Service chama `TenantManager.ensureTenant("novo-tenant")`.
+    *   **libSQL**: Chama a Admin API (mesma URL do primary) para criar o namespace.
+        `POST /v1/namespaces/novo-tenant/create`
+    *   **Postgres**: Executa `CREATE SCHEMA IF NOT EXISTS "novo-tenant"`.
+4.  Após confirmação, o adapter é instanciado e retornado.
+
+== Tratamento de Erros
+
+O plugin tenta normalizar erros comuns, embora vazamentos de abstração sejam inevitáveis em SQL.
+
+*   **Connection Errors**: Retentativas automáticas podem ser implementadas no nível do driver (libSQL client faz isso).
+*   **Constraint Violations**: Repassados como erros originais do driver.
+*   **Tenant Not Found**: Lança erro específico se `autoCreate` for false.

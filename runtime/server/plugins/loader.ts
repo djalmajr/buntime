@@ -336,15 +336,26 @@ export class PluginLoader {
       );
     }
 
-    // Override base from config if specified
+    // Normalize plugin base to always include /p/ prefix
+    // This ensures consistent routing for all plugins
+    const normalizeBase = (base: string): string => {
+      if (!base.startsWith("/p/")) {
+        return `/p/${base.replace(/^\//, "")}`;
+      }
+      return base;
+    };
+
+    // Override base from config if specified, otherwise normalize plugin's own base
     if (options.base !== undefined) {
-      plugin.base = options.base as string;
+      plugin.base = normalizeBase(options.base as string);
+    } else if (plugin.base !== undefined) {
+      plugin.base = normalizeBase(plugin.base);
     }
 
     // Create context for initialization with service access
     const registry = this.registry;
     const globalConfig = {
-      appsDirs: this.config.appsDir || ["./apps"],
+      appsDirs: this.config.appsDirs || ["./apps"],
       poolSize: this.config.poolSize || 100,
     };
 

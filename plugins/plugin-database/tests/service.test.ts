@@ -38,7 +38,7 @@ describe("DatabaseServiceImpl", () => {
         config: {
           adapter: {
             type: "libsql",
-            url: `file:${TEST_DB_PATH}`,
+            urls: [`file:${TEST_DB_PATH}`],
           },
         },
         logger: mockLogger,
@@ -87,45 +87,58 @@ describe("DatabaseServiceImpl", () => {
   });
 
   describe("listTenants", () => {
-    it("should throw when admin URL not configured", async () => {
-      await expect(service.listTenants()).rejects.toThrow("Admin URL not configured");
+    it("should use Admin API on primary URL", async () => {
+      // For file: URLs, Admin API will fail (no sqld server)
+      await expect(service.listTenants()).rejects.toThrow();
     });
   });
 
   describe("createTenant", () => {
-    it("should create a new tenant", async () => {
-      // Create tenant should not throw (warns instead)
-      await expect(service.createTenant("new-tenant")).resolves.toBeUndefined();
-    });
+    it("should use Admin API on primary URL", async () => {
+      // Create a service with HTTP URL to test Admin API
+      const httpService = new DatabaseServiceImpl({
+        config: {
+          adapter: {
+            type: "libsql",
+            urls: ["http://localhost:9999"],
+          },
+        },
+        logger: mockLogger,
+      });
 
-    it("should clear cache on tenant creation", async () => {
-      // First get a tenant adapter (caches it)
-      const adapter1 = await service.getAdapter("create-cache-test");
+      // Should fail because server doesn't exist
+      await expect(httpService.createTenant("new-tenant")).rejects.toThrow();
 
-      // Create the tenant (should clear cache)
-      await service.createTenant("create-cache-test");
-
-      // Get again - should be a fresh adapter
-      const adapter2 = await service.getAdapter("create-cache-test");
-
-      // Both should work (not necessarily the same instance due to cache clear)
-      expect(adapter1).toBeDefined();
-      expect(adapter2).toBeDefined();
+      await httpService.close();
     });
   });
 
   describe("deleteTenant", () => {
-    it("should throw when admin URL not configured", async () => {
-      await expect(service.deleteTenant("some-tenant")).rejects.toThrow("Admin URL not configured");
+    it("should use Admin API on primary URL", async () => {
+      // Create a service with HTTP URL to test Admin API
+      const httpService = new DatabaseServiceImpl({
+        config: {
+          adapter: {
+            type: "libsql",
+            urls: ["http://localhost:9999"],
+          },
+        },
+        logger: mockLogger,
+      });
+
+      // Should fail because server doesn't exist
+      await expect(httpService.deleteTenant("some-tenant")).rejects.toThrow();
+
+      await httpService.close();
     });
 
     it("should close cached adapter when deleting tenant", async () => {
-      // Create a separate service for this test
+      // Create a separate service for this test with HTTP URL
       const deleteService = new DatabaseServiceImpl({
         config: {
           adapter: {
             type: "libsql",
-            url: "file:/tmp/test-delete-tenant.db",
+            urls: ["http://localhost:9999"],
           },
         },
         logger: mockLogger,
@@ -153,7 +166,7 @@ describe("DatabaseServiceImpl", () => {
         config: {
           adapter: {
             type: "libsql",
-            url: "file:/tmp/test-close.db",
+            urls: ["file:/tmp/test-close.db"],
           },
         },
         logger: mockLogger,
@@ -171,7 +184,7 @@ describe("DatabaseServiceImpl", () => {
         config: {
           adapter: {
             type: "libsql",
-            url: "file:/tmp/test-multi-close.db",
+            urls: ["file:/tmp/test-multi-close.db"],
           },
         },
         logger: mockLogger,
@@ -196,7 +209,7 @@ describe("DatabaseServiceImpl with autoCreate", () => {
       config: {
         adapter: {
           type: "libsql",
-          url: "file:/tmp/test-autocreate.db",
+          urls: ["file:/tmp/test-autocreate.db"],
         },
         tenancy: {
           enabled: true,

@@ -1,3 +1,10 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
 == Deployment
 
 === Docker Compose com libSQL
@@ -35,12 +42,13 @@ Configure o plugin no `buntime.jsonc`:
 ----
 {
   "plugins": [
-    [
-      "@buntime/plugin-keyval",
-      {
-        "libsqlUrl": "http://localhost:8880"
+    ["@buntime/plugin-database", {
+      "adapter": {
+        "type": "libsql",
+        "urls": ["http://localhost:8880"]
       }
-    ]
+    }],
+    "@buntime/plugin-keyval"
   ]
 }
 ----
@@ -88,7 +96,7 @@ services:
     ports:
       - "4000:4000"  # Apenas o runner é exposto
     environment:
-      - LIBSQL_URL=http://libsql:8080
+      - LIBSQL_URL_0=http://libsql:8080
     networks:
       - internal
     depends_on:
@@ -144,149 +152,30 @@ Configure o plugin com o token:
 ----
 {
   "plugins": [
-    [
-      "@buntime/plugin-keyval",
-      {
-        "libsqlUrl": "http://libsql:8080",
-        "libsqlToken": "${LIBSQL_TOKEN}"
+    ["@buntime/plugin-database", {
+      "adapter": {
+        "type": "libsql",
+        "urls": ["http://libsql:8080"],
+        "authToken": "${LIBSQL_TOKEN}"
       }
-    ]
+    }],
+    "@buntime/plugin-keyval"
   ]
 }
 ----
 
 TIP: Para mais detalhes sobre autenticação do sqld, consulte https://github.com/tursodatabase/libsql/blob/main/docs/AUTH.md[documentação oficial].
 
-=== Configuração de Replicação
+=== Replicação
 
-==== Arquitetura Primary + Replica
+Para configurar réplicas libSQL e escalar leituras horizontalmente, consulte a documentação do link:../../../plugin-database/docs/adapters/libsql-replication.adoc[@buntime/plugin-database] que inclui:
 
-libSQL suporta replicação para escalar leituras:
-
-[source]
-----
-┌──────────────┐         ┌──────────────┐
-│   Primary    │────────▶│   Replica 1  │
-│  (Writes)    │         │   (Reads)    │
-└──────────────┘         └──────────────┘
-       │
-       │                 ┌──────────────┐
-       └────────────────▶│   Replica 2  │
-                         │   (Reads)    │
-                         └──────────────┘
-----
-
-- **Primary**: Único escritor, recebe todas as escritas
-- **Replicas**: Apenas leitura, sincronizam do primary
-
-==== Docker Compose com Replicação
-
-[source,yaml]
-----
-# docker-compose.yml
-services:
-  libsql-primary:
-    image: ghcr.io/tursodatabase/libsql-server:latest
-    ports:
-      - "8880:8080"
-    volumes:
-      - libsql-primary-data:/var/lib/sqld
-    environment:
-      - SQLD_NODE=primary
-
-  libsql-replica:
-    image: ghcr.io/tursodatabase/libsql-server:latest
-    ports:
-      - "8881:8080"
-    volumes:
-      - libsql-replica-data:/var/lib/sqld
-    environment:
-      - SQLD_NODE=replica
-      - SQLD_PRIMARY_URL=http://libsql-primary:8080
-    depends_on:
-      - libsql-primary
-
-volumes:
-  libsql-primary-data:
-  libsql-replica-data:
-----
-
-Configure no `buntime.jsonc`:
-
-[source,jsonc]
-----
-{
-  "plugins": [
-    [
-      "@buntime/plugin-keyval",
-      {
-        "libsqlUrl": "http://localhost:8880",           // Primary
-        "libsqlReplicaUrl": "http://localhost:8881"    // Replica
-      }
-    ]
-  ]
-}
-----
-
-TIP: Coloque réplicas próximas aos usuários finais para reduzir latência de leitura.
+- Arquitetura primary + replicas
+- Fluxo de operações de leitura/escrita
+- Configuração de múltiplas réplicas
+- Load balancing e consistência eventual
 
 === Considerações de Escala
-
-==== libSQL é Single-Writer
-
-O libSQL herda a arquitetura single-writer do SQLite:
-
-- **1 escritor**: Apenas o primary aceita writes
-- **N leitores**: Réplicas escalam leituras horizontalmente
-- **Serialização**: Writes são serializadas no primary
-
-[cols="1,2"]
-|===
-| Operação | Onde Executa
-
-| `set()`, `delete()`
-| Primary (write)
-
-| `get()`, `list()`, `watch()`
-| Replica se disponível, senão Primary
-
-| Transações (`atomic()`)
-| Primary (write)
-
-| Índices secundários
-| Replica (read)
-|===
-
-==== Escala de Leituras via Réplicas
-
-Para workloads read-heavy:
-
-1. **Adicione réplicas** em regiões geográficas
-2. **Configure DNS** para rotear tráfego à réplica mais próxima
-3. **Use CDN** para cache de valores raramente alterados
-
-Exemplo de distribuição:
-
-[source]
-----
-┌─────────────────────────────────────────────────────────┐
-│                      Load Balancer                      │
-│                   (geolocation routing)                 │
-└─────────────────────────────────────────────────────────┘
-            │                    │                    │
-            ▼                    ▼                    ▼
-   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-   │  Replica US  │    │ Replica EU   │    │ Replica APAC │
-   │   (Reads)    │    │  (Reads)     │    │   (Reads)    │
-   └──────────────┘    └──────────────┘    └──────────────┘
-            │                    │                    │
-            └────────────────────┼────────────────────┘
-                                 ▼
-                         ┌──────────────┐
-                         │   Primary    │
-                         │   (Writes)   │
-                         └──────────────┘
-----
 
 ==== Limites de Conexão
 
@@ -521,13 +410,17 @@ rate(keyval_queue_items_processed_total[5m])
 {
   "plugins": [
     [
+      "@buntime/plugin-database",
+      {
+        "adapter": {
+          "type": "libsql",
+          "authToken": "${LIBSQL_TOKEN}"
+        }
+      }
+    ],
+    [
       "@buntime/plugin-keyval",
       {
-        // === Conexão ===
-        "libsqlUrl": "${LIBSQL_URL}",
-        "libsqlToken": "${LIBSQL_TOKEN}",
-        "libsqlReplicaUrl": "${LIBSQL_REPLICA_URL}",
-
         // === Queue ===
         "queue": {
           // Intervalo de limpeza de locks expirados (ms)
@@ -678,17 +571,21 @@ TIP: Para produção, use `flushInterval: 30000` (30 segundos) como compromisso 
 [source,jsonc]
 ----
 {
-  "required": ["@buntime/plugin-metrics", "@buntime/plugin-keyval"],
+  "required": ["@buntime/plugin-metrics", "@buntime/plugin-database", "@buntime/plugin-keyval"],
   "plugins": [
     "@buntime/plugin-metrics",
     [
+      "@buntime/plugin-database",
+      {
+        "adapter": {
+          "type": "libsql",
+          "authToken": "${LIBSQL_TOKEN}"
+        }
+      }
+    ],
+    [
       "@buntime/plugin-keyval",
       {
-        // Conexão libSQL
-        "libsqlUrl": "${LIBSQL_URL}",
-        "libsqlToken": "${LIBSQL_TOKEN}",
-        "libsqlReplicaUrl": "${LIBSQL_REPLICA_URL}",
-
         // Queue otimizada para produção
         "queue": {
           "cleanupInterval": 300000,     // 5 minutos
@@ -709,9 +606,9 @@ TIP: Para produção, use `flushInterval: 30000` (30 segundos) como compromisso 
 [source,bash]
 ----
 # Variáveis de ambiente
-export LIBSQL_URL="http://libsql:8080"
+export LIBSQL_URL_0="http://libsql:8080"
+export LIBSQL_URL_1="http://libsql-replica:8080"  # Opcional
 export LIBSQL_TOKEN="seu-token-jwt"
-export LIBSQL_REPLICA_URL="http://libsql-replica:8080"
 
 # Iniciar runner
 bun run runtime/index.ts

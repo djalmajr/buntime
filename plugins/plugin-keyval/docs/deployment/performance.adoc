@@ -1,3 +1,10 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
 == Performance
 
 === Características das Operações
@@ -162,7 +169,7 @@ O plugin-keyval utiliza o `@buntime/plugin-database` para gerenciar conexões:
 ----
 // Configuração do plugin-database
 {
-  "url": "http://localhost:8880",
+  "urls": ["http://localhost:8880"],
   "authToken": "your-token"
 }
 ----

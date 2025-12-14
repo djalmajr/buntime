@@ -1,16 +1,13 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
 == Arquitetura
 
 === Filosofia de Design
-
-==== Compatibilidade com Deno KV
-
-O KeyVal foi projetado para ser compatível com a API do Deno KV, proporcionando:
-
-* **API Familiar**: Mesmos métodos (`get`, `set`, `list`, `atomic`)
-* **Tipos Compatíveis**: Chaves compostas, versionstamps, transações
-* **Comportamento Consistente**: Semântica de operações atômicas e transações
-
-A compatibilidade permite migração fácil e uso de padrões conhecidos da comunidade Deno.
 
 ==== Key-Value vs Relacional
 

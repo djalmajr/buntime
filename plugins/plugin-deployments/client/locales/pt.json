@@ -1,0 +1,82 @@
+{
+  "actions": {
+    "cancel": "Cancelar",
+    "create": "Criar",
+    "delete": "Excluir",
+    "download": "Baixar",
+    "move": "Mover",
+    "newFolder": "Nova Pasta",
+    "refresh": "Atualizar",
+    "rename": "Renomear",
+    "upload": "Upload",
+    "uploadFiles": "Enviar Arquivos",
+    "uploadFolder": "Enviar Pasta"
+  },
+  "batch": {
+    "confirmDelete": {
+      "description": "Tem certeza que deseja excluir {{count}} itens? Esta acao nao pode ser desfeita.",
+      "title": "Excluir Itens"
+    },
+    "selected": "{{count}} selecionados"
+  },
+  "breadcrumb": {
+    "root": "Apps"
+  },
+  "confirmDelete": {
+    "cancel": "Cancelar",
+    "confirm": "Excluir",
+    "description": "Tem certeza que deseja excluir \"{{name}}\"? Esta acao nao pode ser desfeita.",
+    "title": "Excluir Item"
+  },
+  "empty": {
+    "description": "Crie uma nova pasta para comecar.",
+    "descriptionWithUpload": "Arraste e solte arquivos aqui, ou clique para fazer upload. Arquivos ZIP serao extraidos automaticamente.",
+    "title": "Esta pasta esta vazia"
+  },
+  "errors": {
+    "createFolderFailed": "Falha ao criar pasta",
+    "deleteFailed": "Falha ao excluir item",
+    "moveFailed": "Falha ao mover item",
+    "refreshFailed": "Falha ao atualizar",
+    "renameFailed": "Falha ao renomear item",
+    "uploadFailed": "Falha ao enviar arquivos"
+  },
+  "list": {
+    "name": "Nome",
+    "size": "Tamanho"
+  },
+  "move": {
+    "description": "Digite o caminho de destino (ex: nome-app/1.0.0)",
+    "placeholder": "Caminho de destino",
+    "title": "Mover Item"
+  },
+  "newFolder": {
+    "description": "Digite um nome para a nova pasta.",
+    "descriptionApp": "Digite um nome para a aplicacao (kebab-case) ou app com versao (nome-app@1.0.0).",
+    "descriptionVersion": "Digite o numero da versao (versionamento semantico).",
+    "placeholder": "Nome da pasta",
+    "placeholderApp": "minha-app ou minha-app@1.0.0",
+    "placeholderVersion": "1.0.0",
+    "title": "Nova Pasta"
+  },
+  "rename": {
+    "description": "Digite um novo nome para este item.",
+    "placeholder": "Novo nome",
+    "title": "Renomear"
+  },
+  "search": {
+    "noResults": "Nenhum resultado encontrado",
+    "noResultsDescription": "Nenhum arquivo ou pasta corresponde a \"{{term}}\"",
+    "placeholder": "Buscar arquivos e pastas..."
+  },
+  "title": "Deployments",
+  "upload": {
+    "dragActive": "Solte os arquivos aqui...",
+    "uploading": "Enviando arquivos..."
+  },
+  "validation": {
+    "appOrFlat": "Nome deve ser kebab-case (minha-app) ou app com versao (minha-app@1.0.0)",
+    "kebabCase": "Nome deve ser kebab-case (letras minusculas, numeros e hifens)",
+    "semver": "Versao deve seguir versionamento semantico (ex: 1.0.0, 1.0.0-rc.1, 1.0.0-alpha)"
+  }
+}

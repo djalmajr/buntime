@@ -3,8 +3,9 @@
 !.env.example
 
 # Temporary files
-.tanstack
 .cache
+.dirinfo
+.tanstack
 
 # Build and dependencies
 dist/

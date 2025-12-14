@@ -1,0 +1,235 @@
+== Setup Básico
+
+Este exemplo demonstra como configurar um gateway de piercing completo com servidor Hono, registro de fragmentos e HTML shell.
+
+=== Servidor com PiercingGateway
+
+[source,typescript]
+----
+import { Hono } from "hono";
+import { PiercingGateway } from "@buntime/piercing";
+
+const app = new Hono();
+
+// Criar o gateway com configuração mínima
+const gateway = new PiercingGateway({
+  // Retorna o HTML shell da aplicação
+  getShellHtml: async (req) => {
+    return `<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="/styles/main.css">
+  </head>
+  <body>
+    <header>
+      <nav>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/deployments">Deployments</a>
+        <a href="/metrics">Metrics</a>
+      </nav>
+    </header>
+
+    <main id="content">
+      <!-- Outlet onde o fragmento será injetado -->
+      <piercing-fragment-outlet fragment-id="deployments"></piercing-fragment-outlet>
+    </main>
+
+    <!-- Importar script do cliente -->
+    <script type="module" src="/client.js"></script>
+  </body>
+</html>`;
+  },
+
+  // Gerar estado inicial do MessageBus (opcional)
+  generateMessageBusState: async (state, req) => {
+    // Aqui você pode adicionar dados do servidor ao estado inicial
+    return {
+      ...state,
+      theme: "dark",
+      user: {
+        id: "user-123",
+        name: "João Silva",
+        email: "joao@example.com",
+      },
+      environment: "production",
+    };
+  },
+
+  // Controlar quando piercing está habilitado (opcional)
+  shouldPiercingBeEnabled: async (req) => {
+    // Por padrão, sempre habilitado
+    // Você pode adicionar lógica customizada aqui
+    return true;
+  },
+});
+
+// Registrar fragmentos
+gateway.registerFragment({
+  fragmentId: "deployments",
+  framework: "react",
+
+  // Rotas que devem fazer pre-pierce deste fragmento
+  prePierceRoutes: [
+    "/deployments",
+    "/deployments/*",
+  ],
+
+  // Buscar conteúdo SSR do fragmento
+  fetchFragment: async (req) => {
+    // Aqui você faria fetch do worker do fragmento
+    // Por enquanto, retornamos HTML estático
+    return new Response(
+      `<div class="deployments-fragment">
+        <h2>Deployments</h2>
+        <div id="app"></div>
+        <script type="module" src="/fragments/deployments/client.js"></script>
+      </div>`,
+      {
+        headers: {
+          "Content-Type": "text/html",
+        },
+      },
+    );
+  },
+
+  // Servir assets estáticos do fragmento (opcional)
+  serveAssets: async (req) => {
+    const url = new URL(req.url);
+    const path = url.pathname;
+
+    // Lógica para servir JS, CSS, imagens, etc.
+    if (path.endsWith(".js")) {
+      return new Response("// Fragment client code", {
+        headers: { "Content-Type": "application/javascript" },
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
+  },
+});
+
+// Adicionar middleware do gateway à aplicação
+app.use("*", gateway.middleware());
+
+// Rotas da aplicação
+app.get("/api/health", (c) => {
+  return c.json({ status: "ok" });
+});
+
+// Iniciar servidor
+export default {
+  port: 8000,
+  fetch: app.fetch,
+};
+----
+
+=== HTML Shell com Web Components
+
+O HTML shell deve incluir os elementos `<piercing-fragment-outlet>` onde os fragmentos serão injetados:
+
+[source,html]
+----
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8">
+    <title>Dashboard</title>
+  </head>
+  <body>
+    <!-- Navegação do shell -->
+    <nav>
+      <a href="/dashboard">Dashboard</a>
+      <a href="/deployments">Deployments</a>
+    </nav>
+
+    <!-- Área principal -->
+    <main>
+      <!-- Outlet: marca onde o fragmento será renderizado -->
+      <piercing-fragment-outlet fragment-id="deployments">
+        <!-- Loading placeholder (opcional) -->
+        <div class="loading">Carregando...</div>
+      </piercing-fragment-outlet>
+    </main>
+
+    <!-- Script do cliente que registra os web components -->
+    <script type="module">
+      import { registerPiercingComponents } from '@buntime/piercing/client';
+
+      // Registrar <piercing-fragment-outlet> e <piercing-fragment-host>
+      registerPiercingComponents();
+    </script>
+  </body>
+</html>
+----
+
+=== Client Shell Setup
+
+Configure o shell client para escutar eventos dos fragmentos:
+
+[source,typescript]
+----
+import { registerPiercingComponents, getBus } from "@buntime/piercing/client";
+
+// Registrar os web components
+registerPiercingComponents();
+
+// Obter o bus global
+const bus = getBus();
+
+// Escutar eventos de navegação dos fragmentos
+bus.listen("navigate", (payload) => {
+  const { url, replace } = payload;
+
+  if (replace) {
+    window.history.replaceState(null, "", url);
+  } else {
+    window.history.pushState(null, "", url);
+  }
+});
+
+// Escutar notificações dos fragmentos
+bus.listen("notification", (payload) => {
+  const { type, message } = payload;
+
+  // Mostrar notificação na UI do shell
+  showNotification(type, message);
+});
+
+// Despachar evento de tema quando usuário mudar
+document.getElementById("theme-toggle")?.addEventListener("click", () => {
+  const newTheme = bus.state.theme === "dark" ? "light" : "dark";
+
+  bus.dispatch("theme:changed", newTheme);
+
+  // Atualizar tema local
+  document.documentElement.setAttribute("data-theme", newTheme);
+});
+
+function showNotification(type: string, message: string) {
+  // Implementação de notificação toast
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  setTimeout(() => toast.remove(), 3000);
+}
+----
+
+=== Resultado
+
+Quando o usuário acessa `/deployments`:
+
+1. Gateway intercepta a requisição
+2. Verifica `prePierceRoutes` e encontra match
+3. Busca o HTML shell via `getShellHtml()`
+4. Busca o fragmento SSR via `fetchFragment()`
+5. Injeta o estado inicial do MessageBus
+6. Combina shell + fragmento em uma resposta HTML
+7. Browser recebe HTML completo com fragmento já renderizado
+8. Web components fazem o "piercing" (movem conteúdo do host para o outlet)
+
+O fragmento está pronto para uso sem flash de carregamento.

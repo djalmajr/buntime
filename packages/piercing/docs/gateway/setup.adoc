@@ -1,0 +1,206 @@
+== Setup do Gateway
+
+O `PiercingGateway` é a peça central da arquitetura Piercing, responsável por gerenciar fragmentos de micro-frontends e injetá-los em respostas HTML.
+
+=== Criação e Configuração
+
+==== Instanciação Básica
+
+[source,typescript]
+----
+import { PiercingGateway } from "@buntime/piercing/gateway";
+
+const gateway = new PiercingGateway({
+  getShellHtml: async (request) => {
+    // Retorna o HTML base da aplicação
+    return `<!DOCTYPE html>
+<html>
+  <head><title>App</title></head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>`;
+  },
+});
+----
+
+==== Opções de Configuração
+
+A interface `PiercingGatewayConfig` aceita as seguintes opções:
+
+[cols="1,1,2"]
+|===
+| Propriedade | Tipo | Descrição
+
+| `getShellHtml`
+| `(request: Request) => Promise<string>`
+| Função que retorna o HTML shell da aplicação. Recebe a requisição para possibilitar geração dinâmica do HTML base
+
+| `generateMessageBusState`
+| `(requestState: MessageBusState, request: Request) => MessageBusState \| Promise<MessageBusState>`
+| Função opcional para gerar o estado inicial do message bus. Útil para injetar dados do servidor (autenticação, configuração, etc.)
+
+| `shouldPiercingBeEnabled`
+| `(request: Request) => boolean \| Promise<boolean>`
+| Função opcional para determinar se o piercing deve ser habilitado para uma requisição específica. Útil para A/B testing ou feature flags
+|===
+
+==== Exemplo de Configuração Completa
+
+[source,typescript]
+----
+const gateway = new PiercingGateway({
+  getShellHtml: async (request) => {
+    const html = await Bun.file("./dist/index.html").text();
+    return html;
+  },
+
+  generateMessageBusState: async (requestState, request) => {
+    // Injeta dados do usuário autenticado
+    const user = await getUserFromRequest(request);
+
+    return {
+      ...requestState,
+      "user:authenticated": user !== null,
+      "user:profile": user ? { id: user.id, name: user.name } : null,
+      "app:version": "1.2.3",
+    };
+  },
+
+  shouldPiercingBeEnabled: async (request) => {
+    // Habilita piercing apenas para usuários autenticados
+    const user = await getUserFromRequest(request);
+    return user !== null;
+  },
+});
+----
+
+=== Uso como Middleware do Hono
+
+O gateway fornece um método `middleware()` que retorna um middleware compatível com Hono:
+
+[source,typescript]
+----
+import { Hono } from "hono";
+
+const app = new Hono();
+
+// Registrar o middleware do gateway
+app.use("*", gateway.middleware());
+
+// Outras rotas
+app.get("/api/users", async (ctx) => {
+  // ...
+});
+----
+
+=== Padrões de Rota
+
+O middleware intercepta três tipos de requisição:
+
+==== 1. Requisições de SSR de Fragmentos
+
+Padrão: `/piercing-fragment/:id`
+
+[source,typescript]
+----
+// Exemplo: /piercing-fragment/header
+// Retorna o conteúdo SSR do fragmento "header"
+----
+
+Quando uma requisição corresponde a esse padrão, o gateway:
+
+1. Localiza o fragmento pelo ID
+2. Verifica se `shouldBeIncluded` retorna true (se definido)
+3. Cria um `ServerMessageBus` a partir do estado da requisição
+4. Aplica `transformRequest` se definido
+5. Chama `fetchFragment` para obter o conteúdo
+6. Envolve o conteúdo em um elemento `<piercing-fragment-host>`
+7. Retorna como HTML
+
+==== 2. Requisições de Assets de Fragmentos
+
+Padrão: `/_fragment/:id/*`
+
+[source,typescript]
+----
+// Exemplo: /_fragment/header/assets/logo.png
+// Serve o asset estático do fragmento "header"
+----
+
+Quando uma requisição corresponde a esse padrão, o gateway:
+
+1. Localiza o fragmento pelo ID
+2. Verifica se `serveAssets` está definido
+3. Cria uma nova requisição com o caminho do asset
+4. Chama `serveAssets` para servir o arquivo
+
+==== 3. Requisições HTML (Pre-Piercing)
+
+Para requisições que aceitam `text/html` e quando há fragmentos registrados:
+
+[source,typescript]
+----
+// Exemplo: GET /dashboard (com Accept: text/html)
+// Retorna HTML com fragmentos pré-injetados
+----
+
+O gateway:
+
+1. Verifica se `shouldPiercingBeEnabled` retorna true (se definido)
+2. Gera o estado do message bus via `generateMessageBusState`
+3. Obtém o HTML shell via `getShellHtml`
+4. Identifica fragmentos para pre-piercing (ver <<pre-piercing.adoc>>)
+5. Busca todos os fragmentos em paralelo
+6. Injeta scripts do message bus e componentes Piercing
+7. Combina o HTML shell com os fragmentos antes de `</body>`
+
+==== 4. Pass-Through
+
+Requisições que não correspondem aos padrões acima são repassadas ao próximo handler:
+
+[source,typescript]
+----
+// Passa para o próximo middleware
+return next();
+----
+
+=== Ordem do Middleware
+
+O middleware do gateway deve ser registrado antes de outros middlewares que servem HTML:
+
+[source,typescript]
+----
+const app = new Hono();
+
+// 1. Middleware do gateway (primeiro)
+app.use("*", gateway.middleware());
+
+// 2. Outros middlewares
+app.use("*", logger());
+
+// 3. Rotas da aplicação
+app.get("/", (ctx) => ctx.html("<html>...</html>"));
+----
+
+Isso garante que o gateway possa interceptar requisições de fragmentos e processar o pre-piercing antes que outros handlers respondam.
+
+=== Métodos Públicos
+
+==== `registerFragment(config: FragmentConfig): void`
+
+Registra um fragmento no gateway. Ver <<fragments.adoc>> para detalhes.
+
+==== `getFragments(): FragmentConfig[]`
+
+Retorna todos os fragmentos registrados:
+
+[source,typescript]
+----
+const fragments = gateway.getFragments();
+console.log(`Total de fragmentos: ${fragments.length}`);
+----
+
+==== `middleware(): MiddlewareHandler`
+
+Retorna o middleware do Hono para integração com a aplicação.

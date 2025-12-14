@@ -1,13 +1,12 @@
 import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
-import { api } from "./server/api";
-import { setAppsDir } from "./server/services";
+import { setAppsDirs } from "./server/api";
 
 export interface DeploymentsConfig extends BasePluginConfig {
   /**
-   * Directory containing deployable apps
-   * @default Uses first directory from globalConfig.appsDirs
+   * Directories containing deployable apps
+   * @default Uses globalConfig.appsDirs
    */
-  appsDir?: string;
+  appsDirs?: string[];
 }
 
 /**
@@ -15,17 +14,16 @@ export interface DeploymentsConfig extends BasePluginConfig {
  *
  * Provides:
  * - Fragment UI for deployments management
- * - API endpoints for listing and downloading deployments
+ * - API endpoints for file operations (list, upload, download, etc.)
  */
 export default function deploymentsPlugin(pluginConfig: DeploymentsConfig = {}): BuntimePlugin {
   return {
-    base: pluginConfig.base ?? "/api/deployments",
     name: "@buntime/plugin-deployments",
-    routes: api,
 
-    // Fragment plugin (can be embedded in shell)
-    // Note: This plugin needs restructuring to client/server folders
-    // fragment: true,
+    // Fragment with monkey-patch sandbox (internal plugin)
+    fragment: {
+      type: "monkey-patch",
+    },
 
     // Menu items for shell navigation
     menus: [
@@ -38,10 +36,10 @@ export default function deploymentsPlugin(pluginConfig: DeploymentsConfig = {}):
 
     onInit(ctx: PluginContext) {
       const config = ctx.config as DeploymentsConfig;
-      // Use plugin-specific appsDir if provided, otherwise use first from global config
-      const appsDir = config.appsDir ?? ctx.globalConfig.appsDirs[0] ?? "./apps";
-      setAppsDir(appsDir);
-      ctx.logger.info(`Deployments plugin initialized (appsDir: ${appsDir})`);
+      // Use plugin-specific appsDirs if provided, otherwise use global config
+      const appsDirs = config.appsDirs ?? ctx.globalConfig.appsDirs ?? ["./apps"];
+      setAppsDirs(appsDirs);
+      ctx.logger.info(`Deployments plugin initialized (appsDirs: ${appsDirs.join(", ")})`);
     },
   };
 }

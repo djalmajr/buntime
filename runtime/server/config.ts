@@ -57,16 +57,16 @@ function resolvePath(path: string, baseDir: string): string {
  * Initialize runtime configuration from buntime.jsonc + env vars
  */
 export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): RuntimeConfig {
-  // Get appsDir: buntime.jsonc (array) > env var (single path fallback)
+  // Get appsDirs: buntime.jsonc (array) > env var (single path fallback)
   // Relative paths are resolved against the config file directory
-  const appsDirs = buntimeConfig.appsDir
-    ? buntimeConfig.appsDir.map((dir) => resolvePath(dir, baseDir))
+  const appsDirs = buntimeConfig.appsDirs
+    ? buntimeConfig.appsDirs.map((dir) => resolvePath(dir, baseDir))
     : Bun.env.APPS_DIR
       ? [resolvePath(Bun.env.APPS_DIR, baseDir)]
       : [];
 
   if (appsDirs.length === 0) {
-    throw new Error("appsDir is required: set in buntime.jsonc or APPS_DIR env var");
+    throw new Error("appsDirs is required: set in buntime.jsonc or APPS_DIR env var");
   }
 
   // Get poolSize: buntime.jsonc > env var > default by env

@@ -1,0 +1,63 @@
+= Limitações e Restrições
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+Nenhuma abstração é perfeita. Ao usar o `plugin-database`, você deve estar ciente das seguintes limitações impostas pelo design ou pelos drivers subjacentes.
+
+== Limitações do libSQL Adapter
+
+=== Single-Writer
+
+O libSQL (e SQLite em geral) permite **apenas um escritor simultâneo**.
+Embora o modo WAL (Write-Ahead Logging) melhore a concorrência, em um setup distribuído com réplicas, **todas as escritas devem ir para o Primary**.
+
+*   **Impacto**: O throughput de escrita é limitado pela capacidade da máquina Primary. Não escala horizontalmente para escritas (Write Scaling).
+*   **Recomendação**: Use filas (como o `plugin-keyval` queue) para amortecer picos de escrita.
+
+=== Consistência de Réplicas
+
+Réplicas são atualizadas assincronamente.
+*   **Cenário**: Você insere um usuário (no Primary) e imediatamente faz um SELECT (na Réplica).
+*   **Risco**: O usuário pode não aparecer ainda.
+*   **Workaround**: Para fluxos críticos "Read-your-writes", use o adapter do Primary explicitamente ou implemente "Sticky Sessions" que leem do Primary por X segundos após uma escrita.
+
+== Limitações da Abstração SQL
+
+=== Dialetos Diferentes
+
+O plugin **não** transpila SQL.
+Se você escrever `SELECT * FROM json_each(...)` (sintaxe SQLite), isso **falhará** se você trocar o adapter para PostgreSQL (que usa `jsonb_array_elements`).
+
+*   **Impacto**: O código da aplicação fica acoplado ao dialeto SQL escolhido.
+*   **Mitigação**: Use um Query Builder (Kysely, Knex) sobre o adapter se precisar de portabilidade real entre bancos.
+
+=== Transações Distribuídas
+
+O plugin **não** suporta transações distribuídas (XA Transactions ou Two-Phase Commit) entre múltiplos tenants.
+
+[source,typescript]
+----
+// ISSO NÃO É ATÔMICO
+const tx1 = await db.getAdapter("tenant-1").transaction(...);
+const tx2 = await db.getAdapter("tenant-2").transaction(...);
+----
+
+Se falhar no tenant-2, o tenant-1 já pode ter commitado.
+
+== Limitações de Performance
+
+=== Connection Overhead (HTTP)
+
+Ao usar libSQL via HTTP, cada query é uma requisição HTTP.
+*   **Latência**: Adiciona overhead de rede (handshake TLS, headers) comparado a uma conexão TCP persistente.
+*   **Mitigação**: Use `batch()` para agrupar múltiplas queries em uma única requisição HTTP.
+
+=== Serialização JSON
+
+Resultados de queries passam por serialização JSON (especialmente em adapters HTTP).
+*   **Impacto**: Queries que retornam MBs de dados podem ser lentas para parsear e consumir muita memória no Node/Bun.
+*   **Recomendação**: Use paginação (`LIMIT/OFFSET` ou Cursor) sempre. Evite `SELECT *` em tabelas grandes.

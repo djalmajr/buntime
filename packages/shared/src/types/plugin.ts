@@ -133,7 +133,7 @@ export interface BuntimeConfig {
    * Supports ${ENV_VAR} syntax
    * @example ["./apps", "../examples"] or ["${APPS_DIR}"]
    */
-  appsDir?: string[];
+  appsDirs?: string[];
 
   /**
    * Maximum number of workers in the pool

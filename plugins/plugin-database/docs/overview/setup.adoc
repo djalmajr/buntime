@@ -1,0 +1,132 @@
+= Setup
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+== Instalação
+
+[source,bash]
+----
+bun add @buntime/plugin-database
+----
+
+== Configuração
+
+A configuração é feita através do arquivo `buntime.jsonc` (ou `.json`).
+
+=== Básica (libSQL)
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapter": {
+        "type": "libsql",
+        "urls": ["http://localhost:8880"]
+      }
+    }]
+  ]
+}
+----
+
+NOTE: Se `urls` não for definido, o plugin detecta automaticamente via variáveis de ambiente `LIBSQL_URL_0`, `LIBSQL_URL_1`, etc.
+
+=== Com Multi-Tenancy
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapter": {
+        "type": "libsql",
+        "urls": ["${LIBSQL_URL_0}"],
+        "authToken": "${LIBSQL_TOKEN}"
+      },
+      "tenancy": {
+        "autoCreate": true
+      }
+    }]
+  ]
+}
+----
+
+NOTE: A Admin API para gerenciamento de namespaces usa a mesma URL principal (`urls[0]`).
+
+=== Com Replicação
+
+==== Via Variáveis de Ambiente (recomendado)
+
+[source,bash]
+----
+LIBSQL_URL_0=http://primary:8080     # Primary (obrigatório)
+LIBSQL_URL_1=http://replica1:8080    # Replica 1 (opcional)
+LIBSQL_URL_2=http://replica2:8080    # Replica 2 (opcional)
+----
+
+O plugin detecta automaticamente e distribui leituras entre as réplicas.
+
+==== Via Configuração Explícita
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapter": {
+        "type": "libsql",
+        "urls": [
+          "http://primary:8080",
+          "http://replica1:8080",
+          "http://replica2:8080"
+        ]
+      }
+    }]
+  ]
+}
+----
+
+- `urls[0]` = Primary (escritas + leituras)
+- `urls[1..n]` = Réplicas (apenas leituras, round-robin)
+
+NOTE: As duas formas podem ser combinadas. URLs de variáveis de ambiente são adicionadas às do JSON.
+
+== Variáveis de Ambiente
+
+As variáveis de ambiente podem ser referenciadas na configuração usando a sintaxe `${VAR_NAME}`.
+
+=== libSQL
+
+[source,bash]
+----
+# Databases (LIBSQL_URL_0 é o primary, demais são réplicas)
+LIBSQL_URL_0=http://localhost:8880      # Primary (obrigatório)
+LIBSQL_URL_1=http://replica1:8080       # Replica 1 (opcional)
+LIBSQL_URL_2=http://replica2:8080       # Replica 2 (opcional)
+
+# Autenticação (opcional)
+LIBSQL_TOKEN=your-jwt-token
+----
+
+O plugin detecta automaticamente as URLs:
+
+- `LIBSQL_URL_0` → Primary (escritas e leituras)
+- `LIBSQL_URL_1`, `LIBSQL_URL_2`, ... → Réplicas (apenas leituras, round-robin)
+
+=== PostgreSQL
+
+[source,bash]
+----
+POSTGRES_URL=postgresql://user:pass@localhost:5432/db
+----
+
+=== MySQL
+
+[source,bash]
+----
+MYSQL_URL=mysql://user:pass@localhost:3306/db
+----

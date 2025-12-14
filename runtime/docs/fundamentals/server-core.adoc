@@ -1,0 +1,700 @@
+== Server Core
+
+O núcleo do servidor Buntime é composto por três módulos principais que trabalham em conjunto para inicializar o runtime, carregar plugins e rotear requisições.
+
+=== Arquitetura
+
+[source]
+----
+runtime/server/
+├── index.ts              # Bun.serve entry point
+├── api.ts                # Dependency initialization
+├── app.ts                # Request resolution
+├── config.ts             # Runtime configuration
+├── constants.ts          # Environment variables
+└── routes/
+    ├── deployments.ts    # /api/deployments
+    ├── plugins-info.ts   # /api/plugins
+    └── worker.ts         # /:app/* routes
+----
+
+=== Fluxo de Inicialização
+
+[source]
+----
+┌─────────────┐
+│ constants.ts│ Valida env vars (PORT, NODE_ENV)
+└──────┬──────┘
+       │
+┌──────▼──────┐
+│   api.ts    │ Inicializa dependências:
+│             │ 1. Logger global
+│             │ 2. Carrega buntime.jsonc
+│             │ 3. Inicializa config (appsDir, poolSize)
+│             │ 4. Cria WorkerPool
+│             │ 5. Carrega plugins (PluginLoader)
+│             │ 6. Cria rotas (deployments, plugins-info, workers)
+│             │ 7. Cria app (createApp)
+└──────┬──────┘
+       │
+┌──────▼──────┐
+│  index.ts   │ Inicia servidor:
+│             │ 1. Bun.serve({ fetch: app.fetch })
+│             │ 2. registry.runOnServerStart(server)
+│             │ 3. Configura graceful shutdown
+└─────────────┘
+----
+
+=== Módulos
+
+==== constants.ts
+
+Valida e exporta variáveis de ambiente usando Zod:
+
+[source,typescript]
+----
+export const { DELAY_MS, NODE_ENV, PORT } = envSchema.parse(Bun.env);
+export const IS_COMPILED = typeof BUNTIME_COMPILED !== "undefined" && BUNTIME_COMPILED;
+export const IS_DEV = NODE_ENV === "development";
+export const VERSION = version;  // from package.json
+----
+
+[cols="1,1,2"]
+|===
+| Variável | Padrão | Descrição
+
+| `PORT`
+| 8000
+| Porta do servidor HTTP
+
+| `NODE_ENV`
+| development
+| Ambiente de execução
+
+| `DELAY_MS`
+| 100
+| Delay entre requisições (rate limit)
+
+| `IS_COMPILED`
+| false
+| Se o runtime foi compilado para binário
+
+| `VERSION`
+| package.json
+| Versão do runtime
+|===
+
+==== config.ts
+
+Combina variáveis de ambiente com configurações do `buntime.jsonc`:
+
+[source,typescript]
+----
+interface RuntimeConfig {
+  appsDirs: string[];      // Diretórios de apps (obrigatório)
+  poolSize: number;        // Tamanho do pool de workers
+  port: number;            // Porta do servidor
+  shell?: string;          // Shell para npm install
+  delayMs: number;         // Rate limit delay
+  isDev: boolean;          // Se está em modo dev
+  isCompiled: boolean;     // Se é binário compilado
+  nodeEnv: string;         // development|production|staging|test
+  version: string;         // Versão do runtime
+}
+----
+
+===== Inicialização
+
+[source,typescript]
+----
+// 1. Carrega buntime.jsonc
+const { baseDir, config: buntimeConfig } = await loadBuntimeConfig();
+
+// 2. Inicializa config com valores combinados
+const runtimeConfig = initConfig(buntimeConfig, baseDir);
+
+// 3. Usa config
+console.log(runtimeConfig.appsDirs);  // ["/path/to/apps"]
+console.log(runtimeConfig.poolSize);  // 100
+----
+
+===== Prioridade de Configuração
+
+Para cada campo, a prioridade é:
+
+1. Valor em `buntime.jsonc`
+2. Variável de ambiente
+3. Padrão do ambiente (para `poolSize`)
+4. Padrão hardcoded
+
+[cols="1,1,1,1"]
+|===
+| Campo | buntime.jsonc | Env Var | Padrão
+
+| `appsDir`
+| `appsDir: ["apps"]`
+| `APPS_DIR=/path`
+| ERRO (obrigatório)
+
+| `poolSize`
+| `poolSize: 200`
+| `POOL_SIZE=50`
+| 10 (dev), 500 (prod), 50 (staging), 5 (test)
+
+| `shell`
+| `shell: "/bin/bash"`
+| `APP_SHELL=/bin/sh`
+| undefined
+|===
+
+NOTE: `BuntimeConfig` (em buntime.jsonc) usa `appsDir` (array), mas `RuntimeConfig` (resultado de `initConfig()`) usa `appsDirs` (plural) internamente.
+
+===== Resolução de Caminhos
+
+Caminhos relativos em `appsDir` são resolvidos contra o diretório do `buntime.jsonc`:
+
+[source]
+----
+/project/
+├── buntime.jsonc         # appsDir: ["./apps", "/abs/path"]
+└── apps/
+    └── todos/
+
+Resultado: ["/project/apps", "/abs/path"]
+----
+
+Variáveis de ambiente são substituídas usando `substituteEnvVars`:
+
+[source,json]
+----
+{
+  "appsDir": ["${HOME}/apps", "${WORKSPACE}/examples"]
+}
+----
+
+==== api.ts
+
+Inicializa todas as dependências e exporta o app Hono pronto para uso.
+
+IMPORTANT: Este módulo NÃO inicia o servidor. Ele apenas prepara o app para ser usado por `index.ts` (produção) ou `index.tsx` (dev com frontend).
+
+===== Sequência de Inicialização
+
+[source,typescript]
+----
+// 1. Logger global
+const logger = createLogger({
+  format: NODE_ENV === "production" ? "json" : "pretty",
+  level: NODE_ENV === "production" ? "info" : "debug",
+});
+setLogger(logger);
+
+// 2. Carrega buntime.jsonc
+const { baseDir, config: buntimeConfig } = await loadBuntimeConfig();
+
+// 3. Inicializa config do runtime
+const runtimeConfig = initConfig(buntimeConfig, baseDir);
+
+// 4. Cria pool de workers
+const pool = new WorkerPool({ maxSize: runtimeConfig.poolSize });
+
+// 5. Cria resolver de apps
+const getAppDir = createAppResolver(runtimeConfig.appsDirs);
+
+// 6. Carrega plugins
+const loader = new PluginLoader(buntimeConfig, pool);
+const registry = await loader.load();
+
+// 7. Cria rotas
+const deployments = createDeploymentRoutes({ appsDirs, registry });
+const pluginsInfo = createPluginsInfoRoutes({ registry });
+const workers = createWorkerRoutes({ config, getAppDir, pool, registry });
+
+// 8. Cria app
+const app = createApp({ deployments, pluginsInfo, workers, ... });
+
+// 9. Verifica conflitos de rotas
+await checkExistingAppsForConflicts();
+
+// 10. Coleta recursos de plugins
+const websocket = registry.getWebSocketHandler();
+const pluginRoutes = registry.collectServerRoutes();
+----
+
+===== Verificação de Conflitos
+
+Antes de iniciar, o runtime verifica se apps existentes conflitam com rotas de plugins:
+
+[source,typescript]
+----
+// Cenário: plugin-keyval montado em /api/keyval
+// App chamado "api" em apps/api/
+
+checkExistingAppsForConflicts();
+// Output: "Existing app 'api' conflicts with plugin '@buntime/plugin-keyval'
+//          (mounted at '/api/keyval'). Plugin routes take priority."
+----
+
+NOTE: Plugins sempre têm prioridade sobre apps regulares.
+
+===== Exports
+
+[cols="1,2"]
+|===
+| Export | Descrição
+
+| `app`
+| Hono app principal (fetch handler)
+
+| `buntimeConfig`
+| Configuração do buntime.jsonc
+
+| `runtimeConfig`
+| Configuração combinada (env + jsonc)
+
+| `pool`
+| WorkerPool instance
+
+| `registry`
+| PluginRegistry instance
+
+| `logger`
+| Logger global instance
+
+| `websocket`
+| WebSocket handler de plugins (se houver)
+
+| `pluginRoutes`
+| Rotas de `server.routes` dos plugins
+
+| `hasPluginRoutes`
+| Se há rotas de plugins para Bun.serve
+|===
+
+==== app.ts
+
+Cria o app Hono principal e implementa a lógica de resolução de rotas.
+
+===== Request Resolution Flow
+
+[source]
+----
+                    ┌─────────────────┐
+                    │ Request arrives │
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │ /api/deployments│──▶ Deployment routes
+                    │ /api/plugins    │──▶ Plugins info routes
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │ /piercing-      │──▶ Fragment HTML for
+                    │  fragment/:id   │    piercing-fragment-outlet
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+         ┌──────────│ Catch-all "*"   │──────────┐
+         │          └─────────────────┘          │
+         │                                        │
+    ┌────▼─────┐                          ┌──────▼──────┐
+    │ 1. Plugin│                          │ 5. Worker   │
+    │ server.  │──▶ 404?                  │ Routes      │
+    │ fetch    │                          │ (/:app/*)   │
+    └────┬─────┘                          └─────────────┘
+         │ Yes                                   ▲
+    ┌────▼─────┐                                 │
+    │ 2. Run   │──▶ Auth failed? ──▶ 401         │
+    │ onRequest│    (exceto public)              │
+    │ hooks    │                                 │
+    └────┬─────┘                                 │
+         │ Pass                                  │
+    ┌────▼─────┐                                 │
+    │ 3. Plugin│──▶ Resolved? ──▶ Serve plugin   │
+    │ app      │                  app via pool   │
+    │ routing  │                                 │
+    └────┬─────┘                                 │
+         │ Not resolved                          │
+    ┌────▼─────┐                                 │
+    │ 4. Plugin│──▶ 404? ────────────────────────┘
+    │ routes   │
+    │ (Hono)   │
+    └──────────┘
+----
+
+NOTE: As rotas públicas (configuradas em `publicRoutes`) são verificadas antes dos hooks `onRequest`, permitindo acesso sem autenticação.
+
+===== Resolução de Target App
+
+O `resolveTargetApp` determina qual app irá processar a requisição:
+
+[source,typescript]
+----
+async function resolveTargetApp(
+  pathname: string,
+  registry: PluginRegistry,
+  getAppDir: (name: string) => string | undefined,
+): Promise<ResolvedApp | undefined>
+----
+
+Retorna informações sobre o app resolvido:
+
+[source,typescript]
+----
+interface ResolvedApp {
+  type: "plugin" | "worker";     // Tipo do app
+  name: string;                   // Nome do app
+  dir: string;                    // Diretório do app
+  basePath: string;               // Base path (ex: /todos)
+  config: WorkerConfig;           // Configuração do worker
+}
+----
+
+===== Ordem de Resolução
+
+1. **Plugin apps** (via `registry.resolvePluginApp`)
+   - Configurados em plugins com `app` option
+   - Exemplo: `@buntime/plugin-proxy` com `{ app: "todos", base: "/todos" }`
+
+2. **Worker apps regulares** (pattern `/:app/*`)
+   - Apps em diretórios de `appsDir`
+   - Exemplo: `apps/todos/` responde em `/todos/*`
+
+===== Semantic Versioning
+
+O runtime suporta versionamento de apps no formato `app@version`:
+
+[source,typescript]
+----
+// Futuro: app info incluirá versão
+interface AppInfo {
+  name: string;
+  version: string;  // ex: "1.0.0"
+  dir: string;
+  config: WorkerConfig;
+}
+----
+
+NOTE: Atualmente a versão é hardcoded como "1.0.0". Futuramente virá de `worker.jsonc` ou `package.json`.
+
+===== Base Path Injection
+
+Apps servidos sob subpaths recebem o header `x-base` para configurar o router:
+
+[source,typescript]
+----
+// Plugin app em /todos
+const basePath = "/todos";
+const newReq = new Request(new URL(pathname + url.search, req.url).href, req);
+newReq.headers.set("x-base", basePath);
+
+// Worker recebe:
+// GET /todos/api/items
+// x-base: /todos
+//
+// Processa internamente como:
+// GET /api/items
+----
+
+O worker usa `x-base` para:
+
+1. Configurar `<base href>` em HTML
+2. Configurar `basepath` do TanStack Router
+3. Gerar URLs absolutas corretas
+
+Exemplo no worker:
+
+[source,typescript]
+----
+// wrapper.ts injeta base no HTML
+const baseTag = `<base href="${base}/">`;
+html = html.replace("</head>", `${baseTag}</head>`);
+
+// client/index.tsx lê base tag
+const base = document.querySelector("base")?.getAttribute("href") || "/";
+const router = createRouter({ basepath: base, ... });
+----
+
+===== Piercing Fragments
+
+Rotas especiais para micro-frontends usando `piercing-fragment-outlet`:
+
+[source]
+----
+GET /piercing-fragment/:fragmentId/*
+----
+
+O runtime:
+
+1. Identifica o plugin pelo `fragmentId` (ex: `logs` → `@buntime/plugin-logs`)
+2. Verifica se plugin tem `fragment: true`
+3. Serve o plugin via pool com `x-base` header
+4. Retorna HTML para ser injetado no outlet
+
+Exemplo:
+
+[source,html]
+----
+<!-- Admin dashboard -->
+<piercing-fragment-outlet fragment-id="logs" />
+
+<!-- Runtime busca -->
+GET /piercing-fragment/logs/
+
+<!-- Plugin @buntime/plugin-logs responde com HTML -->
+<div>Log viewer UI</div>
+----
+
+===== Plugin Routes Priority
+
+Plugin routes são montadas em ordem de especificidade (mais específica primeiro):
+
+[source,typescript]
+----
+// Plugins:
+// - @buntime/plugin-keyval: /api/keyval
+// - @buntime/plugin-metrics: /api/metrics
+// - @buntime/plugin-root: /
+
+// Ordem de matching:
+const sortedPaths = ["/api/keyval", "/api/metrics", "/"].sort(
+  (a, b) => b.length - a.length
+);
+
+// Request: /api/keyval/get
+// Match: /api/keyval ✓
+----
+
+IMPORTANT: Se dois plugins tentarem montar no mesmo path, ocorre erro na inicialização.
+
+==== index.ts
+
+Entry point de produção que inicia o servidor Bun.
+
+===== Configuração do Servidor
+
+O servidor é configurado dinamicamente baseado nos recursos disponíveis:
+
+[source,typescript]
+----
+function startServer() {
+  const baseOptions = { fetch: app.fetch, port: PORT };
+
+  // WebSocket + Plugin routes
+  if (websocket && hasPluginRoutes) {
+    return Bun.serve({
+      ...baseOptions,
+      routes: pluginRoutes,
+      websocket,
+      development: { hmr: true },  // se isDev
+    });
+  }
+
+  // Apenas WebSocket
+  if (websocket) {
+    return Bun.serve({ ...baseOptions, websocket, ... });
+  }
+
+  // Apenas Plugin routes
+  if (hasPluginRoutes) {
+    return Bun.serve({ ...baseOptions, routes: pluginRoutes, ... });
+  }
+
+  // Fallback: apenas fetch
+  return Bun.serve(baseOptions);
+}
+----
+
+===== Plugin Routes vs Hono Routes
+
+Existem dois tipos de rotas de plugins:
+
+1. **Hono routes** (`plugin.routes`)
+   - Hono app montado no app principal
+   - Processado via `app.fetch` (sem worker pool)
+   - Exemplo: `/api/keyval/*` (REST API)
+
+2. **Server routes** (`plugin.server.routes`)
+   - Pattern matching nativo do Bun.serve
+   - Processado antes do fetch handler
+   - Usado para WebSocket e file serving otimizado
+
+[source,typescript]
+----
+// Coleta server.routes de todos os plugins
+const pluginRoutes = registry.collectServerRoutes();
+
+// Exemplo de server.routes:
+{
+  "/ws": {
+    upgrade: (req, server) => server.upgrade(req),
+  },
+  "/public/*": {
+    fetch: (req) => serveFile(req),
+  },
+}
+----
+
+NOTE: `server.routes` tem performance superior para WebSocket e static files, mas `plugin.routes` (Hono) é mais flexível e suporta autenticação via middleware.
+
+===== Lifecycle Hooks
+
+[source,typescript]
+----
+// Após servidor iniciar
+const server = startServer();
+registry.runOnServerStart(server);
+
+// Graceful shutdown
+process.on("SIGINT", async () => {
+  logger.info("Shutting down...");
+
+  // 1. Notifica plugins
+  await registry.shutdown();
+
+  // 2. Encerra workers
+  pool.shutdown();
+
+  // 3. Flush de logs
+  await logger.flush();
+
+  process.exit(0);
+});
+----
+
+===== Hot Module Replacement
+
+Em modo development, HMR é ativado automaticamente:
+
+[source,typescript]
+----
+const isDev = NODE_ENV === "development";
+
+Bun.serve({
+  fetch: app.fetch,
+  port: PORT,
+  ...(isDev && { development: { hmr: true } }),
+});
+----
+
+NOTE: HMR funciona apenas para o código do runtime. Workers são recarregados via `pool.reload()`.
+
+=== Uso Programático
+
+O runtime pode ser usado como biblioteca:
+
+[source,typescript]
+----
+import { createApp, loadBuntimeConfig, PluginLoader } from "@buntime/runtime";
+
+// 1. Carrega config
+const { config, baseDir } = await loadBuntimeConfig();
+
+// 2. Carrega plugins
+const loader = new PluginLoader(config, pool);
+const registry = await loader.load();
+
+// 3. Cria app
+const app = createApp({ ... });
+
+// 4. Usa em servidor customizado
+Bun.serve({ fetch: app.fetch, port: 3000 });
+----
+
+=== Boas Práticas
+
+==== DO
+
+* Use `getConfig()` para acessar configuração após inicialização
+* Sempre aguarde `registry.shutdown()` antes de encerrar processo
+* Use `logger.flush()` antes de sair para garantir que logs sejam escritos
+* Configure `appsDir` como array para suportar múltiplos diretórios
+
+[source,typescript]
+----
+// buntime.jsonc
+{
+  "appsDir": ["./apps", "./examples", "${HOME}/external-apps"]
+}
+----
+
+==== DON'T
+
+* Não chame `initConfig()` múltiplas vezes (singleton)
+* Não modifique `runtimeConfig` diretamente após inicialização
+* Não use `console.log` - sempre use `logger`
+* Não inicie `Bun.serve` diretamente em plugins (use hooks)
+
+[source,typescript]
+----
+// ❌ Ruim
+const config = initConfig(buntimeConfig, baseDir);
+config.poolSize = 200;  // Não tem efeito
+
+// ✓ Bom
+const config = initConfig(
+  { ...buntimeConfig, poolSize: 200 },
+  baseDir
+);
+----
+
+=== Troubleshooting
+
+==== Conflito de Rotas
+
+[source]
+----
+Error: Route collision: Plugin "plugin-b" cannot mount routes at "/api" -
+       already used by "plugin-a"
+----
+
+Solução: Configure `base` diferente em um dos plugins:
+
+[source,json]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-a", { "base": "/api/a" }],
+    ["@buntime/plugin-b", { "base": "/api/b" }]
+  ]
+}
+----
+
+==== Apps Directory Not Found
+
+[source]
+----
+Error: appsDir is required: set in buntime.jsonc or APPS_DIR env var
+----
+
+Solução: Configure `appsDir` no `buntime.jsonc`:
+
+[source,json]
+----
+{
+  "appsDir": ["./apps"]
+}
+----
+
+==== Worker Pool Exhausted
+
+[source]
+----
+Warning: Worker pool exhausted (100/100 workers active)
+----
+
+Solução: Aumente `poolSize` para seu ambiente:
+
+[source,json]
+----
+{
+  "poolSize": 500
+}
+----
+
+Ou via env var:
+
+[source,bash]
+----
+POOL_SIZE=500 bun start
+----

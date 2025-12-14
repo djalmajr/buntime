@@ -1,3 +1,10 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
 == Watch API
 
 A Watch API permite observar mudanças em chaves em tempo real. Útil para sincronização de dados, invalidação de cache e interfaces reativas.

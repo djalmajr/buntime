@@ -1,5 +1,5 @@
+import type { DatabaseService } from "@buntime/plugin-database";
 import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
-import { createClient } from "@libsql/client/http";
 import { initialize, shutdown } from "./server/services";
 
 export interface DurableObjectsConfig extends BasePluginConfig {
@@ -10,27 +10,10 @@ export interface DurableObjectsConfig extends BasePluginConfig {
   hibernateAfter?: number;
 
   /**
-   * libSQL auth token (for remote databases)
-   * Supports ${ENV_VAR} syntax
-   */
-  libsqlToken?: string;
-
-  /**
-   * libSQL database URL
-   * Supports ${ENV_VAR} syntax
-   * @default "file:./durable-objects.db"
-   */
-  libsqlUrl?: string;
-
-  /**
    * Maximum number of objects to keep in memory
    * @default 1000
    */
   maxObjects?: number;
-}
-
-function substituteEnvVars(str: string): string {
-  return str.replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] ?? "");
 }
 
 /**
@@ -38,20 +21,23 @@ function substituteEnvVars(str: string): string {
  *
  * Provides Cloudflare-like Durable Objects with:
  * - Singleton instances by ID
- * - Persistent storage via libSQL
+ * - Persistent storage via plugin-database
  * - Request serialization (single-threaded execution)
  * - Automatic hibernation and wake-up
  *
+ * Requires @buntime/plugin-database to be configured.
+ *
  * @example
- * ```typescript
- * // buntime.config.ts
- * export default {
- *   plugins: [
- *     ["@buntime/durable", {
- *       libsqlUrl: "${LIBSQL_URL}",
- *       libsqlToken: "${LIBSQL_TOKEN}",
- *     }],
- *   ],
+ * ```jsonc
+ * // buntime.jsonc
+ * {
+ *   "plugins": [
+ *     ["@buntime/plugin-database", { "adapter": { "type": "libsql" } }],
+ *     ["@buntime/plugin-durable", {
+ *       "hibernateAfter": 60000,
+ *       "maxObjects": 1000
+ *     }]
+ *   ]
  * }
  * ```
  */
@@ -59,18 +45,21 @@ export default function durableObjectsExtension(config: DurableObjectsConfig = {
   return {
     name: "@buntime/plugin-durable",
     base: config.base,
+    dependencies: ["@buntime/plugin-database"],
 
     async onInit(ctx: PluginContext) {
-      const url = config.libsqlUrl
-        ? substituteEnvVars(config.libsqlUrl)
-        : "file:./durable-objects.db";
+      const databaseService = ctx.getService<DatabaseService>("database");
+      if (!databaseService) {
+        throw new Error(
+          "@buntime/plugin-durable requires @buntime/plugin-database. " +
+            "Add it to your plugins configuration.",
+        );
+      }
 
-      const authToken = config.libsqlToken ? substituteEnvVars(config.libsqlToken) : undefined;
-
-      const client = createClient({ url, authToken });
+      const adapter = databaseService.getRootAdapter();
 
       await initialize(
-        client,
+        adapter,
         {
           hibernateAfter: config.hibernateAfter ?? 60_000,
           maxObjects: config.maxObjects ?? 1000,
@@ -78,7 +67,7 @@ export default function durableObjectsExtension(config: DurableObjectsConfig = {
         ctx.logger,
       );
 
-      ctx.logger.info(`Durable Objects initialized (storage: ${url})`);
+      ctx.logger.info("Durable Objects initialized (using plugin-database)");
     },
 
     async onShutdown() {

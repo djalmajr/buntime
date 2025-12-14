@@ -84,9 +84,9 @@ export class PiercingFragmentHost extends HTMLElement {
   }
 
   /**
-   * Move this fragment host into an outlet element
+   * Move this fragment host into an outlet element or shadow root
    */
-  pierceInto(outlet: Element): void {
+  pierceInto(target: Element | ShadowRoot): void {
     // Preserve focus if it's inside this fragment
     const activeElement = this.contains(document.activeElement)
       ? (document.activeElement as HTMLElement)
@@ -94,7 +94,7 @@ export class PiercingFragmentHost extends HTMLElement {
 
     // Temporarily disable cleanup while moving
     this.cleanup = false;
-    outlet.appendChild(this);
+    target.appendChild(this);
     this.cleanup = true;
 
     // Restore focus
@@ -119,7 +119,12 @@ export class PiercingFragmentHost extends HTMLElement {
   }
 
   private get isPierced(): boolean {
-    // Check if parent is a fragment outlet
+    // Check if inside a fragment outlet's shadow root
+    const root = this.getRootNode();
+    if (root instanceof ShadowRoot) {
+      return (root.host as PiercingFragmentOutlet | null)?.piercingFragmentOutlet === true;
+    }
+    // Fallback: check parent element (for light DOM)
     return (this.parentElement as PiercingFragmentOutlet | null)?.piercingFragmentOutlet === true;
   }
 
@@ -174,6 +179,8 @@ export class PiercingFragmentHost extends HTMLElement {
  * Web component that acts as a placeholder for a fragment
  * Handles fetching and piercing the fragment into place
  *
+ * Uses Shadow DOM for CSS isolation - fragment styles don't leak to shell and vice versa.
+ *
  * Supports sandbox strategies via attributes:
  * - sandbox="none" (default): No isolation
  * - sandbox="monkey-patch": Intercepts History API
@@ -209,13 +216,23 @@ export class PiercingFragmentOutlet extends HTMLElement {
 
   private fragmentHost: PiercingFragmentHost | null = null;
   private sandboxHandler: SandboxStrategyHandler | null = null;
+  private shadow: ShadowRoot;
+  private currentFragmentId: string | null = null;
   private static unmountedFragmentIds = new Set<string>();
+
+  constructor() {
+    super();
+    // Attach shadow DOM for CSS isolation
+    this.shadow = this.attachShadow({ mode: "open" });
+  }
 
   static get observedAttributes(): string[] {
     return ["fragment-id", "sandbox", "origin", "src"];
   }
 
   async connectedCallback(): Promise<void> {
+    // Register shadow root for getElementById hijack
+    registerOutletShadowRoot(this.shadow);
     const fragmentId = this.getAttribute("fragment-id");
     const sandbox = (this.getAttribute("sandbox") || "none") as SandboxStrategy;
     const origin = this.getAttribute("origin") || undefined;
@@ -224,6 +241,9 @@ export class PiercingFragmentOutlet extends HTMLElement {
     if (!fragmentId && !src) {
       throw new Error("PiercingFragmentOutlet requires fragment-id or src attribute");
     }
+
+    // Store fragmentId for unmount tracking
+    this.currentFragmentId = fragmentId || "external";
 
     // For iframe strategy, we don't fetch - iframe handles its own loading
     if (sandbox === "iframe") {
@@ -243,14 +263,15 @@ export class PiercingFragmentOutlet extends HTMLElement {
     }
 
     if (this.fragmentHost) {
-      // Fragment was pre-pierced, move it into this outlet
+      // Fragment was pre-pierced, move it into shadow root for CSS isolation
       this.clearChildren();
-      this.fragmentHost.pierceInto(this);
+      this.fragmentHost.pierceInto(this.shadow);
     } else {
-      // Fetch the fragment on demand
-      const fetchUrl = src || `/piercing-fragment/${fragmentId}${window.location.search}`;
+      // Fetch the fragment on demand from /p/{plugin} (plugin routes)
+      const fetchUrl = src || `/p/${fragmentId}${window.location.search}`;
       const stream = await this.fetchFragment(fetchUrl);
-      await this.streamFragmentInto(fragmentId || "external", stream);
+      const baseUrl = src || `/p/${fragmentId}`;
+      await this.streamFragmentInto(fragmentId || "external", stream, baseUrl);
       if (fragmentId) {
         this.fragmentHost = this.findFragmentHost(fragmentId, true);
       }
@@ -258,14 +279,23 @@ export class PiercingFragmentOutlet extends HTMLElement {
   }
 
   disconnectedCallback(): void {
+    // Dispatch unmount event so fragments can cleanup (React unmount, clear intervals, etc)
+    this.shadow.dispatchEvent(
+      new CustomEvent("piercing-unmount", { bubbles: true, composed: true }),
+    );
+
+    // Unregister shadow root from getElementById hijack
+    unregisterOutletShadowRoot(this.shadow);
+
+    // Track unmounted fragment for script re-run on remount
+    if (this.currentFragmentId) {
+      PiercingFragmentOutlet.unmountedFragmentIds.add(this.currentFragmentId);
+    }
+
     // Cleanup sandbox
     this.sandboxHandler?.cleanup();
     this.sandboxHandler = null;
-
-    if (this.fragmentHost) {
-      PiercingFragmentOutlet.unmountedFragmentIds.add(this.fragmentHost.fragmentId);
-      this.fragmentHost = null;
-    }
+    this.fragmentHost = null;
   }
 
   private initSandbox(
@@ -315,8 +345,8 @@ export class PiercingFragmentOutlet extends HTMLElement {
   }
 
   private clearChildren(): void {
-    while (this.firstChild) {
-      this.removeChild(this.firstChild);
+    while (this.shadow.firstChild) {
+      this.shadow.removeChild(this.shadow.firstChild);
     }
   }
 
@@ -340,7 +370,11 @@ export class PiercingFragmentOutlet extends HTMLElement {
    * Stream fragment HTML into this outlet using DOM parsing
    * Uses DOMParser for safe HTML parsing from trusted SSR content
    */
-  private async streamFragmentInto(fragmentId: string, stream: ReadableStream): Promise<void> {
+  private async streamFragmentInto(
+    fragmentId: string,
+    stream: ReadableStream,
+    baseUrl: string,
+  ): Promise<void> {
     const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
     let html = "";
 
@@ -355,30 +389,153 @@ export class PiercingFragmentOutlet extends HTMLElement {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, "text/html");
 
-    // Move all body children into this outlet
+    // Move all body children into shadow root for CSS isolation
     this.clearChildren();
+
+    // Store the plugin's base URL as a data attribute so fragments can access it for API calls
+    // baseUrl is already /p/{plugin} (unified with plugin routes)
+    this.setAttribute("data-fragment-base", baseUrl);
+
+    // First, append stylesheets and scripts from head
+    // This ensures styles and scripts are included even if they're in <head>
+    const headLinks = doc.head.querySelectorAll('link[rel="stylesheet"]');
+    const headScripts = doc.head.querySelectorAll("script");
+
+    for (const link of headLinks) {
+      const newLink = link.cloneNode(true) as HTMLLinkElement;
+      // Resolve relative URLs to absolute URLs based on fragment baseUrl
+      const href = link.getAttribute("href");
+      if (href?.startsWith("./")) {
+        newLink.setAttribute("href", `${baseUrl}/${href.slice(2)}`);
+      }
+      this.shadow.appendChild(newLink);
+    }
+
+    // Check if this fragment was previously unmounted (needs cache-busting for scripts)
+    const wasUnmounted = PiercingFragmentOutlet.unmountedFragmentIds.has(fragmentId);
+    const cacheBuster = wasUnmounted ? `?_t=${Date.now()}` : "";
+
+    for (const oldScript of headScripts) {
+      // Create new script element to ensure it executes
+      const newScript = document.createElement("script");
+
+      // Copy all attributes and resolve relative URLs
+      for (const attr of oldScript.attributes) {
+        let value = attr.value;
+        // Resolve relative src URLs to absolute URLs based on fragment baseUrl
+        if (attr.name === "src") {
+          if (value.startsWith("./")) {
+            value = `${baseUrl}/${value.slice(2)}`;
+          }
+          // Add cache-buster for remounted fragments to force script re-execution
+          if (wasUnmounted && !value.includes("?")) {
+            value = `${value}${cacheBuster}`;
+          }
+        }
+        newScript.setAttribute(attr.name, value);
+      }
+
+      // Copy text content if inline script
+      if (oldScript.textContent) {
+        newScript.textContent = oldScript.textContent;
+      }
+
+      this.shadow.appendChild(newScript);
+    }
+
+    // Process body content - resolve URLs for links and scripts
+    const bodyLinks = doc.body.querySelectorAll('link[rel="stylesheet"]');
+    const bodyScripts = doc.body.querySelectorAll("script");
+
+    // Resolve stylesheet URLs in body
+    for (const link of bodyLinks) {
+      const href = link.getAttribute("href");
+      if (href?.startsWith("./")) {
+        link.setAttribute("href", `${baseUrl}/${href.slice(2)}`);
+      }
+    }
+
+    // Resolve script URLs in body and add cache-buster if needed
+    for (const script of bodyScripts) {
+      const src = script.getAttribute("src");
+      if (src) {
+        let resolvedSrc = src.startsWith("./") ? `${baseUrl}/${src.slice(2)}` : src;
+        if (wasUnmounted && !resolvedSrc.includes("?")) {
+          resolvedSrc = `${resolvedSrc}${cacheBuster}`;
+        }
+        script.setAttribute("src", resolvedSrc);
+      }
+    }
+
+    // Append body content to shadow root
     while (doc.body.firstChild) {
-      this.appendChild(doc.body.firstChild);
-    }
+      const node = doc.body.firstChild;
 
-    // Re-run module scripts if fragment was previously unmounted
-    if (PiercingFragmentOutlet.unmountedFragmentIds.has(fragmentId)) {
-      this.rerunModuleScripts();
-    }
-  }
-
-  private rerunModuleScripts(): void {
-    const scripts = this.querySelectorAll('script[type="module"][src]');
-    for (const script of scripts) {
-      const src = (script as HTMLScriptElement).src;
-      import(/* @vite-ignore */ src).then((module) => module.default?.());
+      // Scripts need to be recreated to execute
+      if (node instanceof HTMLScriptElement) {
+        const newScript = document.createElement("script");
+        for (const attr of node.attributes) {
+          newScript.setAttribute(attr.name, attr.value);
+        }
+        if (node.textContent) {
+          newScript.textContent = node.textContent;
+        }
+        this.shadow.appendChild(newScript);
+        node.remove();
+      } else {
+        this.shadow.appendChild(node);
+      }
     }
   }
 
   private findFragmentHost(fragmentId: string, insideOutlet = false): PiercingFragmentHost | null {
-    const root = insideOutlet ? this : document;
+    const root = insideOutlet ? this.shadow : document;
     return root.querySelector(`piercing-fragment-host[fragment-id="${fragmentId}"]`);
   }
+}
+
+/**
+ * Track all outlet shadow roots for getElementById hijack
+ */
+const outletShadowRoots = new Set<ShadowRoot>();
+
+/**
+ * Original getElementById function
+ */
+let originalGetElementById: typeof document.getElementById | null = null;
+
+/**
+ * Hijack document.getElementById to search shadow roots first
+ * This allows fragments inside shadow DOM to find their root elements
+ */
+function installGetElementByIdHijack(): void {
+  if (originalGetElementById) return; // Already installed
+
+  originalGetElementById = document.getElementById.bind(document);
+
+  document.getElementById = function (id: string): HTMLElement | null {
+    // First, search in shadow roots (fragments)
+    for (const shadowRoot of outletShadowRoots) {
+      const element = shadowRoot.getElementById(id);
+      if (element) return element;
+    }
+    // Fall back to main document
+    return originalGetElementById!(id);
+  };
+}
+
+/**
+ * Register a shadow root to be searched by getElementById
+ */
+export function registerOutletShadowRoot(shadowRoot: ShadowRoot): void {
+  outletShadowRoots.add(shadowRoot);
+}
+
+/**
+ * Unregister a shadow root from getElementById searches
+ */
+export function unregisterOutletShadowRoot(shadowRoot: ShadowRoot): void {
+  outletShadowRoots.delete(shadowRoot);
 }
 
 /**
@@ -387,6 +544,9 @@ export class PiercingFragmentOutlet extends HTMLElement {
  */
 export function registerPiercingComponents(): void {
   if (typeof window === "undefined") return;
+
+  // Install getElementById hijack for shadow DOM support
+  installGetElementByIdHijack();
 
   if (!customElements.get("piercing-fragment-host")) {
     customElements.define("piercing-fragment-host", PiercingFragmentHost);

@@ -1,5 +1,5 @@
 import type { DurableObject, DurableObjectId, DurableObjectState } from "@buntime/durable";
-import type { Client } from "@libsql/client/http";
+import type { DatabaseAdapter } from "@buntime/plugin-database";
 import QuickLRU from "quick-lru";
 import { DurableObjectStorage } from "./storage";
 
@@ -70,7 +70,7 @@ export class DurableObjectRegistry {
   private hibernationInterval: Timer | null = null;
 
   constructor(
-    private client: Client,
+    private adapter: DatabaseAdapter,
     private config: RegistryConfig,
   ) {
     this.objects = new QuickLRU({ maxSize: config.maxObjects });
@@ -108,19 +108,19 @@ export class DurableObjectRegistry {
     }
 
     // Register in database if not exists
-    await this.client.execute({
-      sql: `INSERT OR IGNORE INTO durable_objects (id, class_name) VALUES (?, ?)`,
-      args: [id.toString(), className],
-    });
+    await this.adapter.execute(
+      `INSERT OR IGNORE INTO durable_objects (id, class_name) VALUES (?, ?)`,
+      [id.toString(), className],
+    );
 
     // Update last active
-    await this.client.execute({
-      sql: `UPDATE durable_objects SET last_active_at = unixepoch() WHERE id = ?`,
-      args: [id.toString()],
-    });
+    await this.adapter.execute(
+      `UPDATE durable_objects SET last_active_at = unixepoch() WHERE id = ?`,
+      [id.toString()],
+    );
 
     // Create storage and state
-    const storage = new DurableObjectStorage(this.client, id.toString());
+    const storage = new DurableObjectStorage(this.adapter, id.toString());
     const state: DurableObjectState = {
       id,
       memory: new Map(),
@@ -150,16 +150,18 @@ export class DurableObjectRegistry {
    * List all registered objects
    */
   async listAll(): Promise<ObjectInfo[]> {
-    const result = await this.client.execute({
-      sql: "SELECT id, class_name, created_at, last_active_at FROM durable_objects",
-      args: [],
-    });
+    const rows = await this.adapter.execute<{
+      class_name: string;
+      created_at: number;
+      id: string;
+      last_active_at: number;
+    }>("SELECT id, class_name, created_at, last_active_at FROM durable_objects");
 
-    return result.rows.map((row) => ({
-      className: row.class_name as string,
-      createdAt: row.created_at as number,
-      id: row.id as string,
-      lastActiveAt: row.last_active_at as number,
+    return rows.map((row) => ({
+      className: row.class_name,
+      createdAt: row.created_at,
+      id: row.id,
+      lastActiveAt: row.last_active_at,
     }));
   }
 
@@ -167,19 +169,20 @@ export class DurableObjectRegistry {
    * Get info about a specific object
    */
   async getInfo(id: string): Promise<ObjectInfo | null> {
-    const result = await this.client.execute({
-      sql: "SELECT id, class_name, created_at, last_active_at FROM durable_objects WHERE id = ?",
-      args: [id],
-    });
+    const row = await this.adapter.executeOne<{
+      class_name: string;
+      created_at: number;
+      id: string;
+      last_active_at: number;
+    }>("SELECT id, class_name, created_at, last_active_at FROM durable_objects WHERE id = ?", [id]);
 
-    const row = result.rows[0];
     if (!row) return null;
 
     return {
-      className: row.class_name as string,
-      createdAt: row.created_at as number,
-      id: row.id as string,
-      lastActiveAt: row.last_active_at as number,
+      className: row.class_name,
+      createdAt: row.created_at,
+      id: row.id,
+      lastActiveAt: row.last_active_at,
     };
   }
 
@@ -196,13 +199,18 @@ export class DurableObjectRegistry {
       }
     }
 
-    // Delete from database (cascade deletes storage)
-    const result = await this.client.execute({
-      sql: "DELETE FROM durable_objects WHERE id = ?",
-      args: [id],
-    });
+    // Check if exists before delete
+    const existing = await this.adapter.executeOne<{ id: string }>(
+      "SELECT id FROM durable_objects WHERE id = ?",
+      [id],
+    );
 
-    return result.rowsAffected > 0;
+    if (!existing) return false;
+
+    // Delete from database (cascade deletes storage)
+    await this.adapter.execute("DELETE FROM durable_objects WHERE id = ?", [id]);
+
+    return true;
   }
 
   /**

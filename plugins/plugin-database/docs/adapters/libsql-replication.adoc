@@ -1,0 +1,402 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+== Replicação libSQL
+
+O LibSqlAdapter suporta replicação server-side através de múltiplas instâncias do sqld comunicando via gRPC.
+
+=== Arquitetura Primary + Replica
+
+O libSQL suporta replicação server-side através de gRPC para escalar leituras horizontalmente. A arquitetura é **single-writer, multi-reader**:
+
+- **Primary**: Aceita escritas e sincroniza com réplicas
+- **Replicas**: Apenas leitura, sincronizam do primary via gRPC
+
+[source]
+----
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  Replica 1  │     │  Replica 2  │     │  Replica 3  │
+│   (read)    │     │   (read)    │     │   (read)    │
+└──────┬──────┘     └──────┬──────┘     └──────┬──────┘
+       │                   │                   │
+       │                   │                   │
+       └────────────┬──────┴──────┬────────────┘
+                    │  gRPC (TLS) │
+                    ▼             ▼
+              ┌─────────────────────┐
+              │      Primary        │
+              │  (read + write)     │
+              └─────────────────────┘
+----
+
+=== Fluxo de Operações
+
+==== Operações de Leitura
+
+As leituras são distribuídas entre as réplicas disponíveis usando estratégia round-robin. Se nenhuma réplica estiver configurada, o primary é usado.
+
+[mermaid]
+....
+sequenceDiagram
+  participant Client
+  participant LibSqlAdapter
+  participant LoadBalancer as Balanceador
+  participant Replica1
+  participant Replica2
+  participant Primary
+
+  Client->>LibSqlAdapter: execute("SELECT ...")
+  LibSqlAdapter->>LoadBalancer: Solicita URL de leitura
+
+  alt Réplicas disponíveis
+    LoadBalancer-->>LibSqlAdapter: replica1.url (round-robin)
+    LibSqlAdapter->>Replica1: SELECT * FROM table WHERE ...
+    Replica1-->>LibSqlAdapter: resultSet
+  else Sem réplicas
+    LoadBalancer-->>LibSqlAdapter: primary.url
+    LibSqlAdapter->>Primary: SELECT * FROM table WHERE ...
+    Primary-->>LibSqlAdapter: resultSet
+  end
+
+  LibSqlAdapter-->>Client: rows[]
+....
+
+==== Operações de Escrita
+
+Todas as escritas são enviadas ao primary. As réplicas sincronizam automaticamente via gRPC.
+
+[mermaid]
+....
+sequenceDiagram
+  participant Client
+  participant LibSqlAdapter
+  participant Primary
+  participant Replica1
+  participant Replica2
+
+  Client->>LibSqlAdapter: execute("INSERT ...")
+  Note over LibSqlAdapter: Sempre usa Primary
+  LibSqlAdapter->>Primary: INSERT INTO table VALUES (...)
+  Primary-->>LibSqlAdapter: OK
+  LibSqlAdapter-->>Client: rows[]
+
+  Note over Primary,Replica1: Replicação assíncrona via gRPC
+  Primary--)Replica1: WAL sync (gRPC)
+  Primary--)Replica2: WAL sync (gRPC)
+....
+
+==== Transações
+
+Transações sempre executam no primary para garantir consistência ACID.
+
+[mermaid]
+....
+sequenceDiagram
+  participant Client
+  participant LibSqlAdapter
+  participant Primary
+
+  Client->>LibSqlAdapter: transaction(async (tx) => ...)
+  Note over LibSqlAdapter: Transações sempre no Primary
+  LibSqlAdapter->>Primary: BEGIN TRANSACTION
+
+  loop Operações do usuário
+    LibSqlAdapter->>Primary: tx.execute(...)
+    Primary-->>LibSqlAdapter: resultado
+  end
+
+  LibSqlAdapter->>Primary: COMMIT
+  Primary-->>LibSqlAdapter: OK
+  LibSqlAdapter-->>Client: resultado
+....
+
+=== Consistência de Dados
+
+==== Consistência Eventual
+
+As réplicas operam com **consistência eventual**:
+
+- **Leituras**: Podem retornar dados ligeiramente desatualizados
+- **Lag típico**: Milissegundos a segundos (depende da latência de rede)
+- **Garantia**: Eventualmente todas as réplicas terão os mesmos dados
+
+[source]
+----
+Timeline:
+
+t0: Client escreve key="x" value="1" no Primary
+    Primary: x=1 ✓
+    Replica1: x=0 (desatualizado)
+    Replica2: x=0 (desatualizado)
+
+t1: gRPC sync em andamento
+    Primary: x=1 ✓
+    Replica1: sincronizando...
+    Replica2: x=0 (ainda desatualizado)
+
+t2: Sincronização completa
+    Primary: x=1 ✓
+    Replica1: x=1 ✓
+    Replica2: x=1 ✓
+----
+
+==== Quando Usar Réplicas
+
+[cols="1,2,1"]
+|===
+| Operação SQL | Onde Executa | Consistência
+
+| `SELECT`
+| Réplicas (round-robin) ou Primary
+| Eventual
+
+| `INSERT`, `UPDATE`, `DELETE`
+| Primary (sempre)
+| Forte
+
+| Transações (`BEGIN`/`COMMIT`)
+| Primary (sempre)
+| Forte (serializable)
+
+| Batch operations
+| Primary (sempre)
+| Forte
+|===
+
+WARNING: Se sua aplicação precisa de **read-your-writes** (ler imediatamente após escrever), não use réplicas ou adicione lógica para sticky sessions.
+
+=== Configuração
+
+==== Variáveis de Ambiente
+
+[source,bash]
+----
+# LIBSQL_URL_0 é o primary, demais são réplicas
+LIBSQL_URL_0=http://localhost:8880      # Primary (obrigatório)
+LIBSQL_URL_1=http://replica1:8080       # Replica 1 (opcional)
+LIBSQL_URL_2=http://replica2:8080       # Replica 2 (opcional)
+LIBSQL_URL_3=http://replica3:8080       # Replica 3 (opcional)
+
+# Auth token (se necessário)
+LIBSQL_TOKEN=your-jwt-token
+----
+
+O plugin detecta automaticamente as URLs em sequência até não encontrar mais.
+
+==== Docker Compose
+
+[source,yaml]
+----
+services:
+  libsql-primary:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8880:8080"  # HTTP API
+      - "5001:5001"  # gRPC (replicação)
+    volumes:
+      - libsql-primary-data:/var/lib/sqld
+      - ./certs:/certs
+    environment:
+      SQLD_NODE: primary
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+      SQLD_GRPC_LISTEN_ADDR: 0.0.0.0:5001
+      SQLD_GRPC_TLS: "true"
+      SQLD_GRPC_CA_CERT_FILE: /certs/ca_cert.pem
+      SQLD_GRPC_CERT_FILE: /certs/server_cert.pem
+      SQLD_GRPC_KEY_FILE: /certs/server_key.pem
+
+  libsql-replica-1:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8881:8080"
+    volumes:
+      - libsql-replica1-data:/var/lib/sqld
+      - ./certs:/certs
+    environment:
+      SQLD_NODE: replica
+      SQLD_PRIMARY_GRPC_URL: https://libsql-primary:5001
+      SQLD_PRIMARY_GRPC_TLS: "true"
+      SQLD_PRIMARY_GRPC_CA_CERT_FILE: /certs/ca_cert.pem
+      SQLD_PRIMARY_GRPC_CERT_FILE: /certs/client_cert.pem
+      SQLD_PRIMARY_GRPC_KEY_FILE: /certs/client_key.pem
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+    depends_on:
+      - libsql-primary
+
+  libsql-replica-2:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8882:8080"
+    volumes:
+      - libsql-replica2-data:/var/lib/sqld
+      - ./certs:/certs
+    environment:
+      SQLD_NODE: replica
+      SQLD_PRIMARY_GRPC_URL: https://libsql-primary:5001
+      SQLD_PRIMARY_GRPC_TLS: "true"
+      SQLD_PRIMARY_GRPC_CA_CERT_FILE: /certs/ca_cert.pem
+      SQLD_PRIMARY_GRPC_CERT_FILE: /certs/client_cert.pem
+      SQLD_PRIMARY_GRPC_KEY_FILE: /certs/client_key.pem
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+    depends_on:
+      - libsql-primary
+
+volumes:
+  libsql-primary-data:
+  libsql-replica1-data:
+  libsql-replica2-data:
+----
+
+==== Geração de Certificados
+
+As réplicas comunicam com o primary via gRPC com TLS. Para desenvolvimento:
+
+[source,bash]
+----
+# Clone o repositório libSQL
+git clone https://github.com/tursodatabase/libsql.git
+cd libsql
+
+# Gera certificados auto-assinados
+python scripts/gen_certs.py
+
+# Copia para o diretório do projeto
+mkdir -p ./certs
+cp ca_cert.pem ca_key.pem ./certs/
+cp server_cert.pem server_key.pem ./certs/
+cp client_cert.pem client_key.pem ./certs/
+----
+
+WARNING: Para produção, use certificados de uma CA confiável.
+
+==== Configuração do Plugin
+
+Opção 1: Detecção automática via variáveis de ambiente (recomendado):
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapter": {
+        "type": "libsql",
+        "authToken": "${LIBSQL_TOKEN}"
+      }
+    }],
+    "@buntime/plugin-keyval"
+  ]
+}
+----
+
+[source,bash]
+----
+# Variáveis de ambiente
+LIBSQL_URL_0=http://primary:8080       # Primary (obrigatório)
+LIBSQL_URL_1=http://replica1:8080      # Replica 1 (opcional)
+LIBSQL_URL_2=http://replica2:8080      # Replica 2 (opcional)
+----
+
+Opção 2: Configuração explícita no JSON:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapter": {
+        "type": "libsql",
+        "urls": [
+          "http://primary:8080",
+          "http://replica1:8080",
+          "http://replica2:8080"
+        ],
+        "authToken": "${LIBSQL_TOKEN}"
+      }
+    }],
+    "@buntime/plugin-keyval"
+  ]
+}
+----
+
+- `urls[0]` = Primary (escritas + leituras, também usado para Admin API)
+- `urls[1..n]` = Réplicas (apenas leituras, round-robin)
+
+NOTE: As duas opções podem ser combinadas. URLs de variáveis de ambiente são adicionadas às configuradas no JSON.
+
+=== Estratégia de Load Balancing
+
+O adapter implementa **round-robin simples** para distribuir leituras:
+
+[source,typescript]
+----
+class LibSqlAdapter {
+  private replicaIndex = 0;
+
+  getReadUrl(): string {
+    // Se não tem réplicas, usa primary
+    if (this.replicaUrls.length === 0) {
+      return this.primaryUrl;
+    }
+
+    // Round-robin entre réplicas
+    const url = this.replicaUrls[this.replicaIndex];
+    this.replicaIndex = (this.replicaIndex + 1) % this.replicaUrls.length;
+    return url;
+  }
+
+  getWriteUrl(): string {
+    // Escritas sempre no primary
+    return this.primaryUrl;
+  }
+}
+----
+
+=== Monitoramento
+
+==== Health Checks
+
+Verifique se as réplicas estão sincronizadas:
+
+[source,bash]
+----
+# Primary
+curl http://localhost:8880/health
+
+# Replica 1
+curl http://localhost:8881/health
+
+# Replica 2
+curl http://localhost:8882/health
+----
+
+==== Replication Lag
+
+Para verificar o atraso de replicação, compare timestamps:
+
+[source,bash]
+----
+# Escreve no primary com timestamp
+curl -X POST http://localhost:4000/api/keyval/set \
+  -H "Content-Type: application/json" \
+  -d '{"key": "test", "value": {"timestamp": "'$(date +%s)'"} }'
+
+# Lê da replica (pode estar desatualizado)
+curl http://localhost:4000/api/keyval/get/test
+----
+
+=== Limitações
+
+1. **Single-Writer**: Apenas o primary aceita escritas
+2. **Consistência Eventual**: Leituras podem estar desatualizadas
+3. **Sem Failover Automático**: Se o primary cair, escritas falham
+4. **Sem Active-Active**: Não é possível escrever em múltiplos nós
+
+Para casos de uso que exigem alta disponibilidade de escritas, considere:
+
+- **Turso Cloud**: Serviço gerenciado com failover automático
+- **CockroachDB/PostgreSQL**: Para workloads write-heavy distribuídos
+- **Redis Cluster**: Para cache distribuído com escritas

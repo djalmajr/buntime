@@ -3,41 +3,35 @@ import type {
   DurableObjectStorage as IStorage,
   ListOptions,
 } from "@buntime/durable";
-import type { Client } from "@libsql/client/http";
+import type { DatabaseAdapter } from "@buntime/plugin-database";
 
 /**
  * Initialize the database schema
  */
-export async function initDatabase(client: Client): Promise<void> {
-  await client.batch(
-    [
-      {
-        sql: `CREATE TABLE IF NOT EXISTS durable_objects (
-          id TEXT PRIMARY KEY,
-          class_name TEXT NOT NULL,
-          created_at INTEGER DEFAULT (unixepoch()),
-          last_active_at INTEGER
-        )`,
-        args: [],
-      },
-      {
-        sql: `CREATE TABLE IF NOT EXISTS object_storage (
-          object_id TEXT NOT NULL,
-          key TEXT NOT NULL,
-          value BLOB,
-          PRIMARY KEY (object_id, key),
-          FOREIGN KEY (object_id) REFERENCES durable_objects(id) ON DELETE CASCADE
-        )`,
-        args: [],
-      },
-      {
-        sql: `CREATE INDEX IF NOT EXISTS idx_storage_prefix
-              ON object_storage(object_id, key)`,
-        args: [],
-      },
-    ],
-    "write",
-  );
+export async function initDatabase(adapter: DatabaseAdapter): Promise<void> {
+  await adapter.batch([
+    {
+      sql: `CREATE TABLE IF NOT EXISTS durable_objects (
+        id TEXT PRIMARY KEY,
+        class_name TEXT NOT NULL,
+        created_at INTEGER DEFAULT (unixepoch()),
+        last_active_at INTEGER
+      )`,
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS object_storage (
+        object_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value BLOB,
+        PRIMARY KEY (object_id, key),
+        FOREIGN KEY (object_id) REFERENCES durable_objects(id) ON DELETE CASCADE
+      )`,
+    },
+    {
+      sql: `CREATE INDEX IF NOT EXISTS idx_storage_prefix
+            ON object_storage(object_id, key)`,
+    },
+  ]);
 }
 
 function serialize(value: unknown): Uint8Array {
@@ -56,11 +50,11 @@ function deserialize<T>(data: unknown): T | undefined {
 }
 
 /**
- * Storage implementation backed by libSQL
+ * Storage implementation backed by DatabaseAdapter
  */
 export class DurableObjectStorage implements IStorage {
   constructor(
-    private client: Client,
+    private adapter: DatabaseAdapter,
     private objectId: string,
   ) {}
 
@@ -71,28 +65,27 @@ export class DurableObjectStorage implements IStorage {
       if (keyOrKeys.length === 0) return new Map();
 
       const placeholders = keyOrKeys.map(() => "?").join(", ");
-      const result = await this.client.execute({
-        sql: `SELECT key, value FROM object_storage
-              WHERE object_id = ? AND key IN (${placeholders})`,
-        args: [this.objectId, ...keyOrKeys],
-      });
+      const rows = await this.adapter.execute<{ key: string; value: unknown }>(
+        `SELECT key, value FROM object_storage
+         WHERE object_id = ? AND key IN (${placeholders})`,
+        [this.objectId, ...keyOrKeys],
+      );
 
       const map = new Map<string, T>();
-      for (const row of result.rows) {
+      for (const row of rows) {
         const value = deserialize<T>(row.value);
         if (value !== undefined) {
-          map.set(row.key as string, value);
+          map.set(row.key, value);
         }
       }
       return map;
     }
 
-    const result = await this.client.execute({
-      sql: "SELECT value FROM object_storage WHERE object_id = ? AND key = ?",
-      args: [this.objectId, keyOrKeys],
-    });
+    const row = await this.adapter.executeOne<{ value: unknown }>(
+      "SELECT value FROM object_storage WHERE object_id = ? AND key = ?",
+      [this.objectId, keyOrKeys],
+    );
 
-    const row = result.rows[0];
     if (!row) return undefined;
     return deserialize<T>(row.value);
   }
@@ -109,7 +102,7 @@ export class DurableObjectStorage implements IStorage {
       args: [this.objectId, k, serialize(v)],
     }));
 
-    await this.client.batch(batch, "write");
+    await this.adapter.batch(batch);
   }
 
   async delete(key: string): Promise<boolean>;
@@ -118,14 +111,24 @@ export class DurableObjectStorage implements IStorage {
     const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
     if (keys.length === 0) return Array.isArray(keyOrKeys) ? 0 : false;
 
+    // Check existing keys before delete (since adapter doesn't return rowsAffected)
     const placeholders = keys.map(() => "?").join(", ");
-    const result = await this.client.execute({
-      sql: `DELETE FROM object_storage
-            WHERE object_id = ? AND key IN (${placeholders})`,
-      args: [this.objectId, ...keys],
-    });
+    const existing = await this.adapter.execute<{ key: string }>(
+      `SELECT key FROM object_storage WHERE object_id = ? AND key IN (${placeholders})`,
+      [this.objectId, ...keys],
+    );
+    const existingCount = existing.length;
 
-    return Array.isArray(keyOrKeys) ? result.rowsAffected : result.rowsAffected > 0;
+    if (existingCount === 0) {
+      return Array.isArray(keyOrKeys) ? 0 : false;
+    }
+
+    await this.adapter.execute(
+      `DELETE FROM object_storage WHERE object_id = ? AND key IN (${placeholders})`,
+      [this.objectId, ...keys],
+    );
+
+    return Array.isArray(keyOrKeys) ? existingCount : existingCount > 0;
   }
 
   async list<T = unknown>(options?: ListOptions): Promise<Map<string, T>> {
@@ -150,21 +153,20 @@ export class DurableObjectStorage implements IStorage {
     sql += ` ORDER BY key ${reverse ? "DESC" : "ASC"} LIMIT ?`;
     args.push(limit);
 
-    const result = await this.client.execute({ sql, args });
+    const rows = await this.adapter.execute<{ key: string; value: unknown }>(sql, args);
 
     const map = new Map<string, T>();
-    for (const row of result.rows) {
+    for (const row of rows) {
       const value = deserialize<T>(row.value);
       if (value !== undefined) {
-        map.set(row.key as string, value);
+        map.set(row.key, value);
       }
     }
     return map;
   }
 
   async transaction<T>(closure: (txn: DurableObjectTransaction) => Promise<T>): Promise<T> {
-    // libSQL HTTP client doesn't support interactive transactions
-    // We use a simple in-memory transaction that batches operations
+    // Use adapter's transaction support
     const txn = new InMemoryTransaction(this);
     const result = await closure(txn);
     await txn.commit();

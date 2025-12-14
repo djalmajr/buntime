@@ -1,0 +1,94 @@
+= Adapters
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+O plugin suporta múltiplos adapters para diferentes bancos de dados. A escolha do adapter é feita na configuração.
+
+== libSQL
+
+Adapter para libSQL (fork do SQLite mantido pela Turso). É o adapter recomendado para ambientes distribuídos e serverless.
+
+**Características:**
+
+- **Compatibilidade**: 100% compatível com SQLite.
+- **Replicação**: Suporte nativo a replicação via gRPC (sqld).
+- **HTTP/WebSocket**: Pode ser acessado via HTTP ou WebSocket.
+- **Multi-tenancy**: Suporte nativo a namespaces (bancos de dados isolados em uma única instância).
+
+**Configuração:**
+
+[source,typescript]
+----
+{
+  type: "libsql",
+  urls: [                                  // urls[0] = Primary, urls[1..n] = Réplicas
+    "http://localhost:8080",
+    "http://replica:8080"
+  ],
+  authToken?: "token"                      // Token de autenticação (JWT)
+}
+----
+
+NOTE: A Admin API para multi-tenancy usa a mesma URL do primary (`urls[0]`).
+
+== PostgreSQL
+
+Adapter para PostgreSQL usando o cliente nativo do Bun (`bun:sql`).
+
+**Características:**
+
+- **Performance**: Usa driver nativo de alta performance.
+- **Multi-tenancy**: Implementado via Schemas do PostgreSQL.
+
+**Configuração:**
+
+[source,typescript]
+----
+{
+  type: "postgres",
+  url: "postgresql://user:pass@localhost:5432/db"
+}
+----
+
+== MySQL
+
+Adapter para MySQL usando o cliente nativo do Bun (`bun:sql`).
+
+**Características:**
+
+- **Performance**: Usa driver nativo.
+- **Multi-tenancy**: Implementado via Databases (cada tenant é um database).
+
+**Configuração:**
+
+[source,typescript]
+----
+{
+  type: "mysql",
+  url: "mysql://user:pass@localhost:3306/db"
+}
+----
+
+== SQLite
+
+Adapter para SQLite local usando o cliente nativo do Bun (`bun:sqlite`).
+
+**Características:**
+
+- **Simplicidade**: Sem servidor, apenas arquivos locais.
+- **Multi-tenancy**: Implementado via arquivos separados (ex: `data/tenant-1.db`).
+
+**Configuração:**
+
+[source,typescript]
+----
+{
+  type: "sqlite",
+  url: "file:./data.db", // Banco padrão
+  baseDir?: "./data"     // Diretório onde os bancos dos tenants serão criados
+}
+----

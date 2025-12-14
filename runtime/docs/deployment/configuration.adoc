@@ -1,0 +1,1003 @@
+== Configuration
+
+=== Overview
+
+The runtime uses three main configuration files:
+
+[cols="1,1,2"]
+|===
+| File | Purpose | Format
+
+| `buntime.jsonc`
+| Runtime configuration, plugins, pool settings
+| JSONC (comments allowed)
+
+| `bunfig.toml`
+| Bun build-time plugins (i18next, iconify, TSR, Tailwind)
+| TOML
+
+| `.env`
+| Environment variables
+| ENV
+
+| `components.json`
+| Shadcn UI configuration
+| JSON
+|===
+
+Additionally, worker apps can specify configuration via the `buntime` field in their `package.json`.
+
+=== Runtime Configuration (buntime.jsonc)
+
+==== File Location
+
+The runtime looks for `buntime.jsonc` in the current working directory:
+
+[source,bash]
+----
+/home/user/Developer/zomme/buntime/
+└── runtime/
+    ├── buntime.jsonc       # Runtime configuration
+    ├── index.ts            # Entry point
+    └── server/
+----
+
+==== Configuration Format
+
+The configuration uses Babel-style plugin format, where plugins can be specified as strings or tuples:
+
+[source,jsonc]
+----
+{
+  // === Global Settings ===
+  "appsDir": ["../../buntime-apps", "../examples"],  // Directories to scan for worker apps
+  "poolSize": 100,                                   // Worker pool size
+  "shell": "cpanel",                                 // Optional: app to serve when no route matches
+
+  // === Plugins ===
+  "plugins": [
+    // String format (no config)
+    "@buntime/plugin-metrics",
+
+    // Tuple format (with config)
+    [
+      "@buntime/plugin-database",
+      {
+        "adapter": {
+          "type": "libsql",
+          "url": "http://localhost:8880"
+        }
+      }
+    ]
+  ]
+}
+----
+
+==== Global Settings
+
+===== appsDir
+
+Directories where the runtime will scan for worker applications.
+
+[cols="1,2"]
+|===
+| Type | `string \| string[]`
+
+| Default
+| **Required** - No default, must be set in buntime.jsonc or APPS_DIR env var
+
+| Example
+| `["../../buntime-apps", "../examples"]`
+|===
+
+The runtime scans these directories for applications with valid `package.json` files and loads them into the worker pool.
+
+[source,jsonc]
+----
+{
+  "appsDir": [
+    "../../buntime-apps",    // Production apps
+    "../examples"            // Example apps
+  ]
+}
+----
+
+IMPORTANT: Paths are relative to the directory containing `buntime.jsonc`, not the current working directory.
+
+===== poolSize
+
+Maximum number of workers in the pool.
+
+[cols="1,2"]
+|===
+| Type | `number`
+
+| Default
+a|
+[cols="1,1"]
+!===
+! Environment ! Default
+
+! Development
+! `10`
+
+! Production
+! `500`
+
+! Staging
+! `50`
+
+! Test
+! `5`
+
+! Other
+! `100` (fallback)
+!===
+
+| Example
+| `100`
+|===
+
+[source,jsonc]
+----
+{
+  "poolSize": 100  // Support up to 100 concurrent workers
+}
+----
+
+The pool size determines how many worker instances can run simultaneously. Each worker can handle multiple requests based on its `maxRequests` configuration.
+
+===== shell
+
+Optional application to serve when no route matches.
+
+[cols="1,2"]
+|===
+| Type | `string`
+
+| Default
+| None
+
+| Example
+| `"cpanel"`
+|===
+
+[source,jsonc]
+----
+{
+  "shell": "cpanel"  // Serve cpanel app for unmatched routes
+}
+----
+
+When set, requests that don't match any application route will be forwarded to this application.
+
+==== Plugin Configuration
+
+===== Plugin Format
+
+Plugins use Babel-style configuration:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    // String format: plugin with no configuration
+    "@buntime/plugin-metrics",
+
+    // Tuple format: [plugin-name, config-object]
+    [
+      "@buntime/plugin-keyval",
+      {
+        "libsqlUrl": "http://localhost:8880"
+      }
+    ]
+  ]
+}
+----
+
+===== Plugin Resolution Order
+
+The runtime resolves plugins in the following order:
+
+1. **Built-in plugins** - Embedded in the binary (always available)
+2. **External plugins** - From `./plugins/` directory
+3. **Node modules** - From `node_modules` (dev mode only)
+
+[source]
+----
+Plugin Resolution:
+  1. Built-in: @buntime/plugin-metrics (embedded)
+  2. External: ./plugins/my-plugin/index.ts
+  3. Node modules: node_modules/@buntime/plugin-xyz
+----
+
+===== Plugin Dependencies
+
+Plugins are automatically sorted based on dependencies using topological sort. You don't need to manually order plugins in the configuration.
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    // These will be auto-sorted by the runtime:
+    "@buntime/plugin-keyval",     // Has no dependencies
+    "@buntime/plugin-proxy",      // Optional dependency on keyval
+    "@buntime/plugin-metrics"     // Has no dependencies
+  ]
+}
+----
+
+IMPORTANT: If a plugin declares required dependencies, they must be present in the `plugins` array or the runtime will throw an error.
+
+===== Required Plugins
+
+Use the `required` field to ensure critical plugins are loaded:
+
+[source,jsonc]
+----
+{
+  "required": ["@buntime/plugin-metrics", "@buntime/plugin-keyval"],
+  "plugins": [
+    "@buntime/plugin-metrics",
+    "@buntime/plugin-keyval"
+  ]
+}
+----
+
+This is useful for validation in production environments.
+
+===== Plugin-Specific Configuration
+
+Each plugin has its own configuration options. See the plugin documentation for details:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    // Database plugin
+    [
+      "@buntime/plugin-database",
+      {
+        "adapter": {
+          "type": "libsql",
+          "url": "${LIBSQL_URL}"  // Environment variable interpolation
+        }
+      }
+    ],
+
+    // Gateway plugin
+    [
+      "@buntime/plugin-gateway",
+      {
+        "rateLimit": {
+          "requests": 100,
+          "window": "1m",
+          "keyBy": "ip"
+        },
+        "cache": {
+          "ttl": 300,
+          "methods": ["GET"]
+        }
+      }
+    ],
+
+    // Proxy plugin
+    [
+      "@buntime/plugin-proxy",
+      {
+        "rules": [
+          {
+            "name": "CPanel App",
+            "pattern": "^/cpanel(/.*)?$",
+            "target": "http://localhost:4000",
+            "rewrite": "$1",
+            "changeOrigin": true,
+            "ws": true
+          }
+        ]
+      }
+    ],
+
+    // Authentication plugin
+    [
+      "@buntime/plugin-authn",
+      {
+        "provider": "keycloak",
+        "issuer": "${KEYCLOAK_URL}",
+        "realm": "${KEYCLOAK_REALM}",
+        "excludePaths": ["/health", "/public/.*"]
+      }
+    ],
+
+    // Authorization plugin
+    [
+      "@buntime/plugin-authz",
+      {
+        "store": "file",
+        "path": "./policies.json",
+        "combiningAlgorithm": "deny-overrides",
+        "policies": [
+          {
+            "id": "admin-all-access",
+            "effect": "permit",
+            "subjects": [{ "role": "admin" }],
+            "resources": [{ "path": "*" }],
+            "actions": [{ "method": "*" }]
+          }
+        ]
+      }
+    ]
+  ]
+}
+----
+
+==== Environment Variable Interpolation
+
+The runtime supports environment variable interpolation in configuration values using `${VAR_NAME}` syntax:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    [
+      "@buntime/plugin-database",
+      {
+        "adapter": {
+          "type": "libsql",
+          "url": "${LIBSQL_URL}"  // Replaced with process.env.LIBSQL_URL
+        }
+      }
+    ]
+  ]
+}
+----
+
+TIP: This allows the same configuration file to work across development, staging, and production environments by changing only the `.env` file.
+
+=== Worker Configuration
+
+==== Configuration Location
+
+Workers can be configured via the `buntime` field in their `package.json` or in a `buntime.jsonc` file in the app directory.
+
+**Configuration priority:**
+
+1. First: `buntime.jsonc` in app directory
+2. Fallback: `buntime` field in `package.json`
+
+[source,json]
+----
+{
+  "name": "todos-kv",
+  "version": "2.0.0",
+  "buntime": {
+    "entrypoint": "dist/index.js",
+    "idleTimeout": 30,
+    "lowMemory": false,
+    "maxRequests": 100,
+    "timeout": 30,
+    "ttl": 60
+  }
+}
+----
+
+==== Worker Options
+
+===== entrypoint
+
+Entry file for the worker application.
+
+[cols="1,2"]
+|===
+| Type | `string`
+
+| Default
+| `index.ts` or main field from package.json
+
+| Example
+| `"dist/index.js"`
+|===
+
+[source,json]
+----
+{
+  "buntime": {
+    "entrypoint": "dist/index.js"  // Use built output
+  }
+}
+----
+
+===== autoInstall
+
+Run `bun install --frozen-lockfile` before starting worker.
+
+[cols="1,2"]
+|===
+| Type | `boolean`
+
+| Default
+| `false`
+
+| Example
+| `true`
+|===
+
+[source,json]
+----
+{
+  "buntime": {
+    "autoInstall": true  // Install dependencies before worker starts
+  }
+}
+----
+
+===== env
+
+Additional environment variables to pass to worker.
+
+[cols="1,2"]
+|===
+| Type | `Record<string, string>`
+
+| Default
+| None
+
+| Example
+| `{ "API_KEY": "abc123", "DEBUG": "true" }`
+|===
+
+[source,json]
+----
+{
+  "buntime": {
+    "env": {
+      "API_KEY": "abc123",
+      "DEBUG": "true"
+    }
+  }
+}
+----
+
+===== publicRoutes
+
+Define public routes that bypass authentication.
+
+[cols="1,2"]
+|===
+| Type | Array or object
+
+| Default
+| None
+
+| Example
+| See plugin documentation for format
+|===
+
+[source,json]
+----
+{
+  "buntime": {
+    "publicRoutes": [
+      "/health",
+      "/public/*"
+    ]
+  }
+}
+----
+
+NOTE: The exact format depends on the authentication plugin being used. See plugin documentation for details.
+
+===== idleTimeout
+
+Time in seconds before an idle worker is terminated.
+
+[cols="1,2"]
+|===
+| Type | `number`
+
+| Default
+| `60`
+
+| Example
+| `60`
+|===
+
+[source,json]
+----
+{
+  "buntime": {
+    "idleTimeout": 60  // Terminate worker after 60 seconds of inactivity
+  }
+}
+----
+
+===== lowMemory
+
+Enable low memory mode (constrains worker memory usage).
+
+[cols="1,2"]
+|===
+| Type | `boolean`
+
+| Default
+| `false`
+
+| Example
+| `false`
+|===
+
+[source,json]
+----
+{
+  "buntime": {
+    "lowMemory": false  // Normal memory mode
+  }
+}
+----
+
+===== maxRequests
+
+Maximum number of requests a worker can handle before being recycled.
+
+[cols="1,2"]
+|===
+| Type | `number`
+
+| Default
+| `1000`
+
+| Example
+| `1000`
+|===
+
+[source,json]
+----
+{
+  "buntime": {
+    "maxRequests": 1000  // Recycle worker after 1000 requests
+  }
+}
+----
+
+IMPORTANT: Workers are recycled to prevent memory leaks and ensure consistent performance over time.
+
+===== timeout
+
+Maximum time in seconds for a single request.
+
+[cols="1,2"]
+|===
+| Type | `number`
+
+| Default
+| `30`
+
+| Example
+| `30`
+|===
+
+[source,json]
+----
+{
+  "buntime": {
+    "timeout": 30  // Kill request after 30 seconds
+  }
+}
+----
+
+===== ttl
+
+Time to live in seconds for the worker instance.
+
+[cols="1,2"]
+|===
+| Type | `number`
+
+| Default
+| `0` (no TTL limit)
+
+| Example
+| `60`
+|===
+
+[source,json]
+----
+{
+  "buntime": {
+    "ttl": 60  // Terminate worker after 60 seconds regardless of activity
+  }
+}
+----
+
+NOTE: When set to `0` (default), workers have no TTL limit and will only be terminated based on `idleTimeout` or `maxRequests`.
+
+=== Build-Time Plugins (bunfig.toml)
+
+The runtime client (React dashboard) uses Bun plugins for build-time transformations:
+
+[source,toml]
+----
+[serve.static]
+plugins = [
+  "@zomme/bun-plugin-tsr",       # TanStack Router generation
+  "@zomme/bun-plugin-iconify",   # Icon collection
+  "@zomme/bun-plugin-i18next",   # Translation loading
+  "bun-plugin-tailwind",         # Tailwind CSS
+]
+
+[plugins.tsr]
+rootDirectory = "client"
+
+[plugins.iconify]
+dirs = ["client"]
+
+[plugins.i18next]
+dirs = "client"
+----
+
+==== Available Plugins
+
+[cols="1,2"]
+|===
+| Plugin | Purpose
+
+| `@zomme/bun-plugin-tsr`
+| Generates TanStack Router routes from file structure
+
+| `@zomme/bun-plugin-iconify`
+| Provides icon collections via Icon component
+
+| `@zomme/bun-plugin-i18next`
+| Loads translations from colocated JSON files
+
+| `bun-plugin-tailwind`
+| Tailwind CSS processing
+|===
+
+See the plugin documentation for detailed configuration options.
+
+=== Environment Variables (.env)
+
+==== File Location
+
+The runtime loads environment variables from `.env` in the current working directory:
+
+[source,bash]
+----
+/home/user/Developer/zomme/buntime/
+└── runtime/
+    ├── .env            # Environment variables
+    ├── buntime.jsonc   # Runtime configuration
+    └── index.ts
+----
+
+==== Available Variables
+
+[cols="1,2,1"]
+|===
+| Variable | Description | Default
+
+| `NODE_ENV`
+| Environment (development, production)
+| `development`
+
+| `PORT`
+| Server port
+| `8000`
+
+| `APPS_DIR`
+| Worker apps directory
+| `./apps`
+
+| `POOL_SIZE`
+| Override pool size
+| Environment-dependent
+
+| `APP_SHELL`
+| Override shell app
+| None
+
+| `DELAY_MS`
+| Startup delay in ms
+| `100`
+
+| `LIBSQL_URL`
+| libSQL server URL (for plugins)
+| None
+|===
+
+==== Example Configuration
+
+[source,bash]
+----
+# Server settings
+NODE_ENV=development
+PORT=8000
+
+# Apps directory
+APPS_DIR=../../buntime-apps
+
+# libSQL database URL (for plugins that use KeyVal storage)
+# Options:
+#   - Docker/remote: http://localhost:8880 (recommended)
+#   - Local file: file:/absolute/path/to/buntime.db
+# Note: Relative paths don't work with compiled binaries
+LIBSQL_URL=http://localhost:8880
+----
+
+IMPORTANT: When using `file:` URLs for libSQL, always use absolute paths. Relative paths fail in compiled binaries.
+
+=== Shadcn UI Configuration (components.json)
+
+The runtime dashboard uses Shadcn UI components. Configuration is in `components.json`:
+
+[source,json]
+----
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "new-york",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "index.css",
+    "baseColor": "slate",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "aliases": {
+    "components": "~/components",
+    "utils": "~/utils/cn",
+    "ui": "~/components/ui",
+    "lib": "~/libs",
+    "hooks": "~/hooks"
+  }
+}
+----
+
+This configuration is used by the `shadcn` CLI when adding new components:
+
+[source,bash]
+----
+npx shadcn add button
+----
+
+=== Complete Example Configuration
+
+==== Development
+
+[source,jsonc]
+----
+// buntime.jsonc
+{
+  "appsDir": ["../../buntime-apps", "../examples"],
+  "poolSize": 100,
+  "plugins": [
+    "@buntime/plugin-metrics",
+    "@buntime/plugin-deployments",
+    "@buntime/plugin-health",
+    "@buntime/plugin-logs",
+    [
+      "@buntime/plugin-database",
+      {
+        "adapter": {
+          "type": "libsql",
+          "url": "http://localhost:8880"
+        }
+      }
+    ],
+    "@buntime/plugin-keyval"
+  ]
+}
+----
+
+[source,bash]
+----
+# .env
+NODE_ENV=development
+PORT=8000
+APPS_DIR=../../buntime-apps
+LIBSQL_URL=http://localhost:8880
+----
+
+==== Production
+
+[source,jsonc]
+----
+// buntime.jsonc
+{
+  "appsDir": "${APPS_DIR}",
+  "poolSize": 500,
+  "required": ["@buntime/plugin-metrics", "@buntime/plugin-keyval"],
+  "plugins": [
+    "@buntime/plugin-metrics",
+    "@buntime/plugin-deployments",
+    "@buntime/plugin-health",
+    "@buntime/plugin-logs",
+    [
+      "@buntime/plugin-database",
+      {
+        "adapter": {
+          "type": "libsql",
+          "url": "${LIBSQL_URL}",
+          "authToken": "${LIBSQL_TOKEN}"
+        }
+      }
+    ],
+    [
+      "@buntime/plugin-keyval",
+      {
+        "libsqlUrl": "${LIBSQL_URL}",
+        "libsqlToken": "${LIBSQL_TOKEN}",
+        "libsqlReplicaUrl": "${LIBSQL_REPLICA_URL}",
+        "queue": {
+          "cleanupInterval": 300000,
+          "lockDuration": 60000
+        },
+        "metrics": {
+          "persistent": true,
+          "flushInterval": 30000
+        }
+      }
+    ],
+    [
+      "@buntime/plugin-gateway",
+      {
+        "rateLimit": {
+          "requests": 1000,
+          "window": "1m",
+          "keyBy": "ip"
+        },
+        "cache": {
+          "ttl": 300,
+          "methods": ["GET"],
+          "maxEntries": 10000
+        },
+        "cors": {
+          "origin": "https://app.example.com",
+          "credentials": true
+        }
+      }
+    ],
+    [
+      "@buntime/plugin-authn",
+      {
+        "provider": "keycloak",
+        "issuer": "${KEYCLOAK_URL}",
+        "realm": "${KEYCLOAK_REALM}",
+        "clientId": "${KEYCLOAK_CLIENT_ID}",
+        "excludePaths": ["/health", "/metrics"]
+      }
+    ],
+    [
+      "@buntime/plugin-authz",
+      {
+        "store": "database",
+        "combiningAlgorithm": "deny-overrides"
+      }
+    ]
+  ]
+}
+----
+
+[source,bash]
+----
+# .env
+NODE_ENV=production
+PORT=8000
+APPS_DIR=/app/buntime-apps
+
+# Database
+LIBSQL_URL=http://libsql:8080
+LIBSQL_TOKEN=<jwt-token>
+LIBSQL_REPLICA_URL=http://libsql-replica:8080
+
+# Authentication
+KEYCLOAK_URL=https://auth.example.com
+KEYCLOAK_REALM=production
+KEYCLOAK_CLIENT_ID=buntime
+----
+
+=== Configuration Validation
+
+The runtime validates configuration at startup and provides helpful error messages:
+
+[source]
+----
+# Missing required plugin
+Error: Plugin "@buntime/plugin-proxy" requires "@buntime/plugin-keyval" which is not configured.
+Add "@buntime/plugin-keyval" to your buntime.jsonc plugins array.
+
+# Circular dependency
+Error: Circular dependency detected among plugins: @buntime/plugin-a, @buntime/plugin-b
+
+# Invalid format
+Error: [buntime.jsonc] Invalid plugin at index 2: expected string or [name, config] tuple
+----
+
+=== Configuration Best Practices
+
+==== Use Environment Variables
+
+Store sensitive data in `.env`, not in `buntime.jsonc`:
+
+[source,jsonc]
+----
+// WRONG - hardcoded secrets
+{
+  "plugins": [
+    [
+      "@buntime/plugin-database",
+      {
+        "adapter": {
+          "url": "http://production-db:8080",
+          "authToken": "secret-token-here"  // NEVER do this
+        }
+      }
+    ]
+  ]
+}
+
+// CORRECT - use environment variables
+{
+  "plugins": [
+    [
+      "@buntime/plugin-database",
+      {
+        "adapter": {
+          "url": "${LIBSQL_URL}",
+          "authToken": "${LIBSQL_TOKEN}"
+        }
+      }
+    ]
+  ]
+}
+----
+
+==== Separate Concerns
+
+Use different configuration files for different purposes:
+
+- **buntime.jsonc** - Runtime behavior (plugins, pool)
+- **bunfig.toml** - Build-time transforms (Bun plugins)
+- **.env** - Environment-specific values
+- **components.json** - UI framework config
+
+==== Document Custom Plugins
+
+If using custom external plugins, document them in your project README:
+
+[source,bash]
+----
+runtime/
+├── buntime.jsonc
+├── plugins/
+│   ├── my-plugin/
+│   │   ├── index.ts
+│   │   └── README.md  # Document your plugin
+----
+
+==== Version Control
+
+Add to `.gitignore`:
+
+[source]
+----
+# Environment files (secrets)
+.env
+.env.local
+
+# Keep examples
+!.env.example
+----
+
+Commit to version control:
+
+[source]
+----
+# Configuration (no secrets)
+buntime.jsonc
+bunfig.toml
+components.json
+.env.example
+----

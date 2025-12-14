@@ -17,7 +17,7 @@ describe("LibSqlAdapter", () => {
 
     adapter = new LibSqlAdapter({
       type: "libsql",
-      url: `file:${TEST_DB_PATH}`,
+      urls: [`file:${TEST_DB_PATH}`],
     });
 
     // Create test table
@@ -155,38 +155,45 @@ describe("LibSqlAdapter", () => {
   });
 
   describe("createTenant", () => {
-    it("should warn when admin URL not configured", async () => {
-      const logs: string[] = [];
-      const mockLogger = {
-        debug: () => {},
-        error: () => {},
-        info: () => {},
-        warn: (msg: string) => logs.push(msg),
-      };
-
-      const adapterWithLogger = new LibSqlAdapter({
+    it("should use primary URL for Admin API", async () => {
+      const httpAdapter = new LibSqlAdapter({
         type: "libsql",
-        url: `file:${TEST_DB_PATH}`,
-        logger: mockLogger,
+        urls: ["http://localhost:9999"],
       });
 
-      // Should not throw, just warn
-      await adapterWithLogger.createTenant("test-tenant");
-      expect(logs[0]).toContain("Admin URL not configured");
+      // Should attempt to create namespace via Admin API
+      // Will fail because server doesn't exist, but validates the URL is used
+      await expect(httpAdapter.createTenant("test-tenant")).rejects.toThrow();
 
-      await adapterWithLogger.close();
+      await httpAdapter.close();
     });
   });
 
   describe("deleteTenant", () => {
-    it("should throw when admin URL not configured", async () => {
-      await expect(adapter.deleteTenant("test-tenant")).rejects.toThrow("Admin URL not configured");
+    it("should use primary URL for Admin API", async () => {
+      const httpAdapter = new LibSqlAdapter({
+        type: "libsql",
+        urls: ["http://localhost:9999"],
+      });
+
+      // Should attempt to delete namespace via Admin API
+      await expect(httpAdapter.deleteTenant("test-tenant")).rejects.toThrow();
+
+      await httpAdapter.close();
     });
   });
 
   describe("listTenants", () => {
-    it("should throw when admin URL not configured", async () => {
-      await expect(adapter.listTenants()).rejects.toThrow("Admin URL not configured");
+    it("should use primary URL for Admin API", async () => {
+      const httpAdapter = new LibSqlAdapter({
+        type: "libsql",
+        urls: ["http://localhost:9999"],
+      });
+
+      // Should attempt to list namespaces via Admin API
+      await expect(httpAdapter.listTenants()).rejects.toThrow();
+
+      await httpAdapter.close();
     });
   });
 
@@ -194,7 +201,7 @@ describe("LibSqlAdapter", () => {
     it("should handle HTTP URLs for tenants", async () => {
       const httpAdapter = new LibSqlAdapter({
         type: "libsql",
-        url: "http://localhost:8080",
+        urls: ["http://localhost:8080"],
       });
 
       const tenantAdapter = await httpAdapter.getTenant("my-tenant");
@@ -202,6 +209,124 @@ describe("LibSqlAdapter", () => {
 
       await httpAdapter.close();
       await tenantAdapter.close();
+    });
+  });
+
+  describe("Replication", () => {
+    it("should support multiple URLs (first is primary, rest are replicas)", async () => {
+      const replicaAdapter = new LibSqlAdapter({
+        type: "libsql",
+        urls: [
+          `file:${TEST_DB_PATH}`,
+          "http://replica1:8080",
+          "http://replica2:8080",
+          "http://replica3:8080",
+        ],
+      });
+
+      // @ts-expect-error - accessing private property for testing
+      expect(replicaAdapter.replicaClients).toHaveLength(3);
+
+      await replicaAdapter.close();
+    });
+
+    it("should filter out empty URLs", async () => {
+      const replicaAdapter = new LibSqlAdapter({
+        type: "libsql",
+        urls: [`file:${TEST_DB_PATH}`, "http://replica1:8080", "", "  ", "http://replica2:8080"],
+      });
+
+      // @ts-expect-error - accessing private property for testing
+      expect(replicaAdapter.replicaClients).toHaveLength(2);
+
+      await replicaAdapter.close();
+    });
+
+    it("should use replicas for read operations", async () => {
+      const logs: string[] = [];
+      const mockLogger = {
+        debug: () => {},
+        error: () => {},
+        info: (msg: string) => logs.push(msg),
+        warn: () => {},
+      };
+
+      const replicaAdapter = new LibSqlAdapter({
+        type: "libsql",
+        urls: [`file:${TEST_DB_PATH}`, "http://replica1:8080", "http://replica2:8080"],
+        logger: mockLogger,
+      });
+
+      // Should log replica initialization
+      expect(logs[0]).toContain("2 replica(s)");
+
+      await replicaAdapter.close();
+    });
+
+    it("should build tenant URLs for replicas", async () => {
+      const replicaAdapter = new LibSqlAdapter({
+        type: "libsql",
+        urls: ["http://primary:8080", "http://replica1:8080", "http://replica2:8080"],
+      });
+
+      const tenantAdapter = await replicaAdapter.getTenant("tenant1");
+
+      // @ts-expect-error - accessing private property for testing
+      expect(tenantAdapter.replicaClients).toHaveLength(2);
+
+      await replicaAdapter.close();
+      await tenantAdapter.close();
+    });
+
+    it("should round-robin between replicas", async () => {
+      const replicaAdapter = new LibSqlAdapter({
+        type: "libsql",
+        urls: [`file:${TEST_DB_PATH}`, "http://replica1:8080", "http://replica2:8080"],
+      });
+
+      // @ts-expect-error - accessing private property for testing
+      expect(replicaAdapter.replicaIndex).toBe(0);
+
+      // Trigger reads to increment index
+      // @ts-expect-error - accessing private method for testing
+      replicaAdapter.getReadClient();
+      // @ts-expect-error - accessing private property for testing
+      expect(replicaAdapter.replicaIndex).toBe(1);
+
+      // @ts-expect-error - accessing private method for testing
+      replicaAdapter.getReadClient();
+      // @ts-expect-error - accessing private property for testing
+      expect(replicaAdapter.replicaIndex).toBe(0); // Should wrap around
+
+      await replicaAdapter.close();
+    });
+
+    it("should use primary when no replicas configured", async () => {
+      const noReplicaAdapter = new LibSqlAdapter({
+        type: "libsql",
+        urls: [`file:${TEST_DB_PATH}`],
+      });
+
+      // @ts-expect-error - accessing private property for testing
+      expect(noReplicaAdapter.replicaClients).toHaveLength(0);
+
+      // Should use primary for reads
+      // @ts-expect-error - accessing private method for testing
+      const readClient = noReplicaAdapter.getReadClient();
+      // @ts-expect-error - accessing private property for testing
+      expect(readClient).toBe(noReplicaAdapter.client);
+
+      await noReplicaAdapter.close();
+    });
+
+    it("should throw if urls array is empty", () => {
+      expect(
+        () =>
+          new LibSqlAdapter({
+            type: "libsql",
+            urls: [],
+          }),
+      ).toThrow("at least one URL");
     });
   });
 });

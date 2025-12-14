@@ -1,3 +1,10 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
 == Where Filters
 
 Where filters permitem filtrar entries em operações `list` e `delete` com base nos valores armazenados. A filtragem é executada no servidor usando funções JSON do SQLite.

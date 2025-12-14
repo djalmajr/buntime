@@ -3,7 +3,7 @@
   // Copy this file to `buntime.jsonc` and customize as needed.
 
   // Application settings
-  "appsDir": "${APPS_DIR}", // Required: directory where worker apps are stored
+  "appsDirs": ["${APPS_DIR}"], // Required: directories where worker apps are stored
   "poolSize": 100, // Worker pool size (default: 100)
   // "shell": "cpanel",             // Optional: serve this app when no route matches
 
@@ -43,7 +43,7 @@
       {
         "adapter": {
           "type": "libsql",
-          "url": "http://localhost:8880" // libSQL HTTP API
+          "urls": ["http://localhost:8880"] // libSQL HTTP API
         }
       }
     ],

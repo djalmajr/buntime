@@ -15,7 +15,6 @@ import { createApp } from "@/app";
 import { getConfig, initConfig, NODE_ENV } from "@/config";
 import { WorkerPool } from "@/libs/pool/pool";
 import { loadBuntimeConfig, PluginLoader } from "@/plugins/loader";
-import { createDeploymentRoutes } from "@/routes/deployments";
 import { createPluginsInfoRoutes } from "@/routes/plugins-info";
 import { createWorkerRoutes } from "@/routes/worker";
 import { createAppResolver } from "@/utils/get-app-dir";
@@ -32,6 +31,10 @@ setLogger(logger);
 const { baseDir, config: buntimeConfig } = await loadBuntimeConfig();
 const runtimeConfig = initConfig(buntimeConfig, baseDir);
 
+// Set appsDirs as env var so plugin workers can access it
+// Workers inherit Bun.env at spawn time
+Bun.env.BUNTIME_APPS_DIRS = JSON.stringify(runtimeConfig.appsDirs);
+
 // Create pool with config
 const pool = new WorkerPool({ maxSize: runtimeConfig.poolSize });
 
@@ -43,11 +46,6 @@ const loader = new PluginLoader(buntimeConfig, pool);
 const registry = await loader.load();
 
 // Create routes with dependencies
-const deployments = createDeploymentRoutes({
-  appsDirs: runtimeConfig.appsDirs,
-  registry,
-});
-
 const pluginsInfo = createPluginsInfoRoutes({ registry });
 
 const workers = createWorkerRoutes({
@@ -59,7 +57,6 @@ const workers = createWorkerRoutes({
 
 // Create app with routes and plugins
 const app = createApp({
-  deployments,
   getAppDir,
   pluginsInfo,
   pool,
@@ -132,5 +129,4 @@ export {
 export { type AppType, createApp } from "@/app";
 export { type LoadedBuntimeConfig, loadBuntimeConfig, PluginLoader } from "@/plugins/loader";
 export { PluginRegistry } from "@/plugins/registry";
-export type { DeploymentRoutesType } from "@/routes/deployments";
 export type { PluginsInfoRoutesType } from "@/routes/plugins-info";

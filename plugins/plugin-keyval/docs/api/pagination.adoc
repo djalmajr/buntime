@@ -1,3 +1,10 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
 == Pagination API
 
 O KeyVal oferece paginação baseada em cursor para navegação eficiente em grandes conjuntos de dados. Diferente de offset-based pagination, cursors garantem consistência mesmo quando dados são adicionados/removidos durante a navegação.

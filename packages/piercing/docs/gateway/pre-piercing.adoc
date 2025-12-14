@@ -1,0 +1,622 @@
+== Pre-Piercing
+
+Pre-piercing é o processo de injetar fragmentos diretamente no HTML inicial da resposta, antes do JavaScript do cliente hidratar a página. Isso melhora o tempo de carregamento percebido e SEO.
+
+=== O Que É Pre-Piercing?
+
+Sem pre-piercing, a página é carregada assim:
+
+[source]
+----
+1. Servidor envia HTML shell vazio
+2. Cliente baixa JavaScript
+3. JavaScript busca fragmentos via /piercing-fragment/:id
+4. Fragmentos aparecem na tela (FOUC - Flash of Unstyled Content)
+----
+
+Com pre-piercing:
+
+[source]
+----
+1. Servidor injeta fragmentos diretamente no HTML inicial
+2. Cliente vê o conteúdo imediatamente (SSR)
+3. JavaScript hidrata os fragmentos (quando carregado)
+4. Transição suave, sem FOUC
+----
+
+=== Configuração de Rotas
+
+==== Propriedade `prePierceRoutes`
+
+Define em quais rotas um fragmento deve ser pré-injetado:
+
+[source,typescript]
+----
+gateway.registerFragment({
+  fragmentId: "header",
+  prePierceRoutes: ["/", "/dashboard", "/dashboard/*"],
+  fetchFragment: async (request) => {
+    // ...
+  },
+});
+----
+
+==== Padrões de Rota
+
+Suporta wildcards para matching flexível:
+
+[cols="1,2"]
+|===
+| Padrão | Descrição
+
+| `"/"`
+| Apenas a rota raiz
+
+| `"/dashboard"`
+| Exatamente `/dashboard`
+
+| `"/dashboard/*"`
+| `/dashboard/` e qualquer subrota
+
+| `"/users/*/profile"`
+| `/users/123/profile`, `/users/abc/profile`
+
+| `"/api/?.json"`
+| `/api/1.json`, `/api/a.json` (um caractere)
+
+| `"/*"`
+| Todas as rotas
+|===
+
+Exemplos de matching:
+
+[source,typescript]
+----
+prePierceRoutes: ["/dashboard/*"]
+
+// Matches:
+// /dashboard/
+// /dashboard/settings
+// /dashboard/users/123
+
+// Não matches:
+// /dashboard (sem trailing slash)
+// /dashboards/
+----
+
+==== Múltiplas Rotas
+
+Um fragmento pode ter várias rotas de pre-pierce:
+
+[source,typescript]
+----
+gateway.registerFragment({
+  fragmentId: "analytics-widget",
+  prePierceRoutes: [
+    "/dashboard",
+    "/reports/*",
+    "/metrics/*",
+  ],
+  fetchFragment: async (request) => {
+    // ...
+  },
+});
+----
+
+=== Estilos de Pre-Piercing
+
+==== Propriedade `prePiercingStyles`
+
+CSS aplicado antes da hidratação para evitar mudanças visuais bruscas:
+
+[source,typescript]
+----
+gateway.registerFragment({
+  fragmentId: "sidebar",
+  prePiercingStyles: `
+    .sidebar {
+      width: 250px;
+      min-height: 100vh;
+      background: #f5f5f5;
+      opacity: 1;
+      transition: opacity 0.2s ease;
+    }
+  `,
+  fetchFragment: async (request) => {
+    // ...
+  },
+});
+----
+
+==== Injeção no HTML
+
+Os estilos são injetados dentro do elemento `<piercing-fragment-host>`:
+
+[source,html]
+----
+<piercing-fragment-host fragment-id="sidebar">
+  <style>
+    .sidebar {
+      width: 250px;
+      min-height: 100vh;
+      background: #f5f5f5;
+      opacity: 1;
+      transition: opacity 0.2s ease;
+    }
+  </style>
+
+  <!-- Conteúdo do fragmento -->
+  <aside class="sidebar">
+    <!-- ... -->
+  </aside>
+</piercing-fragment-host>
+----
+
+==== Casos de Uso
+
+===== Reservar Espaço
+
+Evita layout shift ao definir dimensões mínimas:
+
+[source,css]
+----
+.header {
+  min-height: 64px;
+  background: #ffffff;
+}
+
+.sidebar {
+  min-width: 250px;
+  min-height: 100vh;
+}
+----
+
+===== Transições Suaves
+
+Aplica transições antes da hidratação:
+
+[source,css]
+----
+.fragment {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+----
+
+===== Skeleton Screens
+
+Exibe placeholders visuais antes do conteúdo real:
+
+[source,css]
+----
+.loading-skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+----
+
+=== Processo de Injeção
+
+==== 1. Identificação de Fragmentos
+
+Quando uma requisição HTML chega, o gateway:
+
+1. Extrai o pathname da URL
+2. Itera sobre todos os fragmentos registrados
+3. Verifica se `prePierceRoutes` está definido
+4. Faz matching do pathname contra os padrões
+
+[source,typescript]
+----
+// Requisição: GET /dashboard/settings
+
+// Fragmentos candidatos:
+const candidates = fragments.filter((fragment) => {
+  return fragment.prePierceRoutes?.some((route) => {
+    // Converte "/*" para regex: /^\/.*$/
+    const regex = new RegExp(`^${route.replace(/\*/g, ".*")}$`);
+    return regex.test("/dashboard/settings");
+  });
+});
+----
+
+==== 2. Verificação de Inclusão
+
+Para cada candidato, verifica `shouldBeIncluded`:
+
+[source,typescript]
+----
+const fragmentsToPrePierce = await Promise.all(
+  candidates.map(async (fragment) => {
+    if (!fragment.shouldBeIncluded) {
+      return fragment; // Sem condição, inclui
+    }
+
+    const shouldInclude = await fragment.shouldBeIncluded(request);
+    return shouldInclude ? fragment : null;
+  })
+);
+----
+
+==== 3. Busca Paralela
+
+Todos os fragmentos aprovados são buscados em paralelo:
+
+[source,typescript]
+----
+const fragmentStreams = await Promise.all(
+  fragmentsToPrePierce.map(async (fragment) => {
+    // Cria message bus com estado
+    const messageBus = new ServerMessageBus(state);
+
+    // Cria requisição com headers do message bus
+    let fragmentRequest = messageBus.toRequest(request);
+
+    // Aplica transformação (se definida)
+    if (fragment.transformRequest) {
+      fragmentRequest = await fragment.transformRequest(fragmentRequest);
+      // Reaplica headers do message bus
+      fragmentRequest = messageBus.toRequest(fragmentRequest);
+    }
+
+    // Busca o fragmento
+    const response = await fragment.fetchFragment(fragmentRequest);
+
+    // Envolve em piercing-fragment-host
+    return wrapFragmentInHost(
+      fragment.fragmentId,
+      response.body,
+      fragment.prePiercingStyles
+    );
+  })
+);
+----
+
+==== 4. Combinação com HTML Shell
+
+Os fragmentos são injetados antes de `</body>`:
+
+[source,html]
+----
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>App</title>
+    <!-- Scripts do message bus injetados aqui -->
+    <script>
+      window.__PIERCING_MESSAGE_BUS_STATE__ = {"user:authenticated":true};
+    </script>
+    <script type="module">
+      import { registerPiercingComponents } from '/_piercing/client.js';
+      registerPiercingComponents();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <!-- Fragmentos injetados aqui, antes de </body> -->
+    <piercing-fragment-host fragment-id="header">
+      <style>.header { min-height: 64px; }</style>
+      <header>...</header>
+    </piercing-fragment-host>
+
+    <piercing-fragment-host fragment-id="sidebar">
+      <style>.sidebar { min-width: 250px; }</style>
+      <aside>...</aside>
+    </piercing-fragment-host>
+  </body>
+</html>
+----
+
+=== Injeção de Scripts
+
+O gateway injeta dois scripts no HTML:
+
+==== 1. Estado do Message Bus
+
+Inicializa o estado global do message bus antes do JavaScript do cliente:
+
+[source,html]
+----
+<script>
+(function() {
+  window.__PIERCING_MESSAGE_BUS_STATE__ = {
+    "user:authenticated": true,
+    "user:profile": { "id": 123, "name": "João" },
+    "app:version": "1.2.3"
+  };
+})();
+</script>
+----
+
+==== 2. Registro de Componentes
+
+Importa e registra os web components do Piercing:
+
+[source,html]
+----
+<script type="module">
+import { registerPiercingComponents } from '/_piercing/client.js';
+registerPiercingComponents();
+</script>
+----
+
+Esses componentes incluem `<piercing-fragment-host>` e `<piercing-fragment>`.
+
+==== Local de Injeção
+
+Preferência de injeção:
+
+1. Antes de `</head>` (preferido)
+2. Após `<body>` (fallback)
+3. Início do documento (último recurso)
+
+[source,typescript]
+----
+// Tenta injetar antes de </head>
+const headEndIndex = html.indexOf("</head>");
+if (headEndIndex !== -1) {
+  return html.slice(0, headEndIndex) + scripts + html.slice(headEndIndex);
+}
+
+// Fallback: após <body>
+const bodyStartIndex = html.indexOf("<body");
+if (bodyStartIndex !== -1) {
+  const bodyTagEnd = html.indexOf(">", bodyStartIndex);
+  return html.slice(0, bodyTagEnd + 1) + scripts + html.slice(bodyTagEnd + 1);
+}
+
+// Último recurso: início do documento
+return scripts + html;
+----
+
+=== Message Bus e Estado Compartilhado
+
+==== Estado da Requisição
+
+O `ServerMessageBus` extrai estado dos headers da requisição:
+
+[source,http]
+----
+GET /dashboard HTTP/1.1
+X-Piercing-Event-user:id: 123
+X-Piercing-Event-theme: "dark"
+----
+
+Isso resulta no estado:
+
+[source,json]
+----
+{
+  "user:id": 123,
+  "theme": "dark"
+}
+----
+
+==== Geração de Estado Adicional
+
+A função `generateMessageBusState` enriquece o estado:
+
+[source,typescript]
+----
+const gateway = new PiercingGateway({
+  getShellHtml: async () => "...",
+
+  generateMessageBusState: async (requestState, request) => {
+    const user = await getUserFromRequest(request);
+
+    return {
+      ...requestState,
+      "user:authenticated": user !== null,
+      "user:permissions": user?.permissions || [],
+      "app:config": await getAppConfig(),
+    };
+  },
+});
+----
+
+==== Estado Propagado aos Fragmentos
+
+Todos os fragmentos recebem o mesmo estado via headers:
+
+[source,http]
+----
+GET /render (para fragmento A)
+X-Piercing-Event-user:authenticated: true
+X-Piercing-Event-user:permissions: ["read","write"]
+X-Piercing-Event-app:config: {"theme":"dark"}
+
+GET /render (para fragmento B)
+X-Piercing-Event-user:authenticated: true
+X-Piercing-Event-user:permissions: ["read","write"]
+X-Piercing-Event-app:config: {"theme":"dark"}
+----
+
+Isso garante que todos os fragmentos compartilhem o mesmo contexto.
+
+=== Tratamento de Erros
+
+==== Fragmento Falha ao Carregar
+
+Se um fragmento falha no pre-piercing:
+
+1. Erro é logado no console do servidor
+2. Fragmento é ignorado silenciosamente
+3. Outros fragmentos são processados normalmente
+
+[source,console]
+----
+[PiercingGateway] Error pre-piercing fragment "header": TypeError: fetch failed
+----
+
+HTML resultante não inclui o fragmento que falhou:
+
+[source,html]
+----
+<body>
+  <div id="root"></div>
+
+  <!-- Fragmento "header" omitido -->
+
+  <piercing-fragment-host fragment-id="sidebar">
+    <aside>...</aside>
+  </piercing-fragment-host>
+</body>
+----
+
+==== Fragmento Não Disponível
+
+Se `shouldBeIncluded` retorna `false`, o fragmento é ignorado sem erro.
+
+==== HTML sem Tag `</body>`
+
+Se o HTML não contém `</body>`, os fragmentos são concatenados ao final:
+
+[source,html]
+----
+<!DOCTYPE html>
+<html>
+  <head>...</head>
+  <!-- Sem tag <body> -->
+</html>
+
+<piercing-fragment-host fragment-id="header">
+  <header>...</header>
+</piercing-fragment-host>
+----
+
+=== Exemplo Completo
+
+[source,typescript]
+----
+const gateway = new PiercingGateway({
+  getShellHtml: async (request) => {
+    return await Bun.file("./dist/index.html").text();
+  },
+
+  generateMessageBusState: async (requestState, request) => {
+    const user = await getUserFromToken(request.headers.get("Authorization"));
+
+    return {
+      ...requestState,
+      "user:authenticated": user !== null,
+      "user:id": user?.id,
+      "user:name": user?.name,
+    };
+  },
+});
+
+// Header global com pre-pierce em todas as rotas
+gateway.registerFragment({
+  fragmentId: "global-header",
+  framework: "react",
+  prePierceRoutes: ["/*"],
+  prePiercingStyles: `
+    .header {
+      min-height: 64px;
+      background: #ffffff;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+  `,
+  fetchFragment: async (request) => {
+    return fetch("https://cdn.example.com/header", {
+      headers: request.headers,
+    });
+  },
+});
+
+// Sidebar apenas no dashboard
+gateway.registerFragment({
+  fragmentId: "dashboard-sidebar",
+  framework: "react",
+  prePierceRoutes: ["/dashboard/*"],
+  prePiercingStyles: `
+    .sidebar {
+      width: 250px;
+      min-height: 100vh;
+      background: #f8f9fa;
+      border-right: 1px solid #e0e0e0;
+    }
+  `,
+  fetchFragment: async (request) => {
+    return fetch("https://cdn.example.com/sidebar", {
+      headers: request.headers,
+    });
+  },
+});
+
+// Widget de analytics condicional
+gateway.registerFragment({
+  fragmentId: "analytics-widget",
+  framework: "react",
+  prePierceRoutes: ["/dashboard", "/reports/*"],
+
+  shouldBeIncluded: async (request) => {
+    const user = await getUserFromRequest(request);
+    return user?.permissions.includes("view:analytics") || false;
+  },
+
+  prePiercingStyles: `
+    .analytics-widget {
+      min-height: 200px;
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 16px;
+    }
+  `,
+
+  fetchFragment: async (request) => {
+    return fetch("https://analytics.example.com/widget", {
+      headers: request.headers,
+    });
+  },
+});
+----
+
+Resultado para `GET /dashboard` (usuário com permissão de analytics):
+
+[source,html]
+----
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Dashboard</title>
+    <script>
+      window.__PIERCING_MESSAGE_BUS_STATE__ = {
+        "user:authenticated": true,
+        "user:id": 123,
+        "user:name": "João"
+      };
+    </script>
+    <script type="module">
+      import { registerPiercingComponents } from '/_piercing/client.js';
+      registerPiercingComponents();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <piercing-fragment-host fragment-id="global-header">
+      <style>.header { min-height: 64px; background: #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }</style>
+      <header class="header">...</header>
+    </piercing-fragment-host>
+
+    <piercing-fragment-host fragment-id="dashboard-sidebar">
+      <style>.sidebar { width: 250px; min-height: 100vh; background: #f8f9fa; border-right: 1px solid #e0e0e0; }</style>
+      <aside class="sidebar">...</aside>
+    </piercing-fragment-host>
+
+    <piercing-fragment-host fragment-id="analytics-widget">
+      <style>.analytics-widget { min-height: 200px; background: #ffffff; border-radius: 8px; padding: 16px; }</style>
+      <div class="analytics-widget">...</div>
+    </piercing-fragment-host>
+  </body>
+</html>
+----

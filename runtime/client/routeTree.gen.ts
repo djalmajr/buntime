@@ -24,6 +24,7 @@ import { Route as GatewayIndexRouteImport } from "./routes/gateway/index"
 import { Route as DurableIndexRouteImport } from "./routes/durable/index"
 import { Route as DeploymentsIndexRouteImport } from "./routes/deployments/index"
 import { Route as AuthzIndexRouteImport } from "./routes/authz/index"
+import { Route as DeploymentsSplatRouteImport } from "./routes/deployments/$"
 import { Route as MetricsWorkersIndexRouteImport } from "./routes/metrics/workers/index"
 import { Route as MetricsPrometheusIndexRouteImport } from "./routes/metrics/prometheus/index"
 import { Route as KeyvalWatchIndexRouteImport } from "./routes/keyval/watch/index"
@@ -112,6 +113,11 @@ const AuthzIndexRoute = AuthzIndexRouteImport.update({
   path: "/",
   getParentRoute: () => AuthzRouteRoute,
 } as any)
+const DeploymentsSplatRoute = DeploymentsSplatRouteImport.update({
+  id: "/deployments/$",
+  path: "/deployments/$",
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MetricsWorkersIndexRoute = MetricsWorkersIndexRouteImport.update({
   id: "/workers/",
   path: "/workers/",
@@ -180,6 +186,7 @@ export interface FileRoutesByFullPath {
   "/gateway": typeof GatewayRouteRouteWithChildren
   "/keyval": typeof KeyvalRouteRouteWithChildren
   "/metrics": typeof MetricsRouteRouteWithChildren
+  "/deployments/$": typeof DeploymentsSplatRoute
   "/authz/": typeof AuthzIndexRoute
   "/deployments": typeof DeploymentsIndexRoute
   "/durable/": typeof DurableIndexRoute
@@ -204,6 +211,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute
+  "/deployments/$": typeof DeploymentsSplatRoute
   "/authz": typeof AuthzIndexRoute
   "/deployments": typeof DeploymentsIndexRoute
   "/durable": typeof DurableIndexRoute
@@ -234,6 +242,7 @@ export interface FileRoutesById {
   "/gateway": typeof GatewayRouteRouteWithChildren
   "/keyval": typeof KeyvalRouteRouteWithChildren
   "/metrics": typeof MetricsRouteRouteWithChildren
+  "/deployments/$": typeof DeploymentsSplatRoute
   "/authz/": typeof AuthzIndexRoute
   "/deployments/": typeof DeploymentsIndexRoute
   "/durable/": typeof DurableIndexRoute
@@ -265,6 +274,7 @@ export interface FileRouteTypes {
     | "/gateway"
     | "/keyval"
     | "/metrics"
+    | "/deployments/$"
     | "/authz/"
     | "/deployments"
     | "/durable/"
@@ -289,6 +299,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | "/"
+    | "/deployments/$"
     | "/authz"
     | "/deployments"
     | "/durable"
@@ -318,6 +329,7 @@ export interface FileRouteTypes {
     | "/gateway"
     | "/keyval"
     | "/metrics"
+    | "/deployments/$"
     | "/authz/"
     | "/deployments/"
     | "/durable/"
@@ -348,6 +360,7 @@ export interface RootRouteChildren {
   GatewayRouteRoute: typeof GatewayRouteRouteWithChildren
   KeyvalRouteRoute: typeof KeyvalRouteRouteWithChildren
   MetricsRouteRoute: typeof MetricsRouteRouteWithChildren
+  DeploymentsSplatRoute: typeof DeploymentsSplatRoute
   DeploymentsIndexRoute: typeof DeploymentsIndexRoute
   HealthIndexRoute: typeof HealthIndexRoute
   LogsIndexRoute: typeof LogsIndexRoute
@@ -460,6 +473,13 @@ declare module "@tanstack/react-router" {
       fullPath: "/authz/"
       preLoaderRoute: typeof AuthzIndexRouteImport
       parentRoute: typeof AuthzRouteRoute
+    }
+    "/deployments/$": {
+      id: "/deployments/$"
+      path: "/deployments/$"
+      fullPath: "/deployments/$"
+      preLoaderRoute: typeof DeploymentsSplatRouteImport
+      parentRoute: typeof rootRouteImport
     }
     "/metrics/workers/": {
       id: "/metrics/workers/"
@@ -639,6 +659,7 @@ const rootRouteChildren: RootRouteChildren = {
   GatewayRouteRoute: GatewayRouteRouteWithChildren,
   KeyvalRouteRoute: KeyvalRouteRouteWithChildren,
   MetricsRouteRoute: MetricsRouteRouteWithChildren,
+  DeploymentsSplatRoute: DeploymentsSplatRoute,
   DeploymentsIndexRoute: DeploymentsIndexRoute,
   HealthIndexRoute: HealthIndexRoute,
   LogsIndexRoute: LogsIndexRoute,

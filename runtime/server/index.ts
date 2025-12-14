@@ -80,7 +80,6 @@ export { type LoadedBuntimeConfig, loadBuntimeConfig, PluginLoader } from "@/plu
 export { PluginRegistry } from "@/plugins/registry";
 
 // Export route types for RPC clients
-export type { DeploymentRoutesType } from "@/routes/deployments";
 export type { PluginsInfoRoutesType } from "@/routes/plugins-info";
 
 // Default export for use in index.ts

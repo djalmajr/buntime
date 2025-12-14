@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Icon } from "~/components/icon";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
+import { Combobox } from "~/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +19,7 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { apiRequest, getBasePath, uploadFiles } from "~/utils/api";
 import { cn } from "~/utils/cn";
 import { isValidUploadDestination, parseDeploymentPath } from "~/utils/path-utils";
+import { useFragmentUrl } from "~/utils/use-fragment-url";
 import { FileRow } from "./file-row";
 import { MoveDialog } from "./move-dialog";
 import { NewFolderDialog } from "./new-folder-dialog";
@@ -36,8 +38,20 @@ export function DeploymentsPage() {
   const { t } = useTranslation("deployments");
   const queryClient = useQueryClient();
 
-  // State-based navigation instead of router
-  const [path, setPath] = useState("");
+  // Get root directories first (needed for URL parsing)
+  const rootQuery = useQuery({
+    queryFn: async () => {
+      const res = await apiRequest<{ entries: FileEntry[]; path: string }>("/list?path=");
+      return res.data?.entries.filter((e) => e.isDirectory).map((e) => e.name) ?? [];
+    },
+    queryKey: ["deployments-roots"],
+    staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+  });
+
+  const rootDirs = rootQuery.data ?? [];
+
+  // URL-synced navigation state via MessageBus
+  const { path, selectedRoot, setPath, setSelectedRoot } = useFragmentUrl(rootDirs);
   const [search, setSearch] = useState("");
 
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
@@ -57,14 +71,18 @@ export function DeploymentsPage() {
     setSearch("");
   }, [path]);
 
+  // Effective path combines selectedRoot with relative path
+  const effectivePath = selectedRoot ? (path ? `${selectedRoot}/${path}` : selectedRoot) : "";
+
   const entries$ = useQuery({
+    enabled: !!selectedRoot,
     queryFn: async () => {
       const res = await apiRequest<{ entries: FileEntry[]; path: string }>(
-        `/list?path=${encodeURIComponent(path)}`,
+        `/list?path=${encodeURIComponent(effectivePath)}`,
       );
       return res.data;
     },
-    queryKey: ["deployments", path],
+    queryKey: ["deployments", effectivePath],
   });
 
   const entries = entries$.data?.entries ?? [];
@@ -77,12 +95,19 @@ export function DeploymentsPage() {
   }, [entries, search]);
 
   // Parse path to get format info and determine if uploads are allowed
-  const pathInfo = parseDeploymentPath(path);
+  const pathInfo = parseDeploymentPath(effectivePath);
   // Upload is only allowed inside a version folder (flat: app@version, nested: app/version)
-  const canUpload = isValidUploadDestination(path);
+  const canUpload = isValidUploadDestination(effectivePath);
 
   const navigateTo = (newPath: string) => {
-    setPath(newPath);
+    // Entries have full paths (e.g., "buntime-apps/my-app"), strip selectedRoot prefix
+    if (selectedRoot && newPath.startsWith(`${selectedRoot}/`)) {
+      setPath(newPath.slice(selectedRoot.length + 1));
+    } else if (newPath === selectedRoot) {
+      setPath("");
+    } else {
+      setPath(newPath);
+    }
   };
 
   const handleUpload = useCallback(
@@ -94,31 +119,31 @@ export function DeploymentsPage() {
           return relativePath || file.name;
         });
 
-        const res = await uploadFiles(path, files, paths);
+        const res = await uploadFiles(effectivePath, files, paths);
 
         if (!res.success) {
           throw new Error(res.error || t("errors.uploadFailed"));
         }
 
-        queryClient.invalidateQueries({ queryKey: ["deployments", path] });
+        queryClient.invalidateQueries({ queryKey: ["deployments", effectivePath] });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : t("errors.uploadFailed"));
       } finally {
         setIsUploading(false);
       }
     },
-    [path, queryClient, t],
+    [effectivePath, queryClient, t],
   );
 
   const handleCreateFolder = async (name: string) => {
     try {
-      const folderPath = path ? `${path}/${name}` : name;
+      const folderPath = effectivePath ? `${effectivePath}/${name}` : name;
       const res = await apiRequest("/mkdir", {
         body: JSON.stringify({ path: folderPath }),
         method: "POST",
       });
       if (!res.success) throw new Error(t("errors.createFolderFailed"));
-      queryClient.invalidateQueries({ queryKey: ["deployments", path] });
+      queryClient.invalidateQueries({ queryKey: ["deployments", effectivePath] });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("errors.createFolderFailed"));
     }
@@ -133,7 +158,7 @@ export function DeploymentsPage() {
       });
       if (!res.success) throw new Error(t("errors.deleteFailed"));
       setDeleteTarget(null);
-      queryClient.invalidateQueries({ queryKey: ["deployments", path] });
+      queryClient.invalidateQueries({ queryKey: ["deployments", effectivePath] });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("errors.deleteFailed"));
     }
@@ -148,7 +173,7 @@ export function DeploymentsPage() {
       });
       if (!res.success) throw new Error(t("errors.renameFailed"));
       setRenameTarget(null);
-      queryClient.invalidateQueries({ queryKey: ["deployments", path] });
+      queryClient.invalidateQueries({ queryKey: ["deployments", effectivePath] });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("errors.renameFailed"));
     }
@@ -177,7 +202,7 @@ export function DeploymentsPage() {
         throw new Error(res.error || t("errors.moveFailed"));
       }
       setMoveTarget(null);
-      queryClient.invalidateQueries({ queryKey: ["deployments", path] });
+      queryClient.invalidateQueries({ queryKey: ["deployments", effectivePath] });
       queryClient.invalidateQueries({ queryKey: ["deployments", destPath] });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("errors.moveFailed"));
@@ -187,8 +212,8 @@ export function DeploymentsPage() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await apiRequest(`/refresh?path=${encodeURIComponent(path)}`);
-      queryClient.invalidateQueries({ queryKey: ["deployments", path] });
+      await apiRequest(`/refresh?path=${encodeURIComponent(effectivePath)}`);
+      queryClient.invalidateQueries({ queryKey: ["deployments", effectivePath] });
     } catch {
       toast.error(t("errors.refreshFailed"));
     } finally {
@@ -226,7 +251,7 @@ export function DeploymentsPage() {
       if (!res.success) throw new Error(t("errors.deleteFailed"));
       setSelectedPaths(new Set());
       setBatchDeleteOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["deployments", path] });
+      queryClient.invalidateQueries({ queryKey: ["deployments", effectivePath] });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("errors.deleteFailed"));
     }
@@ -260,7 +285,7 @@ export function DeploymentsPage() {
       }
       setSelectedPaths(new Set());
       setBatchMoveOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["deployments", path] });
+      queryClient.invalidateQueries({ queryKey: ["deployments", effectivePath] });
       queryClient.invalidateQueries({ queryKey: ["deployments", destPath] });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("errors.moveFailed"));
@@ -361,7 +386,7 @@ export function DeploymentsPage() {
     [canUpload, handleUpload],
   );
 
-  // Build breadcrumb trail
+  // Build breadcrumb trail (relative path only, selectedRoot shown separately)
   const breadcrumbs = useMemo(() => {
     const parts = path ? path.split("/") : [];
     return [
@@ -375,7 +400,7 @@ export function DeploymentsPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4">
-      {/* Header with breadcrumb and new folder button */}
+      {/* Header with breadcrumb, root selector, and new folder button */}
       <div className="flex items-center justify-between">
         <nav className="flex items-center gap-1 text-sm">
           {breadcrumbs.map((crumb, idx) => (
@@ -396,10 +421,23 @@ export function DeploymentsPage() {
             </span>
           ))}
         </nav>
-        <Button size="sm" onClick={() => setNewFolderOpen(true)}>
-          <Icon className="size-4" icon="lucide:plus" />
-          <span>{t("actions.newFolder")}</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Root folder selector - only show if multiple roots */}
+          {rootDirs.length > 1 && (
+            <Combobox
+              className="w-48"
+              options={rootDirs.map((root) => ({ label: root, value: root }))}
+              placeholder={t("breadcrumb.root")}
+              searchPlaceholder={t("search.placeholder")}
+              value={selectedRoot}
+              onSelect={setSelectedRoot}
+            />
+          )}
+          <Button size="sm" onClick={() => setNewFolderOpen(true)}>
+            <Icon className="size-4" icon="lucide:plus" />
+            <span>{t("actions.newFolder")}</span>
+          </Button>
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -593,6 +631,7 @@ export function DeploymentsPage() {
       </section>
       <NewFolderDialog
         depth={pathInfo.depth}
+        isInsideVersion={pathInfo.isInsideVersion}
         open={newFolderOpen}
         onClose={() => setNewFolderOpen(false)}
         onCreate={handleCreateFolder}
@@ -646,7 +685,7 @@ export function DeploymentsPage() {
         </DialogContent>
       </Dialog>
       <MoveDialog
-        currentPath={path ? `${path}/item` : ""}
+        currentPath={effectivePath ? `${effectivePath}/item` : ""}
         open={batchMoveOpen}
         onClose={() => setBatchMoveOpen(false)}
         onMove={handleBatchMove}

@@ -2,6 +2,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { createRootRoute, Link, Outlet } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { FragmentNavigationBridge } from "~/components/fragment-navigation-bridge";
 import { Icon } from "~/components/icon";
 import { MainLayout, type SidebarNavGroup } from "~/components/layouts/main-layout";
 import { Toaster } from "~/components/ui/sonner";
@@ -113,6 +114,7 @@ function RootLayout() {
     <QueryClientProvider client={queryClient}>
       <HeaderProvider>
         <RootLayoutContent />
+        <FragmentNavigationBridge />
         <Toaster />
       </HeaderProvider>
     </QueryClientProvider>

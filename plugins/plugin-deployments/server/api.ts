@@ -3,12 +3,12 @@ import { NotFoundError, ValidationError } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import { DirInfo } from "./libs/dir-info";
 
-// Multiple apps directories support
-let appsDirs: string[] = ["./apps"];
+// Multiple workspace directories support
+let workspaces: string[] = ["./apps"];
 let dirNameMap: Map<string, string> = new Map(); // dirName -> fullPath
 
-export function setAppsDirs(dirs: string[]): void {
-  appsDirs = dirs;
+export function setWorkspaces(dirs: string[]): void {
+  workspaces = dirs;
   // Build name -> path map, handling duplicates with index suffix
   dirNameMap = new Map();
   const nameCounts: Record<string, number> = {};
@@ -26,19 +26,19 @@ export function setAppsDirs(dirs: string[]): void {
 
 // Initialize from env var (set by runtime for plugin workers)
 // This runs when the module is first imported in the worker process
-if (Bun.env.BUNTIME_APPS_DIRS) {
+if (Bun.env.BUNTIME_WORKSPACES) {
   try {
-    const dirs = JSON.parse(Bun.env.BUNTIME_APPS_DIRS) as string[];
+    const dirs = JSON.parse(Bun.env.BUNTIME_WORKSPACES) as string[];
     if (Array.isArray(dirs) && dirs.length > 0) {
-      setAppsDirs(dirs);
+      setWorkspaces(dirs);
     }
   } catch {
     // Ignore parse errors, use default
   }
 }
 
-export function getAppsDirs(): string[] {
-  return appsDirs;
+export function getWorkspaces(): string[] {
+  return workspaces;
 }
 
 export function getDirNames(): string[] {
@@ -105,12 +105,16 @@ export const api = new Hono()
     // Regular listing within an appsDir
     const dir = new DirInfo(baseDir, relativePath);
     const rawEntries = await dir.list();
-    // Prefix paths with rootName
-    const entries = rawEntries.map((entry) => ({
-      ...entry,
-      path: rootName + (entry.path ? `/${entry.path}` : `/${entry.name}`),
-    }));
-    return ctx.json({ success: true, data: { entries, path } });
+    // Filter out internal apps
+    const entries = rawEntries
+      .filter((entry) => entry.visibility !== "internal")
+      .map((entry) => ({
+        ...entry,
+        path: rootName + (entry.path ? `/${entry.path}` : `/${entry.name}`),
+      }));
+    // Get visibility of current folder (for protected upload restriction)
+    const currentVisibility = await dir.getVisibility();
+    return ctx.json({ success: true, data: { currentVisibility, entries, path } });
   })
 
   // Create new directory
@@ -238,8 +242,8 @@ export const api = new Hono()
     const { baseDir, relativePath } = resolvePath(path);
 
     if (!baseDir) {
-      // Refresh all appsDirs
-      for (const dir of appsDirs) {
+      // Refresh all workspaces
+      for (const dir of workspaces) {
         const dirInfo = new DirInfo(dir, "");
         await dirInfo.refresh();
       }
@@ -254,7 +258,7 @@ export const api = new Hono()
     const { baseDir, relativePath } = resolvePath(path || "");
 
     if (!baseDir) {
-      for (const dir of appsDirs) {
+      for (const dir of workspaces) {
         const dirInfo = new DirInfo(dir, "");
         await dirInfo.refresh();
       }

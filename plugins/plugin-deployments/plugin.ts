@@ -4,14 +4,14 @@ import type {
   MenuItem,
   PluginContext,
 } from "@buntime/shared/types";
-import { getDirNames, setAppsDirs } from "./server/api";
+import { getDirNames, setWorkspaces } from "./server/api";
 
 export interface DeploymentsConfig extends BasePluginConfig {
   /**
-   * Directories containing deployable apps
-   * @default Uses globalConfig.appsDirs
+   * Workspace directories containing deployable apps
+   * @default Uses globalConfig.workspaces
    */
-  appsDirs?: string[];
+  workspaces?: string[];
 }
 
 /**
@@ -45,9 +45,9 @@ export default function deploymentsPlugin(_pluginConfig: DeploymentsConfig = {})
 
     onInit(ctx: PluginContext) {
       const config = ctx.config as DeploymentsConfig;
-      // Use plugin-specific appsDirs if provided, otherwise use global config
-      const appsDirs = config.appsDirs ?? ctx.globalConfig.appsDirs ?? ["./apps"];
-      setAppsDirs(appsDirs);
+      // Use plugin-specific workspaces if provided, otherwise use global config
+      const workspaces = config.workspaces ?? ctx.globalConfig.workspaces ?? ["./apps"];
+      setWorkspaces(workspaces);
 
       // Generate submenu items for each directory (only if more than one)
       const dirNames = getDirNames();
@@ -60,7 +60,7 @@ export default function deploymentsPlugin(_pluginConfig: DeploymentsConfig = {})
         }));
       }
 
-      ctx.logger.info(`Deployments plugin initialized (appsDirs: ${appsDirs.join(", ")})`);
+      ctx.logger.info(`Deployments plugin initialized (workspaces: ${workspaces.join(", ")})`);
     },
   };
 }

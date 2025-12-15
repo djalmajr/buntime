@@ -1,8 +1,36 @@
 import { mkdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { isValidUploadDestination, parseDeploymentPath } from "../utils/deployment-path";
+import { valid } from "semver";
 
 const DIRINFO_FILE = ".dirinfo";
+
+type Visibility = "public" | "protected" | "internal";
+
+/**
+ * Check if a string is a valid version (semver or "latest")
+ */
+function isValidVersion(version: string): boolean {
+  return valid(version) !== null || version === "latest";
+}
+
+/**
+ * Read visibility from a package.json file
+ */
+async function readVisibility(pkgPath: string): Promise<Visibility | undefined> {
+  try {
+    const pkgFile = Bun.file(pkgPath);
+    if (await pkgFile.exists()) {
+      const pkg = (await pkgFile.json()) as { buntime?: { visibility?: string } };
+      if (pkg.buntime?.visibility) {
+        return pkg.buntime.visibility as Visibility;
+      }
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return undefined;
+}
 
 interface DirInfoCache {
   files: number;
@@ -17,6 +45,7 @@ export interface FileEntry {
   path: string;
   size: number;
   updatedAt: string;
+  visibility?: "public" | "protected" | "internal";
 }
 
 export class DirInfo {
@@ -95,6 +124,9 @@ export class DirInfo {
   async list(): Promise<FileEntry[]> {
     const entries: FileEntry[] = [];
 
+    // Check if we're inside a protected version (inherit visibility from ancestor)
+    const inheritedVisibility = await this.getAncestorVisibility();
+
     try {
       const glob = new Bun.Glob("*");
       for await (const name of glob.scan({ cwd: this.fullPath, dot: true, onlyFiles: false })) {
@@ -108,6 +140,20 @@ export class DirInfo {
         if (isDirectory) {
           const subDir = new DirInfo(this.basePath, relativePath);
           const info = await subDir.getInfo();
+
+          // Read visibility from package.json if exists
+          let visibility = await readVisibility(join(entryPath, "package.json"));
+
+          // For app folders (nested format), check if any version child is protected
+          if (!visibility) {
+            visibility = await this.getChildVersionsVisibility(entryPath, name);
+          }
+
+          // Inherit from ancestor if inside a protected version
+          if (!visibility && inheritedVisibility) {
+            visibility = inheritedVisibility;
+          }
+
           entries.push({
             files: info.files,
             isDirectory,
@@ -115,6 +161,7 @@ export class DirInfo {
             path: relativePath,
             size: info.size,
             updatedAt: info.updatedAt,
+            visibility,
           });
         } else {
           entries.push({
@@ -123,6 +170,7 @@ export class DirInfo {
             path: relativePath,
             size: stats.size,
             updatedAt: stats.mtime.toISOString(),
+            visibility: inheritedVisibility,
           });
         }
       }
@@ -221,6 +269,18 @@ export class DirInfo {
   async updatedAt(): Promise<string> {
     const info = await this.getInfo();
     return info.updatedAt;
+  }
+
+  /**
+   * Get the visibility of this directory (from its package.json or inherited from ancestor)
+   */
+  async getVisibility(): Promise<Visibility | undefined> {
+    // First check if this folder has its own visibility
+    const ownVisibility = await readVisibility(join(this.fullPath, "package.json"));
+    if (ownVisibility) return ownVisibility;
+
+    // Otherwise check ancestor visibility (if inside a version folder)
+    return this.getAncestorVisibility();
   }
 
   async writeFile(fileName: string, content: ArrayBuffer | string): Promise<void> {
@@ -330,5 +390,68 @@ export class DirInfo {
 
     const parent = new DirInfo(this.basePath, parentPath);
     parent.invalidateCacheWithParents();
+  }
+
+  /**
+   * Get visibility from ancestor version folder (for inheritance to children)
+   * Walks up the path to find the nearest version folder with visibility
+   */
+  private async getAncestorVisibility(): Promise<Visibility | undefined> {
+    if (!this.dirPath) return undefined;
+
+    const pathInfo = parseDeploymentPath(this.dirPath);
+
+    // Only inherit if we're inside a version folder
+    if (!pathInfo.isInsideVersion) return undefined;
+
+    // Find the version folder path
+    const parts = this.dirPath.split("/");
+    let versionFolderPath: string;
+
+    if (pathInfo.format === "flat") {
+      // Flat format: first part is app@version
+      versionFolderPath = parts[0]!;
+    } else {
+      // Nested format: first two parts are app/version
+      versionFolderPath = parts.slice(0, 2).join("/");
+    }
+
+    // Read visibility from version folder's package.json
+    const pkgPath = join(this.basePath, versionFolderPath, "package.json");
+    return readVisibility(pkgPath);
+  }
+
+  /**
+   * For app folders (nested format), check if any child version folder is protected
+   * Returns the most restrictive visibility found
+   */
+  private async getChildVersionsVisibility(
+    entryPath: string,
+    _name: string,
+  ): Promise<Visibility | undefined> {
+    // Check if this folder contains version subfolders
+    const glob = new Bun.Glob("*");
+    let mostRestrictive: Visibility | undefined;
+
+    try {
+      for await (const childName of glob.scan({ cwd: entryPath, onlyFiles: false })) {
+        // Check if child is a version folder (semver or "latest")
+        if (!isValidVersion(childName)) continue;
+
+        const childPkgPath = join(entryPath, childName, "package.json");
+        const visibility = await readVisibility(childPkgPath);
+
+        if (visibility) {
+          // "internal" is most restrictive, then "protected", then "public"
+          if (visibility === "internal") return "internal";
+          if (visibility === "protected") mostRestrictive = "protected";
+          if (visibility === "public" && !mostRestrictive) mostRestrictive = "public";
+        }
+      }
+    } catch {
+      // Ignore errors
+    }
+
+    return mostRestrictive;
   }
 }

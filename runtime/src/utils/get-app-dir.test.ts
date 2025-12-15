@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 /**
- * Create nested format versions (appsDir/app-name/version/)
+ * Create nested format versions (workspace/app-name/version/)
  */
 const createNestedVersions = (appName: string, versions: string[]) => {
   const appDir = join(TEST_DIR, appName);
@@ -28,7 +28,7 @@ const createNestedVersions = (appName: string, versions: string[]) => {
 };
 
 /**
- * Create flat format versions (appsDir/app-name@version/)
+ * Create flat format versions (workspace/app-name@version/)
  */
 const createFlatVersions = (appName: string, versions: string[]) => {
   for (const version of versions) {

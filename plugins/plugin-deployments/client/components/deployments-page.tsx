@@ -31,6 +31,7 @@ interface FileEntry {
   path: string;
   size: number;
   updatedAt: string;
+  visibility?: "public" | "protected" | "internal";
 }
 
 export function DeploymentsPage() {
@@ -76,15 +77,18 @@ export function DeploymentsPage() {
   const entries$ = useQuery({
     enabled: !!selectedRoot,
     queryFn: async () => {
-      const res = await apiRequest<{ entries: FileEntry[]; path: string }>(
-        `/list?path=${encodeURIComponent(effectivePath)}`,
-      );
+      const res = await apiRequest<{
+        currentVisibility?: "public" | "protected" | "internal";
+        entries: FileEntry[];
+        path: string;
+      }>(`/list?path=${encodeURIComponent(effectivePath)}`);
       return res.data;
     },
     queryKey: ["deployments", effectivePath],
   });
 
   const entries = entries$.data?.entries ?? [];
+  const currentVisibility = entries$.data?.currentVisibility;
 
   // Filter entries by search term
   const filteredEntries = useMemo(() => {
@@ -96,7 +100,8 @@ export function DeploymentsPage() {
   // Parse path to get format info and determine if uploads are allowed
   const pathInfo = parseDeploymentPath(effectivePath);
   // Upload is only allowed inside a version folder (flat: app@version, nested: app/version)
-  const canUpload = isValidUploadDestination(effectivePath);
+  // and the current folder is not protected
+  const canUpload = isValidUploadDestination(effectivePath) && currentVisibility !== "protected";
 
   const navigateTo = (newPath: string) => {
     // Entries have full paths (e.g., "buntime-apps/my-app"), strip selectedRoot prefix
@@ -221,6 +226,9 @@ export function DeploymentsPage() {
   };
 
   const handleSelect = (entry: FileEntry, selected: boolean) => {
+    // Don't allow selecting protected entries
+    if (entry.visibility === "protected") return;
+
     setSelectedPaths((prev) => {
       const next = new Set(prev);
       if (selected) {
@@ -234,7 +242,9 @@ export function DeploymentsPage() {
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedPaths(new Set(filteredEntries.map((e) => e.path)));
+      setSelectedPaths(
+        new Set(filteredEntries.filter((e) => e.visibility !== "protected").map((e) => e.path)),
+      );
     } else {
       setSelectedPaths(new Set());
     }
@@ -412,7 +422,7 @@ export function DeploymentsPage() {
                   "flex items-center gap-1.5",
                   idx === breadcrumbs.length - 1
                     ? "pointer-events-none font-medium"
-                    : "text-muted-foreground hover:underline",
+                    : "cursor-pointer text-muted-foreground hover:text-foreground",
                 )}
                 disabled={idx === breadcrumbs.length - 1}
                 type="button"
@@ -608,6 +618,7 @@ export function DeploymentsPage() {
                 <FileRow
                   entry={entry}
                   key={entry.path}
+                  readOnly={entry.visibility === "protected"}
                   selected={selectedPaths.has(entry.path)}
                   onDelete={setDeleteTarget}
                   onDownload={handleDownload}

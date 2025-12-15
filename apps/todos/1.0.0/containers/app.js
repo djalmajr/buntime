@@ -32,7 +32,7 @@ export const App = connect(mapStateToProps)(({ filtered, loading }) => {
       </section>
       <footer class="app__info">
         <p>Double-click to edit a todo. v${pkg.version}</p>
-        <p>Written by <a href="https://user.dev">Djalma Jr.</a></p>
+        <p>Written by <a href="https://user.dev">Djalma Jr!</a></p>
       </footer>
     </div>
   `;

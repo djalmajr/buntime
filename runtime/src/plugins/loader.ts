@@ -364,8 +364,8 @@ export class PluginLoader {
     // Create context for initialization with service access
     const registry = this.registry;
     const globalConfig = {
-      appsDirs: this.config.appsDirs || ["./apps"],
       poolSize: this.config.poolSize || 100,
+      workspaces: this.config.workspaces || ["./apps"],
     };
 
     const context: PluginContext = {

@@ -159,7 +159,7 @@ onInit?: (ctx: PluginContext) => Promise<void> | void;
 ----
 interface PluginContext {
   config: Record<string, unknown>;        // Configuracao do plugin
-  globalConfig: GlobalPluginConfig;       // buntime.jsonc (appsDir, poolSize)
+  globalConfig: GlobalPluginConfig;       // buntime.jsonc (workspaces, poolSize)
   logger: PluginLogger;                   // Logger com contexto do plugin
   pool?: unknown;                         // WorkerPool instance
   registerService<T>(name: string, service: T): void;

@@ -5,10 +5,9 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./server/*"],
       "~/*": ["./client/*"]
     }
   },
-  "include": ["client", "server", "index.ts"],
-  "exclude": ["node_modules"]
+  "include": ["client", "index.ts", "scripts"],
+  "exclude": ["node_modules", "dist"]
 }

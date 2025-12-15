@@ -3,9 +3,9 @@
   // Copy this file to `buntime.jsonc` and customize as needed.
 
   // Application settings
-  "appsDirs": ["${APPS_DIR}"], // Required: directories where worker apps are stored
+  "workspaces": ["${WORKSPACES_DIR}"], // Required: directories where worker apps are stored
   "poolSize": 100, // Worker pool size (default: 100)
-  // "shell": "cpanel",             // Optional: serve this app when no route matches
+  // "homepage": "cpanel",             // Optional: serve this app when no route matches
 
   // Plugins array (Babel-style) - order matters for dependencies!
   // Format: "plugin-name" or ["plugin-name", { config }]

@@ -1,6 +1,7 @@
 {
-  "appsDirs": ["../../buntime-apps", "../examples"],
+  "workspaces": ["../../buntime-apps", "../apps"],
   "poolSize": 100,
+  "homepage": "cpanel",
   "plugins": [
     "@buntime/plugin-metrics",
     "@buntime/plugin-deployments",

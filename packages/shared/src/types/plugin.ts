@@ -129,24 +129,12 @@ export type PluginConfig = string | [name: string, config: Record<string, unknow
  */
 export interface BuntimeConfig {
   /**
-   * Directories containing worker apps
-   * Supports ${ENV_VAR} syntax
-   * @example ["./apps", "../examples"] or ["${APPS_DIR}"]
-   */
-  appsDirs?: string[];
-
-  /**
-   * Maximum number of workers in the pool
-   * @default 100
-   */
-  poolSize?: number;
-
-  /**
-   * Default shell app to serve when no worker matches
+   * Homepage app to serve when no worker matches
+   * This app typically orchestrates micro-frontends via fragments
    * Format: "app-name@version" or "app-name" (uses latest)
-   * @example "example-spa@1" or "cpanel"
+   * @example "cpanel" or "dashboard@1"
    */
-  shell?: string;
+  homepage?: string;
 
   /**
    * Plugins to load (Babel-style array, order matters!)
@@ -157,6 +145,19 @@ export interface BuntimeConfig {
    * ]
    */
   plugins?: PluginConfig[];
+
+  /**
+   * Maximum number of workers in the pool
+   * @default 100
+   */
+  poolSize?: number;
+
+  /**
+   * Workspace directories containing worker apps
+   * Supports ${ENV_VAR} syntax
+   * @example ["./apps", "../examples"] or ["${WORKSPACES_DIR}"]
+   */
+  workspaces?: string[];
 }
 
 /**
@@ -175,11 +176,11 @@ export interface BasePluginConfig {
  * Global configuration values available to all plugins
  */
 export interface GlobalPluginConfig {
-  /** Directories containing worker apps (normalized to array) */
-  appsDirs: string[];
-
   /** Maximum number of workers in the pool */
   poolSize: number;
+
+  /** Workspace directories containing worker apps (normalized to array) */
+  workspaces: string[];
 }
 
 /**
@@ -246,6 +247,14 @@ export interface AppInfo {
 /**
  * Worker configuration from worker.jsonc (per-app)
  */
+/**
+ * App visibility in the deployments UI
+ * - "public": visible and editable (default)
+ * - "protected": visible but read-only
+ * - "internal": hidden from UI
+ */
+export type AppVisibility = "internal" | "protected" | "public";
+
 export interface WorkerConfig {
   autoInstall?: boolean;
   entrypoint?: string;
@@ -267,6 +276,12 @@ export interface WorkerConfig {
    * Additional environment variables to pass to the worker
    */
   env?: Record<string, string>;
+
+  /**
+   * App visibility in the deployments UI
+   * @default "public"
+   */
+  visibility?: AppVisibility;
 }
 
 /**

@@ -50,9 +50,9 @@ The configuration uses Babel-style plugin format, where plugins can be specified
 ----
 {
   // === Global Settings ===
-  "appsDir": ["../../buntime-apps", "../examples"],  // Directories to scan for worker apps
-  "poolSize": 100,                                   // Worker pool size
-  "shell": "cpanel",                                 // Optional: app to serve when no route matches
+  "workspaces": ["../../buntime-apps", "../examples"],  // Directories to scan for worker apps
+  "poolSize": 100,                                      // Worker pool size
+  "homepage": "cpanel",                                 // Optional: app to serve when no route matches
 
   // === Plugins ===
   "plugins": [
@@ -75,16 +75,16 @@ The configuration uses Babel-style plugin format, where plugins can be specified
 
 ==== Global Settings
 
-===== appsDir
+===== workspaces
 
 Directories where the runtime will scan for worker applications.
 
 [cols="1,2"]
 |===
-| Type | `string \| string[]`
+| Type | `string[]`
 
 | Default
-| **Required** - No default, must be set in buntime.jsonc or APPS_DIR env var
+| **Required** - No default, must be set in buntime.jsonc or WORKSPACES_DIR env var
 
 | Example
 | `["../../buntime-apps", "../examples"]`
@@ -95,7 +95,7 @@ The runtime scans these directories for applications with valid `package.json` f
 [source,jsonc]
 ----
 {
-  "appsDir": [
+  "workspaces": [
     "../../buntime-apps",    // Production apps
     "../examples"            // Example apps
   ]
@@ -103,6 +103,8 @@ The runtime scans these directories for applications with valid `package.json` f
 ----
 
 IMPORTANT: Paths are relative to the directory containing `buntime.jsonc`, not the current working directory.
+
+TIP: You can also use the WORKSPACES_DIR environment variable with comma-separated paths: `WORKSPACES_DIR=/dir1,/dir2,../dir3`
 
 ===== poolSize
 
@@ -147,9 +149,9 @@ a|
 
 The pool size determines how many worker instances can run simultaneously. Each worker can handle multiple requests based on its `maxRequests` configuration.
 
-===== shell
+===== homepage
 
-Optional application to serve when no route matches.
+Optional application to serve when no route matches. This app typically orchestrates micro-frontends via fragments.
 
 [cols="1,2"]
 |===
@@ -165,11 +167,11 @@ Optional application to serve when no route matches.
 [source,jsonc]
 ----
 {
-  "shell": "cpanel"  // Serve cpanel app for unmatched routes
+  "homepage": "cpanel"  // Serve cpanel app for unmatched routes
 }
 ----
 
-When set, requests that don't match any application route will be forwarded to this application.
+When set, requests that don't match any application route will be forwarded to this application. The homepage app can use piercing fragments to embed other plugins' UIs.
 
 ==== Plugin Configuration
 
@@ -685,7 +687,7 @@ The runtime loads environment variables from `.env` in the current working direc
 | Server port
 | `8000`
 
-| `APPS_DIR`
+| `WORKSPACES_DIR`
 | Worker apps directory
 | `./apps`
 
@@ -693,8 +695,8 @@ The runtime loads environment variables from `.env` in the current working direc
 | Override pool size
 | Environment-dependent
 
-| `APP_SHELL`
-| Override shell app
+| `HOMEPAGE_APP`
+| Override homepage app
 | None
 
 | `DELAY_MS`
@@ -714,8 +716,8 @@ The runtime loads environment variables from `.env` in the current working direc
 NODE_ENV=development
 PORT=8000
 
-# Apps directory
-APPS_DIR=../../buntime-apps
+# Apps directory (workspaces)
+WORKSPACES_DIR=../../buntime-apps
 
 # libSQL database URL (for plugins that use KeyVal storage)
 # Options:
@@ -770,7 +772,7 @@ npx shadcn add button
 ----
 // buntime.jsonc
 {
-  "appsDir": ["../../buntime-apps", "../examples"],
+  "workspaces": ["../../buntime-apps", "../examples"],
   "poolSize": 100,
   "plugins": [
     "@buntime/plugin-metrics",
@@ -796,7 +798,7 @@ npx shadcn add button
 # .env
 NODE_ENV=development
 PORT=8000
-APPS_DIR=../../buntime-apps
+WORKSPACES_DIR=../../buntime-apps
 LIBSQL_URL=http://localhost:8880
 ----
 
@@ -806,7 +808,7 @@ LIBSQL_URL=http://localhost:8880
 ----
 // buntime.jsonc
 {
-  "appsDir": "${APPS_DIR}",
+  "workspaces": ["${WORKSPACES_DIR}"],
   "poolSize": 500,
   "required": ["@buntime/plugin-metrics", "@buntime/plugin-keyval"],
   "plugins": [
@@ -885,7 +887,7 @@ LIBSQL_URL=http://localhost:8880
 # .env
 NODE_ENV=production
 PORT=8000
-APPS_DIR=/app/buntime-apps
+WORKSPACES_DIR=/app/buntime-apps
 
 # Database
 LIBSQL_URL=http://libsql:8080

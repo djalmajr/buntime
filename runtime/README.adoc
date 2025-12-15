@@ -103,7 +103,7 @@ runtime/
 [source,jsonc]
 ----
 {
-  "appsDir": "./apps",           // Diretorio das aplicacoes
+  "workspaces": ["./apps"],      // Diretorios das aplicacoes
   "poolSize": 100,               // Tamanho do pool
   "plugins": [
     "@buntime/plugin-metrics",

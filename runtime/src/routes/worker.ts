@@ -5,7 +5,7 @@ import type { WorkerPool } from "@/libs/pool/pool";
 import type { PluginRegistry } from "@/plugins/registry";
 
 export interface WorkerRoutesConfig {
-  shell?: string;
+  homepage?: string;
   version: string;
 }
 
@@ -45,7 +45,7 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
   }
 
   /**
-   * Handle APPS_DIR app (traditional worker)
+   * Handle workspace app (traditional worker)
    */
   async function runApp(ctx: Context, app: string) {
     try {
@@ -67,20 +67,20 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
   }
 
   /**
-   * Main request handler - checks plugin apps first, then APPS_DIR
+   * Main request handler - checks plugin apps first, then workspace apps
    */
   async function run(ctx: Context, app: string) {
     // 1. Check if this is a plugin app
     const pluginResponse = await runPluginApp(ctx);
     if (pluginResponse) return pluginResponse;
 
-    // 2. Fallback to APPS_DIR app
+    // 2. Fallback to workspace app
     return runApp(ctx, app);
   }
 
   return new Hono()
     .all(":app/*", (ctx) => run(ctx, ctx.req.param("app")))
     .get("/*", (ctx) =>
-      config.shell ? run(ctx, config.shell) : new Response(`Buntime v${config.version}`),
+      config.homepage ? run(ctx, config.homepage) : new Response(`Buntime v${config.version}`),
     );
 }

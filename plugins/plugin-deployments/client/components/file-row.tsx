@@ -16,10 +16,12 @@ interface FileEntry {
   path: string;
   size: number;
   updatedAt: string;
+  visibility?: "public" | "protected" | "internal";
 }
 
 interface FileRowProps {
   entry: FileEntry;
+  readOnly?: boolean;
   selected?: boolean;
   onDelete: (entry: FileEntry) => void;
   onDownload: (entry: FileEntry) => void;
@@ -39,6 +41,7 @@ function formatBytes(bytes: number): string {
 
 export function FileRow({
   entry,
+  readOnly,
   selected,
   onDelete,
   onDownload,
@@ -71,6 +74,7 @@ export function FileRow({
         <td className="w-10 p-3">
           <Checkbox
             checked={selected}
+            disabled={readOnly}
             onClick={(evt) => evt.stopPropagation()}
             onCheckedChange={(checked) => onSelect(entry, !!checked)}
           />
@@ -83,6 +87,7 @@ export function FileRow({
             icon={entry.isDirectory ? "ic:twotone-folder-open" : "ic:outline-insert-drive-file"}
           />
           <span className="font-medium">{entry.name}</span>
+          {readOnly && <Icon className="size-3.5 text-amber-500" icon="lucide:lock" />}
         </div>
       </td>
       <td className="p-3 text-sm text-muted-foreground">{formatBytes(entry.size)}</td>
@@ -98,51 +103,66 @@ export function FileRow({
               <Icon className="size-4" icon="lucide:ellipsis" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              className="gap-2"
-              onClick={(evt) => {
-                evt.stopPropagation();
-                onRename(entry);
-              }}
-            >
-              <Icon className="size-4" icon="lucide:pencil" />
-              {t("actions.rename")}
-            </DropdownMenuItem>
-            {onMove && (
+          {readOnly ? (
+            <DropdownMenuContent align="end">
               <DropdownMenuItem
                 className="gap-2"
                 onClick={(evt) => {
                   evt.stopPropagation();
-                  onMove(entry);
+                  onDownload(entry);
                 }}
               >
-                <Icon className="size-4" icon="lucide:folder-input" />
-                {t("actions.move")}
+                <Icon className="size-4" icon="lucide:download" />
+                {t("actions.download")}
               </DropdownMenuItem>
-            )}
-            <DropdownMenuItem
-              className="gap-2"
-              onClick={(evt) => {
-                evt.stopPropagation();
-                onDownload(entry);
-              }}
-            >
-              <Icon className="size-4" icon="lucide:download" />
-              {t("actions.download")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="gap-2"
-              onClick={(evt) => {
-                evt.stopPropagation();
-                onDelete(entry);
-              }}
-            >
-              <Icon className="size-4" icon="lucide:trash-2" />
-              {t("actions.delete")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
+            </DropdownMenuContent>
+          ) : (
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                className="gap-2"
+                onClick={(evt) => {
+                  evt.stopPropagation();
+                  onRename(entry);
+                }}
+              >
+                <Icon className="size-4" icon="lucide:pencil" />
+                {t("actions.rename")}
+              </DropdownMenuItem>
+              {onMove && (
+                <DropdownMenuItem
+                  className="gap-2"
+                  onClick={(evt) => {
+                    evt.stopPropagation();
+                    onMove(entry);
+                  }}
+                >
+                  <Icon className="size-4" icon="lucide:folder-input" />
+                  {t("actions.move")}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                className="gap-2"
+                onClick={(evt) => {
+                  evt.stopPropagation();
+                  onDownload(entry);
+                }}
+              >
+                <Icon className="size-4" icon="lucide:download" />
+                {t("actions.download")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="gap-2"
+                onClick={(evt) => {
+                  evt.stopPropagation();
+                  onDelete(entry);
+                }}
+              >
+                <Icon className="size-4" icon="lucide:trash-2" />
+                {t("actions.delete")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          )}
         </DropdownMenu>
       </td>
     </tr>

@@ -6,7 +6,7 @@ O núcleo do servidor Buntime é composto por três módulos principais que trab
 
 [source]
 ----
-runtime/server/
+runtime/src/
 ├── index.ts              # Bun.serve entry point
 ├── api.ts                # Dependency initialization
 ├── app.ts                # Request resolution
@@ -30,7 +30,7 @@ runtime/server/
 │   api.ts    │ Inicializa dependências:
 │             │ 1. Logger global
 │             │ 2. Carrega buntime.jsonc
-│             │ 3. Inicializa config (appsDir, poolSize)
+│             │ 3. Inicializa config (workspaces, poolSize)
 │             │ 4. Cria WorkerPool
 │             │ 5. Carrega plugins (PluginLoader)
 │             │ 6. Cria rotas (deployments, plugins-info, workers)
@@ -91,15 +91,15 @@ Combina variáveis de ambiente com configurações do `buntime.jsonc`:
 [source,typescript]
 ----
 interface RuntimeConfig {
-  appsDirs: string[];      // Diretórios de apps (obrigatório)
+  delayMs: number;         // Rate limit delay
+  homepage?: string;       // App a servir quando nenhum worker match
+  isCompiled: boolean;     // Se é binário compilado
+  isDev: boolean;          // Se está em modo dev
+  nodeEnv: string;         // development|production|staging|test
   poolSize: number;        // Tamanho do pool de workers
   port: number;            // Porta do servidor
-  shell?: string;          // Shell para npm install
-  delayMs: number;         // Rate limit delay
-  isDev: boolean;          // Se está em modo dev
-  isCompiled: boolean;     // Se é binário compilado
-  nodeEnv: string;         // development|production|staging|test
   version: string;         // Versão do runtime
+  workspaces: string[];    // Diretórios de apps (obrigatório)
 }
 ----
 
@@ -114,8 +114,8 @@ const { baseDir, config: buntimeConfig } = await loadBuntimeConfig();
 const runtimeConfig = initConfig(buntimeConfig, baseDir);
 
 // 3. Usa config
-console.log(runtimeConfig.appsDirs);  // ["/path/to/apps"]
-console.log(runtimeConfig.poolSize);  // 100
+console.log(runtimeConfig.workspaces);  // ["/path/to/apps"]
+console.log(runtimeConfig.poolSize);    // 100
 ----
 
 ===== Prioridade de Configuração
@@ -131,9 +131,9 @@ Para cada campo, a prioridade é:
 |===
 | Campo | buntime.jsonc | Env Var | Padrão
 
-| `appsDir`
-| `appsDir: ["apps"]`
-| `APPS_DIR=/path`
+| `workspaces`
+| `workspaces: ["apps"]`
+| `WORKSPACES_DIR=/path`
 | ERRO (obrigatório)
 
 | `poolSize`
@@ -141,22 +141,20 @@ Para cada campo, a prioridade é:
 | `POOL_SIZE=50`
 | 10 (dev), 500 (prod), 50 (staging), 5 (test)
 
-| `shell`
-| `shell: "/bin/bash"`
-| `APP_SHELL=/bin/sh`
+| `homepage`
+| `homepage: "cpanel"`
+| `HOMEPAGE_APP=cpanel`
 | undefined
 |===
 
-NOTE: `BuntimeConfig` (em buntime.jsonc) usa `appsDir` (array), mas `RuntimeConfig` (resultado de `initConfig()`) usa `appsDirs` (plural) internamente.
-
 ===== Resolução de Caminhos
 
-Caminhos relativos em `appsDir` são resolvidos contra o diretório do `buntime.jsonc`:
+Caminhos relativos em `workspaces` são resolvidos contra o diretório do `buntime.jsonc`:
 
 [source]
 ----
 /project/
-├── buntime.jsonc         # appsDir: ["./apps", "/abs/path"]
+├── buntime.jsonc         # workspaces: ["./apps", "/abs/path"]
 └── apps/
     └── todos/
 
@@ -168,7 +166,7 @@ Variáveis de ambiente são substituídas usando `substituteEnvVars`:
 [source,json]
 ----
 {
-  "appsDir": ["${HOME}/apps", "${WORKSPACE}/examples"]
+  "workspaces": ["${HOME}/apps", "${WORKSPACE}/examples"]
 }
 ----
 
@@ -199,14 +197,14 @@ const runtimeConfig = initConfig(buntimeConfig, baseDir);
 const pool = new WorkerPool({ maxSize: runtimeConfig.poolSize });
 
 // 5. Cria resolver de apps
-const getAppDir = createAppResolver(runtimeConfig.appsDirs);
+const getAppDir = createAppResolver(runtimeConfig.workspaces);
 
 // 6. Carrega plugins
 const loader = new PluginLoader(buntimeConfig, pool);
 const registry = await loader.load();
 
 // 7. Cria rotas
-const deployments = createDeploymentRoutes({ appsDirs, registry });
+const deployments = createDeploymentRoutes({ workspaces, registry });
 const pluginsInfo = createPluginsInfoRoutes({ registry });
 const workers = createWorkerRoutes({ config, getAppDir, pool, registry });
 
@@ -357,7 +355,7 @@ interface ResolvedApp {
    - Exemplo: `@buntime/plugin-proxy` com `{ app: "todos", base: "/todos" }`
 
 2. **Worker apps regulares** (pattern `/:app/*`)
-   - Apps em diretórios de `appsDir`
+   - Apps em diretórios de `workspaces`
    - Exemplo: `apps/todos/` responde em `/todos/*`
 
 ===== Semantic Versioning
@@ -608,13 +606,13 @@ Bun.serve({ fetch: app.fetch, port: 3000 });
 * Use `getConfig()` para acessar configuração após inicialização
 * Sempre aguarde `registry.shutdown()` antes de encerrar processo
 * Use `logger.flush()` antes de sair para garantir que logs sejam escritos
-* Configure `appsDir` como array para suportar múltiplos diretórios
+* Configure `workspaces` como array para suportar múltiplos diretórios
 
 [source,typescript]
 ----
 // buntime.jsonc
 {
-  "appsDir": ["./apps", "./examples", "${HOME}/external-apps"]
+  "workspaces": ["./apps", "./examples", "${HOME}/external-apps"]
 }
 ----
 
@@ -660,19 +658,19 @@ Solução: Configure `base` diferente em um dos plugins:
 }
 ----
 
-==== Apps Directory Not Found
+==== Workspaces Not Found
 
 [source]
 ----
-Error: appsDir is required: set in buntime.jsonc or APPS_DIR env var
+Error: workspaces is required: set in buntime.jsonc or WORKSPACES_DIR env var
 ----
 
-Solução: Configure `appsDir` no `buntime.jsonc`:
+Solução: Configure `workspaces` no `buntime.jsonc`:
 
 [source,json]
 ----
 {
-  "appsDir": ["./apps"]
+  "workspaces": ["./apps"]
 }
 ----
 

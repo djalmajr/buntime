@@ -31,15 +31,15 @@ setLogger(logger);
 const { baseDir, config: buntimeConfig } = await loadBuntimeConfig();
 const runtimeConfig = initConfig(buntimeConfig, baseDir);
 
-// Set appsDirs as env var so plugin workers can access it
+// Set workspaces as env var so plugin workers can access it
 // Workers inherit Bun.env at spawn time
-Bun.env.BUNTIME_APPS_DIRS = JSON.stringify(runtimeConfig.appsDirs);
+Bun.env.BUNTIME_WORKSPACES = JSON.stringify(runtimeConfig.workspaces);
 
 // Create pool with config
 const pool = new WorkerPool({ maxSize: runtimeConfig.poolSize });
 
 // Create app resolver
-const getAppDir = createAppResolver(runtimeConfig.appsDirs);
+const getAppDir = createAppResolver(runtimeConfig.workspaces);
 
 // Load plugins
 const loader = new PluginLoader(buntimeConfig, pool);
@@ -66,18 +66,18 @@ const app = createApp({
 
 // Check existing apps for conflicts with plugin routes
 async function checkExistingAppsForConflicts() {
-  const { appsDirs } = getConfig();
+  const { workspaces } = getConfig();
   const mountedPaths = registry.getMountedPaths();
 
-  for (const appsDir of appsDirs) {
+  for (const workspace of workspaces) {
     try {
       const entries = await Array.fromAsync(
-        new Bun.Glob("*").scan({ cwd: appsDir, onlyFiles: false }),
+        new Bun.Glob("*").scan({ cwd: workspace, onlyFiles: false }),
       );
 
       for (const entry of entries) {
         // Only check top-level directories (apps)
-        const stat = await Bun.file(`${appsDir}/${entry}`).exists();
+        const stat = await Bun.file(`${workspace}/${entry}`).exists();
         if (stat) continue; // Skip files
 
         const appPath = `/${entry}`;
@@ -98,7 +98,7 @@ async function checkExistingAppsForConflicts() {
         }
       }
     } catch {
-      // Ignore errors (appsDir might not exist yet)
+      // Ignore errors (workspace might not exist yet)
     }
   }
 }

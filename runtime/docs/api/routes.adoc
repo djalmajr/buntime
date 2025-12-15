@@ -690,7 +690,7 @@ GET /my-app@^1.0.0/users
 Processo:
 
 1. Verifica se é plugin app (rotas registradas por plugins)
-2. Resolve versão no APPS_DIR usando semver
+2. Resolve versão nos workspaces usando semver
 3. Carrega worker config (`worker.jsonc`)
 4. Encontra entrypoint (HTML ou TS/JS)
 5. Cria/reutiliza worker do pool
@@ -718,18 +718,18 @@ Rota fallback para a raiz (quando nenhuma outra rota corresponde).
 
 Comportamento:
 
-- Se `shell` está configurado no runtime: roteia para app shell
+- Se `homepage` está configurado no runtime: roteia para app homepage
 - Caso contrário: retorna texto `"Buntime v{version}"`
 
-Exemplo com shell:
+Exemplo com homepage:
 
 [source,bash]
 ----
 GET /
-# Redireciona para shell app configurado
+# Redireciona para homepage app configurado
 ----
 
-Exemplo sem shell:
+Exemplo sem homepage:
 
 [source,bash]
 ----
@@ -765,7 +765,7 @@ Processo:
 
 Diferenças de apps normais:
 
-- Não usa APPS_DIR (usa diretório do plugin)
+- Não usa workspaces (usa diretório do plugin)
 - Não suporta versionamento
 - Integrado ao ciclo de vida do plugin
 
@@ -778,8 +778,8 @@ Ordem de resolução de rotas:
 3. **Piercing Fragment API** - `/piercing-fragment/:fragmentId/*` (rotas montadas)
 4. **Plugins Info API** - `/api/plugins` (rota montada)
 5. **Plugin Apps** - Apps registrados por plugins (ex: `/api/keyval/*`) (catch-all handler)
-6. **Worker Routes** - Apps em APPS_DIR (ex: `/my-app/*`) (catch-all handler)
-7. **Shell/Fallback** - Raiz `/` (catch-all handler)
+6. **Worker Routes** - Apps nos workspaces (ex: `/my-app/*`) (catch-all handler)
+7. **Homepage/Fallback** - Raiz `/` (catch-all handler)
 
 NOTE: Rotas 1-4 são montadas no Hono e têm prioridade sobre os catch-all handlers (5-7) que processam requisições não capturadas pelas rotas montadas.
 

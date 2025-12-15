@@ -34,6 +34,7 @@ export interface DeploymentPathInfo {
 
 /**
  * Extract version from a flat folder name (e.g., "hello-api@1.0.0" -> { name: "hello-api", version: "1.0.0" })
+ * Also supports "latest" as a special version tag.
  */
 function parseFlatFolder(folderName: string): { name: string; version: string } | null {
   const atIndex = folderName.lastIndexOf("@");
@@ -42,7 +43,8 @@ function parseFlatFolder(folderName: string): { name: string; version: string } 
   const name = folderName.slice(0, atIndex);
   const version = folderName.slice(atIndex + 1);
 
-  if (!name || !valid(version)) return null;
+  // Accept semver versions or "latest" tag
+  if (!name || (!valid(version) && version !== "latest")) return null;
 
   return { name, version };
 }
@@ -118,9 +120,10 @@ export function parseDeploymentPath(path: string | undefined | null): Deployment
 
   // Third part should be version (nested format)
   const thirdPart = parts[2]!;
-  const isValidVersion = valid(thirdPart) !== null;
+  // Accept semver versions or "latest" tag
+  const isVersionValid = valid(thirdPart) !== null || thirdPart === "latest";
 
-  if (isValidVersion) {
+  if (isVersionValid) {
     return {
       appName,
       depth: parts.length,

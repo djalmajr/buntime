@@ -10,28 +10,28 @@ import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
 import { DELAY_MS, IS_COMPILED, IS_DEV, NODE_ENV, PORT, VERSION } from "./constants";
 
 interface RuntimeConfig {
-  appsDirs: string[];
   delayMs: number;
+  homepage?: string;
   isCompiled: boolean;
   isDev: boolean;
   nodeEnv: string;
   poolSize: number;
   port: number;
-  shell?: string;
   version: string;
+  workspaces: string[];
 }
 
 // Default values
-const defaults: Omit<RuntimeConfig, "appsDirs"> & { appsDirs?: string[] } = {
-  appsDirs: undefined,
+const defaults: Omit<RuntimeConfig, "workspaces"> & { workspaces?: string[] } = {
   delayMs: DELAY_MS,
+  homepage: undefined,
   isCompiled: IS_COMPILED,
   isDev: IS_DEV,
   nodeEnv: NODE_ENV,
   poolSize: 100,
   port: PORT,
-  shell: undefined,
   version: VERSION,
+  workspaces: undefined,
 };
 
 // Pool size defaults by environment
@@ -54,19 +54,31 @@ function resolvePath(path: string, baseDir: string): string {
 }
 
 /**
+ * Parse WORKSPACES_DIR env var (supports comma-separated paths)
+ * @example "../../buntime-apps" or "/dir1,/dir2,../dir3"
+ */
+function parseWorkspacesEnv(envValue: string, baseDir: string): string[] {
+  return envValue
+    .split(",")
+    .map((dir) => dir.trim())
+    .filter(Boolean)
+    .map((dir) => resolvePath(dir, baseDir));
+}
+
+/**
  * Initialize runtime configuration from buntime.jsonc + env vars
  */
 export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): RuntimeConfig {
-  // Get appsDirs: buntime.jsonc (array) > env var (single path fallback)
+  // Get workspaces: buntime.jsonc (array) > env var (comma-separated paths)
   // Relative paths are resolved against the config file directory
-  const appsDirs = buntimeConfig.appsDirs
-    ? buntimeConfig.appsDirs.map((dir) => resolvePath(dir, baseDir))
-    : Bun.env.APPS_DIR
-      ? [resolvePath(Bun.env.APPS_DIR, baseDir)]
+  const workspaces = buntimeConfig.workspaces
+    ? buntimeConfig.workspaces.map((dir) => resolvePath(dir, baseDir))
+    : Bun.env.WORKSPACES_DIR
+      ? parseWorkspacesEnv(Bun.env.WORKSPACES_DIR, baseDir)
       : [];
 
-  if (appsDirs.length === 0) {
-    throw new Error("appsDirs is required: set in buntime.jsonc or APPS_DIR env var");
+  if (workspaces.length === 0) {
+    throw new Error("workspaces is required: set in buntime.jsonc or WORKSPACES_DIR env var");
   }
 
   // Get poolSize: buntime.jsonc > env var > default by env
@@ -74,14 +86,14 @@ export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): Runti
     buntimeConfig.poolSize ??
     (Bun.env.POOL_SIZE ? parseInt(Bun.env.POOL_SIZE, 10) : (poolDefaults[NODE_ENV] ?? 100));
 
-  // Get shell: buntime.jsonc > env var
-  const shell = buntimeConfig.shell ?? Bun.env.APP_SHELL;
+  // Get homepage: buntime.jsonc > env var
+  const homepage = buntimeConfig.homepage ?? Bun.env.HOMEPAGE_APP;
 
   _config = {
     ...defaults,
-    appsDirs,
+    homepage,
     poolSize,
-    shell,
+    workspaces,
   };
 
   return _config;

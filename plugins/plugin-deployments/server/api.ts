@@ -7,6 +7,10 @@ import { DirInfo } from "./libs/dir-info";
 let workspaces: string[] = ["./apps"];
 let dirNameMap: Map<string, string> = new Map(); // dirName -> fullPath
 
+// Global excludes (folders to hide from listing)
+const DEFAULT_EXCLUDES = [".git", "node_modules"];
+let globalExcludes: string[] = [...DEFAULT_EXCLUDES];
+
 export function setWorkspaces(dirs: string[]): void {
   workspaces = dirs;
   // Build name -> path map, handling duplicates with index suffix
@@ -24,7 +28,16 @@ export function setWorkspaces(dirs: string[]): void {
   }
 }
 
-// Initialize from env var (set by runtime for plugin workers)
+export function setExcludes(excludes: string[], replace = false): void {
+  globalExcludes = replace ? excludes : [...new Set([...DEFAULT_EXCLUDES, ...excludes])];
+  DirInfo.globalExcludes = globalExcludes;
+}
+
+export function getExcludes(): string[] {
+  return globalExcludes;
+}
+
+// Initialize from env vars (set by runtime for plugin workers)
 // This runs when the module is first imported in the worker process
 if (Bun.env.BUNTIME_WORKSPACES) {
   try {
@@ -35,6 +48,20 @@ if (Bun.env.BUNTIME_WORKSPACES) {
   } catch {
     // Ignore parse errors, use default
   }
+}
+
+if (Bun.env.BUNTIME_EXCLUDES) {
+  try {
+    const excludes = JSON.parse(Bun.env.BUNTIME_EXCLUDES) as string[];
+    if (Array.isArray(excludes)) {
+      setExcludes(excludes);
+    }
+  } catch {
+    // Ignore parse errors, use default
+  }
+} else {
+  // Initialize DirInfo with default excludes
+  DirInfo.globalExcludes = globalExcludes;
 }
 
 export function getWorkspaces(): string[] {

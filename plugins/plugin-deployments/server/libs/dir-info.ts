@@ -1,11 +1,16 @@
 import { mkdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { isValidUploadDestination, parseDeploymentPath } from "../utils/deployment-path";
 import { valid } from "semver";
+import { isValidUploadDestination, parseDeploymentPath } from "../utils/deployment-path";
 
 const DIRINFO_FILE = ".dirinfo";
 
 type Visibility = "public" | "protected" | "internal";
+
+interface BuntimeConfig {
+  excludes?: string[];
+  visibility?: Visibility;
+}
 
 /**
  * Check if a string is a valid version (semver or "latest")
@@ -15,21 +20,29 @@ function isValidVersion(version: string): boolean {
 }
 
 /**
- * Read visibility from a package.json file
+ * Read buntime config from a package.json file
  */
-async function readVisibility(pkgPath: string): Promise<Visibility | undefined> {
+async function readBuntimeConfig(pkgPath: string): Promise<BuntimeConfig | undefined> {
   try {
     const pkgFile = Bun.file(pkgPath);
     if (await pkgFile.exists()) {
-      const pkg = (await pkgFile.json()) as { buntime?: { visibility?: string } };
-      if (pkg.buntime?.visibility) {
-        return pkg.buntime.visibility as Visibility;
+      const pkg = (await pkgFile.json()) as { buntime?: BuntimeConfig };
+      if (pkg.buntime) {
+        return pkg.buntime;
       }
     }
   } catch {
     // Ignore parse errors
   }
   return undefined;
+}
+
+/**
+ * Read visibility from a package.json file
+ */
+async function readVisibility(pkgPath: string): Promise<Visibility | undefined> {
+  const config = await readBuntimeConfig(pkgPath);
+  return config?.visibility;
 }
 
 interface DirInfoCache {
@@ -49,6 +62,9 @@ export interface FileEntry {
 }
 
 export class DirInfo {
+  /** Global excludes set from plugin configuration */
+  static globalExcludes: string[] = [];
+
   private basePath: string;
   private cache: DirInfoCache | null = null;
   private dirPath: string;
@@ -127,10 +143,13 @@ export class DirInfo {
     // Check if we're inside a protected version (inherit visibility from ancestor)
     const inheritedVisibility = await this.getAncestorVisibility();
 
+    // Get combined excludes (global + per-app from version folder)
+    const excludes = await this.getExcludes();
+
     try {
       const glob = new Bun.Glob("*");
       for await (const name of glob.scan({ cwd: this.fullPath, dot: true, onlyFiles: false })) {
-        if (name === DIRINFO_FILE) continue;
+        if (name === DIRINFO_FILE || excludes.has(name)) continue;
 
         const entryPath = join(this.fullPath, name);
         const stats = await stat(entryPath);
@@ -281,6 +300,47 @@ export class DirInfo {
 
     // Otherwise check ancestor visibility (if inside a version folder)
     return this.getAncestorVisibility();
+  }
+
+  /**
+   * Get combined excludes (global + per-app from version folder's package.json)
+   * Returns a Set for fast lookup
+   */
+  private async getExcludes(): Promise<Set<string>> {
+    // Start with global excludes
+    const excludes = new Set(DirInfo.globalExcludes);
+
+    // If inside a version folder, check for per-app excludes
+    if (this.dirPath) {
+      const pathInfo = parseDeploymentPath(this.dirPath);
+
+      if (pathInfo.isInsideVersion || pathInfo.depth >= 1) {
+        const parts = this.dirPath.split("/");
+        let versionFolderPath: string;
+
+        if (pathInfo.format === "flat") {
+          // Flat format: first part is app@version
+          versionFolderPath = parts[0]!;
+        } else if (pathInfo.depth >= 2) {
+          // Nested format: first two parts are app/version
+          versionFolderPath = parts.slice(0, 2).join("/");
+        } else {
+          // At app level, no per-app excludes yet
+          return excludes;
+        }
+
+        // Read excludes from version folder's package.json
+        const pkgPath = join(this.basePath, versionFolderPath, "package.json");
+        const config = await readBuntimeConfig(pkgPath);
+        if (config?.excludes) {
+          for (const pattern of config.excludes) {
+            excludes.add(pattern);
+          }
+        }
+      }
+    }
+
+    return excludes;
   }
 
   async writeFile(fileName: string, content: ArrayBuffer | string): Promise<void> {

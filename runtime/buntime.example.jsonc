@@ -13,6 +13,15 @@
     // Metrics plugin - provides /api/metrics/* endpoints
     "@buntime/plugin-metrics",
 
+    // Deployments plugin - file manager UI for workspaces
+    [
+      "@buntime/plugin-deployments",
+      {
+        // Folders to exclude from listing (merged with defaults: .git, node_modules)
+        "excludes": [".cache", "dist"]
+      }
+    ],
+
     // Gateway plugin - rate limiting, caching, CORS
     [
       "@buntime/plugin-gateway",

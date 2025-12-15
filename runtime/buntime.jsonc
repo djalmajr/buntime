@@ -4,7 +4,12 @@
   "homepage": "cpanel",
   "plugins": [
     "@buntime/plugin-metrics",
-    "@buntime/plugin-deployments",
+    [
+      "@buntime/plugin-deployments",
+      {
+        "excludes": [".cache"]
+      }
+    ],
     "@buntime/plugin-health",
     "@buntime/plugin-logs",
     [

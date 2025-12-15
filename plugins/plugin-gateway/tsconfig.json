@@ -2,8 +2,13 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "jsx": "react-jsx",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "outDir": "./dist",
     "paths": {
-      "~/*": ["./src/*"]
+      "~/*": ["./client/*"]
     }
-  }
+  },
+  "include": ["index.ts", "plugin.ts", "client/**/*", "server/**/*", "scripts/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

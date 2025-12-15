@@ -9,10 +9,12 @@
     [
       "@buntime/plugin-database",
       {
-        "adapter": {
-          "type": "libsql",
-          "urls": ["http://localhost:8880"]
-        }
+        "adapters": [
+          {
+            "type": "libsql",
+            "urls": ["http://localhost:8880"]
+          }
+        ]
       }
     ],
     "@buntime/plugin-keyval"

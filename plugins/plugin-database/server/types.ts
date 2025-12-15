@@ -83,6 +83,21 @@ export interface DatabaseAdapter {
 }
 
 /**
+ * Configuration for Bun SQL adapter (postgres/mysql/sqlite)
+ */
+export interface BunSqlAdapterConfig {
+  /** Base directory for SQLite files (only for sqlite type) */
+  baseDir?: string;
+  /** Mark as default adapter (only one allowed) */
+  default?: boolean;
+  /** Logger instance */
+  logger?: PluginLogger;
+  type: "mysql" | "postgres" | "sqlite";
+  /** Database connection URL */
+  url: string;
+}
+
+/**
  * Configuration for LibSQL adapter
  */
 export interface LibSqlAdapterConfig {
@@ -102,21 +117,6 @@ export interface LibSqlAdapterConfig {
 }
 
 /**
- * Configuration for Bun SQL adapter (postgres/mysql/sqlite)
- */
-export interface BunSqlAdapterConfig {
-  /** Base directory for SQLite files (only for sqlite type) */
-  baseDir?: string;
-  /** Mark as default adapter (only one allowed) */
-  default?: boolean;
-  /** Logger instance */
-  logger?: PluginLogger;
-  type: "mysql" | "postgres" | "sqlite";
-  /** Database connection URL */
-  url: string;
-}
-
-/**
  * Union type for all adapter configurations
  */
 export type AdapterConfig = BunSqlAdapterConfig | LibSqlAdapterConfig;
@@ -125,12 +125,6 @@ export type AdapterConfig = BunSqlAdapterConfig | LibSqlAdapterConfig;
  * Plugin-database configuration
  */
 export interface DatabasePluginConfig extends BasePluginConfig {
-  /**
-   * Database adapter configuration (single adapter)
-   * @deprecated Use `adapters` array instead
-   */
-  adapter?: AdapterConfig;
-
   /**
    * Database adapters configuration (multiple adapters)
    * Each adapter type can only appear once.
@@ -148,6 +142,8 @@ export interface DatabasePluginConfig extends BasePluginConfig {
     enabled?: boolean;
     /** HTTP header for tenant identification */
     header?: string;
+    /** Maximum number of tenant adapters to cache per adapter type (default: 1000) */
+    maxTenants?: number;
   };
 }
 

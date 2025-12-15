@@ -21,6 +21,7 @@ export class LibSqlAdapter implements DatabaseAdapter {
   private readonly client: Client;
   private readonly replicaClients: Client[];
   private readonly config: LibSqlAdapterConfig;
+
   private replicaIndex = 0;
 
   constructor(config: LibSqlAdapterConfig, tenantId: string | null = null) {

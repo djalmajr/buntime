@@ -1,6 +1,5 @@
 import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
-import { Hono } from "hono";
-import { setConfig } from "./server/api";
+import { api, setConfig } from "./server/api";
 import type { PoolLike } from "./server/services";
 import { setPool } from "./server/services";
 
@@ -31,14 +30,31 @@ export default function metricsPlugin(pluginConfig: MetricsConfig = {}): Buntime
   return {
     name: "@buntime/plugin-metrics",
     base: pluginConfig.base,
+    routes: api,
+
+    fragment: {
+      type: "monkey-patch",
+    },
+
+    menus: [
+      {
+        icon: "lucide:activity",
+        items: [
+          { icon: "lucide:gauge", path: "/metrics", title: "Overview" },
+          { icon: "lucide:flame", path: "/metrics/prometheus", title: "Prometheus" },
+          { icon: "lucide:cpu", path: "/metrics/workers", title: "Workers" },
+        ],
+        path: "/metrics",
+        priority: 5,
+        title: "Metrics",
+      },
+    ],
 
     onInit(ctx: PluginContext) {
       setPool(ctx.pool as PoolLike);
       setConfig({ sseInterval: pluginConfig.sseInterval });
       ctx.logger.info("Metrics plugin initialized");
     },
-
-    routes: new Hono(),
   };
 }
 

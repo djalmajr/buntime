@@ -268,11 +268,22 @@ export class PluginLoader {
    * Returns both the module and its directory for worker spawning
    */
   private async resolvePluginModule(name: string): Promise<ResolvedPluginModule> {
+    // Helper to resolve plugin directory from package name
+    const resolveDir = (packageName: string): string => {
+      try {
+        const resolvedPath = Bun.resolveSync(packageName, process.cwd());
+        return dirname(resolvedPath);
+      } catch {
+        return "";
+      }
+    };
+
     // 1. Try built-in plugins first (works in compiled binary)
     const builtinFactory = await getBuiltinPlugin(name);
     if (builtinFactory) {
-      // Built-in plugins don't have a directory (embedded in binary)
-      return { module: builtinFactory, dir: "" };
+      // Built-in plugins: use factory but still resolve directory for worker spawning
+      const dir = resolveDir(name);
+      return { module: builtinFactory, dir };
     }
 
     // 2. Try external plugins directory
@@ -287,9 +298,7 @@ export class PluginLoader {
     // 3. Try node_modules (dev/bundle mode)
     try {
       const module = await import(name);
-      // Resolve the package directory from node_modules
-      const resolvedPath = Bun.resolveSync(name, process.cwd());
-      const dir = dirname(resolvedPath);
+      const dir = resolveDir(name);
       return { module, dir };
     } catch {
       throw new Error(

@@ -41,6 +41,7 @@ export default function healthPlugin(pluginConfig: HealthConfig = {}): BuntimePl
       {
         icon: "lucide:heart-pulse",
         path: "/health",
+        priority: 30,
         title: "Health",
       },
     ],

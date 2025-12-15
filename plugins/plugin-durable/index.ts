@@ -1,13 +1,12 @@
+import { join } from "node:path";
+import { createStaticHandler } from "@buntime/shared/utils/static-handler";
 import { api } from "./server/api";
 
-/**
- * Worker entrypoint for Durable Objects plugin
- *
- * This plugin provides a REST API for managing durable objects.
- * It does not have a client-side UI.
- */
+const clientDir = join(import.meta.dir, "client");
+
 export default {
   routes: {
-    "/*": api.fetch,
+    "/api/*": api.fetch,
   },
+  fetch: createStaticHandler(clientDir),
 };

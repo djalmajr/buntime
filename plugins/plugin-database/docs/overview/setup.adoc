@@ -17,37 +17,6 @@ bun add @buntime/plugin-database
 
 A configuração é feita através do arquivo `buntime.jsonc`.
 
-=== Adapter Único (formato simples)
-
-WARNING: O formato `adapter` singular está deprecated. Use `adapters` array.
-
-[source,jsonc]
-----
-{
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapter": {
-        "type": "libsql",
-        "urls": ["http://localhost:8880"]
-      }
-    }]
-  ]
-}
-----
-
-O formato acima é automaticamente convertido para:
-
-[source,jsonc]
-----
-{
-  "adapters": [
-    { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] }
-  ]
-}
-----
-
-NOTE: Se `urls` não for definido, o plugin detecta automaticamente via variáveis de ambiente `LIBSQL_URL_0`, `LIBSQL_URL_1`, etc.
-
 === Múltiplos Adapters
 
 Permite que diferentes plugins usem diferentes bancos de dados:
@@ -89,12 +58,23 @@ Permite que diferentes plugins usem diferentes bancos de dados:
         }
       ],
       "tenancy": {
-        "autoCreate": true
+        "autoCreate": true,
+        "maxTenants": 1000
       }
     }]
   ]
 }
 ----
+
+**Opções de tenancy:**
+
+- `autoCreate`: Cria tenants automaticamente no primeiro acesso (padrão: `false`)
+- `defaultTenant`: ID do tenant padrão quando nenhum header de tenant é fornecido (opcional)
+- `enabled`: Habilita suporte a multi-tenancy (padrão: `false`)
+- `header`: Nome do header HTTP usado para identificação do tenant (padrão: `"X-Tenant-ID"`)
+- `maxTenants`: Número máximo de adapters de tenant cacheados por tipo (padrão: `1000`)
+  - Usa `QuickLRU` para eviction automática do menos recentemente usado
+  - Adapters evictados são fechados automaticamente
 
 NOTE: A Admin API para gerenciamento de namespaces usa a mesma URL principal (`urls[0]`).
 

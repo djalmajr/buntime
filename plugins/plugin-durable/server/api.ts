@@ -7,6 +7,7 @@ import { registry } from "./services";
  * Provides endpoints for managing durable objects
  */
 export const api = new Hono()
+  .basePath("/api")
   .get("/", async (ctx) => {
     const objects = await registry.listAll();
     return ctx.json(objects);

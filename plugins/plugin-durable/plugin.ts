@@ -58,6 +58,19 @@ export default function durableObjectsExtension(config: DurableObjectsConfig = {
     base: config.base,
     dependencies: ["@buntime/plugin-database"],
 
+    fragment: {
+      type: "monkey-patch",
+    },
+
+    menus: [
+      {
+        icon: "lucide:box",
+        path: "/durable",
+        priority: 60,
+        title: "Durable Objects",
+      },
+    ],
+
     async onInit(ctx: PluginContext) {
       const databaseService = ctx.getService<DatabaseService>("database");
       if (!databaseService) {

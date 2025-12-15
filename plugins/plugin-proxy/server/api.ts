@@ -15,6 +15,7 @@ import {
 } from "./services";
 
 export const api = new Hono()
+  .basePath("/api")
   // List all rules (static + dynamic)
   .get("/rules", (ctx) => {
     const rules = getAllRules().map(ruleToResponse);

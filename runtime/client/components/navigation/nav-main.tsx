@@ -13,6 +13,7 @@ import {
 } from "~/components/ui/sidebar";
 
 interface NavMainSubItem {
+  isActive?: boolean;
   linkProps?: Record<string, unknown>;
   title: string;
   url: string;
@@ -71,7 +72,7 @@ export function NavMain({
                     <SidebarMenuSub>
                       {item.items!.map((subItem) => (
                         <SidebarMenuSubItem key={subItem.title}>
-                          <SidebarMenuSubButton asChild>
+                          <SidebarMenuSubButton asChild isActive={subItem.isActive}>
                             <LinkComponent
                               href={subItem.url}
                               to={subItem.url}

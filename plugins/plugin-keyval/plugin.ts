@@ -78,6 +78,29 @@ export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugi
     base: config.base,
     dependencies: ["@buntime/plugin-database"],
 
+    // Fragment with monkey-patch sandbox (internal plugin)
+    fragment: {
+      type: "monkey-patch",
+    },
+
+    // Menu items for C-Panel sidebar
+    menus: [
+      {
+        icon: "lucide:database",
+        path: "/keyval",
+        priority: 80,
+        title: "KeyVal",
+        items: [
+          { icon: "lucide:list", path: "/keyval/entries", title: "Entries" },
+          { icon: "lucide:layers", path: "/keyval/queue", title: "Queue" },
+          { icon: "lucide:search", path: "/keyval/search", title: "Search" },
+          { icon: "lucide:eye", path: "/keyval/watch", title: "Watch" },
+          { icon: "lucide:atom", path: "/keyval/atomic", title: "Atomic" },
+          { icon: "lucide:activity", path: "/keyval/metrics", title: "Metrics" },
+        ],
+      },
+    ],
+
     async onInit(ctx: PluginContext) {
       // Get database service from plugin-database
       const database = ctx.getService<DatabaseService>("database");

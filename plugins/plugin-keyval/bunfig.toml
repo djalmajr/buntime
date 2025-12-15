@@ -1,0 +1,8 @@
+[serve.static]
+plugins = [
+  "@zomme/bun-plugin-iconify",
+  "bun-plugin-tailwind"
+]
+
+[plugins.iconify]
+dirs = ["client"]

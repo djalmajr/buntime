@@ -198,20 +198,11 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
       if (result instanceof Response) {
         return result;
       }
-
-      // 3. Serve plugin app if resolved
-      if (resolved?.type === "plugin" && pool) {
-        try {
-          return await servePluginApp(ctx.req.raw, pool, resolved);
-        } catch (err) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          console.error(`[Main] Error serving plugin app at ${resolved.basePath}:`, error);
-          return ctx.json({ error: `Error: ${error.message}` }, 500);
-        }
-      }
     }
 
-    // 4. Try plugin routes (in order of specificity - longest base first)
+    // 3. Try plugin routes FIRST (in order of specificity - longest base first)
+    // This is important for plugins with both routes and fragment - routes should handle
+    // API requests (including SSE) from main thread to avoid worker timeouts
     const sortedPaths = [...pluginRoutes.keys()].sort((a, b) => b.length - a.length);
 
     for (const base of sortedPaths) {
@@ -230,6 +221,20 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
         // If plugin route matched (not 404), return it
         if (response.status !== 404) {
           return response;
+        }
+      }
+    }
+
+    // 4. Serve plugin app (fragment) if resolved - after routes to allow main thread API handling
+    if (registry) {
+      const resolved = await resolveTargetApp(pathname, registry, getAppDir);
+      if (resolved?.type === "plugin" && pool) {
+        try {
+          return await servePluginApp(ctx.req.raw, pool, resolved);
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          console.error(`[Main] Error serving plugin app at ${resolved.basePath}:`, error);
+          return ctx.json({ error: `Error: ${error.message}` }, 500);
         }
       }
     }

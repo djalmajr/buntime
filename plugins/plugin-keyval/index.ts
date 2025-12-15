@@ -1,13 +1,14 @@
+import { join } from "node:path";
+import { createStaticHandler } from "@buntime/shared/utils/static-handler";
 import { api } from "./server/api";
 
-/**
- * Worker entrypoint for KeyVal plugin
- *
- * This plugin provides a REST API for key-value operations.
- * It does not have a client-side UI.
- */
+// Path to client directory (relative to dist/index.js, built by scripts/build.ts)
+const clientDir = join(import.meta.dir, "client");
+
+// Worker entrypoint - Bun.serve format
 export default {
+  fetch: createStaticHandler(clientDir),
   routes: {
-    "/*": api.fetch,
+    "/api/*": api.fetch,
   },
 };

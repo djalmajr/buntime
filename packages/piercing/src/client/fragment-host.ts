@@ -298,6 +298,57 @@ export class PiercingFragmentOutlet extends HTMLElement {
     this.fragmentHost = null;
   }
 
+  async attributeChangedCallback(
+    name: string,
+    oldValue: string | null,
+    newValue: string | null,
+  ): Promise<void> {
+    // Only handle fragment-id changes after initial connection
+    if (name !== "fragment-id" || oldValue === null || oldValue === newValue) {
+      return;
+    }
+
+    // Dispatch unmount event for old fragment
+    this.shadow.dispatchEvent(
+      new CustomEvent("piercing-unmount", { bubbles: true, composed: true }),
+    );
+
+    // Track old fragment as unmounted
+    if (this.currentFragmentId) {
+      PiercingFragmentOutlet.unmountedFragmentIds.add(this.currentFragmentId);
+    }
+
+    // Cleanup old sandbox
+    this.sandboxHandler?.cleanup();
+    this.sandboxHandler = null;
+    this.fragmentHost = null;
+
+    // Clear shadow DOM
+    this.clearChildren();
+
+    // Load new fragment
+    const fragmentId = newValue;
+    if (!fragmentId) return;
+
+    this.currentFragmentId = fragmentId;
+
+    const sandbox = (this.getAttribute("sandbox") || "none") as SandboxStrategy;
+    const origin = this.getAttribute("origin") || undefined;
+
+    // Initialize sandbox for new fragment if needed
+    if (sandbox !== "none" && sandbox !== "iframe") {
+      this.sandboxHandler = this.initSandbox(fragmentId, sandbox, origin);
+      await this.sandboxHandler?.init();
+    }
+
+    // Fetch and load new fragment
+    const fetchUrl = `/p/${fragmentId}${window.location.search}`;
+    const stream = await this.fetchFragment(fetchUrl);
+    const baseUrl = `/p/${fragmentId}`;
+    await this.streamFragmentInto(fragmentId, stream, baseUrl);
+    this.fragmentHost = this.findFragmentHost(fragmentId, true);
+  }
+
   private initSandbox(
     fragmentId: string,
     strategy: SandboxStrategy,

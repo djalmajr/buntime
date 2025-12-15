@@ -8,30 +8,181 @@
 
 Este documento detalha o funcionamento interno do `plugin-database`, focado em como o `DatabaseService` e os adapters funcionam "debaixo do capô".
 
+== Processamento de Configuração
+
+O plugin processa a configuração fornecida para normalizar formatos, substituir variáveis de ambiente e detectar configurações automaticamente.
+
+=== Substituição de Variáveis de Ambiente
+
+O plugin suporta injeção de segredos e configurações via variáveis de ambiente usando a sintaxe `${VAR_NAME}`:
+
+[source,typescript]
+----
+function substituteEnvVars(str: string): string {
+  return str.replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] ?? "");
+}
+----
+
+**Exemplo:**
+[source,jsonc]
+----
+{
+  "adapters": [
+    {
+      "type": "libsql",
+      "urls": ["${LIBSQL_URL_0}"],
+      "authToken": "${LIBSQL_TOKEN}"
+    }
+  ]
+}
+----
+
+=== Auto-Detecção de URLs libSQL
+
+O plugin detecta automaticamente URLs libSQL de variáveis de ambiente seguindo o padrão `LIBSQL_URL_0`, `LIBSQL_URL_1`, etc.:
+
+[source,typescript]
+----
+function detectLibSqlUrls(): string[] {
+  const urls: string[] = [];
+  let index = 0;
+
+  while (true) {
+    const envVar = process.env[`LIBSQL_URL_${index}`];
+    if (!envVar) break;
+    urls.push(envVar);
+    index++;
+  }
+
+  return urls;
+}
+----
+
+**Comportamento:**
+- `LIBSQL_URL_0` → Primary (sempre obrigatório)
+- `LIBSQL_URL_1`, `LIBSQL_URL_2`, ... → Réplicas (opcionais)
+- URLs configuradas explicitamente são mescladas com URLs detectadas
+
+=== Processamento de Adapters Individuais
+
+Cada adapter na configuração é processado para aplicar substituições de ambiente e configurações específicas:
+
+[source,typescript]
+----
+function processAdapter(adapter: AdapterConfig, log: PluginLogger): AdapterConfig {
+  const processed = { ...adapter, logger: log };
+
+  // Substituir variáveis em authToken
+  if ("authToken" in processed && processed.authToken) {
+    processed.authToken = substituteEnvVars(processed.authToken);
+  }
+
+  // Substituir variáveis em url (sqlite/postgres/mysql)
+  if ("url" in processed && processed.url) {
+    processed.url = substituteEnvVars(processed.url);
+  }
+
+  // Processar array de urls com substituição (libsql)
+  if ("urls" in processed && Array.isArray(processed.urls)) {
+    processed.urls = processed.urls.map((url) => substituteEnvVars(url)).filter((url) => url);
+  }
+
+  // Auto-detectar URLs libSQL e mesclar
+  if (processed.type === "libsql") {
+    const envUrls = detectLibSqlUrls();
+    const configUrls = (processed as { urls?: string[] }).urls ?? [];
+
+    // Mesclar: config primeiro, depois env (deduplicado via Set)
+    const allUrls = [...new Set([...configUrls, ...envUrls])];
+
+    if (allUrls.length > 0) {
+      (processed as { urls: string[] }).urls = allUrls;
+    }
+  }
+
+  return processed;
+}
+----
+
+=== Normalização de Configuração
+
+O plugin processa o array de adapters da configuração:
+
+[source,typescript]
+----
+function processConfig(config: DatabasePluginConfig, log: PluginLogger): DatabasePluginConfig {
+  const processed = { ...config };
+
+  // Process adapters array
+  if (config.adapters && config.adapters.length > 0) {
+    processed.adapters = config.adapters.map((a) => processAdapter(a, log));
+  }
+
+  return processed;
+}
+----
+
 == Gerenciamento de Conexões e Cache
 
 O `DatabaseService` mantém um cache de adapters instanciados para evitar recriação de objetos e conexões desnecessárias.
 
 === Mapa de Adapters
 
-Internamente, o serviço mantém:
+Internamente, o serviço mantém duas estruturas de cache:
 
 [source,typescript]
 ----
-private adapters = new Map<string, DatabaseAdapter>();
+// Cache de adapters root por tipo (singletons, criados na inicialização)
+private rootCache = new Map<AdapterType, DatabaseAdapter>();
+
+// Cache de adapters por tenant, separado por tipo (criados sob demanda, LRU)
+private tenantCache = new Map<AdapterType, QuickLRU<string, DatabaseAdapter>>();
 ----
 
-A chave do mapa é o `tenantId`. Para o adapter root, usa-se uma chave especial (ex: `__root__`).
+**Root Cache (`rootCache`):**
 
-*   **Cache Hit**: Se o adapter existe, é retornado imediatamente.
-*   **Cache Miss**: Um novo adapter é instanciado, configurado e armazenado.
+- Chave: `AdapterType` (ex: `"libsql"`, `"sqlite"`)
+- Valor: `DatabaseAdapter` (sem tenant, `tenantId: null`)
+- Propósito: Acesso direto ao adapter root, usado para criar tenants e operações sem isolamento
+- Ciclo de vida: Criados na inicialização, mantidos durante toda a execução
+
+**Tenant Cache (`tenantCache`):**
+
+- Primeiro nível: `AdapterType` (ex: `"libsql"`)
+- Segundo nível: `QuickLRU<string, DatabaseAdapter>` (LRU cache com eviction automática)
+- Chave LRU: `tenantId` (ex: `"tenant-123"`)
+- Valor LRU: `DatabaseAdapter` (scoped para aquele tenant, `tenantId: "tenant-123"`)
+- Propósito: Cache de adapters isolados por tenant para reutilização
+- Ciclo de vida: Criados sob demanda, cacheados com LRU (eviction quando `maxTenants` é atingido)
+- Configuração: `tenancy.maxTenants` (padrão: 1000 por tipo de adapter)
+
+Isso permite que o mesmo `tenantId` exista em diferentes adapters:
+- `tenantCache.get("libsql").get("tenant-123")` → adapter libSQL para tenant-123
+- `tenantCache.get("sqlite").get("tenant-123")` → adapter SQLite para tenant-123
+
+*   **Cache Hit**: Se o adapter existe no cache do tipo, é retornado imediatamente.
+*   **Cache Miss**: Um novo adapter é instanciado, configurado e armazenado no cache do tipo.
 
 === Ciclo de Vida do Adapter
 
 1.  **Instanciação**: O construtor do adapter é leve. Conexões de rede geralmente não são abertas aqui.
 2.  **Primeiro Uso**: A conexão real (TCP socket ou HTTP handshake) ocorre na primeira query (Lazy Connection), dependendo do driver subjacente.
-3.  **Idle**: Adapters ociosos podem ser limpos se implementarmos um mecanismo de LRU/TTL (atualmente mantidos enquanto o plugin roda).
-4.  **Close**: No shutdown do plugin, iteramos sobre `adapters.values()` chamando `close()` em cada um.
+3.  **Idle**: Adapters ociosos são automaticamente removidos do cache quando o limite `maxTenants` é atingido (usando `QuickLRU`). O adapter é fechado automaticamente na eviction.
+    *   **LRU Policy**: O cache usa "Least Recently Used" - adapters não acessados recentemente são removidos primeiro.
+    *   **Callback de Eviction**: Quando um adapter é evicted, o callback `onEviction` é executado automaticamente:
+        [source,typescript]
+        ----
+        onEviction: (tenantId, tenantAdapter) => {
+          this.logger.debug(`Evicting tenant adapter: ${config.type}/${tenantId}`);
+          tenantAdapter.close().catch((err) => {
+            this.logger.error(`Error closing evicted adapter for ${config.type}/${tenantId}:`, err);
+          });
+        }
+        ----
+    *   **Limite por Tipo**: O limite `maxTenants` aplica-se por tipo de adapter (ex: 1000 tenants para libSQL, 1000 para SQLite).
+4.  **Close**: No shutdown do plugin:
+    *   Fechamos todos os adapters de tenants em `tenantCache` (iterando por tipo e depois por tenant)
+    *   Fechamos todos os adapters root em `rootCache`
 
 == Implementação dos Adapters
 
@@ -41,40 +192,102 @@ O adaptador para libSQL é o mais complexo devido ao suporte a HTTP, WebSockets 
 
 ==== Cliente HTTP/WebSocket
 
-Usa a biblioteca `@libsql/client`.
+Usa a biblioteca `@libsql/client`. O protocolo é determinado pelo esquema da URL:
 
-*   **Modo HTTP**: Stateless. Cada `execute` é um fetch. Ideal para serverless.
-*   **Modo WebSocket**: Stateful. Mantém conexão persistente. Melhor latência.
+*   **HTTP**: URLs com `http://` ou `https://`
+  - Stateless. Cada `execute` é um fetch. Ideal para serverless.
+  - Transações interativas não são suportadas (limitação do HTTP stateless).
+  - Útil quando WebSockets não estão disponíveis ou não são necessários.
+*   **WebSocket**: URLs com `ws://`, `wss://` ou `libsql://`
+  - Stateful. Mantém conexão persistente. Melhor latência.
+  - Suporta transações interativas e multiplexação de queries.
+  - `libsql://` URLs usam `wss://` internamente (TLS).
+
+**Casos de uso para WebSocket** (segundo documentação oficial):
+
+*   **Edge Functions**: WebSockets são suportados em todos os edge runtimes (Cloudflare Workers, Deno Deploy, Lagon), enquanto TCP sockets não são.
+*   **Baixa Latência**: 30-50% menor latência comparado a HTTP.
+*   **Fast Cold Start**: Requer apenas um roundtrip (vs. pelo menos dois no protocolo Postgres).
+*   **Multiplexing**: Uma única conexão pode abrir múltiplos streams SQL, permitindo múltiplas queries concorrentes.
+*   **Transações Interativas**: Suporta transações onde múltiplas queries podem ser executadas intercaladas com lógica da aplicação.
+
+**Casos de uso para HTTP**:
+
+*   Ambientes com suporte limitado ou ausente a WebSockets.
+*   Casos de uso que não requerem conexões stateful.
+*   Quando o roundtrip adicional do WebSocket não é necessário.
+
+O adapter não escolhe o protocolo automaticamente; ele usa o que está especificado na URL da configuração.
 
 ==== Lógica de Replicação
 
-Se `replicaUrls` são fornecidos, o adapter implementa um Load Balancer interno simples:
+As réplicas são obtidas do array `urls` na configuração:
+
+[source,typescript]
+----
+// No construtor do LibSqlAdapter
+const [primaryUrl, ...replicaUrls] = config.urls.filter((url) => url?.trim());
+
+// urls[0] = Primary (writes + reads)
+// urls[1..n] = Replicas (reads only)
+----
+
+**Como funciona no `sqld`:**
+
+Segundo a documentação oficial do libSQL:
+
+*   **Writes**: O **plugin-database** sempre envia writes diretamente para o primary. Réplicas são read-only.
+*   **Reads**: Queries `SELECT` são executadas **diretamente na réplica** (sem passar pelo primary). Isso reduz latência e carga no primary.
+*   **Sincronização**: Réplicas fazem polling periódico do primary via gRPC para receber WAL (Write-Ahead Log) updates e manter seus dados sincronizados.
+
+**Roteamento no Plugin-Database:**
+
+O `sqld` não implementa load balancing automático de réplicas. O roteamento é feito no **cliente libSQL** (client-side routing). O plugin-database implementa roteamento inteligente baseado no tipo de operação:
 
 [source,typescript]
 ----
 // Simplificado
 class LibSqlAdapter {
-  private replicas: Client[];
-  private primary: Client;
+  private replicaClients: Client[];
+  private client: Client; // Primary
   private replicaIndex = 0;
 
-  async execute(sql: string) {
-    if (isReadQuery(sql) && this.replicas.length > 0) {
-      const replica = this.replicas[this.replicaIndex];
-      this.replicaIndex = (this.replicaIndex + 1) % this.replicas.length;
-      return replica.execute(sql);
+  // Retorna cliente para writes (sempre primary)
+  private getWriteClient(): Client {
+    return this.client;
+  }
+
+  // Retorna cliente para reads (réplicas com round-robin, ou primary como fallback)
+  private getReadClient(): Client {
+    if (this.replicaClients.length === 0) {
+      return this.client; // Fallback para primary
     }
-    return this.primary.execute(sql);
+    // Round-robin entre réplicas
+    const client = this.replicaClients[this.replicaIndex];
+    this.replicaIndex = (this.replicaIndex + 1) % this.replicaClients.length;
+    return client;
+  }
+
+  async execute(sql: string) {
+    // Detecta se é write (INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, REPLACE)
+    const isWrite = /^\s*(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|REPLACE)/i.test(sql);
+    const client = isWrite ? this.getWriteClient() : this.getReadClient();
+    return client.execute(sql);
   }
 }
 ----
 
-*   **Write Routing**: `INSERT`, `UPDATE`, `DELETE`, `BEGIN` sempre vão para o Primary.
-*   **Read Routing**: `SELECT` vai para réplicas (Round-Robin).
+*   **Write Routing**: `INSERT`, `UPDATE`, `DELETE`, `BEGIN` sempre vão para o Primary (`urls[0]`). O plugin não envia writes para réplicas - sempre usa o primary diretamente para operações de escrita.
+*   **Read Routing**: `SELECT` vai para réplicas (`urls[1..n]`) usando Round-Robin para distribuir carga.
+*   **Fallback**: Se não há réplicas configuradas, todas as operações (read/write) usam o Primary.
+
+NOTE: O **plugin-database** implementa roteamento inteligente no cliente libSQL: writes sempre vão para o primary (`urls[0]`), reads usam round-robin entre réplicas (`urls[1..n]`). O `sqld` não faz roteamento automático - toda a lógica de load balancing é implementada no plugin-database, não no servidor.
+
+TIP: Outros plugins que usam o plugin-database (como plugin-keyval, plugin-authn, etc.) **não precisam conhecer as URLs do banco**. Eles apenas especificam qual tipo de adapter usar (`"database": "libsql"`), e o plugin-database já foi configurado com as URLs anteriormente.
 
 ==== Transaction Handling
 
-No libSQL via HTTP, transações são tratadas de forma especial. O cliente `@libsql/client` suporta transações interativas mesmo sobre HTTP (usando sessões/tokens de transação).
+No libSQL via HTTP, transações são tratadas de forma diferente. O HTTP API é stateless e não suporta transações interativas. Todas as operações são executadas como transações não-interativas (batches).
 
 [source,typescript]
 ----
@@ -106,19 +319,37 @@ Para Postgres, a estratégia de multi-tenancy pode variar:
 1.  **Schema-based**: O adapter configura o `search_path` para o tenant antes de executar a query.
     *   *Desafio*: `bun:sql` não suporta facilmente "sessão por query" no mesmo pool.
     *   *Solução*: Frequentemente requer instanciar um novo cliente `SQL` com a connection string apontando o schema ou executar `SET search_path` dentro de uma transação.
-    *   *Implementação Atual*: A implementação foca em **Database-per-tenant** ou **Schema-per-tenant** criando novas instâncias de cliente.
+     *   *Implementação Atual*: A implementação foca em **Database-per-tenant** ou **Schema-per-tenant** criando novas instâncias de cliente.
+
+==== Sanitização de Tenant IDs
+
+Para prevenir SQL injection em nomes de schemas/databases, o plugin sanitiza automaticamente os tenant IDs:
+
+[source,typescript]
+----
+private sanitizeTenantId(tenantId: string): string {
+  // Apenas permite caracteres alfanuméricos, underscore e hífen
+  return tenantId.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+----
+
+**Exemplo:**
+- `"tenant-123"` → `"tenant_123"` (válido)
+- `"tenant@domain.com"` → `"tenant_domain_com"` (sanitizado)
 
 == Auto-Criação de Tenants
 
 Quando `autoCreate: true` está configurado, o fluxo é:
 
-1.  Usuário pede `getAdapter("novo-tenant")`.
-2.  Service detecta que não tem adapter.
-3.  Service chama `TenantManager.ensureTenant("novo-tenant")`.
+1.  Usuário pede `getAdapter("libsql", "novo-tenant")` (ou usa o default se não especificar tipo).
+2.  Service verifica o cache do tipo: `tenantCache.get("libsql").get("novo-tenant")`.
+3.  Se não existe, Service chama `adapter.createTenant("novo-tenant")` no adapter root do tipo:
     *   **libSQL**: Chama a Admin API (mesma URL do primary) para criar o namespace.
         `POST /v1/namespaces/novo-tenant/create`
     *   **Postgres**: Executa `CREATE SCHEMA IF NOT EXISTS "novo-tenant"`.
-4.  Após confirmação, o adapter é instanciado e retornado.
+    *   **MySQL**: Executa `CREATE DATABASE IF NOT EXISTS "novo-tenant"`.
+    *   **SQLite**: Cria o arquivo `{baseDir}/novo-tenant.db`.
+4.  Após confirmação, o adapter é instanciado, armazenado no cache do tipo e retornado.
 
 == Tratamento de Erros
 

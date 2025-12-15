@@ -37,6 +37,7 @@ export interface MainLayoutHeader {
 }
 
 export interface SidebarNavSubItem {
+  isActive?: boolean;
   title: string;
   url: string;
 }

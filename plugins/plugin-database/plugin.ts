@@ -74,18 +74,9 @@ function processAdapter(adapter: AdapterConfig, log: PluginLogger): AdapterConfi
 function processConfig(config: DatabasePluginConfig, log: PluginLogger): DatabasePluginConfig {
   const processed = { ...config };
 
-  // Handle new format: adapters array
+  // Process adapters array
   if (config.adapters && config.adapters.length > 0) {
     processed.adapters = config.adapters.map((a) => processAdapter(a, log));
-    // Clear old format
-    processed.adapter = undefined;
-  }
-  // Handle old format: single adapter (backward compatibility)
-  else if (config.adapter) {
-    const adapter = processAdapter(config.adapter, log);
-    // Convert to new format with default: true
-    processed.adapters = [{ ...adapter, default: true }];
-    processed.adapter = undefined;
   }
 
   return processed;
@@ -98,20 +89,6 @@ function processConfig(config: DatabasePluginConfig, log: PluginLogger): Databas
  * Other plugins can depend on this to get database access.
  *
  * Supports multiple adapters - each plugin can choose which to use.
- *
- * @example Single adapter (backward compatible)
- * ```jsonc
- * {
- *   "plugins": [
- *     ["@buntime/plugin-database", {
- *       "adapter": {
- *         "type": "libsql",
- *         "urls": ["http://primary:8080"]
- *       }
- *     }]
- *   ]
- * }
- * ```
  *
  * @example Multiple adapters
  * ```jsonc

@@ -41,6 +41,10 @@ export function getAppsDirs(): string[] {
   return appsDirs;
 }
 
+export function getDirNames(): string[] {
+  return Array.from(dirNameMap.keys());
+}
+
 /**
  * Resolve a path to its base directory and relative path
  * Path format: "{rootName}/{relativePath}" or "" for root listing

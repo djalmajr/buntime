@@ -1,0 +1,116 @@
+{
+  "dashboard": {
+    "evaluate": {
+      "description": "Teste a avaliação de políticas com diferentes contextos",
+      "title": "Avaliar"
+    },
+    "policies": {
+      "description": "Crie e gerencie políticas de autorização",
+      "title": "Políticas"
+    },
+    "subtitle": "Teste todas as funcionalidades do SDK AuthZ interativamente",
+    "title": "AuthZ Playground"
+  },
+  "evaluate": {
+    "form": {
+      "action": {
+        "method": "Método HTTP",
+        "title": "Ação"
+      },
+      "environment": {
+        "ip": "Endereço IP",
+        "title": "Ambiente"
+      },
+      "evaluate": "Avaliar",
+      "explain": "Explicar",
+      "resource": {
+        "app": "Aplicação",
+        "path": "Caminho do Recurso",
+        "title": "Recurso"
+      },
+      "subject": {
+        "groups": "Grupos (separados por vírgula)",
+        "id": "ID do Sujeito",
+        "roles": "Papéis (separados por vírgula)",
+        "title": "Sujeito"
+      },
+      "subtitle": "Defina o contexto de avaliação",
+      "title": "Contexto de Avaliação"
+    },
+    "results": {
+      "decision": {
+        "effect": "Efeito",
+        "matchedPolicy": "Política Correspondente",
+        "reason": "Motivo",
+        "subtitle": "Resultado da avaliação de política",
+        "title": "Decisão"
+      },
+      "explanation": {
+        "contextUsed": "Contexto Utilizado",
+        "matchedPolicies": "Políticas Correspondentes",
+        "noPolicies": "Nenhuma política correspondeu a esta solicitação",
+        "subtitle": "Explicação detalhada da decisão",
+        "title": "Explicação"
+      }
+    },
+    "subtitle": "Teste a avaliação de políticas com diferentes contextos",
+    "title": "Avaliar"
+  },
+  "nav": {
+    "authz": "AuthZ"
+  },
+  "policies": {
+    "create": {
+      "fields": {
+        "deny": "Negar",
+        "description": "Descrição",
+        "effect": "Efeito",
+        "id": "ID da Política",
+        "name": "Nome",
+        "permit": "Permitir",
+        "priority": "Prioridade"
+      },
+      "placeholders": {
+        "path": "/api/users/*",
+        "role": "admin"
+      },
+      "preview": {
+        "subtitle": "Representação JSON da política",
+        "title": "Pré-visualização da Política"
+      },
+      "save": "Salvar Política",
+      "sections": {
+        "actions": "Ações",
+        "resources": "Recursos",
+        "subjects": "Sujeitos"
+      },
+      "subtitle": "Defina uma nova política de autorização",
+      "title": "Criar Política"
+    },
+    "list": {
+      "confirmDelete": "Tem certeza que deseja excluir esta política?",
+      "loading": "Carregando políticas...",
+      "noPolicies": "Nenhuma política encontrada. Crie uma para começar.",
+      "policies": "Políticas",
+      "policiesDescription": "Todas as políticas do sistema",
+      "refresh": "Atualizar",
+      "subtitle": "Gerencie políticas de autorização",
+      "table": {
+        "actions": "Ações",
+        "effect": "Efeito",
+        "id": "ID",
+        "name": "Nome",
+        "priority": "Prioridade"
+      },
+      "title": "Políticas"
+    },
+    "tabs": {
+      "create": "Criar",
+      "list": "Listar"
+    }
+  },
+  "quickStart": {
+    "description": "Comece a usar o AuthZ na sua aplicação",
+    "title": "Início Rápido"
+  }
+}

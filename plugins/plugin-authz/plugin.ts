@@ -127,6 +127,23 @@ export default function authzPlugin(pluginConfig: AuthzConfig = {}): BuntimePlug
     name: "@buntime/plugin-authz",
     dependencies: ["@buntime/plugin-authn"], // Requires authn to be configured
 
+    fragment: {
+      type: "monkey-patch",
+    },
+
+    menus: [
+      {
+        icon: "lucide:shield-check",
+        path: "/authz",
+        priority: 70,
+        title: "Authorization",
+        items: [
+          { icon: "lucide:file-text", path: "/authz/policies", title: "Policies" },
+          { icon: "lucide:scale", path: "/authz/evaluate", title: "Evaluate" },
+        ],
+      },
+    ],
+
     async onInit(ctx: PluginContext) {
       logger = ctx.logger;
 

@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { createRootRoute, Link, Outlet } from "@tanstack/react-router";
+import { createRootRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { FragmentNavigationBridge } from "~/components/fragment-navigation-bridge";
@@ -10,7 +10,7 @@ import { HeaderProvider, useHeader } from "~/contexts/header-context";
 import i18n from "~/helpers/i18n";
 import { queryClient } from "~/helpers/query-client";
 import { useBreadcrumbs } from "~/hooks/use-breadcrumbs";
-import { hasPlugin, usePlugins } from "~/hooks/use-plugins";
+import { type MenuItemInfo, usePlugins } from "~/hooks/use-plugins";
 
 const userData = {
   avatar: "/avatars/default.jpg",
@@ -28,6 +28,7 @@ function RootLayoutContent() {
   const { header } = useHeader();
   const breadcrumbs = useBreadcrumbs({ i18n });
   const plugins$ = usePlugins();
+  const location = useLocation();
 
   const apps = [
     {
@@ -40,58 +41,47 @@ function RootLayoutContent() {
   ];
 
   const navGroups: SidebarNavGroup[] = useMemo(() => {
-    const platformItems = [];
+    // Collect all menus from plugins and sort by priority
+    const allMenus = (plugins$.data ?? [])
+      .flatMap((plugin) => plugin.menus)
+      .sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50));
 
-    // Dashboard requires plugin-metrics
-    if (hasPlugin(plugins$.data, "@buntime/plugin-metrics")) {
-      platformItems.push({
-        icon: "lucide:gauge",
-        title: t("nav.dashboard"),
-        url: "/",
-      });
-    }
+    const currentPath = location.pathname;
 
-    // Deployments is always visible (core feature)
-    platformItems.push({
-      icon: "lucide:folder",
-      title: t("nav.deployments"),
-      url: "/deployments",
-    });
+    // Check if a path matches the current location
+    const isPathActive = (path: string) => {
+      // Exact match or starts with path + "/"
+      return currentPath === path || currentPath.startsWith(`${path}/`);
+    };
 
-    // Redirects requires plugin-proxy
-    if (hasPlugin(plugins$.data, "@buntime/plugin-proxy")) {
-      platformItems.push({
-        icon: "lucide:network",
-        title: t("nav.redirects"),
-        url: "/redirects",
-      });
-    }
+    // Convert MenuItemInfo to NavMainItem format
+    const mapMenuItem = (menu: MenuItemInfo) => {
+      const subItems = menu.items?.map((sub) => ({
+        isActive: isPathActive(sub.path),
+        title: sub.title.includes(":") ? t(sub.title) : sub.title,
+        url: sub.path,
+      }));
 
-    // Health requires plugin-health
-    if (hasPlugin(plugins$.data, "@buntime/plugin-health")) {
-      platformItems.push({
-        icon: "lucide:heart-pulse",
-        title: t("nav.health"),
-        url: "/health",
-      });
-    }
+      // Parent is active if any subitem is active, or if path matches directly
+      const hasActiveSubitem = subItems?.some((sub) => sub.isActive) ?? false;
+      const isActive = hasActiveSubitem || isPathActive(menu.path);
 
-    // Logs requires plugin-logs
-    if (hasPlugin(plugins$.data, "@buntime/plugin-logs")) {
-      platformItems.push({
-        icon: "lucide:scroll-text",
-        title: t("nav.logs"),
-        url: "/logs",
-      });
-    }
+      return {
+        icon: menu.icon,
+        isActive,
+        items: subItems,
+        title: menu.title.includes(":") ? t(menu.title) : menu.title,
+        url: menu.path,
+      };
+    };
 
     return [
       {
-        items: platformItems,
+        items: allMenus.map(mapMenuItem),
         label: t("nav.platform"),
       },
     ];
-  }, [plugins$.data, t]);
+  }, [location.pathname, plugins$.data, t]);
 
   return (
     <MainLayout

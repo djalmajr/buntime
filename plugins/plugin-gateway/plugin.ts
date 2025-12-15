@@ -93,6 +93,19 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): Buntime
     base: pluginConfig.base,
     optionalDependencies: ["@buntime/plugin-authn"], // Run after authn if present
 
+    fragment: {
+      type: "monkey-patch",
+    },
+
+    menus: [
+      {
+        icon: "lucide:shield",
+        path: "/gateway",
+        priority: 50,
+        title: "Gateway",
+      },
+    ],
+
     onInit(ctx: PluginContext) {
       logger = ctx.logger;
 

@@ -26,6 +26,19 @@ export default function proxyPlugin(config: ProxyConfig = {}): BuntimePlugin {
     base: config.base,
     routes: api,
 
+    fragment: {
+      type: "monkey-patch",
+    },
+
+    menus: [
+      {
+        icon: "lucide:network",
+        path: "/redirects",
+        priority: 20,
+        title: "Redirects",
+      },
+    ],
+
     async onInit(ctx: PluginContext) {
       initializeProxyService(ctx, config.rules || []);
       await loadDynamicRules();

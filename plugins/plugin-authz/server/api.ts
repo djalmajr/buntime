@@ -13,6 +13,7 @@ export function initApi(
 }
 
 export const api = new Hono()
+  .basePath("/api")
   // List all policies
   .get("/policies", (ctx) => {
     return ctx.json(pap.getAll());

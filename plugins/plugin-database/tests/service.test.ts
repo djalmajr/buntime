@@ -33,13 +33,16 @@ describe("DatabaseServiceImpl", () => {
   });
 
   describe("initialization", () => {
-    it("should create service with libsql adapter (old format)", async () => {
+    it("should create service with libsql adapter", async () => {
       service = new DatabaseServiceImpl({
         config: {
-          adapter: {
-            type: "libsql",
-            urls: [`file:${TEST_DB_PATH}`],
-          },
+          adapters: [
+            {
+              type: "libsql",
+              default: true,
+              urls: [`file:${TEST_DB_PATH}`],
+            },
+          ],
         },
         logger: mockLogger,
       });
@@ -190,12 +193,7 @@ describe("DatabaseServiceImpl", () => {
     it("should use Admin API on primary URL", async () => {
       // Create a service with HTTP URL to test Admin API
       const httpService = new DatabaseServiceImpl({
-        config: {
-          adapter: {
-            type: "libsql",
-            urls: ["http://localhost:9999"],
-          },
-        },
+        config: {},
         logger: mockLogger,
       });
 
@@ -210,12 +208,7 @@ describe("DatabaseServiceImpl", () => {
     it("should use Admin API on primary URL", async () => {
       // Create a service with HTTP URL to test Admin API
       const httpService = new DatabaseServiceImpl({
-        config: {
-          adapter: {
-            type: "libsql",
-            urls: ["http://localhost:9999"],
-          },
-        },
+        config: {},
         logger: mockLogger,
       });
 
@@ -228,12 +221,7 @@ describe("DatabaseServiceImpl", () => {
     it("should close cached adapter when deleting tenant", async () => {
       // Create a separate service for this test with HTTP URL
       const deleteService = new DatabaseServiceImpl({
-        config: {
-          adapter: {
-            type: "libsql",
-            urls: ["http://localhost:9999"],
-          },
-        },
+        config: {},
         logger: mockLogger,
       });
 
@@ -252,16 +240,48 @@ describe("DatabaseServiceImpl", () => {
     });
   });
 
+  describe("LRU cache", () => {
+    it("should limit tenant cache size and evict least recently used adapters", async () => {
+      const lruService = new DatabaseServiceImpl({
+        config: {
+          tenancy: {
+            maxTenants: 2,
+          },
+        },
+        logger: mockLogger,
+      });
+
+      // Create 2 tenants (maxTenants is 2, cache is now full)
+      await lruService.getAdapter(undefined, "tenant-1");
+      await lruService.getAdapter(undefined, "tenant-2");
+
+      // Access tenant-2 to make it more recently used
+      await lruService.getAdapter(undefined, "tenant-2");
+
+      // Now accessing tenant-3 should evict tenant-1 (least recently used)
+      // The eviction happens automatically via QuickLRU's onEviction callback
+      await lruService.getAdapter(undefined, "tenant-3");
+
+      // Cache should now contain tenant-2 and tenant-3 (tenant-1 was evicted)
+      // Accessing tenant-1 again should create a new adapter instance
+      const adapter1First = await lruService.getAdapter(undefined, "tenant-1");
+      const adapter1Second = await lruService.getAdapter(undefined, "tenant-1");
+      expect(adapter1Second).toBe(adapter1First); // Same instance (cached)
+
+      // tenant-2 should still be cached
+      const adapter2Again = await lruService.getAdapter(undefined, "tenant-2");
+      expect(adapter2Again).toBeDefined();
+      expect(adapter2Again.tenantId).toBe("tenant-2");
+
+      await lruService.close();
+    });
+  });
+
   describe("close", () => {
     it("should close all adapters", async () => {
       // Create a new service for this test with file URL
       const closeService = new DatabaseServiceImpl({
-        config: {
-          adapter: {
-            type: "libsql",
-            urls: ["file:/tmp/test-close.db"],
-          },
-        },
+        config: {},
         logger: mockLogger,
       });
 
@@ -274,12 +294,7 @@ describe("DatabaseServiceImpl", () => {
 
     it("should close multiple cached tenant adapters", async () => {
       const multiService = new DatabaseServiceImpl({
-        config: {
-          adapter: {
-            type: "libsql",
-            urls: ["file:/tmp/test-multi-close.db"],
-          },
-        },
+        config: {},
         logger: mockLogger,
       });
 
@@ -300,10 +315,13 @@ describe("DatabaseServiceImpl with autoCreate", () => {
   beforeAll(() => {
     service = new DatabaseServiceImpl({
       config: {
-        adapter: {
-          type: "libsql",
-          urls: ["file:/tmp/test-autocreate.db"],
-        },
+        adapters: [
+          {
+            type: "libsql",
+            default: true,
+            urls: [`file:/tmp/test-autocreate.db`],
+          },
+        ],
         tenancy: {
           enabled: true,
           autoCreate: true,

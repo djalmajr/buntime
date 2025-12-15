@@ -11,6 +11,7 @@ export function createGatewayApi(
   responseCache: () => ResponseCache | null,
 ) {
   return new Hono()
+    .basePath("/api")
     .get("/stats", (ctx) => {
       return ctx.json({
         cache: responseCache()?.getStats() ?? null,

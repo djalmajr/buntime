@@ -1,0 +1,307 @@
+{
+  "atomic": {
+    "checks": {
+      "add": "Add Check",
+      "description": "Add versionstamp checks for optimistic locking",
+      "keyLabel": "Key",
+      "keyPlaceholder": "Key parts (e.g., users, 123)",
+      "list": "Checks",
+      "title": "Versionstamp Checks",
+      "versionstampLabel": "Versionstamp",
+      "versionstampPlaceholder": "Expected versionstamp (empty for null/not exists)"
+    },
+    "description": "Build and execute atomic transactions with multiple operations",
+    "execute": {
+      "clear": "Clear All",
+      "commit": "Commit Transaction",
+      "description": "Commit the atomic transaction with all operations and checks",
+      "failure": "Failed",
+      "resultLabel": "Result",
+      "success": "Success",
+      "title": "Execute Transaction"
+    },
+    "operations": {
+      "add": "Add Operation",
+      "description": "Add operations to the transaction. They will execute in order.",
+      "keyLabel": "Key",
+      "keyPlaceholder": "Key parts (e.g., counter or users, 123)",
+      "list": "Operations",
+      "title": "Operations Builder",
+      "typeLabel": "Operation Type",
+      "types": {
+        "append": "append(key, suffix) - Append to Uint8Array",
+        "delete": "delete(key) - Delete a key",
+        "max": "max(key, value) - Set max value",
+        "min": "min(key, value) - Set min value",
+        "prepend": "prepend(key, prefix) - Prepend to Uint8Array",
+        "set": "set(key, value) - Set a key-value",
+        "sum": "sum(key, amount) - Add to number"
+      },
+      "valueLabel": "Value",
+      "valuePlaceholder": "Value (JSON for set, number for sum/max/min, text for append/prepend)"
+    },
+    "preview": {
+      "description": "Operations will execute in this order during commit",
+      "table": {
+        "key": "Key",
+        "order": "#",
+        "type": "Type",
+        "value": "Value"
+      },
+      "title": "Operations Preview"
+    },
+    "title": "Atomic Operations"
+  },
+  "dashboard": {
+    "atomic": {
+      "description": "Build atomic operations with checks, mutations, and transactions",
+      "title": "Atomic Operations"
+    },
+    "entries": {
+      "description": "CRUD operations, listing, pagination, and filters",
+      "title": "Entries"
+    },
+    "metrics": {
+      "description": "View operation metrics, storage stats, and queue status",
+      "title": "Metrics"
+    },
+    "queue": {
+      "description": "Enqueue messages, listen for events, and manage DLQ",
+      "title": "Queue"
+    },
+    "search": {
+      "description": "Full-text search with indexes and tokenizers",
+      "title": "Search"
+    },
+    "subtitle": "Test all KeyVal SDK features interactively",
+    "title": "KeyVal Playground",
+    "watch": {
+      "description": "Real-time updates with SSE and polling modes",
+      "title": "Watch"
+    }
+  },
+  "entries": {
+    "browse": {
+      "description": "List entries by prefix",
+      "list": "List",
+      "prefixPlaceholder": "Prefix (e.g., users or users, 123)",
+      "title": "Browse Entries"
+    },
+    "cancel": "Cancel",
+    "confirmDelete": "Are you sure you want to delete this entry? This action cannot be undone.",
+    "confirmDeleteMultiple": "Are you sure you want to delete {{count}} entries? This action cannot be undone.",
+    "confirmDeleteTitle": "Delete Entry",
+    "delete": "Delete",
+    "deleteSelected": "Delete ({{count}})",
+    "description": "CRUD operations, listing, pagination, and filters",
+    "editValue": "Edit Value",
+    "entriesCount": "{{count}} entries",
+    "get": {
+      "description": "Get a single entry by key",
+      "fetch": "Get",
+      "keyPlaceholder": "Key (e.g., users, 123)",
+      "title": "Get Entry"
+    },
+    "key": "Key",
+    "noEntries": "No entries found. Click 'List' to load entries.",
+    "refresh": "Refresh",
+    "save": "Save",
+    "set": {
+      "description": "Create or update an entry",
+      "keyLabel": "Key",
+      "keyPlaceholder": "Key parts (e.g., users, 123)",
+      "save": "Save",
+      "title": "Set Entry",
+      "valueLabel": "Value (JSON)",
+      "valuePlaceholder": "{\"name\": \"Alice\"}"
+    },
+    "table": {
+      "actions": "Actions",
+      "empty": "No entries found. Try listing with a different prefix.",
+      "key": "Key",
+      "value": "Value",
+      "versionstamp": "Version"
+    },
+    "tabs": {
+      "browse": "Browse",
+      "get": "Get",
+      "set": "Set"
+    },
+    "title": "Entries",
+    "value": "Value",
+    "versionstamp": "Version"
+  },
+  "metrics": {
+    "description": "Monitor KeyVal operation and storage metrics",
+    "json": {
+      "autoRefreshOff": "Auto-refresh Off",
+      "autoRefreshOn": "Auto-refresh On",
+      "description": "JSON format with operations, queue, and storage stats",
+      "loading": "Loading metrics...",
+      "refresh": "Refresh",
+      "refreshing": "Auto-refreshing every 5s",
+      "title": "JSON Metrics"
+    },
+    "prometheus": {
+      "description": "Prometheus exposition format for monitoring systems",
+      "fetch": "Fetch",
+      "placeholder": "Click 'Fetch' to load Prometheus metrics",
+      "title": "Prometheus Metrics"
+    },
+    "stats": {
+      "errors": "Errors",
+      "operations": "Operations",
+      "queueMessages": "Queue Messages",
+      "totalKeys": "Total Keys"
+    },
+    "tabs": {
+      "json": "JSON",
+      "prometheus": "Prometheus"
+    },
+    "title": "Metrics"
+  },
+  "nav": {
+    "atomic": "Atomic",
+    "dashboard": "Dashboard",
+    "entries": "Entries",
+    "features": "Features",
+    "keyval": "KeyVal",
+    "metrics": "Metrics",
+    "queue": "Queue",
+    "search": "Search",
+    "watch": "Watch"
+  },
+  "queue": {
+    "description": "Enqueue messages, listen for events, and manage DLQ",
+    "dlq": {
+      "description": "Failed messages after all retries",
+      "empty": "No messages in DLQ",
+      "table": {
+        "actions": "Actions",
+        "attempts": "Attempts",
+        "error": "Error",
+        "id": "ID",
+        "value": "Value"
+      },
+      "title": "Dead Letter Queue"
+    },
+    "enqueue": {
+      "delayLabel": "Delay (ms)",
+      "delayPlaceholder": "Optional delay in milliseconds",
+      "description": "Add a message to the queue",
+      "send": "Send",
+      "title": "Enqueue Message",
+      "valueLabel": "Message (JSON)",
+      "valuePlaceholder": "{\"type\": \"email\", \"to\": \"user@example.com\"}"
+    },
+    "listen": {
+      "clear": "Clear",
+      "description": "Listen for messages via SSE",
+      "listening": "Listening...",
+      "noMessages": "No messages received yet",
+      "received": "Received Messages",
+      "start": "Start",
+      "stop": "Stop",
+      "title": "Listen for Messages"
+    },
+    "stats": {
+      "dlq": "Dead Letter",
+      "pending": "Pending",
+      "processing": "Processing",
+      "total": "Total"
+    },
+    "tabs": {
+      "dlq": "DLQ",
+      "enqueue": "Enqueue",
+      "listen": "Listen"
+    },
+    "title": "Queue"
+  },
+  "quickStart": {
+    "description": "Get started with KeyVal in your application",
+    "title": "Quick Start"
+  },
+  "search": {
+    "description": "Create full-text search indexes and search documents",
+    "indexes": {
+      "create": {
+        "create": "Create Index",
+        "description": "Create a new full-text search index",
+        "documentKeyLabel": "Document Key",
+        "documentKeyPlaceholder": "Prefix key (e.g., users or posts, published)",
+        "fieldsLabel": "Fields",
+        "fieldsPlaceholder": "Comma-separated fields (e.g., name, bio)",
+        "title": "Create Index",
+        "tokenizerLabel": "Tokenizer"
+      },
+      "list": {
+        "description": "Existing full-text search indexes",
+        "empty": "No indexes found. Create one to get started.",
+        "table": {
+          "actions": "Actions",
+          "fields": "Fields",
+          "prefix": "Prefix",
+          "tokenizer": "Tokenizer"
+        },
+        "title": "Indexes"
+      }
+    },
+    "search": {
+      "description": "Search within an indexed prefix",
+      "execute": "Search",
+      "highlightPrefixLabel": "Highlight Prefix",
+      "highlightPrefixPlaceholder": "<mark>",
+      "highlightSuffixLabel": "Highlight Suffix",
+      "highlightSuffixPlaceholder": "</mark>",
+      "indexKeyLabel": "Index Key",
+      "indexKeyPlaceholder": "Prefix key (e.g., users)",
+      "proximityLabel": "Proximity",
+      "proximityPlaceholder": "Optional proximity distance",
+      "queryLabel": "Query",
+      "queryPlaceholder": "Search query (e.g., alice developer)",
+      "results": "Results",
+      "title": "Search Documents"
+    },
+    "tabs": {
+      "indexes": "Indexes",
+      "search": "Search"
+    },
+    "title": "Search"
+  },
+  "watch": {
+    "config": {
+      "bufferSizeLabel": "Buffer Size",
+      "bufferSizePlaceholder": "100",
+      "description": "Configure watch parameters before starting",
+      "keyLabel": "Key to Watch",
+      "keyPlaceholder": "users, 123",
+      "overflowStrategyLabel": "Overflow Strategy",
+      "prefixMode": "Watch all keys with prefix",
+      "strategies": {
+        "dropNewest": "Drop Newest - Discard incoming events",
+        "dropOldest": "Drop Oldest - Discard oldest events"
+      },
+      "title": "Configuration"
+    },
+    "controls": {
+      "clear": "Clear",
+      "start": "Start Watching",
+      "stop": "Stop Watching",
+      "watching": "Watching for changes..."
+    },
+    "description": "Monitor real-time changes to KeyVal store entries",
+    "events": {
+      "description": "Real-time events received from the watcher",
+      "empty": "No events received yet",
+      "table": {
+        "key": "Key",
+        "timestamp": "Time",
+        "type": "Type",
+        "value": "Value",
+        "versionstamp": "Versionstamp"
+      },
+      "title": "Events Log"
+    },
+    "title": "Watch"
+  }
+}

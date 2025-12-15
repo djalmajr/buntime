@@ -1,5 +1,10 @@
-import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
-import { setAppsDirs } from "./server/api";
+import type {
+  BasePluginConfig,
+  BuntimePlugin,
+  MenuItem,
+  PluginContext,
+} from "@buntime/shared/types";
+import { getDirNames, setAppsDirs } from "./server/api";
 
 export interface DeploymentsConfig extends BasePluginConfig {
   /**
@@ -17,6 +22,16 @@ export interface DeploymentsConfig extends BasePluginConfig {
  * - API endpoints for file operations (list, upload, download, etc.)
  */
 export default function deploymentsPlugin(_pluginConfig: DeploymentsConfig = {}): BuntimePlugin {
+  // Menu items will be populated dynamically in onInit
+  const menus: MenuItem[] = [
+    {
+      icon: "lucide:rocket",
+      path: "/deployments",
+      priority: 10,
+      title: "Deployments",
+    },
+  ];
+
   return {
     name: "@buntime/plugin-deployments",
 
@@ -25,20 +40,26 @@ export default function deploymentsPlugin(_pluginConfig: DeploymentsConfig = {})
       type: "monkey-patch",
     },
 
-    // Menu items for shell navigation
-    menus: [
-      {
-        icon: "lucide:rocket",
-        path: "/deployments",
-        title: "Deployments",
-      },
-    ],
+    // Menu items for shell navigation (populated in onInit)
+    menus,
 
     onInit(ctx: PluginContext) {
       const config = ctx.config as DeploymentsConfig;
       // Use plugin-specific appsDirs if provided, otherwise use global config
       const appsDirs = config.appsDirs ?? ctx.globalConfig.appsDirs ?? ["./apps"];
       setAppsDirs(appsDirs);
+
+      // Generate submenu items for each directory (only if more than one)
+      const dirNames = getDirNames();
+      const mainMenu = menus[0];
+      if (dirNames.length > 1 && mainMenu) {
+        mainMenu.items = dirNames.map((name) => ({
+          icon: "lucide:folder",
+          path: `/deployments/${name}`,
+          title: name,
+        }));
+      }
+
       ctx.logger.info(`Deployments plugin initialized (appsDirs: ${appsDirs.join(", ")})`);
     },
   };

@@ -1,3 +1,3 @@
 import { createPluginBuilder } from "@buntime/shared/build";
 
-createPluginBuilder({ name: "plugin-metrics" }).run();
+createPluginBuilder({ client: true, name: "plugin-metrics" }).run();

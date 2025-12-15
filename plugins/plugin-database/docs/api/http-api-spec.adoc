@@ -25,6 +25,22 @@ NOTE: O prefixo `/p/` é obrigatório e adicionado automaticamente pelo runtime 
 
 == Endpoints
 
+=== Listar Adapters
+
+Retorna a lista de tipos de adapters configurados e qual é o adapter padrão.
+
+`GET /p/database/api/adapters`
+
+**Response:**
+
+[source,json]
+----
+{
+  "adapters": ["libsql", "sqlite"],
+  "default": "libsql"
+}
+----
+
 === Health Check
 
 Verifica a saúde da conexão com o banco de dados.

@@ -37,6 +37,37 @@ export function useFragmentUrl(rootDirs: string[]) {
     });
   }, [rootDirs]);
 
+  // Intercept history changes (for sidebar submenu navigation)
+  useEffect(() => {
+    const updateFromUrl = () => {
+      const parsed = parseUrlPath(rootDirs);
+      setState(parsed);
+    };
+
+    // Listen for browser back/forward navigation
+    window.addEventListener("popstate", updateFromUrl);
+
+    // Intercept pushState/replaceState to detect programmatic navigation
+    const originalPushState = history.pushState.bind(history);
+    const originalReplaceState = history.replaceState.bind(history);
+
+    history.pushState = (...args) => {
+      originalPushState(...args);
+      updateFromUrl();
+    };
+
+    history.replaceState = (...args) => {
+      originalReplaceState(...args);
+      updateFromUrl();
+    };
+
+    return () => {
+      window.removeEventListener("popstate", updateFromUrl);
+      history.pushState = originalPushState;
+      history.replaceState = originalReplaceState;
+    };
+  }, [rootDirs]);
+
   // Set initial root when rootDirs loads
   useEffect(() => {
     if (rootDirs.length > 0 && !state.selectedRoot) {
@@ -60,13 +91,7 @@ export function useFragmentUrl(rootDirs: string[]) {
     });
   }, []);
 
-  const setSelectedRoot = useCallback((root: string) => {
-    const newState = { selectedRoot: root, path: "" };
-    setState(newState);
-    navigateToShell(newState);
-  }, []);
-
-  return { ...state, setPath, setSelectedRoot };
+  return { ...state, setPath };
 }
 
 function parseUrlPath(rootDirs: string[]): UrlPathState {

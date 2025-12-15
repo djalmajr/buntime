@@ -1,4 +1,5 @@
 import type { PluginLogger } from "@buntime/shared/types";
+import QuickLRU from "quick-lru";
 import { BunSqlAdapter } from "./adapters/bun-sql";
 import { LibSqlAdapter } from "./adapters/libsql";
 import type {
@@ -38,16 +39,18 @@ export interface DatabaseServiceOptions {
  * One adapter must be marked as default.
  */
 export class DatabaseServiceImpl implements DatabaseService {
-  private readonly adapters: Map<AdapterType, DatabaseAdapter>;
+  private readonly rootCache: Map<AdapterType, DatabaseAdapter>;
   private readonly autoCreate: boolean;
   private readonly defaultType: AdapterType;
   private readonly logger: PluginLogger;
-  private readonly tenantCache: Map<AdapterType, Map<string, DatabaseAdapter>>;
+  private readonly maxTenants: number;
+  private readonly tenantCache: Map<AdapterType, QuickLRU<string, DatabaseAdapter>>;
 
   constructor(options: DatabaseServiceOptions) {
     this.logger = options.logger;
     this.autoCreate = options.config.tenancy?.autoCreate ?? false;
-    this.adapters = new Map();
+    this.maxTenants = options.config.tenancy?.maxTenants ?? 1000;
+    this.rootCache = new Map();
     this.tenantCache = new Map();
 
     // Get adapters array (support both old and new config format)
@@ -58,14 +61,30 @@ export class DatabaseServiceImpl implements DatabaseService {
 
     for (const config of adapterConfigs) {
       // Check for duplicate types
-      if (this.adapters.has(config.type)) {
+      if (this.rootCache.has(config.type)) {
         throw new Error(`Duplicate adapter type: ${config.type}. Each type can only appear once.`);
       }
 
       // Create and store adapter
       const adapter = createAdapter(config);
-      this.adapters.set(config.type, adapter);
-      this.tenantCache.set(config.type, new Map());
+      this.rootCache.set(config.type, adapter);
+
+      // Create LRU cache for tenant adapters
+      this.tenantCache.set(
+        config.type,
+        new QuickLRU({
+          maxSize: this.maxTenants,
+          onEviction: (tenantId, tenantAdapter) => {
+            this.logger.debug(`Evicting tenant adapter: ${config.type}/${tenantId}`);
+            tenantAdapter.close().catch((err) => {
+              this.logger.error(
+                `Error closing evicted adapter for ${config.type}/${tenantId}:`,
+                err,
+              );
+            });
+          },
+        }),
+      );
 
       // Track default
       if (config.default) {
@@ -95,28 +114,17 @@ export class DatabaseServiceImpl implements DatabaseService {
 
     this.defaultType = defaultType;
 
-    const types = Array.from(this.adapters.keys()).join(", ");
+    const types = Array.from(this.rootCache.keys()).join(", ");
     this.logger.info(
       `Database service initialized (adapters: ${types}, default: ${this.defaultType}, tenancy: ${options.config.tenancy?.enabled ?? false})`,
     );
   }
 
   /**
-   * Normalize config to always return an array of adapters
+   * Get adapters array from config
    */
   private normalizeAdapters(config: DatabasePluginConfig): AdapterConfig[] {
-    // New format: adapters array
-    if (config.adapters && config.adapters.length > 0) {
-      return config.adapters;
-    }
-
-    // Old format: single adapter (backward compatibility)
-    if (config.adapter) {
-      // Mark as default if not specified
-      return [{ ...config.adapter, default: true }];
-    }
-
-    return [];
+    return config.adapters ?? [];
   }
 
   /**
@@ -124,10 +132,10 @@ export class DatabaseServiceImpl implements DatabaseService {
    */
   private getAdapterByType(type?: AdapterType): DatabaseAdapter {
     const resolvedType = type ?? this.defaultType;
-    const adapter = this.adapters.get(resolvedType);
+    const adapter = this.rootCache.get(resolvedType);
 
     if (!adapter) {
-      const available = Array.from(this.adapters.keys()).join(", ");
+      const available = Array.from(this.rootCache.keys()).join(", ");
       throw new Error(`Adapter type "${resolvedType}" not configured. Available: ${available}`);
     }
 
@@ -205,7 +213,7 @@ export class DatabaseServiceImpl implements DatabaseService {
   }
 
   getAvailableTypes(): AdapterType[] {
-    return Array.from(this.adapters.keys());
+    return Array.from(this.rootCache.keys());
   }
 
   /**
@@ -221,9 +229,9 @@ export class DatabaseServiceImpl implements DatabaseService {
     }
 
     // Close all root adapters
-    for (const adapter of this.adapters.values()) {
+    for (const adapter of this.rootCache.values()) {
       await adapter.close();
     }
-    this.adapters.clear();
+    this.rootCache.clear();
   }
 }

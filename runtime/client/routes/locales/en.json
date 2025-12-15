@@ -1,45 +1,15 @@
 {
-  "dashboard": {
-    "charts": {
-      "latency": "Average Latency (ms)",
-      "requestsPerSecond": "Requests per Second"
-    },
-    "connected": "Live updates via Server-Sent Events",
-    "disconnected": "Disconnected",
-    "errorTitle": "Error Loading Stats",
-    "loading": "Loading dashboard...",
-    "metrics": {
-      "avgLatency": "Avg Latency",
-      "cacheHitRate": "Cache Hit Rate",
-      "created": "created",
-      "failed": "failed",
-      "hits": "hits",
-      "misses": "misses",
-      "requestsPerSecond": "Requests/sec",
-      "totalRequests": "total requests",
-      "uptime": "Uptime",
-      "workers": "Active Workers"
-    },
-    "workers": {
-      "age": "Age",
-      "empty": "No active workers",
-      "idle": "Idle",
-      "key": "Worker Key",
-      "requestCount": "Request Count",
-      "status": "Status",
-      "statusActive": "Active",
-      "statusIdle": "Idle",
-      "statusStale": "Stale",
-      "title": "Active Workers"
-    }
-  },
   "nav": {
     "appDescription": "Worker Pool Runtime",
     "appName": "Buntime",
-    "dashboard": "Dashboard",
+    "authz": "Authorization",
     "deployments": "Deployments",
+    "durable": "Durable",
+    "gateway": "Gateway",
     "health": "Health",
+    "keyval": "KeyVal",
     "logs": "Logs",
+    "metrics": "Metrics",
     "platform": "Platform",
     "redirects": "Redirects"
   },

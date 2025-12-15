@@ -274,7 +274,7 @@ self.postMessage({ type: "READY" });
 
 O wrapper suporta três formatos de aplicação:
 
-===== 1. Fetch-based (Hono, Express, etc.)
+===== Fetch-based (Hono, Express, etc.)
 
 [source,typescript]
 ----
@@ -286,7 +286,7 @@ export default {
 };
 ----
 
-===== 2. Routes-based (Declarativo)
+===== Routes-based (Declarativo)
 
 [source,typescript]
 ----
@@ -339,7 +339,7 @@ export default {
 };
 ----
 
-===== 3. SPA (HTML entrypoint)
+===== SPA (HTML entrypoint)
 
 [source,typescript]
 ----

@@ -43,6 +43,7 @@ export default function logsPlugin(pluginConfig: LogsConfig = {}): BuntimePlugin
       {
         icon: "lucide:scroll-text",
         path: "/logs",
+        priority: 40,
         title: "Logs",
       },
     ],

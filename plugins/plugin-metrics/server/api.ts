@@ -17,6 +17,7 @@ export function setConfig(cfg: MetricsConfig) {
 }
 
 export const api = new Hono()
+  .basePath("/api")
   .get("/", (ctx) => {
     const metrics = getMetrics();
     if (!metrics) {

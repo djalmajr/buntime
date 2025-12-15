@@ -282,10 +282,13 @@ Opção 1: Detecção automática via variáveis de ambiente (recomendado):
 {
   "plugins": [
     ["@buntime/plugin-database", {
-      "adapter": {
-        "type": "libsql",
-        "authToken": "${LIBSQL_TOKEN}"
-      }
+      "adapters": [
+        {
+          "type": "libsql",
+          "default": true,
+          "authToken": "${LIBSQL_TOKEN}"
+        }
+      ]
     }],
     "@buntime/plugin-keyval"
   ]
@@ -307,15 +310,18 @@ Opção 2: Configuração explícita no JSON:
 {
   "plugins": [
     ["@buntime/plugin-database", {
-      "adapter": {
-        "type": "libsql",
-        "urls": [
-          "http://primary:8080",
-          "http://replica1:8080",
-          "http://replica2:8080"
-        ],
-        "authToken": "${LIBSQL_TOKEN}"
-      }
+      "adapters": [
+        {
+          "type": "libsql",
+          "default": true,
+          "urls": [
+            "http://primary:8080",
+            "http://replica1:8080",
+            "http://replica2:8080"
+          ],
+          "authToken": "${LIBSQL_TOKEN}"
+        }
+      ]
     }],
     "@buntime/plugin-keyval"
   ]

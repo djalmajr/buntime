@@ -12,7 +12,7 @@ O suporte a Multi-Tenancy é um cidadão de primeira classe no `plugin-database`
 
 A implementação varia drasticamente dependendo do adapter escolhido.
 
-=== 1. libSQL: Namespaces (Recomendado)
+=== libSQL: Namespaces (Recomendado)
 
 O `sqld` (servidor libSQL) suporta namespaces. Cada namespace age como um banco SQLite completamente isolado, mas compartilha a mesma instância de servidor e recursos.
 
@@ -21,7 +21,7 @@ O `sqld` (servidor libSQL) suporta namespaces. Cada namespace age como um banco 
 *   **Conexão**: A URL muda para incluir o namespace (ex: `http://tenant-a.your-db.com` ou via header `x-namespace`).
 *   **Ideal para**: SaaS B2B com milhares de tenants pequenos/médios.
 
-=== 2. PostgreSQL: Schemas
+=== PostgreSQL: Schemas
 
 Usa o recurso nativo de `SCHEMA` do Postgres.
 
@@ -31,7 +31,7 @@ Usa o recurso nativo de `SCHEMA` do Postgres.
 *   **Prós**: Compartilha pool de recursos do Postgres eficientemente.
 *   **Contras**: Nomes de schemas devem ser sanitizados cuidadosamente.
 
-=== 3. MySQL/MariaDB: Databases
+=== MySQL/MariaDB: Databases
 
 Usa databases separados.
 
@@ -40,7 +40,7 @@ Usa databases separados.
 *   **Conexão**: Conecta no database específico.
 *   **Contras**: Alto overhead se houver milhares de databases (MySQL não lida bem com 10k+ databases em uma instância).
 
-=== 4. SQLite (Local): Arquivos
+=== SQLite (Local): Arquivos
 
 Cada tenant é um arquivo `.db` ou `.sqlite` no disco.
 

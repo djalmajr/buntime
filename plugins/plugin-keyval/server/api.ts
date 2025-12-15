@@ -56,6 +56,7 @@ async function getStorageStats(): Promise<{ entries: number; sizeBytes: number }
  * Provides endpoints for key-value operations, queues, FTS, and metrics
  */
 export const api = new Hono()
+  .basePath("/api")
   // Error handler for validation errors
   .onError((err, ctx) => {
     if (err.name === "HTTPException" && "status" in err) {

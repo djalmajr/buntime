@@ -71,10 +71,10 @@ O plugin suporta configurar múltiplos adapters simultaneamente. Cada plugin con
 └────────────┼───────────────────────┼────────────────────────┘
              │                       │
              ▼                       ▼
-    ┌────────────────┐      ┌────────────────┐
-    │  libSQL Server │      │  Postgres/MySQL│
-    │  (sqld)        │      │  (Native)      │
-    └────────────────┘      └────────────────┘
+    ┌────────────────┐      ┌─────────────────────────┐
+    │  libSQL Server │      │  Postgres/MySQL/SQLite  │
+    │  (sqld)        │      │  (Native)               │
+    └────────────────┘      └─────────────────────────┘
 ----
 
 == Padrões de Design
@@ -107,18 +107,20 @@ A arquitetura foi desenhada com "Tenancy First". Não é um add-on, é o core do
 
 == Fluxo de Execução
 
-=== 1. Resolução do Adapter
+=== Resolução do Adapter
 
 Quando `dbService.getAdapter("tenant-A")` é chamado:
 
 1.  Verifica se já existe uma instância ativa para `tenant-A` no cache.
 2.  Se não, determina a configuração para `tenant-A`:
-    *   **libSQL**: Calcula a URL do namespace (ex: `http://tenant-a.primary.com`).
-    *   **Postgres**: Configura o `search_path` ou cria nova pool para o database.
+    *   **libSQL**: Adiciona o path do namespace à URL base (ex: `http://localhost:8080` → `http://localhost:8080/v1/dev/tenant-A`).
+    *   **Postgres**: Usa a mesma URL, mas configura `search_path` para o schema do tenant.
+    *   **MySQL**: Modifica o pathname da URL para apontar ao database do tenant (ex: `mysql://host/db` → `mysql://host/tenant-A`).
+    *   **SQLite**: Cria um arquivo separado por tenant no `baseDir` (ex: `./data/tenant-A.db`).
 3.  Instancia o adapter.
 4.  (Opcional) Executa hooks de "Ensure Tenant" (criação automática).
 
-=== 2. Execução de Query
+=== Execução de Query
 
 Quando `adapter.execute("SELECT * FROM users")` é chamado:
 

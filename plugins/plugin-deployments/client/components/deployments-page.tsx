@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { Icon } from "~/components/icon";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
-import { Combobox } from "~/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -51,7 +50,7 @@ export function DeploymentsPage() {
   const rootDirs = rootQuery.data ?? [];
 
   // URL-synced navigation state via MessageBus
-  const { path, selectedRoot, setPath, setSelectedRoot } = useFragmentUrl(rootDirs);
+  const { path, selectedRoot, setPath } = useFragmentUrl(rootDirs);
   const [search, setSearch] = useState("");
 
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
@@ -390,7 +389,7 @@ export function DeploymentsPage() {
   const breadcrumbs = useMemo(() => {
     const parts = path ? path.split("/") : [];
     return [
-      { label: t("breadcrumb.root"), path: "" },
+      { icon: "lucide:home", label: t("breadcrumb.root"), path: "" },
       ...parts.map((part, idx) => ({
         label: part,
         path: parts.slice(0, idx + 1).join("/"),
@@ -410,29 +409,22 @@ export function DeploymentsPage() {
               )}
               <button
                 className={cn(
-                  "hover:underline",
-                  idx === breadcrumbs.length - 1 ? "font-medium" : "text-muted-foreground",
+                  "flex items-center gap-1.5",
+                  idx === breadcrumbs.length - 1
+                    ? "pointer-events-none font-medium"
+                    : "text-muted-foreground hover:underline",
                 )}
+                disabled={idx === breadcrumbs.length - 1}
                 type="button"
                 onClick={() => navigateTo(crumb.path)}
               >
-                {crumb.label}
+                {"icon" in crumb && crumb.icon && <Icon className="size-3.5" icon={crumb.icon} />}
+                <span>{crumb.label}</span>
               </button>
             </span>
           ))}
         </nav>
         <div className="flex items-center gap-2">
-          {/* Root folder selector - only show if multiple roots */}
-          {rootDirs.length > 1 && (
-            <Combobox
-              className="w-48"
-              options={rootDirs.map((root) => ({ label: root, value: root }))}
-              placeholder={t("breadcrumb.root")}
-              searchPlaceholder={t("search.placeholder")}
-              value={selectedRoot}
-              onSelect={setSelectedRoot}
-            />
-          )}
           <Button size="sm" onClick={() => setNewFolderOpen(true)}>
             <Icon className="size-4" icon="lucide:plus" />
             <span>{t("actions.newFolder")}</span>

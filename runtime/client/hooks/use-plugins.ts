@@ -1,9 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "~/helpers/api-client";
 
+export interface MenuItemInfo {
+  icon: string;
+  items?: MenuItemInfo[];
+  path: string;
+  priority?: number;
+  title: string;
+}
+
 export interface PluginInfo {
   base?: string;
   dependencies: string[];
+  menus: MenuItemInfo[];
   name: string;
   optionalDependencies: string[];
 }

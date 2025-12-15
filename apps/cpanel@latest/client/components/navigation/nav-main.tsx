@@ -59,7 +59,11 @@ export function NavMain({
               >
                 <SidebarMenuItem>
                   <CollapsibleTrigger asChild>
-                    <SidebarMenuButton tooltip={item.title}>
+                    <SidebarMenuButton
+                      tooltip={item.title}
+                      isActive={item.isActive}
+                      className={item.isActive ? "font-bold! bg-transparent!" : ""}
+                    >
                       {iconElement}
                       <span>{item.title}</span>
                       <Icon

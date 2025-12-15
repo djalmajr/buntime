@@ -48,9 +48,13 @@ function RootLayoutContent() {
 
     const currentPath = location.pathname;
 
-    // Check if a path matches the current location
+    // Check if a path matches the current location (exact match for submenus)
     const isPathActive = (path: string) => {
-      // Exact match or starts with path + "/"
+      return currentPath === path;
+    };
+
+    // Check if current path is within a menu's scope (for parent expansion)
+    const isPathInMenu = (path: string) => {
       return currentPath === path || currentPath.startsWith(`${path}/`);
     };
 
@@ -62,9 +66,9 @@ function RootLayoutContent() {
         url: sub.path,
       }));
 
-      // Parent is active if any subitem is active, or if path matches directly
+      // Parent is active if path matches directly OR if any subitem is active (to keep it expanded)
       const hasActiveSubitem = subItems?.some((sub) => sub.isActive) ?? false;
-      const isActive = hasActiveSubitem || isPathActive(menu.path);
+      const isActive = hasActiveSubitem || isPathInMenu(menu.path);
 
       return {
         icon: menu.icon,

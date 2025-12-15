@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Icon } from "~/components/icon";
-import { Badge } from "~/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { createMetricsSSE, type MetricsSSEData } from "~/helpers/sse";
+import { cn } from "~/utils/cn";
 
 function formatUptime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
@@ -50,25 +50,18 @@ export function MetricsView() {
     <ScrollArea className="h-full">
       <div className="m-4 space-y-4">
         <div>
-          <h1 className="text-3xl font-bold">Metrics Dashboard</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold">Metrics Dashboard</h1>
+            <div
+              className={cn(
+                `size-3 rounded-full`,
+                connected ? "bg-green-500" : "bg-yellow-500 animate-pulse",
+              )}
+              title={connectionStatus === "connected" ? "Connected" : "Connecting..."}
+            />
+          </div>
           <p className="text-muted-foreground">Real-time pool metrics and worker statistics</p>
         </div>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Real-time Updates</CardTitle>
-              <Badge variant={connected ? "default" : "secondary"}>
-                {connected ? (
-                  <Icon className="mr-1 size-3" icon="lucide:wifi" />
-                ) : (
-                  <Icon className="mr-1 size-3 animate-pulse" icon="lucide:wifi-off" />
-                )}
-                {connectionStatus === "connected" ? "Connected" : "Connecting..."}
-              </Badge>
-            </div>
-          </CardHeader>
-        </Card>
 
         {stats && (
           <>

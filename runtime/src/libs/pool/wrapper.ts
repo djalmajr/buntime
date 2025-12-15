@@ -90,8 +90,7 @@ self.onmessage = async ({ data }) => {
 
   try {
     const request = new Request(req.url, req);
-    const pathname = new URL(req.url).pathname;
-    const response = await (pathname === "/health" ? new Response("OK") : fetcher(request));
+    const response = await fetcher(request);
 
     const headers = Object.fromEntries(response.headers.entries());
     headers["content-type"] ||= "text/plain; charset=utf-8";

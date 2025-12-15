@@ -1,8 +1,3 @@
----
-description: "Git operations - Never create commits automatically"
-alwaysApply: true
----
-
 # Git Operations
 
 ## Commits

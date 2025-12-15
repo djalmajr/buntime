@@ -7,35 +7,30 @@ Worker pool runtime for Bun applications with integrated admin dashboard. See [R
 | Item | Value |
 |------|-------|
 | Location | `runtime/` |
-| Entry | `index.ts` (unified) |
+| Entry | `src/index.ts` |
 | Server Framework | Hono |
-| Client Framework | React 19 + TanStack Router |
-| Server Alias | `@/` → `./server/` |
-| Client Alias | `~/` → `./client/` |
+| Server Alias | `@/` → `./src/` |
 
 ## Key Files
 
-### Server (`server/`)
+### Server (`runtime/src/`)
 
 | File | Purpose |
 |------|---------|
-| `server/index.ts` | Bun.serve entry |
-| `server/api.ts` | Hono app (routes aggregator) |
-| `server/app.ts` | Request resolution, plugin apps |
-| `server/libs/pool/pool.ts` | WorkerPool class |
-| `server/libs/pool/wrapper.ts` | Worker thread code, base injection |
-| `server/plugins/loader.ts` | Plugin loader |
-| `server/plugins/registry.ts` | Plugin registry |
+| `src/index.ts` | Bun.serve entry point |
+| `src/api.ts` | Hono app (routes aggregator) |
+| `src/app.ts` | Request resolution, plugin apps |
+| `src/libs/pool/pool.ts` | WorkerPool class |
+| `src/libs/pool/wrapper.ts` | Worker thread code, base injection |
+| `src/plugins/loader.ts` | Plugin loader |
+| `src/plugins/registry.ts` | Plugin registry |
+| `src/routes/plugins-info.ts` | Plugin info API routes |
+| `src/routes/worker.ts` | Worker app routes |
 
-### Client (`client/`)
+## Routes
 
-| File | Purpose |
-|------|---------|
-| `client/index.html` | HTML with `<base href>` |
-| `client/index.tsx` | React entry, reads base tag |
-| `client/routes/__root.tsx` | Root layout |
-| `client/helpers/api-client.ts` | Hono RPC client |
-| `client/components/icon.tsx` | Icon component |
+- `/api/plugins/*` - Plugin info API routes
+- `/:app/*` - Worker routes
 
 ## Base Path Injection
 
@@ -50,30 +45,15 @@ The runner injects `<base href>` into HTML responses for SPAs under subpaths:
 
 ```bash
 bun dev          # Watch mode
-bun build        # Build
+bun build        # Build runtime
+bun build:types  # Build TypeScript types
 bun build:bin    # Compile to binary
 ```
-
-## Routes
-
-- `/api/*` - Plugin API routes (e.g., `/api/keyval/*`, `/api/metrics/*`)
-- `/:app/*` - Worker routes
 
 ## Config Files
 
 - `buntime.jsonc` - Runner plugins config
-- `bunfig.toml` - Bun plugins (i18next, iconify, tsr, tailwind)
-- `worker.jsonc` - Per-app worker config
-
-## Client Routes
-
-| Route | File |
-|-------|------|
-| `/` | `client/routes/index.tsx` |
-| `/deployments` | `client/routes/deployments/index.tsx` |
-| `/redirects` | `client/routes/redirects/index.tsx` |
-| `/keyval/*` | `client/routes/keyval/` |
-| `/metrics/*` | `client/routes/metrics/` |
+- `tsconfig.json` - TypeScript config with path aliases
 
 ## Development Services
 
@@ -83,21 +63,3 @@ libSQL server runs via Docker Compose on port 8880:
 docker compose up -d libsql   # Start libSQL server
 docker compose logs libsql    # View logs
 ```
-
-## Patterns
-
-### Icons
-
-```tsx
-<Icon icon="lucide:search" className="size-4" />
-```
-
-### API Calls
-
-```typescript
-const res = await api._.deployments.list.$get({ query: { path } });
-```
-
-### Route Components
-
-Files in `-components/` folders are NOT routes.

@@ -6,10 +6,10 @@ Build-time plugins for Bun. Located in `plugins/bun-plugin-*/` folders.
 
 | Plugin | Package | Purpose |
 |--------|---------|---------|
-| [Iconify](../../../plugins/bun-plugin-iconify/README.md) | `@zomme/bun-plugin-iconify` | Icon collection and `virtual:icons` |
-| [React Compiler](../../../plugins/bun-plugin-react-compiler/README.md) | `@zomme/bun-plugin-react-compiler` | Automatic memoization |
-| [i18next](../../../plugins/bun-plugin-i18next/README.md) | `@zomme/bun-plugin-i18next` | Translation loading and `virtual:i18n` |
-| [TSR](../../../plugins/bun-plugin-tsr/README.md) | `@zomme/bun-plugin-tsr` | TanStack Router generation |
+| [Iconify](file:/home/user/Developer/zomme/bun-plugins/bun-plugin-iconify/README.md) | `@zomme/bun-plugin-iconify` | Icon collection and `virtual:icons` |
+| [React Compiler](file:/home/user/Developer/zomme/bun-plugins/bun-plugin-react-compiler/README.md) | `@zomme/bun-plugin-react-compiler` | Automatic memoization |
+| [i18next](file:/home/user/Developer/zomme/bun-plugins/bun-plugin-i18next/README.md) | `@zomme/bun-plugin-i18next` | Translation loading and `virtual:i18n` |
+| [TSR](file:/home/user/Developer/zomme/bun-plugins/bun-plugin-tsr/README.md) | `@zomme/bun-plugin-tsr` | TanStack Router generation |
 | Tailwind | `bun-plugin-tailwind` | Tailwind CSS (external npm) |
 
 ## Configuration

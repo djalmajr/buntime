@@ -30,4 +30,4 @@
 
 # Others
 
-- Ao usar lsof, use lsof -ti:8000 | xargs kill -9
+- Tento qualquer problema com cache, encerre todas as tasks em bg e reinicie o "bun dev" na raiz do projeto

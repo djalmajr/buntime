@@ -1,7 +1,7 @@
-import type * as React from "react";
-import { Icon } from "~/components/icon";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "~/components/ui/collapsible";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   SidebarGroup,
   SidebarGroupLabel,
   SidebarMenu,
@@ -10,7 +10,9 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
-} from "~/components/ui/sidebar";
+} from "@buntime/shadcn-ui";
+import type * as React from "react";
+import { Icon } from "~/components/icon";
 
 interface NavMainSubItem {
   isActive?: boolean;

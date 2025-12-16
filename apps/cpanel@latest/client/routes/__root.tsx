@@ -1,3 +1,5 @@
+import { registry } from "virtual:icons";
+import { IconProvider, Toaster, useBreadcrumbs } from "@buntime/shadcn-ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createRootRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -5,11 +7,9 @@ import { useTranslation } from "react-i18next";
 import { FragmentNavigationBridge } from "~/components/fragment-navigation-bridge";
 import { Icon } from "~/components/icon";
 import { MainLayout, type SidebarNavGroup } from "~/components/layouts/main-layout";
-import { Toaster } from "~/components/ui/sonner";
 import { HeaderProvider, useHeader } from "~/contexts/header-context";
 import i18n from "~/helpers/i18n";
 import { queryClient } from "~/helpers/query-client";
-import { useBreadcrumbs } from "~/hooks/use-breadcrumbs";
 import { type MenuItemInfo, usePlugins } from "~/hooks/use-plugins";
 
 const userData = {
@@ -105,12 +105,14 @@ function RootLayoutContent() {
 
 function RootLayout() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <HeaderProvider>
-        <RootLayoutContent />
-        <FragmentNavigationBridge />
-        <Toaster />
-      </HeaderProvider>
-    </QueryClientProvider>
+    <IconProvider registry={registry}>
+      <QueryClientProvider client={queryClient}>
+        <HeaderProvider>
+          <RootLayoutContent />
+          <FragmentNavigationBridge />
+          <Toaster />
+        </HeaderProvider>
+      </QueryClientProvider>
+    </IconProvider>
   );
 }

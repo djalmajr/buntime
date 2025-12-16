@@ -1,5 +1,3 @@
-import { useState } from "react";
-import { Icon } from "~/components/icon";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -7,9 +5,10 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "~/components/ui/breadcrumb";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "~/components/ui/dialog";
-import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
   Sidebar,
   SidebarContent,
   SidebarGroup,
@@ -18,7 +17,9 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
-} from "~/components/ui/sidebar";
+} from "@buntime/shadcn-ui";
+import { useState } from "react";
+import { Icon } from "~/components/icon";
 
 const navItems = [
   { icon: "lucide:bell", name: "Notifications" },

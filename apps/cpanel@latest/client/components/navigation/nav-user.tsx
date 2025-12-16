@@ -1,7 +1,7 @@
-import { useTranslation } from "react-i18next";
-import { Icon } from "~/components/icon";
-import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -9,13 +9,13 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "~/components/ui/dropdown-menu";
-import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
-} from "~/components/ui/sidebar";
+} from "@buntime/shadcn-ui";
+import { useTranslation } from "react-i18next";
+import { Icon } from "~/components/icon";
 
 const languages = [
   { code: "en", flag: "🇺🇸", label: "English" },

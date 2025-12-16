@@ -1,9 +1,15 @@
+import {
+  PAGE_SIZE_OPTIONS,
+  DataTable as Table,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  useQueryNumber,
+  useQueryString,
+} from "@buntime/shadcn-ui";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useCallback } from "react";
 import { SearchInput } from "~/components/search-input";
-import { PAGE_SIZE_OPTIONS, DataTable as Table } from "~/components/ui/data-table";
-import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
-import { useQueryNumber, useQueryString } from "~/hooks/use-query-state";
 
 export interface DataTableProps<T> {
   columns: ColumnDef<T>[];

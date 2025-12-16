@@ -1,6 +1,12 @@
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@buntime/shadcn-ui";
 import { useEffect, useState } from "react";
-import { Button } from "~/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 
 interface GatewayStats {
   cache?: {

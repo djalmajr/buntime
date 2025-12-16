@@ -1,7 +1,3 @@
-import type * as React from "react";
-import { AppInfo } from "~/components/app-info";
-import { Icon } from "~/components/icon";
-import { NavMain } from "~/components/navigation/nav-main";
 import {
   Breadcrumb,
   BreadcrumbItem as BreadcrumbItemUI,
@@ -9,8 +5,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "~/components/ui/breadcrumb";
-import {
+  cn,
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -22,8 +17,11 @@ import {
   SidebarProvider,
   SidebarRail,
   SidebarTrigger,
-} from "~/components/ui/sidebar";
-import { cn } from "~/utils/cn";
+} from "@buntime/shadcn-ui";
+import type * as React from "react";
+import { AppInfo } from "~/components/app-info";
+import { Icon } from "~/components/icon";
+import { NavMain } from "~/components/navigation/nav-main";
 
 export interface MainLayoutBreadcrumb {
   href?: string;

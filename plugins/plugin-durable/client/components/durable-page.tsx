@@ -1,7 +1,7 @@
+import { ScrollArea } from "@buntime/shadcn-ui";
 import { useCallback, useEffect, useState } from "react";
 import { DurableDetail } from "~/components/durable-detail";
 import { DurableList } from "~/components/durable-list";
-import { ScrollArea } from "~/components/ui/scroll-area";
 import { api } from "~/utils/api";
 
 interface DurableObject {

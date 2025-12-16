@@ -1,9 +1,15 @@
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  cn,
+  ScrollArea,
+} from "@buntime/shadcn-ui";
 import { useEffect, useState } from "react";
 import { Icon } from "~/components/icon";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
-import { ScrollArea } from "~/components/ui/scroll-area";
 import { createMetricsSSE, type MetricsSSEData } from "~/helpers/sse";
-import { cn } from "~/utils/cn";
 
 function formatUptime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);

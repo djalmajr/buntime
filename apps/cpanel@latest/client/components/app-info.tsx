@@ -1,5 +1,5 @@
+import { SidebarMenu, SidebarMenuItem } from "@buntime/shadcn-ui";
 import type * as React from "react";
-import { SidebarMenu, SidebarMenuItem } from "~/components/ui/sidebar";
 
 export interface AppInfoProps {
   description: string;

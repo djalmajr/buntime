@@ -1,6 +1,6 @@
+import { Button } from "@buntime/shadcn-ui";
 import { useTranslation } from "react-i18next";
 import { Icon } from "~/components/icon";
-import { Button } from "~/components/ui/button";
 
 interface SelectionToolbarProps {
   count: number;

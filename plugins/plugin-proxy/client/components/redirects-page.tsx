@@ -1,16 +1,18 @@
-import type { ColumnDef } from "@tanstack/react-table";
-import { useState } from "react";
-import { Button } from "~/components/ui/button";
-import { DataTable } from "~/components/ui/data-table";
 import {
+  Button,
+  DataTable,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "~/components/ui/dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@buntime/shadcn-ui";
+import type { ColumnDef } from "@tanstack/react-table";
+import { useState } from "react";
 import {
   type ProxyRule,
   useCreateProxyRule,

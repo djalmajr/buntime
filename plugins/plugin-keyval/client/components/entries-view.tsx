@@ -1,4 +1,18 @@
 import type { KvEntry, KvKey } from "@buntime/keyval";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Input,
+  Label,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@buntime/shadcn-ui";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { kv } from "~/helpers/kv";
@@ -7,11 +21,6 @@ import { useKvGrid } from "./kv-grid/hooks/use-kv-grid";
 import { KvGrid } from "./kv-grid/kv-grid";
 import { PageHeader } from "./page-header";
 import { ScrollArea } from "./scroll-area";
-import { Button } from "./ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
 function parsePrefix(prefix: string): KvKey {
   if (!prefix.trim()) return [];

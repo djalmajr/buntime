@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
-import { Icon } from "~/components/icon";
-import { Badge } from "~/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import {
+  Badge,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
   Drawer,
   DrawerClose,
   DrawerContent,
@@ -10,16 +12,16 @@ import {
   DrawerFooter,
   DrawerHeader,
   DrawerTitle,
-} from "~/components/ui/drawer";
-import { ScrollArea } from "~/components/ui/scroll-area";
-import {
+  ScrollArea,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
-} from "~/components/ui/table";
+} from "@buntime/shadcn-ui";
+import { useEffect, useState } from "react";
+import { Icon } from "~/components/icon";
 import { createMetricsSSE, type MetricsSSEData, type WorkerData } from "~/helpers/sse";
 
 function formatUptime(seconds: number): string {

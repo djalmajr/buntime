@@ -1,16 +1,17 @@
-import { useCallback } from "react";
-import { useTranslation } from "react-i18next";
-import { Icon } from "~/components/icon";
-import { Button } from "~/components/ui/button";
-import { Card, CardContent } from "~/components/ui/card";
 import {
+  Button,
+  Card,
+  CardContent,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
-} from "~/components/ui/table";
+} from "@buntime/shadcn-ui";
+import { useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { Icon } from "~/components/icon";
 import { api } from "~/utils/api";
 
 interface DurableObject {

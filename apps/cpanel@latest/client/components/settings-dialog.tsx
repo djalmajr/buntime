@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogTitle,
+  Icon,
   Sidebar,
   SidebarContent,
   SidebarGroup,
@@ -19,7 +20,6 @@ import {
   SidebarProvider,
 } from "@buntime/shadcn-ui";
 import { useState } from "react";
-import { Icon } from "~/components/icon";
 
 const navItems = [
   { icon: "lucide:bell", name: "Notifications" },

@@ -1,7 +1,6 @@
-import { Button } from "@buntime/shadcn-ui";
+import { Button, Icon } from "@buntime/shadcn-ui";
 import { Link } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { Icon } from "~/components/icon";
 import { useHeader } from "~/contexts/header-context";
 
 export interface CrudLayoutProps {

@@ -6,6 +6,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
   cn,
+  Icon,
+  NavMain,
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -20,8 +22,6 @@ import {
 } from "@buntime/shadcn-ui";
 import type * as React from "react";
 import { AppInfo } from "~/components/app-info";
-import { Icon } from "~/components/icon";
-import { NavMain } from "~/components/navigation/nav-main";
 
 export interface MainLayoutBreadcrumb {
   href?: string;

@@ -1,6 +1,12 @@
-import { Button, Input, useDebounce, useQueryNumber, useQueryString } from "@buntime/shadcn-ui";
+import {
+  Button,
+  Icon,
+  Input,
+  useDebounce,
+  useQueryNumber,
+  useQueryString,
+} from "@buntime/shadcn-ui";
 import { useEffect, useRef, useState } from "react";
-import { Icon } from "~/components/icon";
 
 interface SearchInputProps {
   name?: string;

@@ -16,10 +16,16 @@ const queryClient = new QueryClient({
 const rootElement = document.getElementById("plugin-proxy-root");
 if (!rootElement) throw new Error("Root element not found");
 
-createRoot(rootElement).render(
+const root = createRoot(rootElement);
+root.render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <RedirectsPage />
     </QueryClientProvider>
   </StrictMode>,
 );
+
+// Cleanup when fragment is unmounted
+rootElement
+  .getRootNode()
+  .addEventListener("piercing-unmount", () => root.unmount(), { once: true });

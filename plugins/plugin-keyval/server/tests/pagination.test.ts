@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { Kv } from "./kv";
-import { initSchema } from "./schema";
-import { createTestAdapter } from "./test-helpers";
-import type { KvPaginateResult } from "./types";
+import { Kv } from "../lib/kv";
+import { initSchema } from "../lib/schema";
+import { createTestAdapter } from "../lib/test-helpers";
+import type { KvPaginateResult } from "../lib/types";
 
 describe("Pagination", () => {
   const adapter = createTestAdapter();

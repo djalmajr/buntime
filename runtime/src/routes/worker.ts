@@ -36,7 +36,7 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
       const req = new Request(new URL(pathname, ctx.req.url).href, ctx.req.raw);
       req.headers.set("x-base", pluginApp.basePath);
 
-      return (await pool.getOrCreate(pluginApp.dir, merged)).fetch(req);
+      return pool.fetch(pluginApp.dir, merged, req);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       console.error(`[Main] Error serving plugin app at ${pluginApp.basePath}:`, error);
@@ -58,7 +58,7 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
       const req = new Request(new URL(pathname, ctx.req.url).href, ctx.req.raw);
       req.headers.set("x-base", `/${app}`);
 
-      return (await pool.getOrCreate(dir, workerConfig)).fetch(req);
+      return pool.fetch(dir, workerConfig, req);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       console.error(`[Main] Error serving ${app}:`, error);

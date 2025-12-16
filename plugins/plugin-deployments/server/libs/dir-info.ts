@@ -1,7 +1,13 @@
 import { mkdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import {
+  type ConfigValidation,
+  validateWorkerConfig,
+} from "@buntime/shared/utils/config-validation";
 import { valid } from "semver";
 import { isValidUploadDestination, parseDeploymentPath } from "../utils/deployment-path";
+
+export type { ConfigValidation };
 
 const DIRINFO_FILE = ".dirinfo";
 
@@ -9,6 +15,9 @@ type Visibility = "public" | "protected" | "internal";
 
 interface BuntimeConfig {
   excludes?: string[];
+  idleTimeout?: number | string;
+  timeout?: number | string;
+  ttl?: number | string;
   visibility?: Visibility;
 }
 
@@ -20,10 +29,26 @@ function isValidVersion(version: string): boolean {
 }
 
 /**
- * Read buntime config from a package.json file
+ * Read buntime config from buntime.jsonc or package.json#buntime
  */
-async function readBuntimeConfig(pkgPath: string): Promise<BuntimeConfig | undefined> {
+async function readBuntimeConfig(dirPath: string): Promise<BuntimeConfig | undefined> {
+  // Try buntime.jsonc first
   try {
+    const jsoncPath = join(dirPath, "buntime.jsonc");
+    const jsoncFile = Bun.file(jsoncPath);
+    if (await jsoncFile.exists()) {
+      // Bun natively parses JSONC (strips comments and trailing commas)
+      const mod = await import(jsoncPath);
+      const config = mod.default ?? mod;
+      if (config) return config as BuntimeConfig;
+    }
+  } catch {
+    // Ignore parse errors
+  }
+
+  // Fallback to package.json#buntime
+  try {
+    const pkgPath = join(dirPath, "package.json");
     const pkgFile = Bun.file(pkgPath);
     if (await pkgFile.exists()) {
       const pkg = (await pkgFile.json()) as { buntime?: BuntimeConfig };
@@ -34,14 +59,15 @@ async function readBuntimeConfig(pkgPath: string): Promise<BuntimeConfig | undef
   } catch {
     // Ignore parse errors
   }
+
   return undefined;
 }
 
 /**
- * Read visibility from a package.json file
+ * Read visibility from buntime config
  */
-async function readVisibility(pkgPath: string): Promise<Visibility | undefined> {
-  const config = await readBuntimeConfig(pkgPath);
+async function readVisibility(dirPath: string): Promise<Visibility | undefined> {
+  const config = await readBuntimeConfig(dirPath);
   return config?.visibility;
 }
 
@@ -52,6 +78,7 @@ interface DirInfoCache {
 }
 
 export interface FileEntry {
+  configValidation?: ConfigValidation;
   files?: number;
   isDirectory: boolean;
   name: string;
@@ -160,8 +187,8 @@ export class DirInfo {
           const subDir = new DirInfo(this.basePath, relativePath);
           const info = await subDir.getInfo();
 
-          // Read visibility from package.json if exists
-          let visibility = await readVisibility(join(entryPath, "package.json"));
+          // Read visibility from buntime config if exists
+          let visibility = await readVisibility(entryPath);
 
           // For app folders (nested format), check if any version child is protected
           if (!visibility) {
@@ -173,7 +200,24 @@ export class DirInfo {
             visibility = inheritedVisibility;
           }
 
+          // Check if this is a version folder and validate config
+          let configValidation: ConfigValidation | undefined;
+          const pathInfo = parseDeploymentPath(relativePath);
+
+          // Validate if it's a version folder (flat: app@version, nested: app/version at depth 2)
+          const isVersionFolder =
+            pathInfo.format === "flat" ||
+            (pathInfo.format === "nested" && pathInfo.depth === 2 && isValidVersion(name));
+
+          if (isVersionFolder) {
+            const config = await readBuntimeConfig(entryPath);
+            if (config) {
+              configValidation = validateWorkerConfig(config);
+            }
+          }
+
           entries.push({
+            configValidation,
             files: info.files,
             isDirectory,
             name,
@@ -295,7 +339,7 @@ export class DirInfo {
    */
   async getVisibility(): Promise<Visibility | undefined> {
     // First check if this folder has its own visibility
-    const ownVisibility = await readVisibility(join(this.fullPath, "package.json"));
+    const ownVisibility = await readVisibility(this.fullPath);
     if (ownVisibility) return ownVisibility;
 
     // Otherwise check ancestor visibility (if inside a version folder)
@@ -329,9 +373,9 @@ export class DirInfo {
           return excludes;
         }
 
-        // Read excludes from version folder's package.json
-        const pkgPath = join(this.basePath, versionFolderPath, "package.json");
-        const config = await readBuntimeConfig(pkgPath);
+        // Read excludes from version folder
+        const versionDir = join(this.basePath, versionFolderPath);
+        const config = await readBuntimeConfig(versionDir);
         if (config?.excludes) {
           for (const pattern of config.excludes) {
             excludes.add(pattern);
@@ -476,9 +520,9 @@ export class DirInfo {
       versionFolderPath = parts.slice(0, 2).join("/");
     }
 
-    // Read visibility from version folder's package.json
-    const pkgPath = join(this.basePath, versionFolderPath, "package.json");
-    return readVisibility(pkgPath);
+    // Read visibility from version folder
+    const versionDir = join(this.basePath, versionFolderPath);
+    return readVisibility(versionDir);
   }
 
   /**
@@ -498,8 +542,8 @@ export class DirInfo {
         // Check if child is a version folder (semver or "latest")
         if (!isValidVersion(childName)) continue;
 
-        const childPkgPath = join(entryPath, childName, "package.json");
-        const visibility = await readVisibility(childPkgPath);
+        const childDir = join(entryPath, childName);
+        const visibility = await readVisibility(childDir);
 
         if (visibility) {
           // "internal" is most restrictive, then "protected", then "public"

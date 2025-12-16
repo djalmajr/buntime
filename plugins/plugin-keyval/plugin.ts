@@ -1,5 +1,6 @@
 import type { AdapterType, DatabaseService } from "@buntime/plugin-database";
 import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
+import { api } from "./server";
 import { initialize, shutdown } from "./server/services";
 
 export interface KeyValConfig extends BasePluginConfig {
@@ -78,6 +79,9 @@ export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugi
     base: config.base,
     dependencies: ["@buntime/plugin-database"],
 
+    // API routes run on main thread (required for SSE/watch endpoints)
+    routes: api,
+
     // Fragment with monkey-patch sandbox (internal plugin)
     fragment: {
       type: "monkey-patch",
@@ -134,14 +138,14 @@ export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugi
 // Named exports
 export { keyvalExtension };
 
-export type { KeyvalRoutesType } from "./server/api";
-export { AtomicOperation } from "./server/atomic";
-export { KvFts } from "./server/fts";
-export { Kv, type KvOptions } from "./server/kv";
-export { KvMetrics } from "./server/metrics";
-export { KvQueue, type KvQueueCleanupConfig } from "./server/queue";
-export { initSchema } from "./server/schema";
-export { KvTransaction } from "./server/transaction";
+export type { KeyvalRoutesType } from "./server";
+export { AtomicOperation } from "./server/lib/atomic";
+export { KvFts } from "./server/lib/fts";
+export { Kv, type KvOptions } from "./server/lib/kv";
+export { KvMetrics } from "./server/lib/metrics";
+export { KvQueue, type KvQueueCleanupConfig } from "./server/lib/queue";
+export { initSchema } from "./server/lib/schema";
+export { KvTransaction } from "./server/lib/transaction";
 export type {
   KvCheck,
   KvCommitError,
@@ -168,5 +172,5 @@ export type {
   KvTransactionOptions,
   KvTransactionResult,
   KvUuidv7,
-} from "./server/types";
-export { createUuidv7, UUIDV7_SYMBOL } from "./server/types";
+} from "./server/lib/types";
+export { createUuidv7, UUIDV7_SYMBOL } from "./server/lib/types";

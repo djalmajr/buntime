@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "~/components/icon";
 import { Badge } from "~/components/ui/badge";
-import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from "~/components/ui/drawer";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import {
   Table,
@@ -12,8 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "~/components/ui/table";
-import type { MetricsSSEData } from "~/helpers/sse";
-import { api } from "~/utils/api";
+import { createMetricsSSE, type MetricsSSEData, type WorkerData } from "~/helpers/sse";
 
 function formatUptime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
@@ -29,129 +36,54 @@ function formatUptime(seconds: number): string {
   return `${secs}s`;
 }
 
-interface WorkerStat {
-  errors: number;
-  id: string;
-  requests: number;
-  uptime: number;
-}
-
-interface StatsData {
-  pool: MetricsSSEData["pool"];
-  workers: WorkerStat[];
-}
-
 export function WorkersView() {
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState<StatsData | null>(null);
-
-  const fetchStats = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await api.stats.$get();
-      const data = (await response.json()) as MetricsSSEData;
-
-      // Convert workers object to array (API returns Record<string, WorkerStat>)
-      const workersObj = data.workers as unknown as Record<string, Omit<WorkerStat, "id">>;
-      const workersArray = Object.entries(workersObj).map(([id, worker]) => ({
-        id,
-        ...worker,
-      }));
-
-      setStats({
-        pool: data.pool,
-        workers: workersArray,
-      });
-      setLastUpdate(new Date());
-    } catch (error) {
-      console.error("Failed to fetch worker stats:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [connected, setConnected] = useState(false);
+  const [selectedWorker, setSelectedWorker] = useState<WorkerData | null>(null);
+  const [stats, setStats] = useState<MetricsSSEData | null>(null);
 
   useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+    setConnected(false);
+    const es = createMetricsSSE((data) => {
+      setStats(data);
+      setConnected(true);
+    });
+
+    es.addEventListener("open", () => {
+      setConnected(true);
+    });
+
+    es.addEventListener("error", () => {
+      setConnected(false);
+    });
+
+    return () => {
+      es.close();
+      setConnected(false);
+    };
+  }, []);
+
+  const connectionStatus = connected ? "connected" : "connecting";
 
   return (
-    <ScrollArea className="h-full">
-      <div className="m-4 space-y-4">
-        <div className="flex items-center justify-between">
+    <>
+      <ScrollArea className="h-full">
+        <div className="m-4 space-y-4">
           <div>
-            <h1 className="text-3xl font-bold">Workers</h1>
-            <p className="text-muted-foreground">Detailed statistics for all active workers</p>
-          </div>
-          <Button disabled={loading} onClick={fetchStats}>
-            {loading ? (
-              <Icon className="size-4 animate-spin" icon="lucide:loader-2" />
-            ) : (
-              <Icon className="size-4" icon="lucide:refresh-cw" />
-            )}
-            Refresh
-          </Button>
-        </div>
-
-        {stats && (
-          <>
-            <div className="grid gap-4 md:grid-cols-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Workers</CardTitle>
-                  <Icon className="size-4 text-muted-foreground" icon="lucide:users" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{stats.workers.length}</div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Active Workers</CardTitle>
-                  <Icon className="size-4 text-muted-foreground" icon="lucide:activity" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{stats.pool.activeWorkers}</div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Idle Workers</CardTitle>
-                  <Icon className="size-4 text-muted-foreground" icon="lucide:pause-circle" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{stats.pool.idleWorkers}</div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Requests</CardTitle>
-                  <Icon className="size-4 text-muted-foreground" icon="lucide:bar-chart" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {stats.workers.reduce((sum, w) => sum + w.requests, 0)}
-                  </div>
-                </CardContent>
-              </Card>
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-bold">Workers</h1>
+              <div
+                className={`size-3 rounded-full ${connected ? "bg-green-500" : "bg-yellow-500 animate-pulse"}`}
+                title={connectionStatus === "connected" ? "Connected" : "Connecting..."}
+              />
             </div>
+            <p className="text-muted-foreground">Real-time statistics for all workers</p>
+          </div>
 
+          {stats && (
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Worker Statistics</CardTitle>
-                    <CardDescription>Statistics for each worker in the pool</CardDescription>
-                  </div>
-                  {lastUpdate && (
-                    <div className="text-sm text-muted-foreground">
-                      Last update: {lastUpdate.toLocaleTimeString()}
-                    </div>
-                  )}
-                </div>
+                <CardTitle>Worker Statistics</CardTitle>
+                <CardDescription>Statistics for each worker in the pool</CardDescription>
               </CardHeader>
               <CardContent>
                 {stats.workers.length > 0 ? (
@@ -159,24 +91,47 @@ export function WorkersView() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Worker ID</TableHead>
-                        <TableHead>Uptime</TableHead>
+                        <TableHead>Avg Time</TableHead>
                         <TableHead className="text-right">Requests</TableHead>
                         <TableHead className="text-right">Errors</TableHead>
-                        <TableHead className="text-right">Error Rate</TableHead>
                         <TableHead>Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {stats.workers.map((worker) => {
-                        const errorRate =
-                          worker.requests > 0
-                            ? ((worker.errors / worker.requests) * 100).toFixed(2)
-                            : "0.00";
+                        const statusVariant = {
+                          active: "default",
+                          ephemeral: "secondary",
+                          idle: "secondary",
+                          offline: "outline",
+                        } as const;
+
+                        const statusLabel = {
+                          active: "Active",
+                          ephemeral: "Ephemeral",
+                          idle: "Idle",
+                          offline: "Offline",
+                        } as const;
+
+                        // Remove "apps@" or "plugins@" prefix from worker ID
+                        const displayId = worker.id.replace(/^(apps|plugins)@/, "");
 
                         return (
-                          <TableRow key={worker.id}>
-                            <TableCell className="font-mono text-xs">Worker {worker.id}</TableCell>
-                            <TableCell>{formatUptime(worker.uptime)}</TableCell>
+                          <TableRow
+                            key={worker.id}
+                            className="cursor-pointer hover:bg-muted/50"
+                            onClick={() => setSelectedWorker(worker)}
+                          >
+                            <TableCell className="font-mono text-xs">
+                              {displayId}
+                              <Icon
+                                className="ml-1 inline-block size-3 text-muted-foreground"
+                                icon="lucide:chevron-right"
+                              />
+                            </TableCell>
+                            <TableCell className="font-mono">
+                              {worker.avgResponseTimeMs.toFixed(1)}ms
+                            </TableCell>
                             <TableCell className="text-right">{worker.requests}</TableCell>
                             <TableCell className="text-right">
                               {worker.errors > 0 ? (
@@ -185,10 +140,9 @@ export function WorkersView() {
                                 worker.errors
                               )}
                             </TableCell>
-                            <TableCell className="text-right">{errorRate}%</TableCell>
                             <TableCell>
-                              <Badge variant={worker.errors > 0 ? "destructive" : "default"}>
-                                {worker.errors > 0 ? "Error" : "Healthy"}
+                              <Badge variant={statusVariant[worker.status]}>
+                                {statusLabel[worker.status]}
                               </Badge>
                             </TableCell>
                           </TableRow>
@@ -206,17 +160,137 @@ export function WorkersView() {
                 )}
               </CardContent>
             </Card>
-          </>
-        )}
+          )}
 
-        {!stats && (
-          <Card>
-            <CardContent className="flex items-center justify-center py-8">
-              <Icon className="size-8 animate-spin text-muted-foreground" icon="lucide:loader-2" />
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </ScrollArea>
+          {!stats && (
+            <Card>
+              <CardContent className="flex items-center justify-center py-8">
+                <Icon
+                  className="size-8 animate-spin text-muted-foreground"
+                  icon="lucide:loader-2"
+                />
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </ScrollArea>
+
+      <Drawer
+        direction="right"
+        open={!!selectedWorker}
+        onOpenChange={(open: boolean) => !open && setSelectedWorker(null)}
+      >
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle className="font-mono text-sm">
+              {selectedWorker?.id.replace(/^(apps|plugins)@/, "")}
+            </DrawerTitle>
+            <DrawerDescription>
+              {selectedWorker?.status === "ephemeral"
+                ? "Ephemeral"
+                : selectedWorker?.status === "offline"
+                  ? "Offline"
+                  : "Persistent"}{" "}
+              worker details
+            </DrawerDescription>
+          </DrawerHeader>
+
+          {selectedWorker && (
+            <div className="space-y-4 p-4">
+              {/* Ephemeral-only: Last Session */}
+              {selectedWorker.status === "ephemeral" && (
+                <div className="space-y-3">
+                  <h4 className="text-sm font-medium text-muted-foreground">Last Session</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Response Time</p>
+                      <p className="font-mono text-lg font-semibold">
+                        {selectedWorker.lastResponseTimeMs?.toFixed(1) ?? 0}ms
+                      </p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Requests</p>
+                      <p className="font-mono text-lg font-semibold">
+                        {selectedWorker.lastRequestCount ?? 0}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Persistent/Offline: Worker Info */}
+              {selectedWorker.status !== "ephemeral" && (
+                <div className="space-y-3">
+                  <h4 className="text-sm font-medium text-muted-foreground">Worker Info</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    {selectedWorker.status !== "offline" && (
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground">Uptime</p>
+                        <p className="font-mono text-lg font-semibold">
+                          {formatUptime(selectedWorker.uptime)}
+                        </p>
+                      </div>
+                    )}
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Status</p>
+                      <p className="text-lg font-semibold capitalize">{selectedWorker.status}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Common: Statistics */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium text-muted-foreground">Statistics</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">Total Requests</p>
+                    <p className="font-mono text-lg font-semibold">{selectedWorker.requests}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">Errors</p>
+                    <p
+                      className={`font-mono text-lg font-semibold ${selectedWorker.errors > 0 ? "text-destructive" : ""}`}
+                    >
+                      {selectedWorker.errors}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Common: Response Times */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium text-muted-foreground">Response Times</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">Total Time</p>
+                    <p className="font-mono text-lg font-semibold">
+                      {(selectedWorker.totalResponseTimeMs / 1000).toFixed(2)}s
+                    </p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">Avg per Request</p>
+                    <p className="font-mono text-lg font-semibold">
+                      {selectedWorker.avgResponseTimeMs.toFixed(2)}ms
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DrawerFooter>
+            <DrawerClose asChild>
+              <button
+                className="inline-flex h-9 items-center justify-center rounded-md border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted"
+                type="button"
+              >
+                Close
+              </button>
+            </DrawerClose>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+    </>
   );
 }

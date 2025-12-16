@@ -1,6 +1,6 @@
 export interface PoolLike {
   getMetrics(): Record<string, unknown>;
-  getWorkerStats(): Record<string, unknown>[];
+  getWorkerStats(): Record<string, Record<string, unknown>>;
 }
 
 let pool: PoolLike | undefined;
@@ -11,7 +11,7 @@ export function setPool(p: PoolLike) {
 
 export function getStats() {
   if (!pool) {
-    return { pool: {}, workers: [] };
+    return { pool: {}, workers: {} };
   }
 
   return {

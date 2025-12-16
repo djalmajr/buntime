@@ -51,7 +51,7 @@ export function MetricsView() {
       <div className="m-4 space-y-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold">Metrics Dashboard</h1>
+            <h1 className="text-3xl font-bold">Overview</h1>
             <div
               className={cn(
                 `size-3 rounded-full`,
@@ -65,20 +65,7 @@ export function MetricsView() {
 
         {stats && (
           <>
-            <div className="grid gap-4 md:grid-cols-3">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Workers</CardTitle>
-                  <Icon className="size-4 text-muted-foreground" icon="lucide:users" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{stats.pool.activeWorkers}</div>
-                  <p className="text-xs text-muted-foreground">
-                    {stats.pool.idleWorkers} idle workers
-                  </p>
-                </CardContent>
-              </Card>
-
+            <div className="grid gap-4 md:grid-cols-2">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Requests</CardTitle>
@@ -144,48 +131,6 @@ export function MetricsView() {
                     <p className="text-sm font-medium leading-none">Uptime</p>
                     <p className="text-2xl font-bold">{formatUptime(stats.pool.uptime)}</p>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Active Workers</CardTitle>
-                <CardDescription>
-                  Currently running workers ({stats.workers.length})
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {stats.workers.map((worker) => (
-                    <div
-                      key={worker.id}
-                      className="flex items-center justify-between rounded-lg border p-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon className="size-4 text-primary" icon="lucide:box" />
-                        <div>
-                          <p className="text-sm font-medium">Worker {worker.id}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Uptime: {formatUptime(worker.uptime)}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4 text-right">
-                        <div>
-                          <p className="text-xs text-muted-foreground">Requests</p>
-                          <p className="text-sm font-medium">{worker.requests}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Errors</p>
-                          <p className="text-sm font-medium">{worker.errors}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {stats.workers.length === 0 && (
-                    <p className="text-sm text-muted-foreground">No active workers</p>
-                  )}
                 </div>
               </CardContent>
             </Card>

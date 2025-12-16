@@ -1,3 +1,4 @@
+import { errorToResponse } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import { registry } from "./services";
 
@@ -27,6 +28,10 @@ export const api = new Hono()
       return ctx.json({ error: "Object not found" }, 404);
     }
     return ctx.json({ success: true });
+  })
+  .onError((err) => {
+    console.error("[Durable] Error:", err);
+    return errorToResponse(err);
   });
 
 export type DurableRoutesType = typeof api;

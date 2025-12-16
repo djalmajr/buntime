@@ -22,8 +22,14 @@ i18n.use(initReactI18next).init({
 const rootElement = document.getElementById("plugin-keyval-root");
 if (!rootElement) throw new Error("Root element not found");
 
-createRoot(rootElement).render(
+const root = createRoot(rootElement);
+root.render(
   <StrictMode>
     <KeyvalPage />
   </StrictMode>,
 );
+
+// Cleanup when fragment is unmounted
+rootElement
+  .getRootNode()
+  .addEventListener("piercing-unmount", () => root.unmount(), { once: true });

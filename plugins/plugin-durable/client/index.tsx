@@ -22,10 +22,16 @@ i18next.use(initReactI18next).init({
 const rootElement = document.getElementById("plugin-durable-root");
 if (!rootElement) throw new Error("Root element not found");
 
-createRoot(rootElement).render(
+const root = createRoot(rootElement);
+root.render(
   <StrictMode>
     <I18nextProvider i18n={i18next}>
       <DurablePage />
     </I18nextProvider>
   </StrictMode>,
 );
+
+// Cleanup when fragment is unmounted
+rootElement
+  .getRootNode()
+  .addEventListener("piercing-unmount", () => root.unmount(), { once: true });

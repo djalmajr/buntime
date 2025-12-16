@@ -135,7 +135,12 @@ export class PluginRegistry {
         }
       } catch (error) {
         console.error(`[Plugin:${plugin.name}] onRequest error:`, error);
-        throw error;
+        return new Response(
+          JSON.stringify({
+            error: `Plugin error: ${error instanceof Error ? error.message : String(error)}`,
+          }),
+          { status: 500, headers: { "Content-Type": "application/json" } },
+        );
       }
     }
 

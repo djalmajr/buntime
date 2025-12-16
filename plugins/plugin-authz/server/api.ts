@@ -1,3 +1,4 @@
+import { errorToResponse } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import type { EvaluationContext, Policy } from "./types";
 
@@ -65,6 +66,10 @@ export const api = new Hono()
         priority: p.priority,
       })),
     });
+  })
+  .onError((err) => {
+    console.error("[AuthZ] Error:", err);
+    return errorToResponse(err);
   });
 
 export type AuthzRoutesType = typeof api;

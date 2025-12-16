@@ -40,8 +40,8 @@ export default function metricsPlugin(pluginConfig: MetricsConfig = {}): Buntime
       {
         icon: "lucide:activity",
         items: [
-          { icon: "lucide:gauge", path: "/metrics", title: "Overview" },
-          { icon: "lucide:flame", path: "/metrics/prometheus", title: "Prometheus" },
+          { icon: "lucide:layout-dashboard", path: "/metrics", title: "Overview" },
+          // { icon: "lucide:flame", path: "/metrics/prometheus", title: "Prometheus" },
           { icon: "lucide:cpu", path: "/metrics/workers", title: "Workers" },
         ],
         path: "/metrics",

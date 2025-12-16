@@ -23,7 +23,11 @@ const isDev = NODE_ENV === "development";
 
 // Start server with appropriate options based on available features
 function startServer() {
-  const baseOptions = { fetch: app.fetch, port: PORT };
+  const baseOptions = {
+    fetch: app.fetch,
+    idleTimeout: 0, // Disable idle timeout - required for SSE/WebSocket (unidirectional, no incoming data)
+    port: PORT,
+  };
 
   // Build options based on what's available
   if (websocket && hasPluginRoutes) {
@@ -67,10 +71,26 @@ logger.info(`Runner started at ${server.url}`);
 // Graceful shutdown
 process.on("SIGINT", async () => {
   logger.info("Shutting down...");
-  await registry.shutdown();
-  pool.shutdown();
-  await logger.flush();
-  process.exit(0);
+
+  const SHUTDOWN_TIMEOUT = 30000; // 30 seconds
+
+  // Force exit after timeout to prevent hung plugins from blocking shutdown
+  const forceExitTimer = setTimeout(() => {
+    console.error("[Buntime] Shutdown timeout exceeded, forcing exit");
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT);
+
+  try {
+    await registry.shutdown();
+    pool.shutdown();
+    await logger.flush();
+    clearTimeout(forceExitTimer);
+    process.exit(0);
+  } catch (err) {
+    console.error("[Buntime] Error during shutdown:", err);
+    clearTimeout(forceExitTimer);
+    process.exit(1);
+  }
 });
 
 // Export for programmatic use

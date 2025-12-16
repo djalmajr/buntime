@@ -1,3 +1,4 @@
+import { errorToResponse } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import {
   compileRule,
@@ -167,6 +168,10 @@ export const api = new Hono()
 
     logger?.info(`Deleted proxy rule: ${id}`);
     return ctx.json({ success: true });
+  })
+  .onError((err) => {
+    console.error("[Proxy] Error:", err);
+    return errorToResponse(err);
   });
 
 export type ProxyRoutesType = typeof api;

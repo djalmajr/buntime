@@ -7,6 +7,8 @@
     "./errors": "./src/errors.ts",
     "./logger": "./src/logger/index.ts",
     "./types": "./src/types/plugin.ts",
+    "./utils/config-validation": "./src/utils/config-validation.ts",
+    "./utils/duration": "./src/utils/duration.ts",
     "./utils/static-handler": "./src/utils/static-handler.ts",
     "./utils/zod-helpers": "./src/utils/zod-helpers.ts"
   },
@@ -18,7 +20,11 @@
   "dependencies": {
     "@zomme/bun-plugin-i18next": "^0.1.1",
     "@zomme/bun-plugin-iconify": "^0.1.2",
-    "bun-plugin-tailwind": "^0.1.2"
+    "bun-plugin-tailwind": "^0.1.2",
+    "ms": "^2.1.3"
+  },
+  "devDependencies": {
+    "@types/ms": "^2.1.0"
   },
   "peerDependencies": {
     "@buntime/piercing": "workspace:*",

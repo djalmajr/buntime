@@ -1,3 +1,4 @@
+import { errorToResponse } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import { type Auth, createBetterAuth } from "./auth";
 
@@ -42,6 +43,10 @@ export const api = new Hono()
       return ctx.json({ error: "Auth not configured" }, 500);
     }
     return auth.handler(ctx.req.raw);
+  })
+  .onError((err) => {
+    console.error("[AuthN] Error:", err);
+    return errorToResponse(err);
   });
 
 // Session and logout routes (not under /api)
@@ -68,4 +73,8 @@ export const routes = new Hono()
     }
     await auth.api.signOut({ headers: ctx.req.raw.headers });
     return ctx.json({ success: true });
+  })
+  .onError((err) => {
+    console.error("[AuthN] Error:", err);
+    return errorToResponse(err);
   });

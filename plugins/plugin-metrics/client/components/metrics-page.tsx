@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
-import { DashboardView } from "./dashboard-view";
 import { MetricsView } from "./metrics-view";
-import { PrometheusView } from "./prometheus-view";
 import { WorkersView } from "./workers-view";
 
 function getFragmentUrl(): string {
@@ -55,21 +53,10 @@ export function MetricsPage() {
     };
   }, []);
 
-  if (currentPath === "/" || currentPath === "") {
-    return <DashboardView />;
-  }
-
-  if (currentPath === "/metrics" || currentPath === "/metrics/") {
-    return <MetricsView />;
-  }
-
-  if (currentPath.startsWith("/metrics/prometheus")) {
-    return <PrometheusView />;
-  }
-
   if (currentPath.startsWith("/metrics/workers")) {
     return <WorkersView />;
   }
 
-  return <DashboardView />;
+  // Default: Overview (/, /metrics, or any other path)
+  return <MetricsView />;
 }

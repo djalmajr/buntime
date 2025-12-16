@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import type { PublicRoutesConfig } from "@buntime/shared/types";
+import { parseDurationToMs } from "@buntime/shared/utils/duration";
 import { boolean, number } from "@buntime/shared/utils/zod-helpers";
 import z from "zod/v4";
-import { parseDurationToMs } from "../../utils/duration";
 
 // Default values for worker configuration
 export const ConfigDefaults = {
@@ -44,6 +44,17 @@ const workerConfigSchema = z.object({
 });
 
 export type WorkerConfigFile = z.infer<typeof workerConfigSchema>;
+
+/** Validation errors for worker config */
+export class WorkerConfigError extends Error {
+  constructor(
+    message: string,
+    public readonly appDir: string,
+  ) {
+    super(`[buntime] ${appDir}: ${message}`);
+    this.name = "WorkerConfigError";
+  }
+}
 
 // Internal configuration (values in milliseconds)
 export interface WorkerConfig {
@@ -100,17 +111,45 @@ export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
 
   if (error) {
     const err = error.issues.map((v) => `${v.path.join(".")}: ${v.message}`).join(", ");
-    throw new Error(`[buntime] Invalid config in ${appDir}: ${err}`);
+    throw new WorkerConfigError(`Invalid config: ${err}`, appDir);
+  }
+
+  const timeoutMs = parseDurationToMs(data.timeout);
+  const ttlMs = parseDurationToMs(data.ttl);
+  let idleTimeoutMs = parseDurationToMs(data.idleTimeout);
+
+  // Validate config relationships for persistent workers (ttl > 0)
+  if (ttlMs > 0) {
+    // ttl must be >= timeout (worker shouldn't expire during a request)
+    if (ttlMs < timeoutMs) {
+      throw new WorkerConfigError(
+        `ttl (${ttlMs}ms) must be >= timeout (${timeoutMs}ms). Worker would expire before request completes.`,
+        appDir,
+      );
+    }
+
+    // idleTimeout must be >= timeout (worker shouldn't be marked idle during a request)
+    if (idleTimeoutMs < timeoutMs) {
+      throw new WorkerConfigError(
+        `idleTimeout (${idleTimeoutMs}ms) must be >= timeout (${timeoutMs}ms). Worker could be marked idle while processing.`,
+        appDir,
+      );
+    }
+
+    // idleTimeout > ttl is pointless - auto-adjust silently
+    if (idleTimeoutMs > ttlMs) {
+      idleTimeoutMs = ttlMs;
+    }
   }
 
   return {
     autoInstall: data.autoInstall,
     entrypoint: data.entrypoint,
-    idleTimeoutMs: parseDurationToMs(data.idleTimeout),
+    idleTimeoutMs,
     lowMemory: data.lowMemory,
     maxRequests: data.maxRequests,
     publicRoutes: data.publicRoutes,
-    timeoutMs: parseDurationToMs(data.timeout),
-    ttlMs: parseDurationToMs(data.ttl),
+    timeoutMs,
+    ttlMs,
   };
 }

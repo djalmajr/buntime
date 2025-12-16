@@ -9,8 +9,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
+
+interface ConfigValidation {
+  errors: string[];
+  isValid: boolean;
+  warnings: string[];
+}
 
 interface FileEntry {
+  configValidation?: ConfigValidation;
   isDirectory: boolean;
   name: string;
   path: string;
@@ -88,6 +96,47 @@ export function FileRow({
           />
           <span className="font-medium">{entry.name}</span>
           {readOnly && <Icon className="size-3.5 text-amber-500" icon="lucide:lock" />}
+          {entry.configValidation && !entry.configValidation.isValid && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-help">
+                  <Icon className="size-4 text-destructive" icon="lucide:alert-circle" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs" side="right">
+                <div className="space-y-1 text-xs">
+                  {entry.configValidation.errors.map((err, i) => (
+                    <p key={i} className="text-destructive">
+                      {err}
+                    </p>
+                  ))}
+                  {entry.configValidation.warnings.map((warn, i) => (
+                    <p key={i} className="text-amber-500">
+                      {warn}
+                    </p>
+                  ))}
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {entry.configValidation?.isValid && entry.configValidation.warnings.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-help">
+                  <Icon className="size-4 text-amber-500" icon="lucide:alert-triangle" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs" side="right">
+                <div className="space-y-1 text-xs">
+                  {entry.configValidation.warnings.map((warn, i) => (
+                    <p key={i} className="text-amber-500">
+                      {warn}
+                    </p>
+                  ))}
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </td>
       <td className="p-3 text-sm text-muted-foreground">{formatBytes(entry.size)}</td>

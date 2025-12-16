@@ -7,10 +7,13 @@ const WORKER_PATH = IS_COMPILED ? "./libs/pool/wrapper.ts" : join(import.meta.di
 
 export class WorkerInstance {
   private createdAt = Date.now();
+  private errorCount = 0;
+  private hasCriticalError = false;
+  private idleSent = false;
   private lastUsedAt = Date.now();
   private readyPromise: Promise<void>;
   private requestCount = 0;
-  private idleSent = false;
+  private totalResponseTimeMs = 0;
   private worker: Worker;
 
   public readonly id: string;
@@ -36,7 +39,8 @@ export class WorkerInstance {
     });
 
     this.worker.onerror = (err) => {
-      console.error(`[WorkerInstance] Error for ${ENTRYPOINT}:`, err);
+      console.error(`[WorkerInstance] Critical error for ${ENTRYPOINT}:`, err);
+      this.hasCriticalError = true;
     };
 
     // Wait for initial READY message
@@ -62,11 +66,6 @@ export class WorkerInstance {
     const reqId = crypto.randomUUID();
 
     return new Promise<Response>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error(`Worker timeout after ${this.config.timeoutMs}ms`));
-        if (this.config.ttlMs === 0) this.terminate();
-      }, this.config.timeoutMs);
-
       const handleMessage = ({ data }: MessageEvent<WorkerResponse>) => {
         if (data.type !== "READY" && data.reqId !== reqId) {
           return;
@@ -74,22 +73,30 @@ export class WorkerInstance {
 
         switch (data.type) {
           case "ERROR": {
-            clearTimeout(timeout);
+            cleanup();
+            this.errorCount++;
             reject(new Error(data.error));
-            this.worker.removeEventListener("message", handleMessage);
-            if (this.config.ttlMs === 0) this.terminate();
             break;
           }
 
           case "RESPONSE": {
-            clearTimeout(timeout);
+            cleanup();
             const { body, headers, status } = data.res!;
             resolve(new Response(body, { headers, status }));
-            this.worker.removeEventListener("message", handleMessage);
-            if (this.config.ttlMs === 0) this.terminate();
           }
         }
       };
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        this.worker.removeEventListener("message", handleMessage);
+        if (this.config.ttlMs === 0) this.terminate();
+      };
+
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Worker timeout after ${this.config.timeoutMs}ms`));
+      }, this.config.timeoutMs);
 
       this.worker.addEventListener("message", handleMessage);
 
@@ -122,15 +129,24 @@ export class WorkerInstance {
   }
 
   getStats() {
+    const avgResponseTimeMs =
+      this.requestCount > 0 ? this.totalResponseTimeMs / this.requestCount : 0;
+
     return {
       age: Date.now() - this.createdAt,
+      avgResponseTimeMs: Math.round(avgResponseTimeMs * 100) / 100,
+      errorCount: this.errorCount,
       idle: Date.now() - this.lastUsedAt,
       requestCount: this.requestCount,
       status: this.getStatus(),
+      totalResponseTimeMs: Math.round(this.totalResponseTimeMs * 100) / 100,
     };
   }
 
   isHealthy(): boolean {
+    // Critical errors make worker permanently unhealthy
+    if (this.hasCriticalError) return false;
+
     const { age, idle } = this.getStats();
 
     return (
@@ -141,9 +157,18 @@ export class WorkerInstance {
   }
 
   async terminate() {
-    this.worker.postMessage({ type: "TERMINATE" });
-    await Bun.sleep(DELAY_MS);
-    this.worker.terminate();
+    try {
+      this.worker.postMessage({ type: "TERMINATE" });
+      await Bun.sleep(DELAY_MS);
+      this.worker.terminate();
+    } catch (err) {
+      // Worker may already be terminated - this is expected during cleanup
+      console.debug("[WorkerInstance] terminate() error (worker may be gone):", err);
+    }
+  }
+
+  recordResponseTime(durationMs: number) {
+    this.totalResponseTimeMs += durationMs;
   }
 
   touch() {

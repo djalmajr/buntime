@@ -26,7 +26,7 @@
 
 @.claude/rules/plugins/bun-plugins.md
 
-@.claude/rules/plugins/buntime-plugins.md
+@.claude/rules/plugins/keyval.md
 
 # Others
 

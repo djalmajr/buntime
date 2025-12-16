@@ -1,3 +1,16 @@
+export interface WorkerData {
+  avgResponseTimeMs: number;
+  errors: number;
+  id: string;
+  requests: number;
+  status: "active" | "idle" | "ephemeral" | "offline";
+  totalResponseTimeMs: number;
+  uptime: number;
+  // Ephemeral-only: session metrics
+  lastRequestCount?: number;
+  lastResponseTimeMs?: number;
+}
+
 export interface MetricsSSEData {
   pool: {
     activeWorkers: number;
@@ -5,14 +18,10 @@ export interface MetricsSSEData {
     pendingRequests: number;
     totalErrors: number;
     totalRequests: number;
+    totalRetired: number;
     uptime: number;
   };
-  workers: Array<{
-    errors: number;
-    id: string;
-    requests: number;
-    uptime: number;
-  }>;
+  workers: WorkerData[];
 }
 
 export function createMetricsSSE(onMessage: (data: MetricsSSEData) => void): EventSource {
@@ -39,15 +48,51 @@ export function createMetricsSSE(onMessage: (data: MetricsSSEData) => void): Eve
     try {
       const raw = JSON.parse(event.data);
 
-      // Convert workers object to array (API returns Record<string, WorkerStat>)
-      const workersObj = raw.workers as Record<string, Omit<MetricsSSEData["workers"][0], "id">>;
-      const workersArray = Object.entries(workersObj).map(([id, worker]) => ({
+      // Convert workers object to array
+      type WorkerStatus = "active" | "idle" | "ephemeral" | "offline";
+      interface RawWorker {
+        age: number;
+        avgResponseTimeMs: number;
+        errorCount: number;
+        idle: number;
+        requestCount: number;
+        status: WorkerStatus;
+        totalResponseTimeMs: number;
+        // Ephemeral-only
+        lastRequestCount?: number;
+        lastResponseTimeMs?: number;
+      }
+      const workersObj = raw.workers as Record<string, RawWorker>;
+      const workersArray: WorkerData[] = Object.entries(workersObj).map(([id, worker]) => ({
+        avgResponseTimeMs: worker.avgResponseTimeMs ?? 0,
+        errors: worker.errorCount ?? 0,
         id,
-        ...worker,
+        requests: worker.requestCount ?? 0,
+        status: (worker.status ?? "active") as WorkerStatus,
+        totalResponseTimeMs: worker.totalResponseTimeMs ?? 0,
+        // For ephemeral workers, age is lastResponseTimeMs - keep as ms
+        // For persistent workers, age is uptime in ms - convert to seconds
+        uptime:
+          worker.status === "ephemeral"
+            ? Math.round(worker.age ?? 0)
+            : Math.floor((worker.age ?? 0) / 1000),
+        // Ephemeral-only session metrics
+        lastRequestCount: worker.lastRequestCount,
+        lastResponseTimeMs: worker.lastResponseTimeMs,
       }));
 
+      // Map server fields to client expected fields
+      const pool = raw.pool || {};
       const data: MetricsSSEData = {
-        pool: raw.pool,
+        pool: {
+          activeWorkers: pool.activeWorkers ?? 0,
+          idleWorkers: 0, // Not tracked by server yet
+          pendingRequests: 0, // Not tracked by server yet
+          totalErrors: pool.totalWorkersFailed ?? 0,
+          totalRequests: pool.totalRequests ?? 0,
+          totalRetired: pool.totalWorkersRetired ?? 0,
+          uptime: Math.floor((pool.uptimeMs ?? 0) / 1000), // Convert ms to seconds
+        },
         workers: workersArray,
       };
 

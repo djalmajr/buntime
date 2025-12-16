@@ -1,3 +1,4 @@
+import { errorToResponse } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { formatPrometheus, getMetrics, getStats } from "./services";
@@ -46,6 +47,10 @@ export const api = new Hono()
   })
   .get("/stats", (ctx) => {
     return ctx.json(getStats());
+  })
+  .onError((err) => {
+    console.error("[Metrics] Error:", err);
+    return errorToResponse(err);
   });
 
 export type MetricsRoutesType = typeof api;

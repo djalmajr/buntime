@@ -1,3 +1,4 @@
+import { errorToResponse } from "@buntime/shared/errors";
 import type { PluginContext } from "@buntime/shared/types";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -7,7 +8,7 @@ import type {
   KvKey,
   KvSearchOptions,
   KvWhereFilter,
-} from "./types";
+} from "./lib/types";
 import {
   validateBigInt,
   validateExpiresIn,
@@ -15,10 +16,10 @@ import {
   validateKeyPath,
   validateKeys,
   validateLimit,
-} from "./validation";
+} from "./lib/validation";
 
 // Module-level state (set by services.ts)
-let kv: import("./kv").Kv;
+let kv: import("./lib/kv").Kv;
 let adapter: import("@buntime/plugin-database").DatabaseAdapter;
 let logger: PluginContext["logger"];
 
@@ -26,7 +27,7 @@ let logger: PluginContext["logger"];
  * Set module state from services
  */
 export function setApiState(
-  kvInstance: import("./kv").Kv,
+  kvInstance: import("./lib/kv").Kv,
   dbAdapter: import("@buntime/plugin-database").DatabaseAdapter,
   pluginLogger: PluginContext["logger"],
 ): void {
@@ -57,15 +58,6 @@ async function getStorageStats(): Promise<{ entries: number; sizeBytes: number }
  */
 export const api = new Hono()
   .basePath("/api")
-  // Error handler for validation errors
-  .onError((err, ctx) => {
-    if (err.name === "HTTPException" && "status" in err) {
-      const status = (err as unknown as { status: number }).status;
-      return ctx.json({ error: err.message }, status as 400 | 404 | 500);
-    }
-    logger?.error("KeyVal route error", { error: err.message });
-    return ctx.json({ error: "Internal server error" }, 500);
-  })
   // Atomic operations endpoint
   .post("/atomic", async (ctx) => {
     const body = await ctx.req.json<{
@@ -766,6 +758,15 @@ export const api = new Hono()
     });
 
     return ctx.json(results);
+  })
+  // Error handler for validation errors
+  .onError((err, ctx) => {
+    if (err.name === "HTTPException" && "status" in err) {
+      const status = (err as unknown as { status: number }).status;
+      return ctx.json({ error: err.message }, status as 400 | 404 | 500);
+    }
+    logger?.error("KeyVal route error", { error: err.message });
+    return ctx.json({ error: "Internal server error" }, 500);
   });
 
 export type KeyvalRoutesType = typeof api;

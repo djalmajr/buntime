@@ -1,4 +1,5 @@
 import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
+import { api } from "./server/api";
 import { addLog, clearLogs, configure, getLogs, getStats, setLogger } from "./server/services";
 
 export interface LogsConfig extends BasePluginConfig {
@@ -32,6 +33,7 @@ export default function logsPlugin(pluginConfig: LogsConfig = {}): BuntimePlugin
 
   return {
     name: "@buntime/plugin-logs",
+    routes: api, // SSE requires main thread (streaming doesn't work in workers)
 
     // Fragment with monkey-patch sandbox (internal plugin)
     fragment: {

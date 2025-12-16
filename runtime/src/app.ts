@@ -114,7 +114,7 @@ async function servePluginApp(
   const newReq = new Request(new URL(pathname + url.search, req.url).href, req);
   newReq.headers.set("x-base", resolved.basePath);
 
-  return (await pool.getOrCreate(resolved.dir, resolved.config)).fetch(newReq);
+  return pool.fetch(resolved.dir, resolved.config, newReq);
 }
 
 /**
@@ -185,6 +185,10 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
           }
         } catch (err) {
           console.error(`[Plugin:${plugin.name}] server.fetch error:`, err);
+          return ctx.json(
+            { error: `Plugin error: ${err instanceof Error ? err.message : String(err)}` },
+            500,
+          );
         }
       }
     }

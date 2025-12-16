@@ -1,8 +1,8 @@
 import type { AdapterType, DatabaseAdapter, DatabaseService } from "@buntime/plugin-database";
 import type { PluginContext } from "@buntime/shared/types";
-import { setApiState } from "./api";
-import { Kv } from "./kv";
-import { initSchema } from "./schema";
+import { setApiState } from "./index";
+import { Kv } from "./lib/kv";
+import { initSchema } from "./lib/schema";
 
 // Module-level state
 let kv: Kv;

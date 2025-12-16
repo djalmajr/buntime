@@ -29,7 +29,8 @@
     "react-dom": "^19.2.0",
     "recharts": "2.15.4",
     "tailwind-merge": "^3.3.0",
-    "tw-animate-css": "^1.3.4"
+    "tw-animate-css": "^1.3.4",
+    "vaul": "^1.1.2"
   },
   "peerDependencies": {
     "hono": "^4.0.0",

@@ -6,8 +6,14 @@ import { LogsTable } from "./components/logs-table";
 const rootElement = document.getElementById("plugin-logs-root");
 if (!rootElement) throw new Error("Root element not found");
 
-createRoot(rootElement).render(
+const root = createRoot(rootElement);
+root.render(
   <StrictMode>
     <LogsTable />
   </StrictMode>,
 );
+
+// Cleanup when fragment is unmounted
+rootElement
+  .getRootNode()
+  .addEventListener("piercing-unmount", () => root.unmount(), { once: true });

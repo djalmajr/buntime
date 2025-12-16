@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { Kv } from "./kv";
-import { initSchema } from "./schema";
-import { createTestAdapter } from "./test-helpers";
+import { Kv } from "../lib/kv";
+import { initSchema } from "../lib/schema";
+import { createTestAdapter } from "../lib/test-helpers";
 
 describe("Where Filters", () => {
   const adapter = createTestAdapter();

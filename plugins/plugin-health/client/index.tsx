@@ -6,8 +6,14 @@ import { HealthDashboard } from "./components/health-dashboard";
 const rootElement = document.getElementById("plugin-health-root");
 if (!rootElement) throw new Error("Root element not found");
 
-createRoot(rootElement).render(
+const root = createRoot(rootElement);
+root.render(
   <StrictMode>
     <HealthDashboard />
   </StrictMode>,
 );
+
+// Cleanup when fragment is unmounted
+rootElement
+  .getRootNode()
+  .addEventListener("piercing-unmount", () => root.unmount(), { once: true });

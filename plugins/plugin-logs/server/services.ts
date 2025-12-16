@@ -15,7 +15,6 @@ let logs: LogEntry[] = [];
 let maxEntries = 1000;
 let sseInterval = 1000;
 let logger: PluginContext["logger"] | undefined;
-const subscribers: Set<() => void> = new Set();
 
 /**
  * Configure log service
@@ -40,13 +39,6 @@ export function getSseInterval() {
 }
 
 /**
- * Get subscribers set
- */
-export function getSubscribers() {
-  return subscribers;
-}
-
-/**
  * Add a log entry to the buffer
  */
 export function addLog(entry: Omit<LogEntry, "timestamp">): void {
@@ -60,11 +52,6 @@ export function addLog(entry: Omit<LogEntry, "timestamp">): void {
   // Trim to max entries
   if (logs.length > maxEntries) {
     logs = logs.slice(-maxEntries);
-  }
-
-  // Notify subscribers
-  for (const notify of subscribers) {
-    notify();
   }
 }
 

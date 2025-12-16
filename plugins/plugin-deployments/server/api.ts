@@ -1,5 +1,5 @@
 import { basename, join } from "node:path";
-import { NotFoundError, ValidationError } from "@buntime/shared/errors";
+import { errorToResponse, NotFoundError, ValidationError } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import { DirInfo } from "./libs/dir-info";
 
@@ -143,7 +143,6 @@ export const api = new Hono()
     const currentVisibility = await dir.getVisibility();
     return ctx.json({ success: true, data: { currentVisibility, entries, path } });
   })
-
   // Create new directory
   .post("/mkdir", async (ctx) => {
     const { path } = await ctx.req.json<{ path: string }>();
@@ -160,7 +159,6 @@ export const api = new Hono()
     await dir.create();
     return ctx.json({ success: true });
   })
-
   // Delete file or directory
   .delete("/delete", async (ctx) => {
     const { path } = await ctx.req.json<{ path: string }>();
@@ -180,7 +178,6 @@ export const api = new Hono()
     await dir.delete();
     return ctx.json({ success: true });
   })
-
   // Rename file or directory
   .post("/rename", async (ctx) => {
     const { path, newName } = await ctx.req.json<{ newName: string; path: string }>();
@@ -197,7 +194,6 @@ export const api = new Hono()
     await dir.rename(newName);
     return ctx.json({ success: true });
   })
-
   // Move file or directory
   .post("/move", async (ctx) => {
     const { path, destPath } = await ctx.req.json<{ destPath: string; path: string }>();
@@ -227,7 +223,6 @@ export const api = new Hono()
     await dir.move(dest.relativePath);
     return ctx.json({ success: true });
   })
-
   // Upload files
   .post("/upload", async (ctx) => {
     const formData = await ctx.req.formData();
@@ -262,7 +257,6 @@ export const api = new Hono()
 
     return ctx.json({ success: true });
   })
-
   // Refresh cache (invalidate .dirinfo)
   .get("/refresh", async (ctx) => {
     const path = ctx.req.query("path") || "";
@@ -295,7 +289,6 @@ export const api = new Hono()
     }
     return ctx.json({ success: true });
   })
-
   // Download file or folder (folders are zipped)
   .get("/download", async (ctx) => {
     const path = ctx.req.query("path");
@@ -346,7 +339,6 @@ export const api = new Hono()
       },
     });
   })
-
   // Batch delete multiple files/folders
   .post("/delete-batch", async (ctx) => {
     const { paths } = await ctx.req.json<{ paths: string[] }>();
@@ -371,7 +363,6 @@ export const api = new Hono()
 
     return ctx.json({ success: true, errors: errors.length ? errors : undefined });
   })
-
   // Batch move multiple files/folders
   .post("/move-batch", async (ctx) => {
     const { paths, destPath } = await ctx.req.json<{ destPath: string; paths: string[] }>();
@@ -405,7 +396,6 @@ export const api = new Hono()
 
     return ctx.json({ success: true, errors: errors.length ? errors : undefined });
   })
-
   // Batch download multiple files/folders as single zip
   .get("/download-batch", async (ctx) => {
     const pathsParam = ctx.req.query("paths");
@@ -463,6 +453,10 @@ export const api = new Hono()
       Bun.spawn(["rm", "-rf", tempDir]);
       throw new ValidationError("Failed to create download", "DOWNLOAD_FAILED");
     }
+  })
+  .onError((err) => {
+    console.error(`[Deployments] Error:`, err);
+    return errorToResponse(err);
   });
 
 export type DeploymentsRoutesType = typeof api;

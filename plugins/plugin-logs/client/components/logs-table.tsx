@@ -74,7 +74,7 @@ export function LogsTable() {
         if (filter) params.set("level", filter);
         params.set("limit", "100");
 
-        const res = await fetch(`${basePath}/api/logs?${params}`);
+        const res = await fetch(`${basePath}/api?${params}`);
         const data = await res.json();
         setLogs(data.logs);
         setStats(data.stats);
@@ -87,7 +87,7 @@ export function LogsTable() {
 
     fetchLogs();
 
-    const eventSource = new EventSource(`${basePath}/api/logs/sse`);
+    const eventSource = new EventSource(`${basePath}/api/sse`);
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.logs?.length) {
@@ -102,7 +102,7 @@ export function LogsTable() {
   }, [basePath, filter]);
 
   const handleClear = async () => {
-    await fetch(`${basePath}/api/logs/clear`, { method: "POST" });
+    await fetch(`${basePath}/api/clear`, { method: "POST" });
     setLogs([]);
     setStats({ counts: { debug: 0, error: 0, info: 0, warn: 0 }, total: 0 });
   };

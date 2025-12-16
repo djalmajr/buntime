@@ -1,3 +1,4 @@
+import { errorToResponse } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import type { ResponseCache } from "./cache";
 import type { GatewayConfig } from "./types";
@@ -39,6 +40,10 @@ export function createGatewayApi(
 
       cache.clear();
       return ctx.json({ invalidated: "all" });
+    })
+    .onError((err) => {
+      console.error("[Gateway] API Error:", err);
+      return errorToResponse(err);
     });
 }
 

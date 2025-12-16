@@ -1,3 +1,4 @@
+import { errorToResponse } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import { runHealthChecks } from "./services";
 
@@ -16,6 +17,10 @@ export const api = new Hono()
     const report = await runHealthChecks();
     const status = report.status === "healthy" ? 200 : 503;
     return ctx.json(report, status);
+  })
+  .onError((err) => {
+    console.error("[Health] API error:", err);
+    return errorToResponse(err);
   });
 
 export type ApiType = typeof api;

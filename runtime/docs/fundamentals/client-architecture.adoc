@@ -32,7 +32,7 @@ The admin dashboard is a modern React application built with:
 | shadcn/ui
 | Component library
 
-| Piercing
+| Fragment
 | Micro-frontend web components
 |===
 
@@ -103,8 +103,8 @@ This allows the same build to work at any path without hardcoding routes.
 // 1. Import i18n for side-effect initialization
 import "~/helpers/i18n";
 
-// 2. Register piercing web components for micro-frontends
-registerPiercingComponents();
+// 2. Register fragment web components for micro-frontends
+registerFragmentComponents();
 
 // 3. Read base path from <base> tag
 const base = document.querySelector("base");
@@ -806,23 +806,23 @@ import type { AppConfig } from "@/types/config";  // server/types/config.ts
 
 === Micro-Frontend Support
 
-==== Piercing Web Components
+==== Fragment Web Components
 
-The dashboard supports micro-frontends via Piercing:
+The dashboard supports micro-frontends via Fragment:
 
 [source,typescript]
 ----
-import { registerPiercingComponents } from "@buntime/piercing/client";
+import { registerFragmentComponents } from "@buntime/fragment/client";
 
 // Register before router creation
-registerPiercingComponents();
+registerFragmentComponents();
 ----
 
 This allows embedding other SPAs as web components:
 
 [source,tsx]
 ----
-<piercing-root
+<fragment-root
   src="https://external-app.com"
   base="/external"
   style={{ height: "100vh" }}

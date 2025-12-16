@@ -31,16 +31,16 @@ export interface MenuItem {
  * Sandbox strategy for fragment isolation
  *
  * - "none": No sandbox, fragment shares context with shell (default for internal plugins)
- * - "monkey-patch": Intercepts History API, prevents URL changes (lightweight)
+ * - "patch": Intercepts History API, prevents URL changes (lightweight)
  * - "iframe": Full isolation via iframe (for untrusted external apps)
  * - "service-worker": Intercepts all requests, injects sandbox script (for external apps needing shared styles)
  */
-export type SandboxStrategy = "none" | "monkey-patch" | "iframe" | "service-worker";
+export type SandboxStrategy = "none" | "patch" | "iframe" | "service-worker";
 
 /**
  * Fragment sandbox type (excludes "none" - if no sandbox needed, don't define fragment)
  */
-export type FragmentType = "monkey-patch" | "iframe" | "service-worker";
+export type FragmentType = "patch" | "iframe" | "service-worker";
 
 /**
  * Fragment configuration for plugins that can be embedded in the shell
@@ -48,7 +48,7 @@ export type FragmentType = "monkey-patch" | "iframe" | "service-worker";
 export interface FragmentOptions {
   /**
    * Sandbox type for isolating the fragment
-   * - "monkey-patch": Intercepts History API (lightweight, recommended for most cases)
+   * - "patch": Intercepts History API (lightweight, recommended for most cases)
    * - "iframe": Full isolation via iframe (for untrusted external apps)
    * - "service-worker": Intercepts all requests (for external apps needing shared styles)
    */
@@ -446,9 +446,9 @@ export interface BuntimePlugin {
    * If not defined, the plugin has no fragment (API-only plugin)
    *
    * @example
-   * // Monkey-patch for internal plugins (recommended)
+   * // Patch for internal plugins (recommended)
    * fragment: {
-   *   type: "monkey-patch",
+   *   type: "patch",
    * }
    *
    * @example

@@ -1,5 +1,11 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@buntime/shadcn-ui";
-import { Icon } from "./icon";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Icon,
+} from "@buntime/shadcn-ui";
 
 interface OverviewViewProps {
   onNavigate: (path: string) => void;

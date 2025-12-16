@@ -1,6 +1,12 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@buntime/shadcn-ui";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Icon,
+} from "@buntime/shadcn-ui";
 import { useTranslation } from "react-i18next";
-import { Icon } from "./icon";
 import { PageHeader } from "./page-header";
 import { ScrollArea } from "./scroll-area";
 

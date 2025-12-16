@@ -94,7 +94,7 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): Buntime
     optionalDependencies: ["@buntime/plugin-authn"], // Run after authn if present
 
     fragment: {
-      type: "monkey-patch",
+      type: "patch",
     },
 
     menus: [

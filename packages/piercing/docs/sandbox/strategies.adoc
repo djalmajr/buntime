@@ -1,6 +1,6 @@
 == Estratégias de Sandbox
 
-O Piercing oferece quatro estratégias de isolamento de fragmentos, cada uma com trade-offs diferentes entre isolamento, performance e complexidade.
+O Piercing oferece três estratégias de isolamento de fragmentos, cada uma com trade-offs diferentes entre isolamento, performance e complexidade.
 
 === Tipos de Estratégia
 
@@ -39,7 +39,7 @@ const handler = createSandbox(config);
 * Conflitos de navegação e estado
 * Não recomendado para código externo
 
-==== monkey-patch - Interceptação de APIs
+==== patch - Interceptação de APIs
 
 Intercepta APIs globais (History API, cliques em links) para prevenir que fragmentos alterem a URL do navegador sem controle.
 
@@ -47,7 +47,7 @@ Intercepta APIs globais (History API, cliques em links) para prevenir que fragme
 ----
 const config: SandboxConfig = {
   fragmentId: "internal-app",
-  strategy: "monkey-patch",
+  strategy: "patch",
   mountPath: "/admin",
   allowMessageBus: true
 };
@@ -152,57 +152,6 @@ const piercing = getPiercingClient();
 piercing.onStateChange((state) => console.log('State:', state));
 ----
 
-==== service-worker - Interceptação de Rede
-
-Registra um Service Worker que intercepta requisições ao fragmento, injetando scripts de sandbox em respostas HTML.
-
-[source,typescript]
-----
-// Inicializar SW uma vez no startup
-await initPiercingServiceWorker("/_piercing/sw.js");
-
-// Criar sandbox para fragmento
-const config: SandboxConfig = {
-  fragmentId: "external-spa",
-  strategy: "service-worker",
-  origin: "https://external.com",
-  mountPath: "/external",
-  allowMessageBus: true
-};
-
-const handler = createSandbox(config);
-await handler.init();
-----
-
-**Quando usar:**
-
-* Aplicações externas que precisam compartilhar estilos com a shell
-* SPAs externas com navegação complexa
-* Cenários onde modificação de respostas HTTP é necessária
-
-**Vantagens:**
-
-* Compartilha DOM e estilos (fragmento renderiza na shell)
-* Intercepta e modifica respostas HTML
-* Pode reescrever URLs em assets
-* Não requer modificação do código do fragmento
-
-**Desvantagens:**
-
-* Requer suporte a Service Worker (não funciona em todos os navegadores)
-* Setup mais complexo (requer servir script SW)
-* Latência adicional na primeira carga (registro do SW)
-* Debugging pode ser mais difícil
-
-**Como funciona:**
-
-1. Registra Service Worker no escopo `/`
-2. SW intercepta requisições ao `mountPath` do fragmento
-3. SW busca conteúdo da origem externa
-4. Injeta script de sandbox no HTML
-5. Script intercepta History API e links
-6. Eventos de navegação são enviados à shell via `postMessage`
-
 === Comparação de Estratégias
 
 [cols="1,1,1,1,1"]
@@ -215,7 +164,7 @@ await handler.init();
 | Sim
 | Plugins internos confiáveis
 
-| monkey-patch
+| patch
 | Navegação apenas
 | Alta
 | Sim
@@ -226,12 +175,6 @@ await handler.init();
 | Média
 | Não
 | Apps externos não confiáveis
-
-| service-worker
-| Médio
-| Média
-| Sim
-| Apps externos que precisam de estilos da shell
 |===
 
 === Função createSandbox()
@@ -259,16 +202,16 @@ function createSandbox(
 **Exceções:**
 
 * Lança erro se estratégia `iframe` não receber `container`
-* Lança erro se estratégia `iframe` ou `service-worker` não tiver `origin`
+* Lança erro se estratégia `iframe` não tiver `origin`
 
 **Exemplo:**
 
 [source,typescript]
 ----
-// Monkey-patch
+// Patch
 const handler = createSandbox({
   fragmentId: "admin",
-  strategy: "monkey-patch",
+  strategy: "patch",
   mountPath: "/admin"
 });
 
@@ -303,7 +246,7 @@ if (handler) {
 * Performance é crítica
 * Fragmento precisa de acesso total ao DOM
 
-**Use `monkey-patch` quando:**
+**Use `patch` quando:**
 
 * Fragmento é interno mas precisa de isolamento de navegação
 * Fragmento usa History API ou links
@@ -314,9 +257,3 @@ if (handler) {
 * Fragmento é código externo não confiável
 * Isolamento completo é necessário
 * Segurança é prioridade máxima
-
-**Use `service-worker` quando:**
-
-* Fragmento é externo mas precisa de estilos da shell
-* Modificação de respostas HTTP é necessária
-* Navegador suporta Service Workers

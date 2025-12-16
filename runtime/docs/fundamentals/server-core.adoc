@@ -287,8 +287,8 @@ Cria o app Hono principal e implementa a lógica de resolução de rotas.
                     └────────┬────────┘
                              │
                     ┌────────▼────────┐
-                    │ /piercing-      │──▶ Fragment HTML for
-                    │  fragment/:id   │    piercing-fragment-outlet
+                    │ /fragment/:id   │──▶ Fragment HTML for
+                    │                 │    fragment-outlet
                     └────────┬────────┘
                              │
                     ┌────────▼────────┐
@@ -413,13 +413,13 @@ const base = document.querySelector("base")?.getAttribute("href") || "/";
 const router = createRouter({ basepath: base, ... });
 ----
 
-===== Piercing Fragments
+===== Fragments
 
-Rotas especiais para micro-frontends usando `piercing-fragment-outlet`:
+Rotas especiais para micro-frontends usando `fragment-outlet`:
 
 [source]
 ----
-GET /piercing-fragment/:fragmentId/*
+GET /fragment/:fragmentId/*
 ----
 
 O runtime:
@@ -434,10 +434,10 @@ Exemplo:
 [source,html]
 ----
 <!-- Admin dashboard -->
-<piercing-fragment-outlet fragment-id="logs" />
+<fragment-outlet fragment-id="logs" />
 
 <!-- Runtime busca -->
-GET /piercing-fragment/logs/
+GET /fragment/logs/
 
 <!-- Plugin @buntime/plugin-logs responde com HTML -->
 <div>Log viewer UI</div>

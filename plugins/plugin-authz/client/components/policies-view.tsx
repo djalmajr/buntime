@@ -6,6 +6,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Icon,
   Input,
   Label,
   Select,
@@ -27,7 +28,6 @@ import {
 } from "@buntime/shadcn-ui";
 import { useEffect, useState } from "react";
 import { basePath } from "~/utils/api";
-import { Icon } from "./icon";
 
 interface Action {
   method?: string;

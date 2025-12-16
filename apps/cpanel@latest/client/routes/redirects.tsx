@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 function RedirectsPage() {
-  return <piercing-fragment-outlet fragment-id="proxy" />;
+  const href = document.querySelector("base")?.getAttribute("href") || "/";
+
+  return <fragment-outlet base={href.replace(/\/$/, "")} src="/p/proxy" />;
 }
 
 export const Route = createFileRoute("/redirects")({

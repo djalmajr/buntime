@@ -81,32 +81,42 @@ export function createPluginBuilder(config: PluginBuildConfig): PluginBuilder {
         return false;
       }
 
-      // Dynamic imports to avoid requiring these in server-only plugins
-      // Plugins read their config from bunfig.toml in the plugin directory
+      // Load plugins from bunfig.toml if it exists
       const plugins: BunPlugin[] = [];
+      const bunfigPath = join(cwd, "bunfig.toml");
 
-      // Iconify plugin (virtual:icons) - reads dirs from bunfig.toml
-      try {
-        const { default: iconify } = await import("@zomme/bun-plugin-iconify");
-        plugins.push(iconify);
-      } catch {
-        // Plugin not available, skip
-      }
+      if (existsSync(bunfigPath)) {
+        const { parse } = await import("smol-toml");
+        const bunfigContent = await Bun.file(bunfigPath).text();
+        const bunfig = parse(bunfigContent) as {
+          serve?: { static?: { plugins?: string[] } };
+        };
+        const pluginNames = bunfig?.serve?.static?.plugins ?? [];
 
-      // i18next plugin (translations) - reads dirs from bunfig.toml
-      try {
-        const { default: i18next } = await import("@zomme/bun-plugin-i18next");
-        plugins.push(i18next);
-      } catch {
-        // Plugin not available, skip
-      }
+        for (const name of pluginNames) {
+          try {
+            const { default: plugin } = await import(name);
+            plugins.push(plugin);
+          } catch {
+            console.warn(`Plugin ${name} not available, skipping`);
+          }
+        }
+      } else {
+        // Fallback: load default plugins if no bunfig.toml
+        const defaultPlugins = [
+          "@zomme/bun-plugin-iconify",
+          "@zomme/bun-plugin-i18next",
+          "bun-plugin-tailwind",
+        ];
 
-      // Tailwind plugin
-      try {
-        const { default: tailwind } = await import("bun-plugin-tailwind");
-        plugins.push(tailwind);
-      } catch {
-        // Plugin not available, skip
+        for (const name of defaultPlugins) {
+          try {
+            const { default: plugin } = await import(name);
+            plugins.push(plugin);
+          } catch {
+            // Plugin not available, skip
+          }
+        }
       }
 
       const clientResult = await Bun.build({

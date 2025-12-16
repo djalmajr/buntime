@@ -5,10 +5,10 @@ import {
   CardHeader,
   CardTitle,
   cn,
+  Icon,
   ScrollArea,
 } from "@buntime/shadcn-ui";
 import { useEffect, useState } from "react";
-import { Icon } from "~/components/icon";
 import { createMetricsSSE, type MetricsSSEData } from "~/helpers/sse";
 
 function formatUptime(seconds: number): string {

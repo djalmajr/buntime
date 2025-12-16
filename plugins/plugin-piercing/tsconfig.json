@@ -1,11 +1,9 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "baseUrl": ".",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "esModuleInterop": true,
-    "paths": {
-      "~/*": ["./src/*"]
-    }
-  }
+    "outDir": "./dist"
+  },
+  "include": ["plugin.ts"],
+  "exclude": ["node_modules", "dist"]
 }

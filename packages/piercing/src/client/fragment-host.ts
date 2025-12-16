@@ -1,3 +1,4 @@
+import WritableDOM from "writable-dom";
 import { getBus as getGlobalBus } from "../message-bus/client-message-bus";
 import {
   createSandbox,
@@ -48,6 +49,9 @@ class FragmentMessageBus {
 /**
  * Web component that hosts a fragment's SSR content
  * Wraps the fragment HTML and manages its lifecycle
+ *
+ * @example
+ * <fragment-host src="/p/metrics">...SSR content...</fragment-host>
  */
 export class PiercingFragmentHost extends HTMLElement {
   private cleanup = true;
@@ -58,18 +62,26 @@ export class PiercingFragmentHost extends HTMLElement {
   fragmentId!: string;
 
   connectedCallback(): void {
-    const fragmentId = this.getAttribute("fragment-id");
+    const src = this.getAttribute("src");
 
-    if (!fragmentId) {
-      throw new Error("PiercingFragmentHost requires a fragment-id attribute");
+    if (!src) {
+      throw new Error("PiercingFragmentHost requires a src attribute");
     }
 
-    this.fragmentId = fragmentId;
+    // Derive fragmentId from src for internal tracking
+    this.fragmentId = src.split("/").pop() || "fragment";
 
     // If not pierced yet, observe for styles to embed
     if (!this.isPierced) {
       this.setupStylesObserver();
     }
+  }
+
+  /**
+   * Get the src attribute value (fragment URL path)
+   */
+  get src(): string | null {
+    return this.getAttribute("src");
   }
 
   disconnectedCallback(): void {
@@ -160,10 +172,10 @@ export class PiercingFragmentHost extends HTMLElement {
   private embedExternalStyles(): void {
     const styleLinks = this.querySelectorAll<HTMLLinkElement>('link[href][rel="stylesheet"]');
 
-    for (const link of styleLinks) {
+    for (const link of Array.from(styleLinks)) {
       if (link.sheet) {
         let cssText = "";
-        for (const rule of link.sheet.cssRules) {
+        for (const rule of Array.from(link.sheet.cssRules)) {
           cssText += `${rule.cssText}\n`;
         }
 
@@ -181,33 +193,36 @@ export class PiercingFragmentHost extends HTMLElement {
  *
  * Uses Shadow DOM for CSS isolation - fragment styles don't leak to shell and vice versa.
  *
- * Supports sandbox strategies via attributes:
- * - sandbox="none" (default): No isolation
- * - sandbox="monkey-patch": Intercepts History API
- * - sandbox="iframe": Full isolation via iframe
- * - sandbox="service-worker": SW-based interception
+ * Supports history isolation strategies via attributes:
+ * - No history attribute: No isolation (just fetch and stream)
+ * - history="patch": Intercepts History API
+ * - history="isolate": Full isolation via iframe
  *
- * Additional attributes:
- * - origin: External origin (required for iframe/service-worker)
- * - src: Direct URL to fetch fragment from (alternative to fragment-id)
+ * Required attributes:
+ * - src: URL to fetch fragment from (REQUIRED)
  *
- * @example
- * <!-- Internal plugin -->
- * <piercing-fragment-outlet fragment-id="logs" />
+ * Optional attributes:
+ * - base: Shell's basepath for routing context
+ * - history: History isolation strategy ("patch" | "isolate")
  *
  * @example
- * <!-- External app with monkey-patch -->
- * <piercing-fragment-outlet
- *   fragment-id="legacy"
- *   sandbox="monkey-patch"
+ * <!-- Basic fragment without isolation -->
+ * <fragment-outlet src="/p/metrics" base="/cpanel" />
+ *
+ * @example
+ * <!-- Fragment with history patch -->
+ * <fragment-outlet
+ *   src="/p/metrics"
+ *   base="/cpanel"
+ *   history="patch"
  * />
  *
  * @example
  * <!-- External app with iframe isolation -->
- * <piercing-fragment-outlet
- *   fragment-id="external"
- *   sandbox="iframe"
- *   origin="https://external-app.com"
+ * <fragment-outlet
+ *   src="/external"
+ *   base="/cpanel"
+ *   history="isolate"
  * />
  */
 export class PiercingFragmentOutlet extends HTMLElement {
@@ -227,54 +242,49 @@ export class PiercingFragmentOutlet extends HTMLElement {
   }
 
   static get observedAttributes(): string[] {
-    return ["fragment-id", "sandbox", "origin", "src"];
+    return ["src", "base", "history"];
   }
 
   async connectedCallback(): Promise<void> {
     // Register shadow root for getElementById hijack
     registerOutletShadowRoot(this.shadow);
-    const fragmentId = this.getAttribute("fragment-id");
-    const sandbox = (this.getAttribute("sandbox") || "none") as SandboxStrategy;
-    const origin = this.getAttribute("origin") || undefined;
-    const src = this.getAttribute("src") || undefined;
 
-    if (!fragmentId && !src) {
-      throw new Error("PiercingFragmentOutlet requires fragment-id or src attribute");
+    const src = this.getAttribute("src");
+    const history = this.getAttribute("history") as "patch" | "isolate" | null;
+
+    if (!src) {
+      throw new Error("PiercingFragmentOutlet requires a src attribute");
     }
 
-    // Store fragmentId for unmount tracking
-    this.currentFragmentId = fragmentId || "external";
+    // Derive fragmentId from src for unmount tracking
+    const fragmentId = src.split("/").pop() || "fragment";
+    this.currentFragmentId = fragmentId;
 
-    // For iframe strategy, we don't fetch - iframe handles its own loading
-    if (sandbox === "iframe") {
-      await this.initIframeSandbox(fragmentId || "external", origin);
+    // For iframe isolation, we don't fetch - iframe handles its own loading
+    if (history === "isolate") {
+      await this.initIframeSandbox(fragmentId);
       return;
     }
 
-    // Initialize sandbox before loading fragment (for monkey-patch/service-worker)
-    if (sandbox !== "none") {
-      this.sandboxHandler = this.initSandbox(fragmentId || "external", sandbox, origin);
+    // Initialize sandbox before loading fragment (for patch)
+    if (history === "patch") {
+      this.sandboxHandler = this.initSandbox(fragmentId, "patch");
       await this.sandboxHandler?.init();
     }
 
     // Check if fragment host already exists in DOM (pre-pierced)
-    if (fragmentId) {
-      this.fragmentHost = this.findFragmentHost(fragmentId);
-    }
+    this.fragmentHost = this.findFragmentHost(src);
 
     if (this.fragmentHost) {
       // Fragment was pre-pierced, move it into shadow root for CSS isolation
       this.clearChildren();
       this.fragmentHost.pierceInto(this.shadow);
     } else {
-      // Fetch the fragment on demand from /p/{plugin} (plugin routes)
-      const fetchUrl = src || `/p/${fragmentId}${window.location.search}`;
+      // Fetch the fragment on demand
+      const fetchUrl = `${src}${window.location.search}`;
       const stream = await this.fetchFragment(fetchUrl);
-      const baseUrl = src || `/p/${fragmentId}`;
-      await this.streamFragmentInto(fragmentId || "external", stream, baseUrl);
-      if (fragmentId) {
-        this.fragmentHost = this.findFragmentHost(fragmentId, true);
-      }
+      await this.streamFragmentInto(fragmentId, stream, src);
+      this.fragmentHost = this.findFragmentHost(src, true);
     }
   }
 
@@ -303,8 +313,8 @@ export class PiercingFragmentOutlet extends HTMLElement {
     oldValue: string | null,
     newValue: string | null,
   ): Promise<void> {
-    // Only handle fragment-id changes after initial connection
-    if (name !== "fragment-id" || oldValue === null || oldValue === newValue) {
+    // Only handle src changes after initial connection
+    if (name !== "src" || oldValue === null || oldValue === newValue) {
       return;
     }
 
@@ -327,39 +337,42 @@ export class PiercingFragmentOutlet extends HTMLElement {
     this.clearChildren();
 
     // Load new fragment
-    const fragmentId = newValue;
-    if (!fragmentId) return;
+    const src = newValue;
+    if (!src) return;
 
+    const fragmentId = src.split("/").pop() || "fragment";
     this.currentFragmentId = fragmentId;
 
-    const sandbox = (this.getAttribute("sandbox") || "none") as SandboxStrategy;
-    const origin = this.getAttribute("origin") || undefined;
+    const history = this.getAttribute("history") as "patch" | "isolate" | null;
 
     // Initialize sandbox for new fragment if needed
-    if (sandbox !== "none" && sandbox !== "iframe") {
-      this.sandboxHandler = this.initSandbox(fragmentId, sandbox, origin);
+    if (history === "patch") {
+      this.sandboxHandler = this.initSandbox(fragmentId, "patch");
       await this.sandboxHandler?.init();
     }
 
     // Fetch and load new fragment
-    const fetchUrl = `/p/${fragmentId}${window.location.search}`;
+    const fetchUrl = `${src}${window.location.search}`;
     const stream = await this.fetchFragment(fetchUrl);
-    const baseUrl = `/p/${fragmentId}`;
-    await this.streamFragmentInto(fragmentId, stream, baseUrl);
-    this.fragmentHost = this.findFragmentHost(fragmentId, true);
+    await this.streamFragmentInto(fragmentId, stream, src);
+    this.fragmentHost = this.findFragmentHost(src, true);
   }
 
   private initSandbox(
     fragmentId: string,
     strategy: SandboxStrategy,
-    origin?: string,
   ): SandboxStrategyHandler | null {
+    const src = this.getAttribute("src");
     const mountPath = this.getMountPath();
 
+    if (!src) {
+      throw new Error("src attribute is required for sandbox initialization");
+    }
+
     const config: SandboxConfig = {
+      src,
       fragmentId,
       strategy,
-      origin,
       mountPath,
       allowMessageBus: true,
     };
@@ -367,13 +380,18 @@ export class PiercingFragmentOutlet extends HTMLElement {
     return createSandbox(config, this);
   }
 
-  private async initIframeSandbox(fragmentId: string, origin?: string): Promise<void> {
+  private async initIframeSandbox(fragmentId: string): Promise<void> {
+    const src = this.getAttribute("src");
     const mountPath = this.getMountPath();
 
+    if (!src) {
+      throw new Error("src attribute is required for sandbox initialization");
+    }
+
     const config: SandboxConfig = {
+      src,
       fragmentId,
-      strategy: "iframe",
-      origin,
+      strategy: "isolate",
       mountPath,
       allowMessageBus: true,
     };
@@ -383,16 +401,8 @@ export class PiercingFragmentOutlet extends HTMLElement {
   }
 
   private getMountPath(): string {
-    // Try to determine mount path from current URL or attribute
-    const pathname = window.location.pathname;
-    const fragmentId = this.getAttribute("fragment-id");
-
-    // If we're at /cpanel/logs, mount path is /cpanel/logs
-    if (fragmentId && pathname.includes(fragmentId)) {
-      return pathname;
-    }
-
-    return pathname;
+    // Use base attribute if provided, otherwise use current pathname
+    return this.getAttribute("base") || window.location.pathname;
   }
 
   private clearChildren(): void {
@@ -418,130 +428,56 @@ export class PiercingFragmentOutlet extends HTMLElement {
   }
 
   /**
-   * Stream fragment HTML into this outlet using DOM parsing
-   * Uses DOMParser for safe HTML parsing from trusted SSR content
+   * Stream fragment HTML into this outlet using writable-dom
+   * Uses WritableDOM for efficient streaming HTML parsing
    */
   private async streamFragmentInto(
     fragmentId: string,
     stream: ReadableStream,
     baseUrl: string,
   ): Promise<void> {
-    const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
-    let html = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      html += value;
-    }
-
-    // Parse HTML safely using DOMParser
-    // This is SSR content from our own server, so it's trusted
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, "text/html");
-
-    // Move all body children into shadow root for CSS isolation
+    // Clear shadow DOM before streaming
     this.clearChildren();
 
     // Store the plugin's base URL as a data attribute so fragments can access it for API calls
-    // baseUrl is already /p/{plugin} (unified with plugin routes)
     this.setAttribute("data-fragment-base", baseUrl);
-
-    // First, append stylesheets and scripts from head
-    // This ensures styles and scripts are included even if they're in <head>
-    const headLinks = doc.head.querySelectorAll('link[rel="stylesheet"]');
-    const headScripts = doc.head.querySelectorAll("script");
-
-    for (const link of headLinks) {
-      const newLink = link.cloneNode(true) as HTMLLinkElement;
-      // Resolve relative URLs to absolute URLs based on fragment baseUrl
-      const href = link.getAttribute("href");
-      if (href?.startsWith("./")) {
-        newLink.setAttribute("href", `${baseUrl}/${href.slice(2)}`);
-      }
-      this.shadow.appendChild(newLink);
-    }
 
     // Check if this fragment was previously unmounted (needs cache-busting for scripts)
     const wasUnmounted = PiercingFragmentOutlet.unmountedFragmentIds.has(fragmentId);
     const cacheBuster = wasUnmounted ? `?_t=${Date.now()}` : "";
 
-    for (const oldScript of headScripts) {
-      // Create new script element to ensure it executes
-      const newScript = document.createElement("script");
+    // Create transform stream to rewrite relative URLs before parsing
+    // This is needed because WritableDOM parses elements immediately, triggering
+    // resource loads before we can post-process the URLs
+    const urlRewriteTransform = new TransformStream<string, string>({
+      transform(chunk, controller) {
+        // Rewrite src="./..." and href="./..." to absolute URLs
+        let modified = chunk
+          .replace(/src="\.\/([^"]+)"/g, `src="${baseUrl}/$1"`)
+          .replace(/href="\.\/([^"]+)"/g, `href="${baseUrl}/$1"`);
 
-      // Copy all attributes and resolve relative URLs
-      for (const attr of oldScript.attributes) {
-        let value = attr.value;
-        // Resolve relative src URLs to absolute URLs based on fragment baseUrl
-        if (attr.name === "src") {
-          if (value.startsWith("./")) {
-            value = `${baseUrl}/${value.slice(2)}`;
-          }
-          // Add cache-buster for remounted fragments to force script re-execution
-          if (wasUnmounted && !value.includes("?")) {
-            value = `${value}${cacheBuster}`;
-          }
+        // Add cache buster for scripts if fragment was previously unmounted
+        if (wasUnmounted) {
+          modified = modified.replace(
+            new RegExp(`src="${baseUrl}/([^"?]+)"`, "g"),
+            `src="${baseUrl}/$1${cacheBuster}"`,
+          );
         }
-        newScript.setAttribute(attr.name, value);
-      }
 
-      // Copy text content if inline script
-      if (oldScript.textContent) {
-        newScript.textContent = oldScript.textContent;
-      }
+        controller.enqueue(modified);
+      },
+    });
 
-      this.shadow.appendChild(newScript);
-    }
+    // Stream HTML with rewritten URLs into shadow root
+    const textStream = stream.pipeThrough(new TextDecoderStream()).pipeThrough(urlRewriteTransform);
 
-    // Process body content - resolve URLs for links and scripts
-    const bodyLinks = doc.body.querySelectorAll('link[rel="stylesheet"]');
-    const bodyScripts = doc.body.querySelectorAll("script");
-
-    // Resolve stylesheet URLs in body
-    for (const link of bodyLinks) {
-      const href = link.getAttribute("href");
-      if (href?.startsWith("./")) {
-        link.setAttribute("href", `${baseUrl}/${href.slice(2)}`);
-      }
-    }
-
-    // Resolve script URLs in body and add cache-buster if needed
-    for (const script of bodyScripts) {
-      const src = script.getAttribute("src");
-      if (src) {
-        let resolvedSrc = src.startsWith("./") ? `${baseUrl}/${src.slice(2)}` : src;
-        if (wasUnmounted && !resolvedSrc.includes("?")) {
-          resolvedSrc = `${resolvedSrc}${cacheBuster}`;
-        }
-        script.setAttribute("src", resolvedSrc);
-      }
-    }
-
-    // Append body content to shadow root
-    while (doc.body.firstChild) {
-      const node = doc.body.firstChild;
-
-      // Scripts need to be recreated to execute
-      if (node instanceof HTMLScriptElement) {
-        const newScript = document.createElement("script");
-        for (const attr of node.attributes) {
-          newScript.setAttribute(attr.name, attr.value);
-        }
-        if (node.textContent) {
-          newScript.textContent = node.textContent;
-        }
-        this.shadow.appendChild(newScript);
-        node.remove();
-      } else {
-        this.shadow.appendChild(node);
-      }
-    }
+    const writable = new WritableDOM(this.shadow);
+    await textStream.pipeTo(writable);
   }
 
-  private findFragmentHost(fragmentId: string, insideOutlet = false): PiercingFragmentHost | null {
+  private findFragmentHost(src: string, insideOutlet = false): PiercingFragmentHost | null {
     const root = insideOutlet ? this.shadow : document;
-    return root.querySelector(`piercing-fragment-host[fragment-id="${fragmentId}"]`);
+    return root.querySelector(`fragment-host[src="${src}"]`);
   }
 }
 
@@ -566,7 +502,7 @@ function installGetElementByIdHijack(): void {
 
   document.getElementById = function (id: string): HTMLElement | null {
     // First, search in shadow roots (fragments)
-    for (const shadowRoot of outletShadowRoots) {
+    for (const shadowRoot of Array.from(outletShadowRoots)) {
       const element = shadowRoot.getElementById(id);
       if (element) return element;
     }
@@ -599,12 +535,12 @@ export function registerPiercingComponents(): void {
   // Install getElementById hijack for shadow DOM support
   installGetElementByIdHijack();
 
-  if (!customElements.get("piercing-fragment-host")) {
-    customElements.define("piercing-fragment-host", PiercingFragmentHost);
+  if (!customElements.get("fragment-host")) {
+    customElements.define("fragment-host", PiercingFragmentHost);
   }
 
-  if (!customElements.get("piercing-fragment-outlet")) {
-    customElements.define("piercing-fragment-outlet", PiercingFragmentOutlet);
+  if (!customElements.get("fragment-outlet")) {
+    customElements.define("fragment-outlet", PiercingFragmentOutlet);
   }
 }
 
@@ -613,8 +549,8 @@ export function registerPiercingComponents(): void {
 // declare global {
 //   namespace JSX {
 //     interface IntrinsicElements {
-//       "piercing-fragment-host": { "fragment-id": string } & Record<string, unknown>;
-//       "piercing-fragment-outlet": { "fragment-id": string } & Record<string, unknown>;
+//       "fragment-host": { "fragment-id": string } & Record<string, unknown>;
+//       "fragment-outlet": { "fragment-id": string } & Record<string, unknown>;
 //     }
 //   }
 // }

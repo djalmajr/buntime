@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
   Checkbox,
+  Icon,
   Input,
   Label,
   Select,
@@ -25,7 +26,6 @@ import {
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { kv } from "~/helpers/kv";
-import { Icon } from "./icon";
 import { PageHeader } from "./page-header";
 import { ScrollArea } from "./scroll-area";
 

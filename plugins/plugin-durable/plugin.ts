@@ -59,7 +59,7 @@ export default function durableObjectsExtension(config: DurableObjectsConfig = {
     dependencies: ["@buntime/plugin-database"],
 
     fragment: {
-      type: "monkey-patch",
+      type: "patch",
     },
 
     menus: [

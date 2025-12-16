@@ -1,3 +1,11 @@
+// Re-export TanStack Table for DataTable usage
+export {
+  type ColumnDef,
+  getCoreRowModel,
+  getPaginationRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
+
 export * from "./components/app-info";
 export * from "./components/code-editor";
 // Data Table Components

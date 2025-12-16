@@ -10,10 +10,10 @@ export interface ProxyFragmentConfig {
   /**
    * Sandbox strategy for the fragment
    * - "none": No isolation (internal plugins only)
-   * - "monkey-patch": Intercepts History API (lightweight)
+   * - "patch": Intercepts History API (lightweight)
    * - "iframe": Full isolation via iframe (untrusted apps)
    * - "service-worker": SW intercepts requests (shared styles)
-   * @default "monkey-patch"
+   * @default "patch"
    */
   sandbox?: SandboxStrategy;
 

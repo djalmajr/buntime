@@ -8,6 +8,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Icon,
   Input,
   Skeleton,
 } from "@buntime/shadcn-ui";
@@ -15,7 +16,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Icon } from "~/components/icon";
 import { apiRequest, getBasePath, uploadFiles } from "~/utils/api";
 import { isValidUploadDestination, parseDeploymentPath } from "~/utils/path-utils";
 import { useFragmentUrl } from "~/utils/use-fragment-url";

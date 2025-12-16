@@ -1,10 +1,10 @@
 == Web Components
 
-O Piercing utiliza dois Web Components customizados para gerenciar fragmentos no DOM: `<piercing-fragment-host>` e `<piercing-fragment-outlet>`. Estes componentes trabalham em conjunto para implementar o padrão de "piercing", permitindo que fragmentos sejam renderizados via SSR e posteriormente movidos para seus destinos finais no DOM.
+O Piercing utiliza dois Web Components customizados para gerenciar fragmentos no DOM: `<fragment-host>` e `<fragment-outlet>`. Estes componentes trabalham em conjunto para implementar o padrão de "piercing", permitindo que fragmentos sejam renderizados via SSR e posteriormente movidos para seus destinos finais no DOM.
 
-=== PiercingFragmentHost
+=== FragmentHost
 
-O `PiercingFragmentHost` é um elemento customizado que encapsula o conteúdo SSR de um fragmento. Ele gerencia o ciclo de vida do fragmento, incluindo limpeza de recursos, observação de estilos e integração com o message bus.
+O `FragmentHost` é um elemento customizado que encapsula o conteúdo SSR de um fragmento. Ele gerencia o ciclo de vida do fragmento, incluindo limpeza de recursos, observação de estilos e integração com o message bus.
 
 ==== Atributos
 
@@ -12,9 +12,9 @@ O `PiercingFragmentHost` é um elemento customizado que encapsula o conteúdo SS
 |===
 | Atributo | Tipo | Descrição
 
-| `fragment-id`
+| `src`
 | string
-| Identificador único do fragmento (obrigatório)
+| URL de onde o fragmento foi originado (obrigatório)
 |===
 
 ==== Propriedades
@@ -23,9 +23,9 @@ O `PiercingFragmentHost` é um elemento customizado que encapsula o conteúdo SS
 |===
 | Propriedade | Tipo | Descrição
 
-| `fragmentId`
+| `src`
 | string
-| ID do fragmento obtido do atributo `fragment-id`
+| URL do fragmento obtida do atributo `src`
 
 | `messageBus`
 | FragmentMessageBus
@@ -55,8 +55,8 @@ O `PiercingFragmentHost` é um elemento customizado que encapsula o conteúdo SS
 ----
 // Conexão
 connectedCallback(): void {
-  // 1. Valida presença do atributo fragment-id
-  // 2. Inicializa o fragmentId
+  // 1. Valida presença do atributo src
+  // 2. Inicializa a propriedade src
   // 3. Se não pierced, inicia observador de estilos
 }
 
@@ -73,18 +73,18 @@ disconnectedCallback(): void {
 [source,html]
 ----
 <!-- Fragment host gerado via SSR -->
-<piercing-fragment-host fragment-id="health">
+<fragment-host src="/p/health">
   <div class="health-dashboard">
     <!-- Conteúdo do fragmento -->
   </div>
   <link rel="stylesheet" href="/health/styles.css">
   <script type="module" src="/health/client.js"></script>
-</piercing-fragment-host>
+</fragment-host>
 ----
 
 ==== Gerenciamento de Estilos
 
-O `PiercingFragmentHost` converte automaticamente links de folhas de estilo externas em estilos inline quando o fragmento não está dentro de um outlet. Isso é necessário porque fragmentos podem ter CSS de diferentes origens.
+O `FragmentHost` converte automaticamente links de folhas de estilo externas em estilos inline quando o fragmento não está dentro de um outlet. Isso é necessário porque fragmentos podem ter CSS de diferentes origens.
 
 [source,typescript]
 ----
@@ -134,9 +134,9 @@ pierceInto(outlet: Element): void {
 }
 ----
 
-=== PiercingFragmentOutlet
+=== FragmentOutlet
 
-O `PiercingFragmentOutlet` é um elemento placeholder que marca onde um fragmento deve ser renderizado. Ele é responsável por buscar fragmentos sob demanda ou receber fragmentos pré-renderizados via piercing.
+O `FragmentOutlet` é um elemento placeholder que marca onde um fragmento deve ser renderizado. Ele é responsável por buscar fragmentos sob demanda ou receber fragmentos pré-renderizados via piercing.
 
 ==== Atributos
 
@@ -144,21 +144,17 @@ O `PiercingFragmentOutlet` é um elemento placeholder que marca onde um fragment
 |===
 | Atributo | Tipo | Descrição
 
-| `fragment-id`
-| string
-| ID do fragmento a ser carregado (obrigatório se `src` não for especificado)
-
 | `src`
 | string
-| URL direta para buscar o fragmento (alternativa ao `fragment-id`)
+| URL do fragmento a ser carregado (obrigatório)
 
-| `sandbox`
-| SandboxStrategy
-| Estratégia de isolamento: `"none"`, `"monkey-patch"`, `"iframe"`, `"service-worker"` (padrão: `"none"`)
-
-| `origin`
+| `base`
 | string
-| Origem externa (obrigatório para `iframe` e `service-worker`)
+| Caminho base da shell para contexto de roteamento (opcional)
+
+| `history`
+| string
+| Estratégia de isolamento de navegação: `"patch"` (intercepta History API) ou `"isolate"` (usa iframe). Padrão: sem isolamento
 |===
 
 ==== Propriedades
@@ -172,27 +168,24 @@ O `PiercingFragmentOutlet` é um elemento placeholder que marca onde um fragment
 | Marcador constante (`true`) para identificação como outlet
 
 | `fragmentHost`
-| PiercingFragmentHost \| null
+| FragmentHost \| null
 | Referência ao fragment host atual
 |===
 
-==== Estratégias de Sandbox
+==== Estratégias de Isolamento de Navegação
 
 [cols="1,3"]
 |===
 | Estratégia | Descrição
 
-| `none`
-| Sem isolamento, compartilha contexto com aplicação principal
+| Sem atributo `history`
+| Sem isolamento, compartilha contexto de navegação com aplicação principal
 
-| `monkey-patch`
-| Intercepta History API para isolar navegação
+| `patch`
+| Intercepta History API para isolar navegação do fragmento
 
-| `iframe`
+| `isolate`
 | Isolamento completo via iframe (carrega fragmento em contexto separado)
-
-| `service-worker`
-| Interceptação via Service Worker
 |===
 
 ==== Exemplos de Uso
@@ -200,26 +193,19 @@ O `PiercingFragmentOutlet` é um elemento placeholder que marca onde um fragment
 [source,html]
 ----
 <!-- Plugin interno sem isolamento -->
-<piercing-fragment-outlet fragment-id="logs" />
+<fragment-outlet src="/p/logs" />
 
-<!-- Aplicação externa com monkey-patch -->
-<piercing-fragment-outlet
-  fragment-id="legacy"
-  sandbox="monkey-patch"
-/>
+<!-- Plugin com contexto de roteamento -->
+<fragment-outlet src="/p/metrics" base="/cpanel" />
 
-<!-- Aplicação externa com iframe -->
-<piercing-fragment-outlet
-  fragment-id="external"
-  sandbox="iframe"
-  origin="https://external-app.com"
-/>
+<!-- Aplicação com patch de navegação -->
+<fragment-outlet src="/p/metrics" base="/cpanel" history="patch" />
 
-<!-- URL customizada -->
-<piercing-fragment-outlet
-  src="/custom/fragment/path"
-  sandbox="none"
-/>
+<!-- Aplicação externa isolada com iframe -->
+<fragment-outlet src="/external" base="/cpanel" history="isolate" />
+
+<!-- Fragmento customizado -->
+<fragment-outlet src="/custom/fragment/path" />
 ----
 
 ==== Ciclo de Vida
@@ -227,18 +213,18 @@ O `PiercingFragmentOutlet` é um elemento placeholder que marca onde um fragment
 [source,typescript]
 ----
 async connectedCallback(): Promise<void> {
-  // 1. Obtém atributos (fragment-id, sandbox, origin, src)
-  // 2. Valida presença de fragment-id ou src
+  // 1. Obtém atributos (src, base, history)
+  // 2. Valida presença de src
 
-  // Se sandbox é iframe:
-  if (sandbox === "iframe") {
-    // Inicializa sandbox iframe (iframe gerencia próprio carregamento)
-    await this.initIframeSandbox(fragmentId, origin);
+  // Se history é isolate:
+  if (history === "isolate") {
+    // Inicializa iframe isolado (iframe gerencia próprio carregamento)
+    await this.initIframe();
     return;
   }
 
   // Para outras estratégias:
-  // 3. Inicializa sandbox (monkey-patch/service-worker)
+  // 3. Inicializa patch de navegação se history="patch"
   // 4. Busca fragment host existente no DOM (pré-pierced)
 
   if (this.fragmentHost) {
@@ -247,13 +233,13 @@ async connectedCallback(): Promise<void> {
   } else {
     // 5b. Busca fragmento sob demanda via fetch
     const stream = await this.fetchFragment(url);
-    await this.streamFragmentInto(fragmentId, stream);
+    await this.streamFragmentInto(stream);
   }
 }
 
 disconnectedCallback(): void {
-  // 1. Limpa sandbox
-  // 2. Registra fragment-id como desmontado
+  // 1. Limpa patch de navegação
+  // 2. Registra fragmento como desmontado
   // 3. Remove referência ao fragment host
 }
 ----
@@ -288,7 +274,6 @@ O outlet utiliza `DOMParser` para processar HTML de forma segura:
 [source,typescript]
 ----
 private async streamFragmentInto(
-  fragmentId: string,
   stream: ReadableStream
 ): Promise<void> {
   // 1. Lê todo o stream
@@ -312,7 +297,8 @@ private async streamFragmentInto(
   }
 
   // 4. Re-executa scripts de módulo se fragmento foi desmontado antes
-  if (unmountedFragmentIds.has(fragmentId)) {
+  const src = this.getAttribute("src");
+  if (src && unmountedFragmentIds.has(src)) {
     this.rerunModuleScripts();
   }
 }
@@ -355,12 +341,12 @@ registerPiercingComponents();
 export function registerPiercingComponents(): void {
   if (typeof window === "undefined") return;
 
-  if (!customElements.get("piercing-fragment-host")) {
-    customElements.define("piercing-fragment-host", PiercingFragmentHost);
+  if (!customElements.get("fragment-host")) {
+    customElements.define("fragment-host", FragmentHost);
   }
 
-  if (!customElements.get("piercing-fragment-outlet")) {
-    customElements.define("piercing-fragment-outlet", PiercingFragmentOutlet);
+  if (!customElements.get("fragment-outlet")) {
+    customElements.define("fragment-outlet", FragmentOutlet);
   }
 }
 ----
@@ -374,15 +360,14 @@ Para usar os componentes em JSX/TSX, adicione as seguintes declarações ao seu 
 declare global {
   namespace JSX {
     interface IntrinsicElements {
-      "piercing-fragment-host": {
-        "fragment-id": string;
+      "fragment-host": {
+        "src": string;
       } & Record<string, unknown>;
 
-      "piercing-fragment-outlet": {
-        "fragment-id"?: string;
-        "src"?: string;
-        "sandbox"?: "none" | "monkey-patch" | "iframe" | "service-worker";
-        "origin"?: string;
+      "fragment-outlet": {
+        "src": string;
+        "base"?: string;
+        "history"?: "patch" | "isolate";
       } & Record<string, unknown>;
     }
   }
@@ -391,7 +376,7 @@ declare global {
 
 === FragmentMessageBus
 
-Cada `PiercingFragmentHost` possui uma instância isolada de `FragmentMessageBus`, que é um wrapper do message bus global com rastreamento de cleanup.
+Cada `FragmentHost` possui uma instância isolada de `FragmentMessageBus`, que é um wrapper do message bus global com rastreamento de cleanup.
 
 ==== Métodos
 
@@ -445,7 +430,7 @@ const MESSAGE_BUS_PROP = Symbol.for("piercing:fragment-message-bus");
 [MESSAGE_BUS_PROP] = new FragmentMessageBus();
 
 // No fragment client
-const host = document.querySelector("piercing-fragment-host");
+const host = document.querySelector("fragment-host");
 const bus = host?.[MESSAGE_BUS_PROP];
 ----
 
@@ -457,7 +442,7 @@ const bus = host?.[MESSAGE_BUS_PROP];
 ----
 1. Servidor renderiza HTML com fragment-host
    ↓
-2. HTML contém <piercing-fragment-host fragment-id="logs">
+2. HTML contém <fragment-host src="/p/logs">
    ↓
 3. Browser registra componentes via registerPiercingComponents()
    ↓
@@ -468,7 +453,7 @@ const bus = host?.[MESSAGE_BUS_PROP];
 
 [source]
 ----
-5. Outlet conecta: <piercing-fragment-outlet fragment-id="logs">
+5. Outlet conecta: <fragment-outlet src="/p/logs">
    ↓
 6. Outlet encontra fragment-host no DOM
    ↓
@@ -483,11 +468,11 @@ const bus = host?.[MESSAGE_BUS_PROP];
 
 [source]
 ----
-5. Outlet conecta: <piercing-fragment-outlet fragment-id="metrics">
+5. Outlet conecta: <fragment-outlet src="/p/metrics">
    ↓
 6. Fragment não encontrado no DOM
    ↓
-7. Outlet busca via fetch(/piercing-fragment/metrics)
+7. Outlet busca via fetch(/p/metrics)
    ↓
 8. Stream HTML via DOMParser
    ↓
@@ -498,18 +483,17 @@ const bus = host?.[MESSAGE_BUS_PROP];
 
 ==== Fragmentos Desmontados
 
-O outlet mantém um set de IDs de fragmentos desmontados:
+O outlet mantém um set de URLs de fragmentos desmontados:
 
 [source,typescript]
 ----
 private static unmountedFragmentIds = new Set<string>();
 
 disconnectedCallback(): void {
-  if (this.fragmentHost) {
+  const src = this.getAttribute("src");
+  if (src && this.fragmentHost) {
     // Registra fragmento como desmontado
-    PiercingFragmentOutlet.unmountedFragmentIds.add(
-      this.fragmentHost.fragmentId
-    );
+    FragmentOutlet.unmountedFragmentIds.add(src);
   }
 }
 ----
@@ -518,7 +502,8 @@ Quando um fragmento é remontado, seus scripts de módulo são re-executados:
 
 [source,typescript]
 ----
-if (PiercingFragmentOutlet.unmountedFragmentIds.has(fragmentId)) {
+const src = this.getAttribute("src");
+if (src && FragmentOutlet.unmountedFragmentIds.has(src)) {
   this.rerunModuleScripts();
 }
 ----

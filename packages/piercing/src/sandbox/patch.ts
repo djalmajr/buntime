@@ -3,7 +3,7 @@ import type { JSONValue } from "../types";
 import type { SandboxConfig, SandboxNavigateEvent, SandboxStrategyHandler } from "./types";
 
 /**
- * Monkey-patch sandbox strategy
+ * Patch sandbox strategy
  *
  * Intercepts History API calls and link clicks to prevent
  * fragments from changing the browser URL.
@@ -18,7 +18,7 @@ import type { SandboxConfig, SandboxNavigateEvent, SandboxStrategyHandler } from
  * Pros: Lightweight, shares DOM/styles with shell
  * Cons: Not fully isolated, fragment scripts still run in main context
  */
-export function createMonkeyPatchSandbox(config: SandboxConfig): SandboxStrategyHandler {
+export function createPatchSandbox(config: SandboxConfig): SandboxStrategyHandler {
   const { fragmentId, mountPath, allowMessageBus = true } = config;
 
   // Store original methods
@@ -170,7 +170,7 @@ export function createMonkeyPatchSandbox(config: SandboxConfig): SandboxStrategy
         }) as (value: JSONValue) => void);
       }
 
-      console.log(`[Piercing] Monkey-patch sandbox activated for: ${fragmentId}`);
+      console.log(`[Piercing] Patch sandbox activated for: ${fragmentId}`);
     },
 
     cleanup() {
@@ -206,7 +206,7 @@ export function createMonkeyPatchSandbox(config: SandboxConfig): SandboxStrategy
         messageBusCleanup = null;
       }
 
-      console.log(`[Piercing] Monkey-patch sandbox deactivated for: ${fragmentId}`);
+      console.log(`[Piercing] Patch sandbox deactivated for: ${fragmentId}`);
     },
   };
 }

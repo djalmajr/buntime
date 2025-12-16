@@ -6,6 +6,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Icon,
   Input,
   Label,
   Tabs,
@@ -16,7 +17,6 @@ import {
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { kv } from "~/helpers/kv";
-import { Icon } from "./icon";
 import { useKvGrid } from "./kv-grid/hooks/use-kv-grid";
 import { KvGrid } from "./kv-grid/kv-grid";
 import { PageHeader } from "./page-header";

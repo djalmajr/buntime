@@ -190,7 +190,7 @@ function DeploymentsFragment() {
 
 === Sandbox
 
-O Sandbox permite isolar fragmentos externos (de domínios diferentes) com diferentes níveis de isolamento. Existem quatro estratégias:
+O Sandbox permite isolar fragmentos externos (de domínios diferentes) com diferentes níveis de isolamento. Existem três estratégias:
 
 ==== none (padrão)
 
@@ -198,20 +198,20 @@ Sem isolamento. Fragmento executa no mesmo contexto da shell.
 
 [source,html]
 ----
-<piercing-fragment-outlet fragment-id="logs" />
+<fragment-outlet fragment-id="logs" />
 ----
 
 **Quando usar**: Fragmentos internos (plugins do Buntime)
 
-==== monkey-patch
+==== patch
 
 Intercepta APIs do navegador (History, Location) usando monkey patching. O fragmento roda no mesmo DOM mas navegação é redirecionada.
 
 [source,html]
 ----
-<piercing-fragment-outlet
+<fragment-outlet
   fragment-id="legacy"
-  sandbox="monkey-patch"
+  sandbox="patch"
 />
 ----
 
@@ -227,7 +227,7 @@ Isolamento completo em iframe. Fragmento carrega de origem externa.
 
 [source,html]
 ----
-<piercing-fragment-outlet
+<fragment-outlet
   fragment-id="external"
   sandbox="iframe"
   origin="https://external-app.com"
@@ -241,24 +241,6 @@ Isolamento completo em iframe. Fragmento carrega de origem externa.
 - Comunicação via MessageBus (postMessage)
 - Requer CORS configurado
 
-==== service-worker
-
-Interceptação via Service Worker. Permite controle de rede sem iframe.
-
-[source,html]
-----
-<piercing-fragment-outlet
-  fragment-id="external"
-  sandbox="service-worker"
-  origin="https://external-app.com"
-/>
-----
-
-**Quando usar**: Fragmentos externos que precisam interceptar fetch mas compartilhar DOM
-
-**Limitações**:
-- Requer HTTPS
-- Service Worker precisa ser registrado
 
 == Como Funciona o SSR
 
@@ -282,7 +264,7 @@ O fluxo de SSR com Piercing envolve múltiplas etapas coordenadas pelo Gateway:
    - Injeta script de inicialização
         ↓
 6. Combina shell + fragment:
-   - Fragment envolto em <piercing-fragment-host>
+   - Fragment envolto em <fragment-host>
    - Inserido antes de </body>
         ↓
 7. Response streaming para browser:
@@ -299,20 +281,20 @@ O fluxo de SSR com Piercing envolve múltiplas etapas coordenadas pelo Gateway:
      <body>
        <nav>Shell navigation</nav>
        <main>
-         <piercing-fragment-outlet fragment-id="logs">
-         </piercing-fragment-outlet>
+         <fragment-outlet fragment-id="logs">
+         </fragment-outlet>
        </main>
 
        <!-- Pre-pierced fragment -->
-       <piercing-fragment-host fragment-id="logs">
+       <fragment-host fragment-id="logs">
          <div>Logs UI rendered on server</div>
-       </piercing-fragment-host>
+       </fragment-host>
      </body>
    </html>
         ↓
 8. Browser executa:
    - Web components se registram
-   - PiercingFragmentOutlet procura host
+   - FragmentOutlet procura host
    - Host é "perfurado" no outlet (move DOM)
    - Fragment está visível!
 ----
@@ -321,17 +303,17 @@ O fluxo de SSR com Piercing envolve múltiplas etapas coordenadas pelo Gateway:
 
 O Piercing utiliza dois Web Components customizados:
 
-==== piercing-fragment-outlet
+==== fragment-outlet
 
 Placeholder que marca onde o fragmento deve aparecer. Pode buscar fragmento sob demanda ou receber pré-carregado.
 
 [source,typescript]
 ----
-class PiercingFragmentOutlet extends HTMLElement {
+class FragmentOutlet extends HTMLElement {
   async connectedCallback() {
     // 1. Procura host pre-pierced no DOM
     const host = document.querySelector(
-      `piercing-fragment-host[fragment-id="${this.fragmentId}"]`
+      `fragment-host[fragment-id="${this.fragmentId}"]`
     );
 
     if (host) {
@@ -346,13 +328,13 @@ class PiercingFragmentOutlet extends HTMLElement {
 }
 ----
 
-==== piercing-fragment-host
+==== fragment-host
 
 Envolve o conteúdo SSR do fragmento. Gerencia ciclo de vida e MessageBus isolado.
 
 [source,typescript]
 ----
-class PiercingFragmentHost extends HTMLElement {
+class FragmentHost extends HTMLElement {
   pierceInto(outlet: Element) {
     // Move este elemento para dentro do outlet
     // Preserva foco e evita re-renders
@@ -423,7 +405,7 @@ gateway.registerFragment({
 [source,html]
 ----
 <!-- Fragment será buscado quando este elemento aparecer -->
-<piercing-fragment-outlet fragment-id="settings" />
+<fragment-outlet fragment-id="settings" />
 ----
 
 === Híbrido
@@ -443,7 +425,7 @@ gateway.registerFragment({
 ----
 <!-- Em /cpanel/dashboard: pre-pierced -->
 <!-- Em outras rotas: lazy loading -->
-<piercing-fragment-outlet fragment-id="notifications" />
+<fragment-outlet fragment-id="notifications" />
 ----
 
 == Estratégias de Isolamento de Fragmentos
@@ -460,7 +442,7 @@ gateway.registerFragment({
 | Compartilhado
 | Shell context
 
-| monkey-patch
+| patch
 | Compartilhado
 | Compartilhado
 | Compartilhado
@@ -471,12 +453,6 @@ gateway.registerFragment({
 | Isolado
 | Isolado
 | Fragment context
-
-| service-worker
-| Compartilhado
-| Compartilhado
-| Compartilhado
-| Interceptado
 |===
 
 === Escolhendo a Estratégia
@@ -489,17 +465,15 @@ Fragmento interno (plugin)?
       ├─ Precisa isolamento total?
       │   ├─ Sim → iframe
       │   └─ Não → Precisa interceptar navegação?
-      │       ├─ Sim → monkey-patch
-      │       └─ Não → Precisa interceptar fetch?
-      │           ├─ Sim → service-worker
-      │           └─ Não → none
+      │       ├─ Sim → patch
+      │       └─ Não → none
 ----
 
 === Comunicação entre Estratégias
 
 Todas as estratégias suportam MessageBus:
 
-* **none/monkey-patch/service-worker**: MessageBus compartilhado (mesmo objeto)
+* **none/patch**: MessageBus compartilhado (mesmo objeto)
 * **iframe**: MessageBus via `postMessage` (serialização automática)
 
 [source,typescript]
@@ -547,7 +521,7 @@ Migrar partes de aplicação legada para micro-frontends sem reescrever tudo.
 <nav>Nova navegação</nav>
 <main>
   <!-- Fragmento legado isolado em iframe -->
-  <piercing-fragment-outlet
+  <fragment-outlet
     fragment-id="legacy-billing"
     sandbox="iframe"
     origin="https://legacy.internal"

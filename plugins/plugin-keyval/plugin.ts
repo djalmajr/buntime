@@ -82,9 +82,9 @@ export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugi
     // API routes run on main thread (required for SSE/watch endpoints)
     routes: api,
 
-    // Fragment with monkey-patch sandbox (internal plugin)
+    // Fragment with patch sandbox (internal plugin)
     fragment: {
-      type: "monkey-patch",
+      type: "patch",
     },
 
     // Menu items for C-Panel sidebar

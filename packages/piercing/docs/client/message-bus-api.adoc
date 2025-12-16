@@ -43,7 +43,7 @@ bus.dispatch('myEvent', { data: 'value' });
 A função `getBus()` navega pela árvore DOM buscando:
 
 1. Elemento com Symbol `piercing:fragment-message-bus` anexado
-2. Elemento `<piercing-fragment-host>` com bus anexado
+2. Elemento `<fragment-host>` com bus anexado
 3. Se não encontrar, retorna bus global via adapter
 
 [source,typescript]
@@ -187,7 +187,7 @@ console.log(notFound); // undefined
 
 ==== Bus Escopado (Fragment Bus)
 
-Fragmentos dentro de um `<piercing-fragment-host>` recebem um bus escopado:
+Fragmentos dentro de um `<fragment-host>` recebem um bus escopado:
 
 - Eventos são isolados dentro do fragmento
 - Outros fragmentos não escutam eventos escopados

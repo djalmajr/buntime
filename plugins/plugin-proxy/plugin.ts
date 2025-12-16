@@ -27,7 +27,7 @@ export default function proxyPlugin(config: ProxyConfig = {}): BuntimePlugin {
     routes: api,
 
     fragment: {
-      type: "monkey-patch",
+      type: "patch",
     },
 
     menus: [

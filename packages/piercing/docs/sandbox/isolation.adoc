@@ -51,7 +51,7 @@ Fragmentos executam diretamente no contexto global. Não há proteção.
 * Fragmentos desenvolvidos pela mesma equipe
 * Performance é crítica e segurança não é preocupação
 
-==== Nível 1: Isolamento de Navegação (monkey-patch, service-worker)
+==== Nível 1: Isolamento de Navegação (patch)
 
 Intercepta APIs de navegação mas scripts ainda executam no contexto principal.
 
@@ -110,7 +110,7 @@ interface SandboxConfig {
   /** Estratégia de sandbox a usar */
   strategy: SandboxStrategy;
 
-  /** Origem externa (obrigatória para iframe/service-worker) */
+  /** Origem externa (obrigatória para iframe) */
   origin?: string;
 
   /** Caminho de montagem na shell (ex: "/cpanel/external") */
@@ -127,10 +127,10 @@ interface SandboxConfig {
 **Campos:**
 
 * **fragmentId**: Identificador único para rastreamento e debugging
-* **strategy**: Uma de `"none"` | `"monkey-patch"` | `"iframe"` | `"service-worker"`
+* **strategy**: Uma de `"none"` | `"patch"` | `"iframe"`
 * **origin**: URL base do fragmento externo (ex: `"https://external.com"`)
-  - Obrigatório para `iframe` e `service-worker`
-  - Não usado em `none` e `monkey-patch`
+  - Obrigatório para `iframe`
+  - Não usado em `none` e `patch`
 * **mountPath**: Caminho onde fragmento é montado na shell (ex: `"/admin"`)
   - Usado para reescrever URLs relativas
   - Base para roteamento do fragmento
@@ -357,24 +357,19 @@ window.addEventListener("message", (e) => {
 | Nenhum
 | Performance nativa
 
-| monkey-patch
+| patch
 | Baixo
 | ~1-2ms por navegação, event delegation
 
 | iframe
 | Médio
 | +50-100ms inicial (criação de contexto), memória duplicada
-
-| service-worker
-| Médio
-| +100-200ms inicial (registro SW), latência de rede
 |===
 
 ==== Memória
 
-* **none/monkey-patch**: Compartilham memória da shell
+* **none/patch**: Compartilham memória da shell
 * **iframe**: Contexto separado (~5-10MB adicional por iframe)
-* **service-worker**: Cache do SW (~1-2MB)
 
 ==== Otimizações
 
@@ -401,23 +396,12 @@ function getOrCreateIframe(fragmentId: string) {
 }
 ----
 
-**Preload de Service Worker:**
-
-[source,typescript]
-----
-// Inicializar SW no startup, antes de precisar
-window.addEventListener("load", async () => {
-  await initPiercingServiceWorker();
-});
-----
-
 === Debugging
 
 **Chrome DevTools:**
 
-* **Monkey-patch**: Use breakpoints normais, scripts no contexto principal
+* **Patch**: Use breakpoints normais, scripts no contexto principal
 * **Iframe**: Abra DevTools do iframe via `Inspect element` dentro do iframe
-* **Service-worker**: Chrome DevTools > Application > Service Workers
 
 **Logs:**
 
@@ -425,9 +409,8 @@ Todas as estratégias logam ativação/desativação:
 
 [source]
 ----
-[Piercing] Monkey-patch sandbox activated for: admin-app
+[Piercing] Patch sandbox activated for: admin-app
 [Piercing] Iframe sandbox activated for: external-dashboard
-[Piercing] Service-worker sandbox activated for: third-party-widget
 ----
 
 **Eventos de Navegação:**

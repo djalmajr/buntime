@@ -6,7 +6,6 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -15,6 +14,7 @@ import {
 } from "../ui/sidebar";
 
 interface NavMainSubItem {
+  isActive?: boolean;
   title: string;
   url: string;
 }
@@ -50,28 +50,31 @@ export function NavMain({
         <SidebarMenu>
           {items.map((item) => {
             const hasSubItems = item.items && item.items.length > 0;
+            const hasActiveChild = hasSubItems && item.items!.some((sub) => sub.isActive);
 
             if (hasSubItems) {
               return (
-                <Collapsible asChild defaultOpen={item.isActive} key={item.title}>
+                <Collapsible
+                  asChild
+                  className="group/collapsible"
+                  defaultOpen={item.isActive || hasActiveChild}
+                  key={item.title}
+                >
                   <SidebarMenuItem>
-                    <SidebarMenuButton asChild isActive={item.isActive} tooltip={item.title}>
-                      <LinkComponent href={item.url} to={item.url} {...item.linkProps}>
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton hasActiveChild={hasActiveChild} tooltip={item.title}>
                         {item.icon}
                         <span>{item.title}</span>
-                      </LinkComponent>
-                    </SidebarMenuButton>
-                    <CollapsibleTrigger asChild>
-                      <SidebarMenuAction className="data-[state=open]:rotate-90">
-                        {chevronIcon ?? <Icon icon="lucide:chevron-right" />}
-                        <span className="sr-only">Toggle</span>
-                      </SidebarMenuAction>
+                        <span className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90">
+                          {chevronIcon ?? <Icon icon="lucide:chevron-right" />}
+                        </span>
+                      </SidebarMenuButton>
                     </CollapsibleTrigger>
                     <CollapsibleContent>
                       <SidebarMenuSub>
                         {item.items!.map((subItem) => (
                           <SidebarMenuSubItem key={subItem.title}>
-                            <SidebarMenuSubButton asChild>
+                            <SidebarMenuSubButton asChild isActive={subItem.isActive}>
                               <LinkComponent href={subItem.url} to={subItem.url}>
                                 <span>{subItem.title}</span>
                               </LinkComponent>

@@ -6,12 +6,12 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  Icon,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@buntime/shadcn-ui";
 import { useTranslation } from "react-i18next";
-import { Icon } from "~/components/icon";
 
 interface ConfigValidation {
   errors: string[];

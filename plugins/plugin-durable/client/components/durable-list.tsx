@@ -2,6 +2,7 @@ import {
   Button,
   Card,
   CardContent,
+  Icon,
   Table,
   TableBody,
   TableCell,
@@ -11,7 +12,6 @@ import {
 } from "@buntime/shadcn-ui";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Icon } from "~/components/icon";
 import { api } from "~/utils/api";
 
 interface DurableObject {

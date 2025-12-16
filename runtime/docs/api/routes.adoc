@@ -1,6 +1,6 @@
 == Rotas da API
 
-O servidor Buntime expõe quatro grupos principais de rotas: deployments, plugins info, piercing fragments e worker routes.
+O servidor Buntime expõe quatro grupos principais de rotas: deployments, plugins info, fragments e worker routes.
 
 === Deployments API
 
@@ -545,11 +545,11 @@ Estrutura de Plugin:
 | Plugins opcionais
 |===
 
-=== Piercing Fragment API
+=== Fragment API
 
-Gerencia o carregamento dinâmico de fragmentos de plugins para o web component `piercing-fragment-outlet`.
+Gerencia o carregamento dinâmico de fragmentos de plugins para o web component `fragment-outlet`.
 
-==== ALL /piercing-fragment/:fragmentId
+==== ALL /fragment/:fragmentId
 
 Serve o HTML de um fragmento de plugin.
 
@@ -578,7 +578,7 @@ Erros:
 
 IMPORTANT: Erros relacionados a plugins podem usar formato simplificado `{ "error": "message" }` ao invés do formato padronizado com `code`.
 
-==== ALL /piercing-fragment/:fragmentId/*
+==== ALL /fragment/:fragmentId/*
 
 Serve caminhos aninhados dentro de um fragmento de plugin (mesmo comportamento da rota acima, mas para rotas aninhadas).
 
@@ -775,7 +775,7 @@ Ordem de resolução de rotas:
 
 1. **Plugin Routes** - Rotas montadas por plugins via Hono (ex: `/api/metrics/*`)
 2. **Deployments API** - `/api/deployments/*` (rotas montadas)
-3. **Piercing Fragment API** - `/piercing-fragment/:fragmentId/*` (rotas montadas)
+3. **Fragment API** - `/fragment/:fragmentId/*` (rotas montadas)
 4. **Plugins Info API** - `/api/plugins` (rota montada)
 5. **Plugin Apps** - Apps registrados por plugins (ex: `/api/keyval/*`) (catch-all handler)
 6. **Worker Routes** - Apps nos workspaces (ex: `/my-app/*`) (catch-all handler)
@@ -795,7 +795,7 @@ Todas as rotas retornam erros no formato padronizado:
 }
 ----
 
-NOTE: Rotas relacionadas a plugins (como Piercing Fragment API e Plugin Apps) podem usar formato simplificado `{ "error": "message" }` sem o campo `code`.
+NOTE: Rotas relacionadas a plugins (como Fragment API e Plugin Apps) podem usar formato simplificado `{ "error": "message" }` sem o campo `code`.
 
 Códigos de erro comuns:
 

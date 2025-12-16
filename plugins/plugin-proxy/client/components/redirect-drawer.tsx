@@ -7,12 +7,12 @@ import {
   DrawerFooter,
   DrawerHeader,
   DrawerTitle,
+  Icon,
   Input,
   Label,
   Switch,
 } from "@buntime/shadcn-ui";
 import { useEffect, useState } from "react";
-import { Icon } from "./icon";
 
 export interface RedirectData {
   base?: string;

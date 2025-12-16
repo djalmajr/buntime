@@ -1,25 +1,14 @@
-// Types
+// Client-side exports only
+// Server-side pre-piercing is handled by @buntime/plugin-piercing
 
-// Server-side exports
-export { PiercingGateway } from "./gateway/piercing-gateway";
-// Stream utilities
-export {
-  concatenateStreams,
-  stringToStream,
-  transformStream,
-  wrapStreamInText,
-} from "./gateway/stream-utils";
+// Message bus
 export { GenericMessageBus } from "./message-bus/message-bus";
-export {
-  MESSAGE_BUS_STATE_HEADER,
-  ServerMessageBus,
-} from "./message-bus/server-message-bus";
+
+// Types
 export type {
-  FragmentConfig,
   JSONValue,
   MessageBus,
   MessageBusCallback,
   MessageBusState,
   NavigationItem,
-  PiercingGatewayConfig,
 } from "./types";

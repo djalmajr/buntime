@@ -7,6 +7,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Icon,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -20,7 +21,6 @@ import {
   useProxyRules,
   useUpdateProxyRule,
 } from "~/hooks/use-proxy-rules";
-import { Icon } from "./icon";
 import { type RedirectData, RedirectDrawer } from "./redirect-drawer";
 
 export function RedirectsPage() {

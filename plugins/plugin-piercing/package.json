@@ -1,0 +1,21 @@
+{
+  "name": "@buntime/plugin-piercing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./plugin.ts"
+  },
+  "scripts": {
+    "lint": "bun biome check --write && bun tsc --noEmit",
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit"
+  },
+  "dependencies": {
+    "@buntime/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "typescript": "^5.8.2"
+  }
+}

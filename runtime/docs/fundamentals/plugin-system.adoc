@@ -665,15 +665,15 @@ Plugins podem fornecer UI embeddable no shell (C-Panel) via `fragment`.
 [source,typescript]
 ----
 interface FragmentOptions {
-  type: "monkey-patch" | "iframe" | "service-worker";
-  origin?: string;              // Obrigatorio para iframe/service-worker
+  type: "patch" | "iframe";
+  origin?: string;              // Obrigatorio para iframe
   preloadStyles?: string;       // CSS para reduzir flash
 }
 ----
 
 ==== Tipos de Fragment
 
-*Monkey-Patch (Recomendado)*:
+*Patch (Recomendado)*:
 
 Intercepta History API, previne mudancas de URL.
 
@@ -685,7 +685,7 @@ export default function createPlugin(): BuntimePlugin {
     base: "/keyval",
 
     fragment: {
-      type: "monkey-patch",
+      type: "patch",
     },
 
     menus: [
@@ -704,19 +704,6 @@ Carrega app externo em iframe, isolamento completo.
 fragment: {
   type: "iframe",
   origin: "https://external-app.company.com",
-}
-----
-
-*Service Worker (Shared Styles)*:
-
-Intercepta requests, injeta sandbox script. Para apps externos que precisam compartilhar estilos.
-
-[source,typescript]
-----
-fragment: {
-  type: "service-worker",
-  origin: "https://legacy-app.company.com",
-  preloadStyles: "body { opacity: 0; transition: opacity 0.2s; }",
 }
 ----
 
@@ -964,7 +951,7 @@ export default function createCustomLogger(): BuntimePlugin {
     routes: app,
 
     fragment: {
-      type: "monkey-patch",
+      type: "patch",
     },
 
     menus: [

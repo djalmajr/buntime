@@ -31,9 +31,9 @@ export default function healthPlugin(pluginConfig: HealthConfig = {}): BuntimePl
   return {
     name: "@buntime/plugin-health",
 
-    // Fragment with monkey-patch sandbox (internal plugin)
+    // Fragment with patch sandbox (internal plugin)
     fragment: {
-      type: "monkey-patch",
+      type: "patch",
     },
 
     // Menu items for C-Panel sidebar

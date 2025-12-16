@@ -1,11 +1,6 @@
 export { createIframeSandbox, IFRAME_CLIENT_SCRIPT } from "./iframe";
 
-export { createMonkeyPatchSandbox } from "./monkey-patch";
-export {
-  createServiceWorkerSandbox,
-  initPiercingServiceWorker,
-  SERVICE_WORKER_SCRIPT,
-} from "./service-worker";
+export { createPatchSandbox } from "./patch";
 export type {
   SandboxConfig,
   SandboxNavigateEvent,
@@ -14,35 +9,28 @@ export type {
 } from "./types";
 
 import { createIframeSandbox } from "./iframe";
-import { createMonkeyPatchSandbox } from "./monkey-patch";
-import { createServiceWorkerSandbox } from "./service-worker";
+import { createPatchSandbox } from "./patch";
 import type { SandboxConfig, SandboxStrategyHandler } from "./types";
 
 /**
  * Create a sandbox handler based on strategy type
  *
  * @param config - Sandbox configuration
- * @param container - Container element (required for iframe strategy)
+ * @param container - Container element (required for isolate strategy)
  */
 export function createSandbox(
   config: SandboxConfig,
   container?: HTMLElement,
 ): SandboxStrategyHandler | null {
   switch (config.strategy) {
-    case "none":
-      return null;
+    case "patch":
+      return createPatchSandbox(config);
 
-    case "monkey-patch":
-      return createMonkeyPatchSandbox(config);
-
-    case "iframe":
+    case "isolate":
       if (!container) {
-        throw new Error("Iframe sandbox requires a container element");
+        throw new Error("Isolate sandbox requires a container element");
       }
       return createIframeSandbox(config, container);
-
-    case "service-worker":
-      return createServiceWorkerSandbox(config);
 
     default:
       console.warn(`[Piercing] Unknown sandbox strategy: ${config.strategy}`);

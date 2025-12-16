@@ -163,6 +163,19 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
     const pathname = ctx.req.path;
     const method = ctx.req.method;
 
+    // Resolve target app early for use in onResponse
+    let appInfo: AppInfo | undefined;
+    if (registry) {
+      const resolved = await resolveTargetApp(pathname, registry, getAppDir);
+      appInfo = resolved ? createAppInfo(resolved) : undefined;
+    }
+
+    // Helper to run onResponse hooks
+    const runOnResponse = async (response: Response): Promise<Response> => {
+      if (!registry || !appInfo) return response;
+      return registry.runOnResponse(response, appInfo);
+    };
+
     // 1. Try plugin server.fetch handlers (with publicRoutes check)
     if (registry) {
       for (const plugin of registry.getPluginsWithServerFetch()) {
@@ -181,7 +194,7 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
         try {
           const response = await plugin.server!.fetch!(ctx.req.raw);
           if (response.status !== 404) {
-            return response;
+            return runOnResponse(response);
           }
         } catch (err) {
           console.error(`[Plugin:${plugin.name}] server.fetch error:`, err);
@@ -195,9 +208,6 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
 
     // 2. Run plugin onRequest hooks for remaining routes
     if (registry) {
-      const resolved = await resolveTargetApp(pathname, registry, getAppDir);
-      const appInfo = resolved ? createAppInfo(resolved) : undefined;
-
       const result = await registry.runOnRequest(ctx.req.raw, appInfo);
       if (result instanceof Response) {
         return result;
@@ -224,7 +234,7 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
 
         // If plugin route matched (not 404), return it
         if (response.status !== 404) {
-          return response;
+          return runOnResponse(response);
         }
       }
     }
@@ -234,7 +244,8 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
       const resolved = await resolveTargetApp(pathname, registry, getAppDir);
       if (resolved?.type === "plugin" && pool) {
         try {
-          return await servePluginApp(ctx.req.raw, pool, resolved);
+          const response = await servePluginApp(ctx.req.raw, pool, resolved);
+          return runOnResponse(response);
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
           console.error(`[Main] Error serving plugin app at ${resolved.basePath}:`, error);
@@ -244,7 +255,8 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
     }
 
     // 5. Fall back to worker routes
-    return workers.fetch(ctx.req.raw);
+    const response = await workers.fetch(ctx.req.raw);
+    return runOnResponse(response);
   });
 
   // Error handler

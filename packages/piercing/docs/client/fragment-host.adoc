@@ -2,9 +2,36 @@
 
 API para acesso ao elemento host do fragmento e registro de handlers de cleanup.
 
+=== Elemento fragment-host
+
+O elemento `<fragment-host>` é usado para pre-piercing e marcação de conteúdo de fragmentos no servidor.
+
+**Atributos:**
+
+- `src` - Caminho do fragmento (ex: `/p/metrics`), deve corresponder ao atributo `src` do `fragment-outlet` correspondente
+
+**Funcionamento:**
+
+1. O servidor injeta `<fragment-host src="/p/metrics">...conteúdo...</fragment-host>` antes de `</body>`
+2. O `fragment-outlet` com `src="/p/metrics"` move este conteúdo para seu shadow DOM
+3. O elemento host mantém referência ao `src` original para identificação
+
+**Exemplo HTML:**
+
+[source,html]
+----
+<!-- Servidor injeta antes de </body> -->
+<fragment-host src="/p/metrics">
+  <div>Conteúdo pré-renderizado do fragmento</div>
+</fragment-host>
+
+<!-- Shell define onde o fragmento aparece -->
+<fragment-outlet src="/p/metrics"></fragment-outlet>
+----
+
 === Função getFragmentHost()
 
-Retorna o elemento `piercing-fragment-host` mais próximo na árvore DOM. Permite que fragmentos acessem metadados e registrem handlers de cleanup.
+Retorna o elemento `fragment-host` mais próximo na árvore DOM. Permite que fragmentos acessem metadados e registrem handlers de cleanup.
 
 [source,typescript]
 ----
@@ -13,7 +40,7 @@ import { getFragmentHost, getBus } from '@buntime/piercing/client';
 const element = document.getElementById('my-element');
 const host = getFragmentHost(element);
 
-console.log('Fragment ID:', host?.fragmentId);
+console.log('Fragment src:', host?.src);
 
 // Registra cleanup quando o fragmento for removido
 host?.onCleanup(() => {
@@ -35,19 +62,19 @@ Representa o elemento host que contém um fragmento.
 [source,typescript]
 ----
 interface FragmentHost extends HTMLElement {
-  fragmentId: string;
+  src: string;
   onCleanup(handler: () => void): void;
 }
 ----
 
-==== Propriedade fragmentId
+==== Propriedade src
 
-Identificador único do fragmento.
+Caminho do fragmento (ex: `/p/metrics`). Corresponde ao atributo `src` do `fragment-outlet`.
 
 [source,typescript]
 ----
 const host = getFragmentHost(element);
-console.log('ID do fragmento:', host?.fragmentId);
+console.log('Fragment src:', host?.src);
 ----
 
 ==== Método onCleanup()
@@ -85,7 +112,7 @@ host?.onCleanup(() => {
 
   // Notifica outros fragmentos
   getPiercingClient().dispatch('fragment:removed', {
-    id: host.fragmentId
+    src: host.src
   });
 });
 ----
@@ -126,12 +153,12 @@ const myElement = document.getElementById('my-element');
 const host = getFragmentHost(myElement);
 
 if (host) {
-  console.log('Dentro do fragmento:', host.fragmentId);
+  console.log('Dentro do fragmento:', host.src);
 
   // Registra cleanup
   host.onCleanup(() => {
     // Cleanup quando o fragmento for removido
-    sessionStorage.removeItem(`fragment-${host.fragmentId}`);
+    sessionStorage.removeItem(`fragment-${host.src}`);
   });
 } else {
   console.log('Não está dentro de um fragmento');

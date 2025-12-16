@@ -33,7 +33,7 @@ export default function metricsPlugin(pluginConfig: MetricsConfig = {}): Buntime
     routes: api,
 
     fragment: {
-      type: "monkey-patch",
+      type: "patch",
     },
 
     menus: [

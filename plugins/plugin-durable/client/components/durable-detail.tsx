@@ -5,10 +5,10 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Icon,
 } from "@buntime/shadcn-ui";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Icon } from "~/components/icon";
 import { api } from "~/utils/api";
 
 interface DurableObject {

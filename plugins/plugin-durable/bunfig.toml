@@ -1,2 +1,8 @@
 [serve.static]
-plugins = ["bun-plugin-tailwind"]
+plugins = [
+  "@zomme/bun-plugin-iconify",
+  "bun-plugin-tailwind",
+]
+
+[plugins.iconify]
+dirs = ["client", "../../packages/shadcn-ui/src"]

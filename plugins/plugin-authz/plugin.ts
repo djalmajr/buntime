@@ -128,7 +128,7 @@ export default function authzPlugin(pluginConfig: AuthzConfig = {}): BuntimePlug
     dependencies: ["@buntime/plugin-authn"], // Requires authn to be configured
 
     fragment: {
-      type: "monkey-patch",
+      type: "patch",
     },
 
     menus: [

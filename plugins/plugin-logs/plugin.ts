@@ -35,9 +35,9 @@ export default function logsPlugin(pluginConfig: LogsConfig = {}): BuntimePlugin
     name: "@buntime/plugin-logs",
     routes: api, // SSE requires main thread (streaming doesn't work in workers)
 
-    // Fragment with monkey-patch sandbox (internal plugin)
+    // Fragment with patch sandbox (internal plugin)
     fragment: {
-      type: "monkey-patch",
+      type: "patch",
     },
 
     // Menu items for C-Panel sidebar

@@ -21,6 +21,7 @@
     "@buntime/shadcn-ui": "workspace:*",
     "@buntime/shared": "workspace:*",
     "@iconify-icon/react": "^2.1.0",
+    "@tanstack/react-router": "^1.134.15",
     "lucide-react": "^0.561.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -35,6 +36,7 @@
   "devDependencies": {
     "@types/react": "^19.2.6",
     "@types/react-dom": "^19.2.3",
+    "@zomme/bun-plugin-tsr": "^0.1.1",
     "bun-plugin-tailwind": "^0.1.2",
     "tailwindcss": "^4.1.17"
   }

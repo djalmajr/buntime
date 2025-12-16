@@ -1,5 +1,5 @@
 function getBasePath(): string {
-  const outlet = document.querySelector("piercing-fragment-outlet[data-fragment-base]");
+  const outlet = document.querySelector("fragment-outlet[data-fragment-base]");
   if (outlet) {
     const fragmentBase = outlet.getAttribute("data-fragment-base");
     if (fragmentBase) {

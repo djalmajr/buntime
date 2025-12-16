@@ -3,7 +3,7 @@ import { MetricsView } from "./metrics-view";
 import { WorkersView } from "./workers-view";
 
 function getFragmentUrl(): string {
-  const outlet = document.querySelector("piercing-fragment-outlet[data-fragment-url]");
+  const outlet = document.querySelector("fragment-outlet[data-fragment-url]");
   if (outlet) {
     return outlet.getAttribute("data-fragment-url") || "/";
   }

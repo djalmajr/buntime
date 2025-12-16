@@ -1,3 +1,4 @@
+// Client-side message bus exports
 export {
   ClientMessageBus,
   dispatch,
@@ -6,7 +7,3 @@ export {
   useMessageBus,
 } from "./client-message-bus";
 export { GenericMessageBus } from "./message-bus";
-export {
-  MESSAGE_BUS_STATE_HEADER,
-  ServerMessageBus,
-} from "./server-message-bus";

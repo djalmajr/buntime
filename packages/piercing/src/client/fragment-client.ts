@@ -10,7 +10,7 @@ export const FRAGMENT_MESSAGE_BUS_SYMBOL = Symbol.for("piercing:fragment-message
  * Piercing client for fragments
  *
  * Provides a unified API for fragments to communicate with the shell
- * regardless of sandbox strategy (iframe, monkey-patch, service-worker).
+ * regardless of sandbox strategy (iframe, patch).
  *
  * @example
  * ```typescript
@@ -274,8 +274,8 @@ export function getBus(element?: Element | null): MessageBus {
       return bus;
     }
 
-    // Check if this is a piercing-fragment-host element
-    if (current.tagName?.toLowerCase() === "piercing-fragment-host") {
+    // Check if this is a fragment-host element
+    if (current.tagName?.toLowerCase() === "fragment-host") {
       const hostBus = (current as ElementWithMessageBus)[FRAGMENT_MESSAGE_BUS_SYMBOL];
       if (hostBus) {
         return hostBus;
@@ -357,7 +357,7 @@ export function getFragmentHost(element?: Element | null): FragmentHost | null {
   let current: Element | null = element;
 
   while (current) {
-    if (current.tagName?.toLowerCase() === "piercing-fragment-host") {
+    if (current.tagName?.toLowerCase() === "fragment-host") {
       return current as FragmentHost;
     }
     current = current.parentElement;

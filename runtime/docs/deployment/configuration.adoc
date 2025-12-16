@@ -171,7 +171,7 @@ Optional application to serve when no route matches. This app typically orchestr
 }
 ----
 
-When set, requests that don't match any application route will be forwarded to this application. The homepage app can use piercing fragments to embed other plugins' UIs.
+When set, requests that don't match any application route will be forwarded to this application. The homepage app can use fragments to embed other plugins' UIs.
 
 ==== Plugin Configuration
 

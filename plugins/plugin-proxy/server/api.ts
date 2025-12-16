@@ -35,7 +35,7 @@ export const api = new Hono()
         origin: r.target,
         pattern: r.pattern,
         preloadStyles: r.fragment?.preloadStyles,
-        sandbox: r.fragment?.sandbox ?? "monkey-patch",
+        sandbox: r.fragment?.sandbox ?? "patch",
       }));
     return ctx.json(fragments);
   })

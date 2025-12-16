@@ -18,11 +18,11 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Icon,
   Skeleton,
 } from "@buntime/shadcn-ui";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Icon } from "../icon";
 
 import type { KvGridProps } from "./kv-grid.types";
 

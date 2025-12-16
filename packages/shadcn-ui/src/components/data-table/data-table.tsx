@@ -16,6 +16,7 @@ interface DataTableProps<TData> extends React.ComponentProps<"div"> {
   actionBar?: React.ReactNode;
   isLoading?: boolean;
   labels?: DataTableLabels;
+  showPagination?: boolean;
   table: TanstackTable<TData>;
   onRowClick?: (row: TData) => void;
 }
@@ -26,6 +27,7 @@ export function DataTable<TData>({
   className,
   isLoading = false,
   labels,
+  showPagination = true,
   table,
   onRowClick,
   ...props
@@ -45,20 +47,25 @@ export function DataTable<TData>({
                     key={headerGroup.id}
                     className="border-b border-border transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted"
                   >
-                    {headerGroup.headers.map((header) => (
-                      <th
-                        key={header.id}
-                        colSpan={header.colSpan}
-                        className="text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]"
-                        style={{
-                          ...getCommonPinningStyles({ column: header.column }),
-                        }}
-                      >
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(header.column.columnDef.header, header.getContext())}
-                      </th>
-                    ))}
+                    {headerGroup.headers.map((header) => {
+                      const size = header.column.getSize();
+                      const hasCustomSize = header.column.columnDef.size !== undefined;
+                      return (
+                        <th
+                          key={header.id}
+                          colSpan={header.colSpan}
+                          className="text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]"
+                          style={{
+                            ...(hasCustomSize && { width: size, maxWidth: size }),
+                            ...getCommonPinningStyles({ column: header.column }),
+                          }}
+                        >
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(header.column.columnDef.header, header.getContext())}
+                        </th>
+                      );
+                    })}
                   </tr>
                 ))}
               </thead>
@@ -96,17 +103,22 @@ export function DataTable<TData>({
                           if (!target.closest(query)) onRowClick(row.original);
                         }}
                       >
-                        {row.getVisibleCells().map((cell) => (
-                          <td
-                            key={cell.id}
-                            className="p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]"
-                            style={{
-                              ...getCommonPinningStyles({ column: cell.column }),
-                            }}
-                          >
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </td>
-                        ))}
+                        {row.getVisibleCells().map((cell) => {
+                          const size = cell.column.getSize();
+                          const hasCustomSize = cell.column.columnDef.size !== undefined;
+                          return (
+                            <td
+                              key={cell.id}
+                              className="p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]"
+                              style={{
+                                ...(hasCustomSize && { width: size, maxWidth: size }),
+                                ...getCommonPinningStyles({ column: cell.column }),
+                              }}
+                            >
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                     {isLoading && (
@@ -135,10 +147,12 @@ export function DataTable<TData>({
           </ScrollArea>
         </div>
       </div>
-      <div className="flex flex-col gap-2.5">
-        <DataTablePagination labels={labels} table={table} />
-        {actionBar && table.getFilteredSelectedRowModel().rows.length > 0 && actionBar}
-      </div>
+      {(showPagination || actionBar) && (
+        <div className="flex flex-col gap-2.5">
+          {showPagination && <DataTablePagination labels={labels} table={table} />}
+          {actionBar && table.getFilteredSelectedRowModel().rows.length > 0 && actionBar}
+        </div>
+      )}
     </div>
   );
 }

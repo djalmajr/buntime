@@ -1,10 +1,7 @@
 import {
   Badge,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+  type ColumnDef,
+  DataTable,
   Drawer,
   DrawerClose,
   DrawerContent,
@@ -13,16 +10,79 @@ import {
   DrawerHeader,
   DrawerTitle,
   ScrollArea,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  useDataTable,
 } from "@buntime/shadcn-ui";
-import { useEffect, useState } from "react";
-import { Icon } from "~/components/icon";
+import { useEffect, useMemo, useState } from "react";
 import { createMetricsSSE, type MetricsSSEData, type WorkerData } from "~/helpers/sse";
+
+const statusVariant = {
+  active: "default",
+  ephemeral: "secondary",
+  idle: "secondary",
+  offline: "outline",
+} as const;
+
+const statusLabel = {
+  active: "Active",
+  ephemeral: "Ephemeral",
+  idle: "Idle",
+  offline: "Offline",
+} as const;
+
+const columns: ColumnDef<WorkerData>[] = [
+  {
+    accessorKey: "id",
+    header: "Worker ID",
+    cell: ({ row }) => {
+      const displayId = row.original.id.replace(/^(apps|plugins)@/, "");
+      return <span className="font-mono text-xs">{displayId}</span>;
+    },
+  },
+  {
+    accessorKey: "avgResponseTimeMs",
+    header: "Avg Time",
+    maxSize: 100,
+    minSize: 100,
+    size: 100,
+    cell: ({ row }) => (
+      <span className="font-mono">{row.original.avgResponseTimeMs.toFixed(1)}ms</span>
+    ),
+  },
+  {
+    accessorKey: "requests",
+    header: () => <span className="flex justify-end">Requests</span>,
+    maxSize: 90,
+    minSize: 90,
+    size: 90,
+    cell: ({ row }) => <span className="flex justify-end">{row.original.requests}</span>,
+  },
+  {
+    accessorKey: "errors",
+    header: () => <span className="flex justify-end">Errors</span>,
+    maxSize: 70,
+    minSize: 70,
+    size: 70,
+    cell: ({ row }) => (
+      <span className="flex justify-end">
+        {row.original.errors > 0 ? (
+          <span className="text-destructive">{row.original.errors}</span>
+        ) : (
+          row.original.errors
+        )}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    maxSize: 100,
+    minSize: 100,
+    size: 100,
+    cell: ({ row }) => (
+      <Badge variant={statusVariant[row.original.status]}>{statusLabel[row.original.status]}</Badge>
+    ),
+  },
+];
 
 function formatUptime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
@@ -39,144 +99,42 @@ function formatUptime(seconds: number): string {
 }
 
 export function WorkersView() {
-  const [connected, setConnected] = useState(false);
   const [selectedWorker, setSelectedWorker] = useState<WorkerData | null>(null);
   const [stats, setStats] = useState<MetricsSSEData | null>(null);
 
+  const data = useMemo(() => stats?.workers ?? [], [stats]);
+
+  const { table } = useDataTable({
+    columns,
+    data,
+  });
+
   useEffect(() => {
-    setConnected(false);
     const es = createMetricsSSE((data) => {
       setStats(data);
-      setConnected(true);
-    });
-
-    es.addEventListener("open", () => {
-      setConnected(true);
-    });
-
-    es.addEventListener("error", () => {
-      setConnected(false);
     });
 
     return () => {
       es.close();
-      setConnected(false);
     };
   }, []);
-
-  const connectionStatus = connected ? "connected" : "connecting";
 
   return (
     <>
       <ScrollArea className="h-full">
         <div className="m-4 space-y-4">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-3xl font-bold">Workers</h1>
-              <div
-                className={`size-3 rounded-full ${connected ? "bg-green-500" : "bg-yellow-500 animate-pulse"}`}
-                title={connectionStatus === "connected" ? "Connected" : "Connecting..."}
-              />
-            </div>
+            <h1 className="text-3xl font-bold">Workers</h1>
             <p className="text-muted-foreground">Real-time statistics for all workers</p>
           </div>
-
-          {stats && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Worker Statistics</CardTitle>
-                <CardDescription>Statistics for each worker in the pool</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {stats.workers.length > 0 ? (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Worker ID</TableHead>
-                        <TableHead>Avg Time</TableHead>
-                        <TableHead className="text-right">Requests</TableHead>
-                        <TableHead className="text-right">Errors</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {stats.workers.map((worker) => {
-                        const statusVariant = {
-                          active: "default",
-                          ephemeral: "secondary",
-                          idle: "secondary",
-                          offline: "outline",
-                        } as const;
-
-                        const statusLabel = {
-                          active: "Active",
-                          ephemeral: "Ephemeral",
-                          idle: "Idle",
-                          offline: "Offline",
-                        } as const;
-
-                        // Remove "apps@" or "plugins@" prefix from worker ID
-                        const displayId = worker.id.replace(/^(apps|plugins)@/, "");
-
-                        return (
-                          <TableRow
-                            key={worker.id}
-                            className="cursor-pointer hover:bg-muted/50"
-                            onClick={() => setSelectedWorker(worker)}
-                          >
-                            <TableCell className="font-mono text-xs">
-                              {displayId}
-                              <Icon
-                                className="ml-1 inline-block size-3 text-muted-foreground"
-                                icon="lucide:chevron-right"
-                              />
-                            </TableCell>
-                            <TableCell className="font-mono">
-                              {worker.avgResponseTimeMs.toFixed(1)}ms
-                            </TableCell>
-                            <TableCell className="text-right">{worker.requests}</TableCell>
-                            <TableCell className="text-right">
-                              {worker.errors > 0 ? (
-                                <span className="text-destructive">{worker.errors}</span>
-                              ) : (
-                                worker.errors
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant={statusVariant[worker.status]}>
-                                {statusLabel[worker.status]}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-8 text-center">
-                    <Icon className="mb-2 size-12 text-muted-foreground" icon="lucide:inbox" />
-                    <p className="text-sm text-muted-foreground">
-                      No workers are currently running
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {!stats && (
-            <Card>
-              <CardContent className="flex items-center justify-center py-8">
-                <Icon
-                  className="size-8 animate-spin text-muted-foreground"
-                  icon="lucide:loader-2"
-                />
-              </CardContent>
-            </Card>
-          )}
+          <DataTable
+            isLoading={!stats}
+            labels={{ noResults: "No workers are currently running" }}
+            table={table}
+            onRowClick={setSelectedWorker}
+          />
         </div>
       </ScrollArea>
-
       <Drawer
         direction="right"
         open={!!selectedWorker}
@@ -196,10 +154,8 @@ export function WorkersView() {
               worker details
             </DrawerDescription>
           </DrawerHeader>
-
           {selectedWorker && (
             <div className="space-y-4 p-4">
-              {/* Ephemeral-only: Last Session */}
               {selectedWorker.status === "ephemeral" && (
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium text-muted-foreground">Last Session</h4>
@@ -219,8 +175,6 @@ export function WorkersView() {
                   </div>
                 </div>
               )}
-
-              {/* Persistent/Offline: Worker Info */}
               {selectedWorker.status !== "ephemeral" && (
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium text-muted-foreground">Worker Info</h4>
@@ -240,8 +194,6 @@ export function WorkersView() {
                   </div>
                 </div>
               )}
-
-              {/* Common: Statistics */}
               <div className="space-y-3">
                 <h4 className="text-sm font-medium text-muted-foreground">Statistics</h4>
                 <div className="grid grid-cols-2 gap-3">
@@ -259,8 +211,6 @@ export function WorkersView() {
                   </div>
                 </div>
               </div>
-
-              {/* Common: Response Times */}
               <div className="space-y-3">
                 <h4 className="text-sm font-medium text-muted-foreground">Response Times</h4>
                 <div className="grid grid-cols-2 gap-3">
@@ -280,7 +230,6 @@ export function WorkersView() {
               </div>
             </div>
           )}
-
           <DrawerFooter>
             <DrawerClose asChild>
               <button

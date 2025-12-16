@@ -49,9 +49,9 @@ export default function deploymentsPlugin(_pluginConfig: DeploymentsConfig = {})
   return {
     name: "@buntime/plugin-deployments",
 
-    // Fragment with monkey-patch sandbox (internal plugin)
+    // Fragment with patch sandbox (internal plugin)
     fragment: {
-      type: "monkey-patch",
+      type: "patch",
     },
 
     // Menu items for shell navigation (populated in onInit)

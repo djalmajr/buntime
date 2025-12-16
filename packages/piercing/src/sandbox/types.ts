@@ -2,24 +2,29 @@ import type { JSONValue } from "../types";
 
 /**
  * Sandbox strategy type
+ * - "patch": Monkey-patches history API to intercept navigation
+ * - "isolate": Full iframe isolation with postMessage communication
  */
-export type SandboxStrategy = "none" | "monkey-patch" | "iframe" | "service-worker";
+export type SandboxStrategy = "patch" | "isolate";
 
 /**
  * Configuration for sandbox strategies
  */
 export interface SandboxConfig {
-  /** Fragment identifier */
+  /** URL being loaded */
+  src: string;
+
+  /** Fragment identifier - REQUIRED */
   fragmentId: string;
 
   /** Sandbox strategy to use */
   strategy: SandboxStrategy;
 
-  /** External origin (required for iframe/service-worker) */
-  origin?: string;
-
-  /** Mount path in the shell (e.g., "/cpanel/external") */
+  /** Mount path in the shell (e.g., "/cpanel/external") - REQUIRED */
   mountPath: string;
+
+  /** External origin (optional, used for iframe strategy) */
+  origin?: string;
 
   /** Allow MessageBus communication */
   allowMessageBus?: boolean;

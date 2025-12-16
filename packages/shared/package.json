@@ -20,8 +20,10 @@
   "dependencies": {
     "@zomme/bun-plugin-i18next": "^0.1.1",
     "@zomme/bun-plugin-iconify": "^0.1.2",
+    "@zomme/bun-plugin-tsr": "^0.1.1",
     "bun-plugin-tailwind": "^0.1.2",
-    "ms": "^2.1.3"
+    "ms": "^2.1.3",
+    "smol-toml": "^1.3.1"
   },
   "devDependencies": {
     "@types/ms": "^2.1.0"

@@ -11,16 +11,13 @@ export {
 // Sandbox exports
 export {
   createIframeSandbox,
-  createMonkeyPatchSandbox,
+  createPatchSandbox,
   createSandbox,
-  createServiceWorkerSandbox,
   IFRAME_CLIENT_SCRIPT,
-  initPiercingServiceWorker,
   type SandboxConfig,
   type SandboxNavigateEvent,
   type SandboxStrategy,
   type SandboxStrategyHandler,
-  SERVICE_WORKER_SCRIPT,
 } from "../sandbox";
 export {
   FRAGMENT_MESSAGE_BUS_SYMBOL,

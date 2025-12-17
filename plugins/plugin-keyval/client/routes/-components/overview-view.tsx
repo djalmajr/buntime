@@ -7,8 +7,8 @@ import {
   Icon,
 } from "@buntime/shadcn-ui";
 import { useTranslation } from "react-i18next";
-import { PageHeader } from "./page-header";
-import { ScrollArea } from "./scroll-area";
+import { PageHeader } from "../../components/page-header";
+import { ScrollArea } from "../../components/scroll-area";
 
 const features = [
   {

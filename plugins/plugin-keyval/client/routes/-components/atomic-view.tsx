@@ -24,8 +24,8 @@ import {
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { kv } from "~/helpers/kv";
-import { PageHeader } from "./page-header";
-import { ScrollArea } from "./scroll-area";
+import { PageHeader } from "../../components/page-header";
+import { ScrollArea } from "../../components/scroll-area";
 
 type OperationType = "set" | "delete" | "sum" | "max" | "min" | "append" | "prepend";
 

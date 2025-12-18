@@ -1,26 +1,32 @@
 /**
  * Get the base path for API calls.
- * Handles both fragment mode (inside shell) and standalone mode.
+ * When loaded via fragment-outlet, extracts plugin path from src attribute.
+ * Falls back to base tag for standalone mode.
  */
-export function getBasePath(): string {
-  // First, try to get base from fragment-outlet's data attribute
-  // This is set when the fragment is loaded inside a shell (e.g., cpanel)
-  const outlet = document.querySelector("fragment-outlet[data-fragment-base]");
-  if (outlet) {
-    const fragmentBase = outlet.getAttribute("data-fragment-base");
-    if (fragmentBase) {
-      return fragmentBase.replace(/\/$/, "");
+export function getApiBase(): string {
+  const rootElement = document.getElementById("plugin-deployments-root");
+  if (!rootElement) return "/deployments";
+
+  // Fragment content is inside Shadow DOM, host is the fragment-outlet
+  const rootNode = rootElement.getRootNode();
+  if (rootNode instanceof ShadowRoot) {
+    // Get the src attribute from fragment-outlet (this is where APIs are served)
+    const outlet = rootNode.host;
+    const src = outlet?.getAttribute("src");
+    if (src) {
+      // Extract the plugin path from src (e.g., "/deployments" from "/deployments/files")
+      const match = src.match(/^(\/[^/]+)/);
+      return match?.[1] || "/deployments";
     }
   }
 
-  // Fall back to document's base tag (for standalone mode at /p/deployments)
+  // Fallback: read from base tag (standalone mode)
   const base = document.querySelector("base");
   if (base) {
     const href = base.getAttribute("href") || "";
-    return href.replace(/\/$/, "");
+    return href.replace(/\/$/, "") || "/deployments";
   }
-
-  return "";
+  return "/deployments";
 }
 
 /**
@@ -30,7 +36,7 @@ export async function apiRequest<T>(
   endpoint: string,
   options?: RequestInit,
 ): Promise<{ success: boolean; data?: T; error?: string }> {
-  const basePath = getBasePath();
+  const basePath = getApiBase();
   const url = `${basePath}/api${endpoint}`;
 
   try {
@@ -60,7 +66,7 @@ export async function uploadFiles(
   files: File[],
   paths: string[],
 ): Promise<{ success: boolean; error?: string }> {
-  const basePath = getBasePath();
+  const basePath = getApiBase();
   const url = `${basePath}/api/upload`;
 
   const formData = new FormData();
@@ -92,7 +98,7 @@ export async function uploadFiles(
  * Get download URL for a file
  */
 export function getDownloadUrl(path: string): string {
-  const basePath = getBasePath();
+  const basePath = getApiBase();
   return `${basePath}/api/download?path=${encodeURIComponent(path)}`;
 }
 
@@ -100,7 +106,7 @@ export function getDownloadUrl(path: string): string {
  * Get batch download URL
  */
 export function getBatchDownloadUrl(paths: string[]): string {
-  const basePath = getBasePath();
+  const basePath = getApiBase();
   const pathsParam = paths.map((p) => encodeURIComponent(p)).join(",");
   return `${basePath}/api/download-batch?paths=${pathsParam}`;
 }

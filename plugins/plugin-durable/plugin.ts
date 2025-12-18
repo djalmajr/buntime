@@ -55,7 +55,7 @@ export interface DurableObjectsConfig extends BasePluginConfig {
 export default function durableObjectsExtension(config: DurableObjectsConfig = {}): BuntimePlugin {
   return {
     name: "@buntime/plugin-durable",
-    base: config.base,
+    base: config.base ?? "/durable",
     dependencies: ["@buntime/plugin-database"],
 
     fragment: {

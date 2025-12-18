@@ -9,10 +9,10 @@ Os fragmentos são identificados pela URL especificada no atributo `src` dos ele
 [source,html]
 ----
 <!-- Cliente declara onde o fragmento deve aparecer -->
-<fragment-outlet src="/p/metrics" />
+<fragment-outlet src="/metrics" />
 
 <!-- Pre-piercing injeta o host com a mesma URL -->
-<fragment-host src="/p/metrics">
+<fragment-host src="/metrics">
   <!-- Conteúdo SSR do fragmento -->
 </fragment-host>
 ----
@@ -29,7 +29,7 @@ O elemento `<fragment-outlet>` busca automaticamente o conteúdo do fragmento da
 ----
 <!-- A aplicação cliente define onde o fragmento aparece -->
 <div class="container">
-  <fragment-outlet src="/p/metrics" />
+  <fragment-outlet src="/metrics" />
 </div>
 ----
 
@@ -52,9 +52,9 @@ O pre-piercing é realizado pelo plugin `plugin-piercing` (um plugin do runtime 
 [source,typescript]
 ----
 // O plugin-piercing faz automaticamente:
-// <fragment-outlet src="/p/metrics" />
+// <fragment-outlet src="/metrics" />
 //   ↓ (pre-piercing SSR)
-// <fragment-host src="/p/metrics">
+// <fragment-host src="/metrics">
 //   <div class="metrics-dashboard">...</div>
 // </fragment-host>
 ----
@@ -67,7 +67,7 @@ NOTE: O pre-piercing é opcional e configurado pelo runtime. Se desabilitado, os
 
 [source,html]
 ----
-<fragment-outlet src="/p/header" />
+<fragment-outlet src="/header" />
 ----
 
 ==== Múltiplos Fragmentos
@@ -75,16 +75,16 @@ NOTE: O pre-piercing é opcional e configurado pelo runtime. Se desabilitado, os
 [source,html]
 ----
 <body>
-  <fragment-outlet src="/p/header" />
+  <fragment-outlet src="/header" />
 
   <main>
-    <fragment-outlet src="/p/sidebar" />
+    <fragment-outlet src="/sidebar" />
     <div class="content">
       <!-- Conteúdo principal -->
     </div>
   </main>
 
-  <fragment-outlet src="/p/footer" />
+  <fragment-outlet src="/footer" />
 </body>
 ----
 
@@ -95,7 +95,7 @@ Os fragmentos recebem automaticamente os query parameters da URL:
 [source,html]
 ----
 <!-- Fragmento recebe ?theme=dark -->
-<fragment-outlet src="/p/navigation?theme=dark" />
+<fragment-outlet src="/navigation?theme=dark" />
 ----
 
 ==== Fragmentos Condicionais
@@ -111,7 +111,7 @@ function Dashboard() {
   return (
     <div>
       {user.role === "admin" && (
-        <fragment-outlet src="/p/admin-panel" />
+        <fragment-outlet src="/admin-panel" />
       )}
     </div>
   );
@@ -126,7 +126,7 @@ Um fragmento é simplesmente uma aplicação que responde com HTML em uma rota e
 
 [source,typescript]
 ----
-// Fragment service running on /p/metrics
+// Fragment service running on /metrics
 app.get("/", async (req) => {
   return new Response(
     `
@@ -212,7 +212,7 @@ app.get("/", async (req) => {
   </head>
   <body>
     <!-- Fragmento de navegação -->
-    <fragment-outlet src="/p/navigation" />
+    <fragment-outlet src="/navigation" />
 
     <!-- Conteúdo principal -->
     <main id="app"></main>
@@ -229,7 +229,7 @@ app.get("/", async (req) => {
       const showMetrics = await shouldShowMetrics();
       if (showMetrics) {
         const outlet = document.createElement("fragment-outlet");
-        outlet.setAttribute("src", "/p/metrics");
+        outlet.setAttribute("src", "/metrics");
         document.getElementById("metrics-container").appendChild(outlet);
       }
     </script>
@@ -241,7 +241,7 @@ app.get("/", async (req) => {
 
 [source,typescript]
 ----
-// Service em /p/navigation
+// Service em /navigation
 import { Hono } from "hono";
 
 const app = new Hono();
@@ -269,7 +269,7 @@ app.get("/", async (req) => {
 
       // Cliente do fragmento pode interagir com message bus
       customElements.whenDefined("fragment-host").then(() => {
-        const host = document.querySelector("fragment-host[src='/p/navigation']");
+        const host = document.querySelector("fragment-host[src='/navigation']");
         host.subscribe("theme-changed", (theme) => {
           document.querySelector(".nav").style.background =
             theme === "dark" ? "#1a1a1a" : "#fff";
@@ -288,7 +288,7 @@ export default app;
 
 [source,typescript]
 ----
-// Service em /p/metrics
+// Service em /metrics
 import { Hono } from "hono";
 
 const app = new Hono();
@@ -322,7 +322,7 @@ app.get("/", async (req) => {
         import { FragmentHost } from "@buntime/piercing/client";
 
         // Atualiza métricas via SSE
-        const evtSource = new EventSource("/p/metrics/stream");
+        const evtSource = new EventSource("/metrics/stream");
         evtSource.onmessage = (event) => {
           const metrics = JSON.parse(event.data);
           const grid = document.querySelector(".metrics-grid");

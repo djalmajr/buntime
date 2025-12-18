@@ -90,7 +90,7 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): Buntime
 
   return {
     name: "@buntime/plugin-gateway",
-    base: pluginConfig.base,
+    base: pluginConfig.base ?? "/gateway",
     optionalDependencies: ["@buntime/plugin-authn"], // Run after authn if present
 
     fragment: {

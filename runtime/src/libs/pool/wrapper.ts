@@ -101,7 +101,8 @@ self.onmessage = async ({ data }) => {
 
     if (isHtml && base) {
       const text = new TextDecoder().decode(body);
-      const html = text.replace("<head>", `<head><base href="${base}/" />`);
+      const baseHref = base === "/" ? "/" : `${base}/`;
+      const html = text.replace("<head>", `<head><base href="${baseHref}" />`);
       body = new TextEncoder().encode(html).buffer;
     }
 

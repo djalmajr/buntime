@@ -76,7 +76,7 @@ export interface KeyValConfig extends BasePluginConfig {
 export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugin {
   return {
     name: "@buntime/plugin-keyval",
-    base: config.base,
+    base: config.base ?? "/keyval",
     dependencies: ["@buntime/plugin-database"],
 
     // API routes run on main thread (required for SSE/watch endpoints)
@@ -95,6 +95,7 @@ export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugi
         priority: 80,
         title: "KeyVal",
         items: [
+          { icon: "lucide:home", path: "/keyval", title: "Overview" },
           { icon: "lucide:list", path: "/keyval/entries", title: "Entries" },
           { icon: "lucide:layers", path: "/keyval/queue", title: "Queue" },
           { icon: "lucide:search", path: "/keyval/search", title: "Search" },

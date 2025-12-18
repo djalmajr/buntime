@@ -29,7 +29,7 @@ export interface MetricsConfig extends BasePluginConfig {
 export default function metricsPlugin(pluginConfig: MetricsConfig = {}): BuntimePlugin {
   return {
     name: "@buntime/plugin-metrics",
-    base: pluginConfig.base,
+    base: pluginConfig.base ?? "/metrics",
     routes: api,
 
     fragment: {

@@ -165,9 +165,8 @@ export interface BuntimeConfig {
  */
 export interface BasePluginConfig {
   /**
-   * Custom base path for plugin routes
-   * @default `/api/{plugin-short-name}`
-   * @example "/api/kv" or "/kv"
+   * Override the default base path for plugin routes
+   * @example "/kv" to use /kv instead of /keyval
    */
   base?: string;
 }
@@ -406,12 +405,11 @@ export interface BuntimePlugin {
   onWorkerTerminate?: (worker: WorkerInstance, app: AppInfo) => void;
 
   /**
-   * Custom base path for plugin routes
+   * Base path for plugin routes (required)
    * All routes are mounted at /{base}/*
-   * @default `/{plugin-short-name}` (e.g., "@buntime/plugin-keyval" → "/keyval")
-   * @example "/kv" or "/custom-path"
+   * @example "/keyval" or "/auth"
    */
-  base?: string;
+  base: string;
 
   /**
    * Routes that bypass this plugin's onRequest hook

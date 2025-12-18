@@ -16,7 +16,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { apiRequest, getBasePath, uploadFiles } from "~/utils/api";
+import { apiRequest, getApiBase, uploadFiles } from "~/utils/api";
 import { isValidUploadDestination, parseDeploymentPath } from "~/utils/path-utils";
 import { useFragmentUrl } from "~/utils/use-fragment-url";
 import { FileRow } from "./file-row";
@@ -184,7 +184,7 @@ export function DeploymentsPage() {
   };
 
   const handleDownload = (entry: FileEntry) => {
-    const basePath = getBasePath();
+    const basePath = getApiBase();
     window.open(`${basePath}/api/download?path=${encodeURIComponent(entry.path)}`, "_blank");
   };
 
@@ -268,7 +268,7 @@ export function DeploymentsPage() {
 
   const handleBatchDownload = () => {
     if (selectedPaths.size === 0) return;
-    const basePath = getBasePath();
+    const basePath = getApiBase();
     const paths = Array.from(selectedPaths)
       .map((p) => encodeURIComponent(p))
       .join(",");

@@ -2,19 +2,16 @@
   "name": "@buntime/plugin-metrics",
   "version": "1.0.0",
   "type": "module",
-  "buntime": {
-    "entrypoint": "dist/index.js",
-    "idleTimeout": 60
-  },
   "exports": {
     ".": "./plugin.ts"
   },
   "scripts": {
     "build": "NODE_ENV=production bun scripts/build.ts",
     "dev": "bun scripts/build.ts --watch",
-    "lint": "bun run lint:format && bun run lint:types",
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
+    "lint": "bun run lint:format && bun run lint:types",
+    "start": "bun run build && bun --port=5010 dist/index.js",
     "test": "bun test"
   },
   "dependencies": {
@@ -39,5 +36,9 @@
     "@zomme/bun-plugin-tsr": "^0.1.1",
     "bun-plugin-tailwind": "^0.1.2",
     "tailwindcss": "^4.1.17"
+  },
+  "buntime": {
+    "entrypoint": "dist/index.js",
+    "idleTimeout": 60
   }
 }

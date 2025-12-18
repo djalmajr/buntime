@@ -23,7 +23,7 @@ export default function proxyPlugin(config: ProxyConfig = {}): BuntimePlugin {
   return {
     name: "@buntime/plugin-proxy",
     optionalDependencies: ["@buntime/plugin-keyval"],
-    base: config.base,
+    base: config.base ?? "/proxy",
     routes: api,
 
     fragment: {

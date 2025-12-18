@@ -1,0 +1,86 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+== Opções de Configuração
+
+=== Referência de Opções
+
+[cols="2,1,1,4"]
+|===
+| Opção | Tipo | Default | Descrição
+
+| `issuer`
+| `string`
+| -
+| URL base do Keycloak (ex: `http://localhost:8180/auth`). Suporta `${ENV_VAR}`.
+
+| `realm`
+| `string`
+| -
+| Nome do realm no Keycloak. Suporta `${ENV_VAR}`.
+
+| `clientId`
+| `string`
+| -
+| ID do client OIDC. Suporta `${ENV_VAR}`.
+
+| `clientSecret`
+| `string`
+| -
+| Secret do client OIDC. Suporta `${ENV_VAR}`.
+
+| `databasePath`
+| `string`
+| `./data/auth.db`
+| Caminho do banco SQLite para sessões.
+
+| `trustedOrigins`
+| `string[]`
+| `[]`
+| Lista de origens confiáveis para CORS.
+
+| `loginPath`
+| `string`
+| `/auth/login`
+| Caminho para redirecionamento de login.
+|===
+
+=== Exemplo Completo
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-authn", {
+      "issuer": "${KEYCLOAK_URL}",
+      "realm": "${KEYCLOAK_REALM}",
+      "clientId": "${KEYCLOAK_CLIENT_ID}",
+      "clientSecret": "${KEYCLOAK_CLIENT_SECRET}",
+      "databasePath": "./data/sessions.db",
+      "trustedOrigins": ["http://localhost:8000", "https://myapp.com"],
+      "loginPath": "/auth/login"
+    }]
+  ]
+}
+----
+
+=== Rotas Públicas
+
+O plugin configura automaticamente as seguintes rotas como públicas (não requerem autenticação):
+
+* `ALL /auth/api/**` - Endpoints da API de autenticação
+* `GET /auth/login/**` - Página de login
+
+=== Interceptação de Requests
+
+O plugin intercepta todos os requests e:
+
+. Verifica se a rota é pública
+. Verifica se existe cookie de sessão (`better-auth.session_token`)
+. Se não autenticado:
+** Requests de API (`Accept: application/json`): retorna 401
+** Outros requests: redireciona para página de login

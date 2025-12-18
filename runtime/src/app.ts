@@ -6,7 +6,6 @@ import type { WorkerConfig } from "@/libs/pool/config";
 import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
 import type { PluginRegistry } from "@/plugins/registry";
-import { getPluginBase } from "@/utils/plugin-paths";
 
 export interface AppDeps {
   getAppDir: (appName: string) => string | undefined;
@@ -112,6 +111,9 @@ async function servePluginApp(
   const pathname = url.pathname.slice(resolved.basePath.length) || "/";
 
   const newReq = new Request(new URL(pathname + url.search, req.url).href, req);
+
+  // x-base is always the plugin's basePath where assets are served
+  // Router basepath is handled client-side via fragment-outlet's base attribute
   newReq.headers.set("x-base", resolved.basePath);
 
   return pool.fetch(resolved.dir, resolved.config, newReq);
@@ -130,9 +132,8 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
 
   if (registry) {
     for (const plugin of registry.getAll()) {
-      const base = plugin.base ?? getPluginBase(plugin.name);
-
       if (plugin.routes) {
+        const base = plugin.base;
         // Check plugin-vs-plugin collision
         if (pluginPaths.has(base)) {
           const existingPlugin = pluginPaths.get(base);
@@ -155,13 +156,21 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
   app.route("/api/plugins", pluginsInfo);
 
   // Note: Fragment routes (/f/:fragmentId) have been removed
-  // Fragments are now served directly from /p/{plugin} (unified with plugin routes)
-  // The piercing outlet fetches from /p/{plugin} and assets are served from the same path
+  // Fragments are now served directly from /{plugin} (unified with plugin routes)
+  // The piercing outlet fetches from /{plugin} and assets are served from the same path
 
   // Single catch-all that handles: server.fetch -> onRequest -> plugin routes -> worker routes
   app.all("*", async (ctx) => {
     const pathname = ctx.req.path;
     const method = ctx.req.method;
+
+    // Clone the request body early to avoid "Body already used" errors
+    // when multiple handlers need to read the body
+    // We need to clone the body separately because ctx.req.raw.clone() returns
+    // a different Request type that doesn't match Bun's Request type
+    const requestBody = ctx.req.raw.body
+      ? await Bun.readableStreamToArrayBuffer(ctx.req.raw.clone().body!)
+      : null;
 
     // Resolve target app early for use in onResponse
     let appInfo: AppInfo | undefined;
@@ -207,11 +216,15 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
     }
 
     // 2. Run plugin onRequest hooks for remaining routes
+    // This may return a modified request (e.g., with X-Identity header from authn)
+    let processedReq = ctx.req.raw;
     if (registry) {
       const result = await registry.runOnRequest(ctx.req.raw, appInfo);
       if (result instanceof Response) {
         return result;
       }
+      // Use the modified request with any injected headers (e.g., X-Identity)
+      processedReq = result;
     }
 
     // 3. Try plugin routes FIRST (in order of specificity - longest base first)
@@ -229,7 +242,12 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
         const originalUrl = new URL(ctx.req.url);
         const newUrl = new URL(relativePath + originalUrl.search, ctx.req.url);
 
-        const newReq = new Request(newUrl.href, ctx.req.raw);
+        // Create new request with cloned body and processed headers (includes X-Identity)
+        const newReq = new Request(newUrl.href, {
+          body: requestBody,
+          headers: processedReq.headers,
+          method: ctx.req.method,
+        });
         const response = await routes.fetch(newReq);
 
         // If plugin route matched (not 404), return it
@@ -244,7 +262,13 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
       const resolved = await resolveTargetApp(pathname, registry, getAppDir);
       if (resolved?.type === "plugin" && pool) {
         try {
-          const response = await servePluginApp(ctx.req.raw, pool, resolved);
+          // Create request with cloned body and processed headers (includes X-Identity)
+          const freshReq = new Request(ctx.req.url, {
+            body: requestBody,
+            headers: processedReq.headers,
+            method: ctx.req.method,
+          });
+          const response = await servePluginApp(freshReq, pool, resolved);
           return runOnResponse(response);
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
@@ -255,7 +279,13 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
     }
 
     // 5. Fall back to worker routes
-    const response = await workers.fetch(ctx.req.raw);
+    // Create request with cloned body and processed headers (includes X-Identity)
+    const workerReq = new Request(ctx.req.url, {
+      body: requestBody,
+      headers: processedReq.headers,
+      method: ctx.req.method,
+    });
+    const response = await workers.fetch(workerReq);
     return runOnResponse(response);
   });
 

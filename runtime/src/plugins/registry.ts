@@ -9,7 +9,6 @@ import type {
 import type { Server, ServerWebSocket } from "bun";
 import { getPublicRoutesForMethod } from "@/utils/get-public-routes";
 import { globArrayToRegex } from "@/utils/glob-to-regex";
-import { getPluginBase } from "@/utils/plugin-paths";
 
 /**
  * Registry for managing loaded plugins
@@ -300,11 +299,9 @@ export class PluginRegistry {
       const dir = this.pluginDirs.get(plugin.name);
       if (!dir) continue;
 
-      const basePath = plugin.base ?? getPluginBase(plugin.name);
-
       // Check if pathname matches this plugin's base path
-      if (pathname === basePath || pathname.startsWith(`${basePath}/`)) {
-        return { dir, basePath };
+      if (pathname === plugin.base || pathname.startsWith(`${plugin.base}/`)) {
+        return { dir, basePath: plugin.base };
       }
     }
 
@@ -321,8 +318,7 @@ export class PluginRegistry {
       const dir = this.pluginDirs.get(plugin.name);
       if (!dir) continue;
 
-      const basePath = plugin.base ?? getPluginBase(plugin.name);
-      paths.set(basePath, plugin.name);
+      paths.set(plugin.base, plugin.name);
     }
 
     return paths;

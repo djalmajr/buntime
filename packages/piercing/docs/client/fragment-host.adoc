@@ -8,12 +8,12 @@ O elemento `<fragment-host>` é usado para pre-piercing e marcação de conteúd
 
 **Atributos:**
 
-- `src` - Caminho do fragmento (ex: `/p/metrics`), deve corresponder ao atributo `src` do `fragment-outlet` correspondente
+- `src` - Caminho do fragmento (ex: `/metrics`), deve corresponder ao atributo `src` do `fragment-outlet` correspondente
 
 **Funcionamento:**
 
-1. O servidor injeta `<fragment-host src="/p/metrics">...conteúdo...</fragment-host>` antes de `</body>`
-2. O `fragment-outlet` com `src="/p/metrics"` move este conteúdo para seu shadow DOM
+1. O servidor injeta `<fragment-host src="/metrics">...conteúdo...</fragment-host>` antes de `</body>`
+2. O `fragment-outlet` com `src="/metrics"` move este conteúdo para seu shadow DOM
 3. O elemento host mantém referência ao `src` original para identificação
 
 **Exemplo HTML:**
@@ -21,12 +21,12 @@ O elemento `<fragment-host>` é usado para pre-piercing e marcação de conteúd
 [source,html]
 ----
 <!-- Servidor injeta antes de </body> -->
-<fragment-host src="/p/metrics">
+<fragment-host src="/metrics">
   <div>Conteúdo pré-renderizado do fragmento</div>
 </fragment-host>
 
 <!-- Shell define onde o fragmento aparece -->
-<fragment-outlet src="/p/metrics"></fragment-outlet>
+<fragment-outlet src="/metrics"></fragment-outlet>
 ----
 
 === Função getFragmentHost()
@@ -69,7 +69,7 @@ interface FragmentHost extends HTMLElement {
 
 ==== Propriedade src
 
-Caminho do fragmento (ex: `/p/metrics`). Corresponde ao atributo `src` do `fragment-outlet`.
+Caminho do fragmento (ex: `/metrics`). Corresponde ao atributo `src` do `fragment-outlet`.
 
 [source,typescript]
 ----

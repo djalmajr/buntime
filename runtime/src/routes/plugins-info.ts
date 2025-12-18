@@ -1,7 +1,6 @@
 import type { BuntimePlugin, FragmentType } from "@buntime/shared/types";
 import { Hono } from "hono";
 import type { PluginRegistry } from "@/plugins/registry";
-import { getPluginBase } from "@/utils/plugin-paths";
 
 export interface PluginsInfoDeps {
   registry: PluginRegistry;
@@ -44,7 +43,7 @@ function normalizeFragmentConfig(fragment: BuntimePlugin["fragment"]): Normalize
 export function createPluginsInfoRoutes({ registry }: PluginsInfoDeps) {
   return new Hono().get("/", (ctx) => {
     const plugins = registry.getAll().map((plugin) => ({
-      base: plugin.base ?? getPluginBase(plugin.name),
+      base: plugin.base,
       dependencies: plugin.dependencies ?? [],
       fragment: normalizeFragmentConfig(plugin.fragment),
       menus: plugin.menus ?? [],

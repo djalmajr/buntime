@@ -24,25 +24,36 @@ export interface MetricsSSEData {
   workers: WorkerData[];
 }
 
+function getApiBase(): string {
+  const rootElement = document.getElementById("plugin-metrics-root");
+  if (!rootElement) return "/metrics";
+
+  // Fragment content is inside Shadow DOM, host is the fragment-outlet
+  const rootNode = rootElement.getRootNode();
+  if (rootNode instanceof ShadowRoot) {
+    // Get the src attribute from fragment-outlet (this is where APIs are served)
+    const outlet = rootNode.host;
+    const src = outlet?.getAttribute("src");
+    if (src) {
+      // Extract the plugin path from src (e.g., "/metrics" from "/metrics/workers")
+      const match = src.match(/^(\/[^/]+)/);
+      return match?.[1] || "/metrics";
+    }
+  }
+
+  // Fallback: read from base tag (standalone mode)
+  const base = document.querySelector("base");
+  if (base) {
+    const href = base.getAttribute("href") || "";
+    return href.replace(/\/$/, "") || "/metrics";
+  }
+  return "/metrics";
+}
+
 export function createMetricsSSE(onMessage: (data: MetricsSSEData) => void): EventSource {
-  const basePath = (() => {
-    const outlet = document.querySelector("fragment-outlet[data-fragment-base]");
-    if (outlet) {
-      const fragmentBase = outlet.getAttribute("data-fragment-base");
-      if (fragmentBase) {
-        return fragmentBase.replace(/\/$/, "");
-      }
-    }
+  const apiBase = getApiBase();
 
-    const base = document.querySelector("base");
-    if (base) {
-      const href = base.getAttribute("href") || "";
-      return href.replace(/\/$/, "");
-    }
-    return "";
-  })();
-
-  const eventSource = new EventSource(`${basePath}/api/sse`);
+  const eventSource = new EventSource(`${apiBase}/api/sse`);
 
   eventSource.onmessage = (event) => {
     try {

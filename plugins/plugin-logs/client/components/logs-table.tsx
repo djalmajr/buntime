@@ -33,24 +33,35 @@ interface LogStats {
   total: number;
 }
 
-function getBasePath(): string {
-  // First, try to get base from fragment-outlet's data attribute
-  // This is set when the fragment is loaded inside a shell (e.g., cpanel)
-  const outlet = document.querySelector("fragment-outlet[data-fragment-base]");
-  if (outlet) {
-    const fragmentBase = outlet.getAttribute("data-fragment-base");
-    if (fragmentBase) {
-      return fragmentBase.replace(/\/$/, "");
+/**
+ * Get the base path for API calls.
+ * When loaded via fragment-outlet, extracts plugin path from src attribute.
+ * Falls back to base tag for standalone mode.
+ */
+function getApiBase(): string {
+  const rootElement = document.getElementById("plugin-logs-root");
+  if (!rootElement) return "/logs";
+
+  // Fragment content is inside Shadow DOM, host is the fragment-outlet
+  const rootNode = rootElement.getRootNode();
+  if (rootNode instanceof ShadowRoot) {
+    // Get the src attribute from fragment-outlet (this is where APIs are served)
+    const outlet = rootNode.host;
+    const src = outlet?.getAttribute("src");
+    if (src) {
+      // Extract the plugin path from src (e.g., "/logs" from "/logs/entries")
+      const match = src.match(/^(\/[^/]+)/);
+      return match?.[1] || "/logs";
     }
   }
 
-  // Fall back to document's base tag (for standalone mode at /p/logs)
+  // Fallback: read from base tag (standalone mode)
   const base = document.querySelector("base");
   if (base) {
     const href = base.getAttribute("href") || "";
-    return href.replace(/\/$/, "");
+    return href.replace(/\/$/, "") || "/logs";
   }
-  return "";
+  return "/logs";
 }
 
 const levelVariant: Record<LogLevel, "debug" | "info" | "warning" | "destructive"> = {
@@ -69,7 +80,7 @@ export function LogsTable() {
   const [filter, setFilter] = useState<LogLevel | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const basePath = getBasePath();
+  const basePath = getApiBase();
 
   useEffect(() => {
     async function fetchLogs() {

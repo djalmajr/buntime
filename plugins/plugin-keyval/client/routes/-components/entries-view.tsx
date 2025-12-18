@@ -1,5 +1,5 @@
-import { KeyvalStudio } from "./keyval-studio";
+import { KeyvalExplorer } from "./keyval-explorer";
 
 export function EntriesView() {
-  return <KeyvalStudio />;
+  return <KeyvalExplorer />;
 }

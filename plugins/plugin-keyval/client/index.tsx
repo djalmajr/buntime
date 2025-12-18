@@ -20,7 +20,7 @@ i18n.use(initReactI18next).init({
   },
 });
 
-// Get basepath from fragment outlet attributes
+// Get basepath from fragment outlet or base tag
 function getBasePath(): string {
   const rootElement = document.getElementById("plugin-keyval-root");
 
@@ -31,23 +31,13 @@ function getBasePath(): string {
       ? rootNode.host
       : null;
 
-  // When loaded via shell (cpanel), use shell base + segment
-  // e.g., /cpanel + /keyval = /cpanel/keyval
-  const shellBase = outlet?.getAttribute("base");
-  if (shellBase) {
-    const pathname = window.location.pathname;
-    // Extract fragment segment from URL (e.g., /cpanel/keyval/entries -> keyval)
-    const afterShell = pathname.slice(shellBase.length);
-    const match = afterShell.match(/^\/([^/]+)/);
-    const segment = match?.[1] || "keyval";
-    return `${shellBase}/${segment}`;
+  // When loaded via fragment-outlet, use the base attribute passed by the shell
+  const base = outlet?.getAttribute("base");
+  if (base) {
+    return base;
   }
 
-  // When loaded directly via /p/keyval, use fragment base
-  const fragmentBase = outlet?.getAttribute("data-fragment-base");
-  if (fragmentBase) return fragmentBase;
-
-  // Fallback: read from base tag
+  // Fallback: read from base tag (when loaded directly, not via fragment-outlet)
   const baseHref = document.querySelector("base")?.getAttribute("href") || "/";
   return baseHref.replace(/\/$/, "") || "/keyval";
 }

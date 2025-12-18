@@ -1,0 +1,306 @@
+== Integração Client-Side
+
+Esta seção descreve como integrar autenticação em aplicações React client-side, como o cpanel.
+
+=== Visão Geral
+
+A integração client-side complementa a proteção server-side do plugin. Enquanto o middleware `onRequest` protege rotas no servidor, a integração client-side:
+
+* Evita flash de conteúdo antes do redirect
+* Provê contexto de usuário para componentes React
+* Permite verificação de permissões (autorização)
+
+=== Contexto de Autenticação
+
+==== AuthProvider
+
+O `AuthProvider` disponibiliza dados da sessão para toda a aplicação:
+
+[source,typescript]
+----
+// contexts/auth-context.tsx
+import { createContext, useContext, useMemo, type ReactNode } from "react";
+
+interface User {
+  avatar?: string | null;
+  email: string;
+  id: string;
+  name: string;
+}
+
+interface Session {
+  expiresAt: string;
+  token: string;
+  user: User;
+}
+
+interface AuthContextValue {
+  isAuthenticated: boolean;
+  logout: () => Promise<void>;
+  session: Session;
+  user: User;
+}
+
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+export function AuthProvider({ children, session }: { children: ReactNode; session: Session }) {
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      isAuthenticated: true,
+      logout: async () => {
+        const redirect = encodeURIComponent(window.location.pathname);
+        window.location.href = `/auth/api/logout?redirect=/auth/login?redirect=${redirect}`;
+      },
+      session,
+      user: session.user,
+    }),
+    [session],
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth(): AuthContextValue {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth must be used within AuthProvider");
+  }
+  return context;
+}
+----
+
+==== Hook useAuth
+
+O hook `useAuth` permite acessar dados do usuário em qualquer componente:
+
+[source,typescript]
+----
+import { useAuth } from "~/contexts/auth-context";
+
+function UserProfile() {
+  const { user, logout } = useAuth();
+
+  return (
+    <div>
+      <p>Olá, {user.name}!</p>
+      <button onClick={logout}>Sair</button>
+    </div>
+  );
+}
+----
+
+=== Verificação no Bootstrap
+
+Antes de renderizar a aplicação, verifique se há sessão válida:
+
+[source,typescript]
+----
+// index.tsx
+import { createRouter, RouterProvider } from "@tanstack/react-router";
+import { type Session } from "~/contexts/auth-context";
+
+function redirectToLogin() {
+  const currentPath = window.location.pathname + window.location.search;
+  const loginUrl = `/auth/login?redirect=${encodeURIComponent(currentPath)}`;
+  window.location.href = loginUrl;
+}
+
+async function getSession(): Promise<Session | null> {
+  try {
+    const res = await fetch("/auth/api/session");
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.user ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+async function main() {
+  const session = await getSession();
+
+  if (!session) {
+    redirectToLogin();
+    return;
+  }
+
+  // Renderiza app com sessão no contexto do router
+  createRoot(document.getElementById("root")!).render(
+    <RouterProvider context={{ session }} router={router} />
+  );
+}
+
+main();
+----
+
+=== Componente de Acesso Negado
+
+Para exibir quando o usuário está autenticado mas não tem permissão:
+
+[source,typescript]
+----
+// components/access-denied.tsx
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Icon } from "@buntime/shadcn-ui";
+import { useNavigate } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
+import { useAuth } from "~/contexts/auth-context";
+
+export function AccessDenied() {
+  const { t } = useTranslation();
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-destructive/10">
+            <Icon className="size-8 text-destructive" icon="lucide:shield-x" />
+          </div>
+          <CardTitle className="text-2xl">{t("auth.accessDenied")}</CardTitle>
+          <CardDescription>{t("auth.accessDeniedDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button className="w-full" onClick={() => navigate({ to: "/" })}>
+            <Icon className="mr-2 size-4" icon="lucide:home" />
+            {t("auth.goHome")}
+          </Button>
+          <Button className="w-full" variant="outline" onClick={logout}>
+            <Icon className="mr-2 size-4" icon="lucide:log-out" />
+            {t("auth.logout")}
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+----
+
+=== Hook de Autorização
+
+Para verificar permissões via plugin-authz:
+
+[source,typescript]
+----
+// hooks/use-authorization.ts
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "~/contexts/auth-context";
+
+interface UseAuthorizationOptions {
+  action?: string;
+  enabled?: boolean;
+  method?: string;
+  resource: string;
+}
+
+export function useAuthorization({
+  action,
+  enabled = true,
+  method = "GET",
+  resource,
+}: UseAuthorizationOptions) {
+  const { user } = useAuth();
+
+  const authorization$ = useQuery({
+    enabled,
+    queryFn: async () => {
+      const res = await fetch("/authz/api/evaluate", {
+        body: JSON.stringify({
+          action: { method, operation: action },
+          environment: { ip: "0.0.0.0", time: new Date().toISOString() },
+          resource: { app: "cpanel", path: resource },
+          subject: { claims: {}, groups: [], id: user.id, roles: [] },
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+
+      if (!res.ok) throw new Error("Failed to evaluate authorization");
+      const decision = await res.json();
+      return decision.effect === "permit";
+    },
+    queryKey: ["authorization", resource, method, action, user.id],
+    staleTime: 30_000,
+  });
+
+  return {
+    isAllowed: authorization$.data ?? false,
+    isLoading: authorization$.isLoading,
+  };
+}
+----
+
+==== Uso do Hook
+
+[source,typescript]
+----
+import { useAuthorization } from "~/hooks/use-authorization";
+import { AccessDenied } from "~/components/access-denied";
+
+function ProtectedSettings() {
+  const { isAllowed, isLoading } = useAuthorization({
+    resource: "/cpanel/settings",
+    method: "GET",
+  });
+
+  if (isLoading) return <Spinner />;
+  if (!isAllowed) return <AccessDenied />;
+
+  return <SettingsPage />;
+}
+----
+
+=== Traduções
+
+Adicione as chaves de tradução nos arquivos de locale:
+
+[source,json]
+----
+// locales/en.json
+{
+  "auth": {
+    "accessDenied": "Access Denied",
+    "accessDeniedDescription": "You don't have permission to access this resource.",
+    "goHome": "Go to Home",
+    "logout": "Sign Out"
+  }
+}
+----
+
+[source,json]
+----
+// locales/pt.json
+{
+  "auth": {
+    "accessDenied": "Acesso Negado",
+    "accessDeniedDescription": "Você não tem permissão para acessar este recurso.",
+    "goHome": "Ir para Início",
+    "logout": "Sair"
+  }
+}
+----
+
+=== Fluxo Completo
+
+[source]
+----
+Usuário acessa /cpanel/*
+        │
+        ▼
+  Fetch /auth/api/session
+        │
+        ▼
+  Tem sessão válida?
+   ╱           ╲
+ NÃO           SIM
+  │             │
+  ▼             ▼
+Redirect    Tem permissão?
+/auth/       (opcional)
+login        ╱        ╲
+           NÃO        SIM
+            │          │
+            ▼          ▼
+       AccessDenied  Renderiza
+                      página
+----

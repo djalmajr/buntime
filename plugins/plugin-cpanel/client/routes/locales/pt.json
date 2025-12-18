@@ -1,0 +1,27 @@
+{
+  "auth": {
+    "accessDenied": "Acesso Negado",
+    "accessDeniedDescription": "Você não tem permissão para acessar este recurso. Entre em contato com o administrador se acredita que isso é um erro.",
+    "goHome": "Ir para Início",
+    "logout": "Sair"
+  },
+  "nav": {
+    "appDescription": "Runtime de Pool de Workers",
+    "appName": "Buntime",
+    "authz": "Autorização",
+    "database": "Banco de Dados",
+    "deployments": "Deployments",
+    "durable": "Durable",
+    "gateway": "Gateway",
+    "health": "Saúde",
+    "keyval": "KeyVal",
+    "logs": "Logs",
+    "metrics": "Métricas",
+    "platform": "Plataforma",
+    "redirects": "Redirects"
+  },
+  "validation": {
+    "invalidJson": "Formato JSON inválido",
+    "required": "Este campo é obrigatório"
+  }
+}

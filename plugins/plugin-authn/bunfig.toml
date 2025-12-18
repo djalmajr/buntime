@@ -1,8 +1,16 @@
 [serve.static]
 plugins = [
+  "@zomme/bun-plugin-tsr",
   "@zomme/bun-plugin-iconify",
+  "@zomme/bun-plugin-i18next",
   "bun-plugin-tailwind",
 ]
 
+[plugins.tsr]
+rootDirectory = "client"
+
 [plugins.iconify]
 dirs = ["client", "../../packages/shadcn-ui/src"]
+
+[plugins.i18next]
+dirs = "client"

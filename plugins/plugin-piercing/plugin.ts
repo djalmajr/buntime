@@ -139,6 +139,7 @@ export default function piercingPlugin(pluginConfig: PiercingConfig = {}): Bunti
 
   return {
     name: "@buntime/plugin-piercing",
+    base: "/piercing",
 
     onInit(ctx: PluginContext) {
       logger = ctx.logger;

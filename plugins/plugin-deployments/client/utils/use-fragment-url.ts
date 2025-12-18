@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 
 /**
  * Get the shell's base path (for URL navigation).
- * This is different from getBasePath() which returns the fragment's base path.
+ * This is different from getApiBase() which returns the fragment's API base path.
  */
 function getShellBasePath(): string {
   // Use the document's <base> tag which points to the shell's base path
@@ -68,18 +68,28 @@ export function useFragmentUrl(rootDirs: string[]) {
     };
   }, [rootDirs]);
 
-  // Set initial root when rootDirs loads
+  // Set initial root when rootDirs loads and redirect to first workspace
   useEffect(() => {
-    if (rootDirs.length > 0 && !state.selectedRoot) {
-      const parsed = parseUrlPath(rootDirs);
-      if (parsed.selectedRoot) {
-        setState(parsed);
-      } else {
-        // Default to first root and navigate
-        const newState = { selectedRoot: rootDirs[0]!, path: "" };
-        setState(newState);
-        navigateToShell(newState);
-      }
+    if (rootDirs.length === 0) return;
+
+    const parsed = parseUrlPath(rootDirs);
+
+    // Check if URL needs updating (no workspace in URL but we have workspaces)
+    const currentPath = window.location.pathname;
+    const basePath = document.querySelector("base")?.getAttribute("href")?.replace(/\/$/, "") ?? "";
+    const deployPath = currentPath.startsWith(basePath)
+      ? currentPath.slice(basePath.length)
+      : currentPath;
+    const needsRedirect =
+      deployPath === "/deployments" || deployPath === "/deployments/" || !parsed.selectedRoot;
+
+    if (needsRedirect && rootDirs[0]) {
+      // Redirect to first workspace
+      const newState = { selectedRoot: rootDirs[0], path: "" };
+      setState(newState);
+      navigateToShell(newState);
+    } else if (parsed.selectedRoot && parsed.selectedRoot !== state.selectedRoot) {
+      setState(parsed);
     }
   }, [rootDirs, state.selectedRoot]);
 

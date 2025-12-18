@@ -102,5 +102,5 @@ export { PluginRegistry } from "@/plugins/registry";
 // Export route types for RPC clients
 export type { PluginsInfoRoutesType } from "@/routes/plugins-info";
 
-// Default export for use in index.ts
-export default app;
+// Default export disabled - conflicts with Bun auto-serve when running directly
+// export default app;

@@ -1,0 +1,81 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+== Instalação e Configuração
+
+=== Pré-requisitos
+
+* Keycloak rodando (ou outro provedor OIDC compatível)
+* Realm configurado no Keycloak
+* Client OIDC configurado como confidential
+
+=== Configuração do Keycloak
+
+==== Criar Realm
+
+. Acesse o Keycloak Admin Console (ex: `http://localhost:8180/auth`)
+. Login com admin/admin
+. Crie um novo realm (ex: `buntime`)
+
+==== Criar Client
+
+. No realm, vá em Clients > Create client
+. Configure:
+** Client ID: `buntime-app`
+** Client type: `OpenID Connect`
+** Client authentication: `On` (confidential)
+. Em Settings, configure:
+** Valid redirect URIs: `http://localhost:8000/*`
+** Web origins: `http://localhost:8000`
+. Em Credentials, copie o Client Secret
+
+==== Criar Usuário (opcional)
+
+. Vá em Users > Add user
+. Preencha username e email
+. Em Credentials, defina uma senha
+
+=== Configuração do Plugin
+
+==== buntime.jsonc
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-authn", {
+      "issuer": "${KEYCLOAK_URL}",
+      "realm": "${KEYCLOAK_REALM}",
+      "clientId": "${KEYCLOAK_CLIENT_ID}",
+      "clientSecret": "${KEYCLOAK_CLIENT_SECRET}",
+      "trustedOrigins": ["http://localhost:8000"]
+    }]
+  ]
+}
+----
+
+==== Variáveis de Ambiente
+
+Crie ou edite o arquivo `.env` no diretório do runtime:
+
+[source,bash]
+----
+# Keycloak authentication
+KEYCLOAK_URL=http://localhost:8180/auth
+KEYCLOAK_REALM=buntime
+KEYCLOAK_CLIENT_ID=buntime-app
+KEYCLOAK_CLIENT_SECRET=seu-client-secret
+----
+
+=== Verificação
+
+Após iniciar o Buntime:
+
+. Acesse `http://localhost:8000` - deve redirecionar para login
+. Acesse `http://localhost:8000/auth/login` - página de login
+. Clique em "Sign in with Keycloak"
+. Após autenticação, será redirecionado de volta

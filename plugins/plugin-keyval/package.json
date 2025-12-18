@@ -24,7 +24,6 @@
     "@buntime/plugin-database": "workspace:*",
     "@buntime/shadcn-ui": "workspace:*",
     "@buntime/shared": "workspace:*",
-    "@glideapps/glide-data-grid": "^6.0.3",
     "@iconify-icon/react": "^2.1.0",
     "@tanstack/react-router": "^1.141.2",
     "i18next": "^25.2.1",

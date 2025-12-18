@@ -73,7 +73,7 @@ disconnectedCallback(): void {
 [source,html]
 ----
 <!-- Fragment host gerado via SSR -->
-<fragment-host src="/p/health">
+<fragment-host src="/health">
   <div class="health-dashboard">
     <!-- Conteúdo do fragmento -->
   </div>
@@ -193,13 +193,13 @@ O `FragmentOutlet` é um elemento placeholder que marca onde um fragmento deve s
 [source,html]
 ----
 <!-- Plugin interno sem isolamento -->
-<fragment-outlet src="/p/logs" />
+<fragment-outlet src="/logs" />
 
 <!-- Plugin com contexto de roteamento -->
-<fragment-outlet src="/p/metrics" base="/cpanel" />
+<fragment-outlet src="/metrics" base="/cpanel" />
 
 <!-- Aplicação com patch de navegação -->
-<fragment-outlet src="/p/metrics" base="/cpanel" history="patch" />
+<fragment-outlet src="/metrics" base="/cpanel" history="patch" />
 
 <!-- Aplicação externa isolada com iframe -->
 <fragment-outlet src="/external" base="/cpanel" history="isolate" />
@@ -442,7 +442,7 @@ const bus = host?.[MESSAGE_BUS_PROP];
 ----
 1. Servidor renderiza HTML com fragment-host
    ↓
-2. HTML contém <fragment-host src="/p/logs">
+2. HTML contém <fragment-host src="/logs">
    ↓
 3. Browser registra componentes via registerPiercingComponents()
    ↓
@@ -453,7 +453,7 @@ const bus = host?.[MESSAGE_BUS_PROP];
 
 [source]
 ----
-5. Outlet conecta: <fragment-outlet src="/p/logs">
+5. Outlet conecta: <fragment-outlet src="/logs">
    ↓
 6. Outlet encontra fragment-host no DOM
    ↓
@@ -468,11 +468,11 @@ const bus = host?.[MESSAGE_BUS_PROP];
 
 [source]
 ----
-5. Outlet conecta: <fragment-outlet src="/p/metrics">
+5. Outlet conecta: <fragment-outlet src="/metrics">
    ↓
 6. Fragment não encontrado no DOM
    ↓
-7. Outlet busca via fetch(/p/metrics)
+7. Outlet busca via fetch(/metrics)
    ↓
 8. Stream HTML via DOMParser
    ↓

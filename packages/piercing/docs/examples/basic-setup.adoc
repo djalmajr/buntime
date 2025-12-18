@@ -25,7 +25,7 @@ O HTML shell deve incluir os elementos `<fragment-outlet>` onde os fragmentos se
     <!-- Área principal -->
     <main>
       <!-- Outlet: marca onde o fragmento será renderizado -->
-      <fragment-outlet src="/p/deployments" base="/dashboard">
+      <fragment-outlet src="/deployments" base="/dashboard">
         <!-- Loading placeholder (opcional) -->
         <div class="loading">Carregando...</div>
       </fragment-outlet>
@@ -50,7 +50,7 @@ O HTML shell deve incluir os elementos `<fragment-outlet>` onde os fragmentos se
 
 | `src`
 | string (required)
-| URL para buscar o fragmento (ex: `/p/metrics`)
+| URL para buscar o fragmento (ex: `/metrics`)
 
 | `base`
 | string
@@ -124,9 +124,9 @@ O plugin automaticamente:
 
 ==== Sem Pre-Piercing (Client-Side Only)
 
-1. Servidor retorna HTML shell com `<fragment-outlet src="/p/metrics">`
+1. Servidor retorna HTML shell com `<fragment-outlet src="/metrics">`
 2. Browser renderiza shell e registra web components
-3. `<fragment-outlet>` faz fetch para `/p/metrics`
+3. `<fragment-outlet>` faz fetch para `/metrics`
 4. Conteúdo é injetado no Shadow DOM via streaming
 
 ==== Com Pre-Piercing (SSR)

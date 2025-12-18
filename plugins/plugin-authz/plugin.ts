@@ -4,6 +4,41 @@ import { PolicyAdministrationPoint } from "./server/pap";
 import { PolicyDecisionPoint } from "./server/pdp";
 import type { CombiningAlgorithm, Effect, EvaluationContext, Policy } from "./server/types";
 
+/**
+ * Policy seed configuration for initial policy provisioning
+ */
+export interface PolicySeedConfig {
+  /**
+   * Enable policy seeding
+   * @default true
+   */
+  enabled?: boolean;
+
+  /**
+   * Only seed if no policies exist
+   * @default true
+   */
+  onlyIfEmpty?: boolean;
+
+  /**
+   * Environments where seeding is allowed
+   * Use "*" for all environments
+   * @default ["*"]
+   */
+  environments?: string[];
+
+  /**
+   * Path to JSON file containing policies
+   * File format: { "policies": Policy[] } or Policy[]
+   */
+  file?: string;
+
+  /**
+   * Inline policies to seed
+   */
+  policies?: Policy[];
+}
+
 export interface AuthzConfig {
   /**
    * Policy combining algorithm
@@ -31,6 +66,7 @@ export interface AuthzConfig {
 
   /**
    * Inline policies (loaded at startup)
+   * @deprecated Use policySeed.policies instead
    */
   policies?: Policy[];
 
@@ -39,6 +75,12 @@ export interface AuthzConfig {
    * @example ["/health", "/public/.*"]
    */
   excludePaths?: string[];
+
+  /**
+   * Policy seed configuration
+   * Seeds policies at startup based on environment and conditions
+   */
+  policySeed?: PolicySeedConfig;
 }
 
 interface Identity {
@@ -56,6 +98,83 @@ let logger: PluginContext["logger"];
 
 function isExcluded(pathname: string): boolean {
   return excludePatterns.some((p) => p.test(pathname));
+}
+
+/**
+ * Run policy seeding based on configuration
+ */
+async function runPolicySeed(seedConfig: PolicySeedConfig | undefined): Promise<number> {
+  if (!seedConfig) return 0;
+  if (seedConfig.enabled === false) return 0;
+
+  // Check environment
+  const env = Bun.env.NODE_ENV || "development";
+  const allowedEnvs = seedConfig.environments || ["*"];
+  if (!allowedEnvs.includes("*") && !allowedEnvs.includes(env)) {
+    logger.debug(`Policy seed skipped - env "${env}" not in allowed environments`);
+    return 0;
+  }
+
+  // Check if policies already exist
+  if (seedConfig.onlyIfEmpty !== false && pap.getAll().length > 0) {
+    logger.debug("Policy seed skipped - policies already exist");
+    return 0;
+  }
+
+  // Load policies from file or inline config
+  let policies: Policy[] = [];
+
+  if (seedConfig.file) {
+    try {
+      const file = Bun.file(seedConfig.file);
+      if (await file.exists()) {
+        const data = await file.json();
+        policies = Array.isArray(data) ? data : (data.policies ?? []);
+      } else {
+        logger.warn(`Policy seed file not found: ${seedConfig.file}`);
+      }
+    } catch (err) {
+      logger.error(`Failed to load policy seed file: ${seedConfig.file}`, err);
+    }
+  }
+
+  // Add inline policies (merged with file policies)
+  if (seedConfig.policies?.length) {
+    policies = [...policies, ...seedConfig.policies];
+  }
+
+  if (policies.length === 0) {
+    return 0;
+  }
+
+  // Apply policies
+  for (const policy of policies) {
+    await pap.set(policy);
+  }
+
+  logger.info(`Policy seed: ${policies.length} policies applied`);
+  return policies.length;
+}
+
+/**
+ * Service for other plugins to seed policies programmatically
+ */
+export interface AuthzService {
+  /**
+   * Seed policies programmatically
+   * Useful for plugins that need to register their own policies
+   */
+  seedPolicies(policies: Policy[], options?: { onlyIfEmpty?: boolean }): Promise<number>;
+
+  /**
+   * Get the Policy Administration Point instance
+   */
+  getPap(): PolicyAdministrationPoint;
+
+  /**
+   * Get the Policy Decision Point instance
+   */
+  getPdp(): PolicyDecisionPoint;
 }
 
 function buildContext(
@@ -125,6 +244,7 @@ export default function authzPlugin(pluginConfig: AuthzConfig = {}): BuntimePlug
 
   return {
     name: "@buntime/plugin-authz",
+    base: "/authz",
     dependencies: ["@buntime/plugin-authn"], // Requires authn to be configured
 
     fragment: {
@@ -151,10 +271,13 @@ export default function authzPlugin(pluginConfig: AuthzConfig = {}): BuntimePlug
       pap = new PolicyAdministrationPoint(config.store ?? "memory", config.path);
       await pap.load();
 
-      // Load inline policies
+      // Load inline policies (deprecated, prefer policySeed)
       if (config.policies) {
         pap.loadFromArray(config.policies);
       }
+
+      // Run policy seeding
+      await runPolicySeed(config.policySeed);
 
       // Initialize PDP
       pdp = new PolicyDecisionPoint(
@@ -167,6 +290,27 @@ export default function authzPlugin(pluginConfig: AuthzConfig = {}): BuntimePlug
 
       // Compile exclude patterns
       excludePatterns = (config.excludePaths ?? []).map((p) => new RegExp(p));
+
+      // Register authz service for other plugins
+      const authzService: AuthzService = {
+        async seedPolicies(policies, options) {
+          if (options?.onlyIfEmpty !== false && pap.getAll().length > 0) {
+            logger.debug("seedPolicies skipped - policies already exist");
+            return 0;
+          }
+
+          for (const policy of policies) {
+            await pap.set(policy);
+          }
+
+          logger.info(`seedPolicies: ${policies.length} policies applied`);
+          return policies.length;
+        },
+        getPap: () => pap,
+        getPdp: () => pdp,
+      };
+
+      ctx.registerService("authz", authzService);
 
       const policyCount = pap.getAll().length;
       logger.info(

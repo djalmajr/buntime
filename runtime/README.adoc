@@ -175,7 +175,7 @@ const router = createRouter({
 });
 ----
 
-=== worker.jsonc (por app)
+=== buntime.jsonc (por app)
 
 [source,jsonc]
 ----

@@ -5,13 +5,13 @@
  * Must be initialized after loading buntime.jsonc via initConfig().
  */
 import { isAbsolute, resolve } from "node:path";
-import type { BuntimeConfig } from "@buntime/shared/types";
+import type { BuntimeConfig, HomepageConfig } from "@buntime/shared/types";
 import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
 import { DELAY_MS, IS_COMPILED, IS_DEV, NODE_ENV, PORT, VERSION } from "./constants";
 
 interface RuntimeConfig {
   delayMs: number;
-  homepage?: string;
+  homepage?: string | HomepageConfig;
   isCompiled: boolean;
   isDev: boolean;
   nodeEnv: string;
@@ -86,17 +86,19 @@ export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): Runti
     buntimeConfig.poolSize ??
     (Bun.env.POOL_SIZE ? parseInt(Bun.env.POOL_SIZE, 10) : (poolDefaults[NODE_ENV] ?? 100));
 
-  // Get homepage: buntime.jsonc > env var
-  const homepage = buntimeConfig.homepage ?? Bun.env.HOMEPAGE_APP;
+  // Get homepage: buntime.jsonc > env var (env var is string redirect format)
+  const homepage: string | HomepageConfig | undefined =
+    buntimeConfig.homepage ?? Bun.env.HOMEPAGE_APP;
 
-  _config = {
+  const config: RuntimeConfig = {
     ...defaults,
     homepage,
     poolSize,
     workspaces,
   };
 
-  return _config;
+  _config = config;
+  return config;
 }
 
 /**

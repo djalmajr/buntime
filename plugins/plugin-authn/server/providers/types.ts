@@ -101,4 +101,10 @@ export interface AuthProvider {
    * Get provider info for client
    */
   getProviderInfo(): ProviderInfo;
+
+  /**
+   * Get the logout URL for OIDC providers
+   * Returns null for non-OIDC providers (like email-password)
+   */
+  getLogoutUrl?(idToken: string, postLogoutRedirectUri: string): Promise<string | null>;
 }

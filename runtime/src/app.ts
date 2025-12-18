@@ -1,5 +1,5 @@
 import { errorToResponse } from "@buntime/shared/errors";
-import type { AppInfo, WorkerConfig as SharedWorkerConfig } from "@buntime/shared/types";
+import type { AppInfo, HomepageConfig, WorkerConfig as SharedWorkerConfig } from "@buntime/shared/types";
 import type { Hono } from "hono";
 import { Hono as HonoApp } from "hono";
 import type { WorkerConfig } from "@/libs/pool/config";
@@ -11,9 +11,10 @@ export interface AppDeps {
   getAppDir: (appName: string) => string | undefined;
   /**
    * Homepage configuration from buntime.jsonc
-   * Can be a plugin name (e.g., "@buntime/plugin-cpanel") or path (e.g., "/my-app")
+   * String: redirect to path (e.g., "/my-app")
+   * Object: app-shell mode (e.g., { app: "cpanel", shell: true })
    */
-  homepage?: string;
+  homepage?: string | HomepageConfig;
   pluginsInfo: Hono;
   pool?: WorkerPool;
   registry?: PluginRegistry;
@@ -128,38 +129,85 @@ async function servePluginApp(
  * Resolved shell configuration
  */
 interface ResolvedShell {
-  plugin: NonNullable<ReturnType<PluginRegistry["getShellPlugin"]>>;
+  name: string;
+  base: string;
   dir: string;
   config: WorkerConfig;
 }
 
 /**
- * Resolve shell plugin if homepage points to a shell plugin
+ * Resolve shell worker if homepage is configured for app-shell mode
  */
 async function resolveShell(
-  homepage: string | undefined,
-  registry: PluginRegistry | undefined,
+  homepage: string | HomepageConfig | undefined,
+  getAppDir: (appName: string) => string | undefined,
 ): Promise<ResolvedShell | undefined> {
-  if (!homepage || !registry) return undefined;
+  if (!homepage) return undefined;
 
-  // Check if homepage is a plugin reference
-  const isPluginRef = homepage.startsWith("@");
-  if (!isPluginRef) return undefined;
+  // String format is redirect mode, not shell mode
+  if (typeof homepage === "string") return undefined;
 
-  // Get the shell plugin
-  const shellPlugin = registry.getShellPlugin();
-  if (!shellPlugin) return undefined;
+  // Object format with shell: true enables app-shell mode
+  if (!homepage.shell) return undefined;
 
-  // Check if homepage matches the shell plugin
-  if (shellPlugin.name !== homepage) return undefined;
-
-  // Get shell plugin directory and config
-  const dir = registry.getPluginDir(shellPlugin.name);
-  if (!dir) return undefined;
+  const dir = getAppDir(homepage.app);
+  if (!dir) {
+    console.warn(`[Shell] Worker "${homepage.app}" not found in workspaces`);
+    return undefined;
+  }
 
   const config = await loadWorkerConfig(dir);
 
-  return { plugin: shellPlugin, dir, config };
+  return {
+    name: homepage.app,
+    base: `/${homepage.app}`,
+    dir,
+    config,
+  };
+}
+
+/**
+ * Check if a pathname should be routed to the shell
+ * Returns true for navigation requests to:
+ * - "/" (homepage)
+ * - Any path starting with a plugin base (e.g., "/metrics", "/metrics/workers")
+ *
+ * Returns false for:
+ * - Non-navigation requests (e.g., fetch from fragment-outlet)
+ * - API routes (paths containing "/api/")
+ *
+ * Note: Public routes are checked separately before calling this function
+ * to avoid redirect loops (e.g., /auth/login should not go through shell)
+ */
+function shouldRouteToShell(
+  pathname: string,
+  secFetchMode: string | undefined,
+  pluginBases: Set<string>,
+): boolean {
+  // Only intercept top-level navigation requests
+  // Fragment-outlet uses fetch() which has Sec-Fetch-Mode: cors or same-origin
+  if (secFetchMode && secFetchMode !== "navigate") {
+    return false;
+  }
+
+  // Homepage always goes to shell
+  if (pathname === "/" || pathname === "") {
+    return true;
+  }
+
+  // Don't intercept API routes - let them go directly to plugins
+  if (pathname.includes("/api/")) {
+    return false;
+  }
+
+  // Check if pathname starts with any plugin base
+  for (const base of pluginBases) {
+    if (pathname === base || pathname.startsWith(`${base}/`)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -180,7 +228,7 @@ async function serveShellApp(
   // Set headers for shell to know the fragment route
   // x-base must be the shell's actual base path so assets load correctly
   // e.g., shell at /cpanel -> <base href="/cpanel/"> -> /cpanel/index.js
-  newReq.headers.set("x-base", shell.plugin.base);
+  newReq.headers.set("x-base", shell.base);
   newReq.headers.set("x-fragment-route", fragmentRoute);
   if (notFound) {
     newReq.headers.set("x-not-found", "true");
@@ -200,11 +248,14 @@ export function createApp({ getAppDir, homepage, pluginsInfo, pool, registry, wo
   const pluginRoutes = new Map<string, { plugin: PluginType; routes: Hono }>();
   const pluginPaths = new Map<string, string>();
 
-  // Resolve shell plugin early (will be used in routing)
+  // Resolve shell worker early (will be used in routing)
   let shellPromise: Promise<ResolvedShell | undefined> | undefined;
-  if (homepage && registry && pool) {
-    shellPromise = resolveShell(homepage, registry);
+  if (homepage && pool) {
+    shellPromise = resolveShell(homepage, getAppDir);
   }
+
+  // Get plugin base paths for shell routing (cached)
+  const pluginBases = registry?.getPluginBasePaths() ?? new Set<string>();
 
   if (registry) {
     for (const plugin of registry.getAll()) {
@@ -253,11 +304,12 @@ export function createApp({ getAppDir, homepage, pluginsInfo, pool, registry, wo
 
     // APP-SHELL MODE: If we have a shell and pathname should go to shell, serve it
     // This intercepts navigation requests to: "/" (homepage), "/metrics", "/metrics/workers", etc.
-    // But NOT: "/metrics/api/*" (API routes), or fetch requests from fragment-outlet
+    // But NOT: "/metrics/api/*" (API routes), fetch requests from fragment-outlet, or public routes
     const secFetchMode = ctx.req.header("sec-fetch-mode");
-    if (shell && pool && registry?.shouldRouteToShell(pathname, secFetchMode)) {
+    const isPublicRoute = registry?.isPublicRouteForAnyPlugin(pathname, method) ?? false;
+    if (shell && pool && !isPublicRoute && shouldRouteToShell(pathname, secFetchMode, pluginBases)) {
       // Run onRequest hooks first (for auth)
-      const authResult = await registry.runOnRequest(ctx.req.raw);
+      const authResult = registry ? await registry.runOnRequest(ctx.req.raw) : ctx.req.raw;
       if (authResult instanceof Response) {
         return authResult; // Auth failed
       }

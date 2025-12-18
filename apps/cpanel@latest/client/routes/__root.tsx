@@ -12,7 +12,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { FragmentNavigationBridge } from "~/components/fragment-navigation-bridge";
 import { MainLayout, type SidebarNavGroup } from "~/components/main-layout";
-import { AuthProvider, type Session } from "~/contexts/auth-context";
+import { AuthProvider, type Session, useAuth } from "~/contexts/auth-context";
 import { HeaderProvider, useHeader } from "~/contexts/header-context";
 import i18n from "~/helpers/i18n";
 import { queryClient } from "~/helpers/query-client";
@@ -30,7 +30,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 function RootLayoutContent() {
   const { t } = useTranslation();
   const { header } = useHeader();
-  const { session } = useRouteContext({ from: "__root__" });
+  const { logout, session } = useAuth();
   const breadcrumbs = useBreadcrumbs({ i18n });
   const plugins$ = usePlugins();
   const location = useLocation();
@@ -109,6 +109,7 @@ function RootLayoutContent() {
       groups={navGroups}
       header={header ?? undefined}
       LinkComponent={Link}
+      onLogout={logout}
       user={userData}
     >
       <div className="flex flex-1 flex-col gap-4 overflow-auto">

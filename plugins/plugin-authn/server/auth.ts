@@ -11,6 +11,16 @@ export interface BetterAuthConfig {
   trustedOrigins?: string[];
 }
 
+// Database instance for direct queries
+let db: Database | null = null;
+
+/**
+ * Get the database instance for direct queries
+ */
+export function getDatabase(): Database | null {
+  return db;
+}
+
 export function createBetterAuth(config: BetterAuthConfig) {
   // Ensure database directory exists
   const dir = dirname(config.databasePath);
@@ -18,7 +28,7 @@ export function createBetterAuth(config: BetterAuthConfig) {
     mkdirSync(dir, { recursive: true });
   }
 
-  const db = new Database(config.databasePath, { create: true });
+  db = new Database(config.databasePath, { create: true });
 
   // Enable WAL mode for better concurrent access
   db.run("PRAGMA journal_mode = WAL");

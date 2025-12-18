@@ -22,15 +22,65 @@ toc::[]
 
 == Visão Geral
 
-**plugin-authn** é o plugin Buntime para autenticação de usuários via Keycloak/OIDC usando better-auth.
+**plugin-authn** é o plugin Buntime para autenticação de usuários usando better-auth com suporte a múltiplos provedores.
 
-Funcionalidades:
+=== Funcionalidades
 
-* Integração com Keycloak via OAuth2/OIDC
-* Gerenciamento automático de sessões
-* Página de login com fluxo OAuth
+* Múltiplos provedores de autenticação (Email/Password, Keycloak, Auth0, Okta, OIDC genérico)
+* Gerenciamento automático de sessões com cookies
+* Página de login dinâmica com seleção de provedor
 * Interceptação de requests para rotas protegidas
+* Injeção de header `X-Identity` com dados do usuário autenticado
+* SCIM 2.0 para provisionamento de usuários e grupos
 * Suporte a variáveis de ambiente na configuração
+
+=== Provedores Suportados
+
+[cols="1,3"]
+|===
+| Provedor | Descrição
+
+| `email-password`
+| Autenticação local com email e senha
+
+| `keycloak`
+| Keycloak via OAuth2/OIDC
+
+| `auth0`
+| Auth0 via OAuth2/OIDC
+
+| `okta`
+| Okta via OAuth2/OIDC
+
+| `generic-oidc`
+| Qualquer provedor OIDC compatível
+|===
+
+=== Dependências
+
+Este plugin requer `@buntime/plugin-database` para armazenamento de sessões e usuários.
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapters": [{ "type": "libsql", "default": true }]
+    }],
+    ["@buntime/plugin-authn", { ... }]
+  ]
+}
+----
+
+=== Dependências Opcionais
+
+[cols="1,3"]
+|===
+| Plugin | Descrição
+
+| `@buntime/plugin-proxy`
+| Habilita recursos avançados de proxy para fluxos OAuth.
+|===
 
 == Setup
 
@@ -43,3 +93,7 @@ include::docs/overview/client-integration.adoc[leveloffset=+1]
 == API
 
 include::docs/api/endpoints.adoc[leveloffset=+1]
+
+== SCIM 2.0
+
+include::docs/api/scim.adoc[leveloffset=+1]

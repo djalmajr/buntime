@@ -1,3 +1,4 @@
+import type { AdapterType, DatabaseService } from "@buntime/plugin-database";
 import type { BuntimePlugin, PluginContext, PublicRoutesConfig } from "@buntime/shared/types";
 import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
 import { api } from "./server/api";
@@ -45,10 +46,10 @@ type ProviderConfigInput =
 
 export interface AuthnConfig {
   /**
-   * SQLite database path for sessions
-   * @default "./data/auth.db"
+   * Database adapter type to use
+   * Uses default adapter from plugin-database if not specified
    */
-  databasePath?: string;
+  database?: AdapterType;
 
   /**
    * Login redirect path
@@ -61,6 +62,20 @@ export interface AuthnConfig {
    * Supports multiple providers simultaneously
    */
   providers: ProviderConfigInput[];
+
+  /**
+   * SCIM 2.0 configuration
+   */
+  scim?: {
+    /** Enable SCIM 2.0 endpoints (default: false) */
+    enabled?: boolean;
+    /** Maximum results per page (default: 100) */
+    maxResults?: number;
+    /** Enable bulk operations (default: true) */
+    bulkEnabled?: boolean;
+    /** Maximum operations per bulk request (default: 1000) */
+    maxBulkOperations?: number;
+  };
 
   /**
    * Trusted origins for CORS
@@ -98,12 +113,16 @@ function processProviderConfig(input: ProviderConfigInput): ProviderConfig {
  * - Automatic session management
  * - Login page with dynamic provider selection
  * - Request interception for protected routes
+ * - SCIM 2.0 support for user provisioning
  *
  * @example
  * ```jsonc
  * // buntime.jsonc - Email/Password only (development)
  * {
  *   "plugins": [
+ *     ["@buntime/plugin-database", {
+ *       "adapters": [{ "type": "libsql", "default": true }]
+ *     }],
  *     ["@buntime/plugin-authn", {
  *       "providers": [
  *         { "type": "email-password", "allowSignUp": true }
@@ -115,9 +134,13 @@ function processProviderConfig(input: ProviderConfigInput): ProviderConfig {
  *
  * @example
  * ```jsonc
- * // buntime.jsonc - Keycloak only (production)
+ * // buntime.jsonc - Keycloak with SCIM
  * {
  *   "plugins": [
+ *     ["@buntime/plugin-database", {
+ *       "adapters": [{ "type": "libsql", "default": true }],
+ *       "tenancy": { "enabled": true, "header": "X-Tenant-ID" }
+ *     }],
  *     ["@buntime/plugin-authn", {
  *       "providers": [
  *         {
@@ -127,59 +150,57 @@ function processProviderConfig(input: ProviderConfigInput): ProviderConfig {
  *           "clientId": "${KEYCLOAK_CLIENT_ID}",
  *           "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
  *         }
- *       ]
- *     }]
- *   ]
- * }
- * ```
- *
- * @example
- * ```jsonc
- * // buntime.jsonc - Multiple providers
- * {
- *   "plugins": [
- *     ["@buntime/plugin-authn", {
- *       "providers": [
- *         { "type": "email-password" },
- *         { "type": "keycloak", "displayName": "SSO", ... }
- *       ]
+ *       ],
+ *       "scim": { "enabled": true }
  *     }]
  *   ]
  * }
  * ```
  */
 export default function authnPlugin(config: AuthnConfig): BuntimePlugin {
-  const databasePath = config.databasePath ?? "./data/auth.db";
-
   // Process provider configs (substitute env vars)
   const providers = config.providers.map(processProviderConfig);
 
+  // Custom base path (default would be /authn)
+  const basePath = "/auth";
+
   // Public routes that skip onRequest hooks
   const publicRoutes: PublicRoutesConfig = {
-    ALL: ["/auth/api", "/auth/api/**"],
-    GET: ["/auth/login", "/auth/login/**"],
+    ALL: [`${basePath}/api`, `${basePath}/api/**`],
+    GET: [`${basePath}/login`, `${basePath}/login/**`],
   };
 
   return {
     name: "@buntime/plugin-authn",
+    dependencies: ["@buntime/plugin-database"],
     optionalDependencies: ["@buntime/plugin-proxy"],
 
-    // Custom base path (default would be /authn)
-    base: "/auth",
+    base: basePath,
 
     // API routes run on main thread
     routes: api,
 
     publicRoutes,
 
-    onInit(ctx: PluginContext) {
+    async onInit(ctx: PluginContext) {
+      // Get database service from plugin-database
+      const database = ctx.getService<DatabaseService>("database");
+      if (!database) {
+        throw new Error(
+          "@buntime/plugin-authn requires @buntime/plugin-database. " +
+            "Add it to your buntime.jsonc plugins before plugin-authn.",
+        );
+      }
+
       const serviceConfig: AuthnServiceConfig = {
-        databasePath,
+        basePath,
+        database: config.database,
         providers,
+        scim: config.scim,
         trustedOrigins: config.trustedOrigins,
       };
 
-      initialize(serviceConfig, ctx.logger);
+      await initialize(database, serviceConfig, ctx.logger);
     },
 
     onShutdown() {
@@ -191,7 +212,7 @@ export default function authnPlugin(config: AuthnConfig): BuntimePlugin {
 
       // Skip public routes (handled by registry)
       // Skip auth routes (handled by proxy/worker)
-      if (url.pathname.startsWith("/auth/")) {
+      if (url.pathname.startsWith(`${basePath}/`)) {
         return;
       }
 

@@ -1,17 +1,182 @@
-:toc: left
-:toclevels: 3
-:sectnums:
-:sectnumlevels: 5
-:icons: font
-:source-highlighter: highlightjs
-
 == Instalação e Configuração
 
 === Pré-requisitos
 
-* Keycloak rodando (ou outro provedor OIDC compatível)
-* Realm configurado no Keycloak
-* Client OIDC configurado como confidential
+* `@buntime/plugin-database` configurado
+* Para provedores OAuth: servidor OIDC configurado (Keycloak, Auth0, Okta, etc.)
+
+=== Configuração Básica
+
+==== Email/Password (Desenvolvimento)
+
+A configuração mais simples para desenvolvimento local:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapters": [{ "type": "libsql", "default": true }]
+    }],
+    ["@buntime/plugin-authn", {
+      "providers": [
+        { "type": "email-password", "allowSignUp": true }
+      ]
+    }]
+  ]
+}
+----
+
+==== Keycloak
+
+Para integração com Keycloak:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapters": [{ "type": "libsql", "default": true }]
+    }],
+    ["@buntime/plugin-authn", {
+      "providers": [
+        {
+          "type": "keycloak",
+          "issuer": "${KEYCLOAK_URL}",
+          "realm": "${KEYCLOAK_REALM}",
+          "clientId": "${KEYCLOAK_CLIENT_ID}",
+          "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
+        }
+      ],
+      "trustedOrigins": ["http://localhost:8000"]
+    }]
+  ]
+}
+----
+
+NOTE: O campo `issuer` deve ser a URL base do Keycloak (ex: `http://localhost:8180/auth`), sem incluir `/realms/{realm}`. O plugin automaticamente constrói a URL completa do issuer OIDC combinando o issuer com o realm configurado.
+
+==== Auth0
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapters": [{ "type": "libsql", "default": true }]
+    }],
+    ["@buntime/plugin-authn", {
+      "providers": [
+        {
+          "type": "auth0",
+          "domain": "${AUTH0_DOMAIN}",
+          "clientId": "${AUTH0_CLIENT_ID}",
+          "clientSecret": "${AUTH0_CLIENT_SECRET}"
+        }
+      ]
+    }]
+  ]
+}
+----
+
+==== Okta
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapters": [{ "type": "libsql", "default": true }]
+    }],
+    ["@buntime/plugin-authn", {
+      "providers": [
+        {
+          "type": "okta",
+          "domain": "${OKTA_DOMAIN}",
+          "clientId": "${OKTA_CLIENT_ID}",
+          "clientSecret": "${OKTA_CLIENT_SECRET}"
+        }
+      ]
+    }]
+  ]
+}
+----
+
+==== OIDC Genérico
+
+Para qualquer provedor OIDC compatível:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapters": [{ "type": "libsql", "default": true }]
+    }],
+    ["@buntime/plugin-authn", {
+      "providers": [
+        {
+          "type": "generic-oidc",
+          "issuer": "${OIDC_ISSUER}",
+          "clientId": "${OIDC_CLIENT_ID}",
+          "clientSecret": "${OIDC_CLIENT_SECRET}",
+          "displayName": "My OIDC Provider"
+        }
+      ]
+    }]
+  ]
+}
+----
+
+==== Múltiplos Provedores
+
+Combine múltiplos provedores na mesma aplicação:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", {
+      "adapters": [{ "type": "libsql", "default": true }]
+    }],
+    ["@buntime/plugin-authn", {
+      "providers": [
+        { "type": "email-password", "allowSignUp": true },
+        {
+          "type": "keycloak",
+          "issuer": "${KEYCLOAK_URL}",
+          "realm": "${KEYCLOAK_REALM}",
+          "clientId": "${KEYCLOAK_CLIENT_ID}",
+          "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
+        }
+      ]
+    }]
+  ]
+}
+----
+
+=== Variáveis de Ambiente
+
+Crie ou edite o arquivo `.env` no diretório do runtime:
+
+[source,bash]
+----
+# Keycloak
+KEYCLOAK_URL=http://localhost:8180/auth
+KEYCLOAK_REALM=buntime
+KEYCLOAK_CLIENT_ID=buntime-app
+KEYCLOAK_CLIENT_SECRET=seu-client-secret
+
+# Auth0
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_CLIENT_ID=your-client-id
+AUTH0_CLIENT_SECRET=your-client-secret
+
+# Okta
+OKTA_DOMAIN=your-domain.okta.com
+OKTA_CLIENT_ID=your-client-id
+OKTA_CLIENT_SECRET=your-client-secret
+----
 
 === Configuração do Keycloak
 
@@ -39,43 +204,11 @@
 . Preencha username e email
 . Em Credentials, defina uma senha
 
-=== Configuração do Plugin
-
-==== buntime.jsonc
-
-[source,jsonc]
-----
-{
-  "plugins": [
-    ["@buntime/plugin-authn", {
-      "issuer": "${KEYCLOAK_URL}",
-      "realm": "${KEYCLOAK_REALM}",
-      "clientId": "${KEYCLOAK_CLIENT_ID}",
-      "clientSecret": "${KEYCLOAK_CLIENT_SECRET}",
-      "trustedOrigins": ["http://localhost:8000"]
-    }]
-  ]
-}
-----
-
-==== Variáveis de Ambiente
-
-Crie ou edite o arquivo `.env` no diretório do runtime:
-
-[source,bash]
-----
-# Keycloak authentication
-KEYCLOAK_URL=http://localhost:8180/auth
-KEYCLOAK_REALM=buntime
-KEYCLOAK_CLIENT_ID=buntime-app
-KEYCLOAK_CLIENT_SECRET=seu-client-secret
-----
-
 === Verificação
 
 Após iniciar o Buntime:
 
 . Acesse `http://localhost:8000` - deve redirecionar para login
 . Acesse `http://localhost:8000/auth/login` - página de login
-. Clique em "Sign in with Keycloak"
+. Selecione o provedor desejado
 . Após autenticação, será redirecionado de volta

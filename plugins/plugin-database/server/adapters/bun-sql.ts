@@ -29,6 +29,13 @@ export class BunSqlAdapter implements DatabaseAdapter {
   }
 
   /**
+   * Get the raw Bun SQL client
+   */
+  getRawClient(): SQL {
+    return this.sql;
+  }
+
+  /**
    * Build connection URL for tenant based on database type
    */
   private buildTenantUrl(baseUrl: string, tenantId: string): string {

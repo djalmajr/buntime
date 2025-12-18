@@ -1,9 +1,36 @@
+import type { DatabaseAdapter } from "@buntime/plugin-database";
 import { errorToResponse } from "@buntime/shared/errors";
+import type { PluginLogger } from "@buntime/shared/types";
 import { Hono } from "hono";
-import { getAuth, getLogger, getOAuthAccountsForUser, getProviderById, getProviders } from "./services";
+import { createScimRoutes } from "./scim/routes";
+import {
+  getAuth,
+  getBasePath,
+  getLogger,
+  getOAuthAccountsForUser,
+  getProviderById,
+  getProviders,
+} from "./services";
 
 // API routes (mounted at /api by worker, runs on main thread via plugin.routes)
 export const api = new Hono()
+  // Root route: redirect based on auth status
+  .get("/", async (ctx) => {
+    const auth = getAuth();
+    const base = getBasePath();
+    if (!auth) {
+      return ctx.redirect(`${base}/login`);
+    }
+
+    const session = await auth.api.getSession({ headers: ctx.req.raw.headers });
+    if (session?.user) {
+      // Already logged in, redirect to home
+      return ctx.redirect("/");
+    }
+
+    // Not logged in, redirect to login
+    return ctx.redirect(`${base}/login`);
+  })
   .basePath("/api")
   // Get configured providers for login UI
   .get("/providers", (ctx) => {
@@ -20,7 +47,7 @@ export const api = new Hono()
     try {
       // Rewrite URL to match better-auth basePath
       const url = new URL(ctx.req.url);
-      const newPath = "/auth" + url.pathname;
+      const newPath = `/auth${url.pathname}`;
       const newUrl = new URL(newPath + url.search, url.origin);
       const newReq = new Request(newUrl.toString(), ctx.req.raw);
       logger?.debug("Auth route hit", { originalPath: ctx.req.path, rewrittenPath: newPath });
@@ -70,7 +97,7 @@ export const api = new Hono()
 
       if (session?.user) {
         // Get user's OAuth accounts with tokens directly from database
-        const accounts = getOAuthAccountsForUser(session.user.id);
+        const accounts = await getOAuthAccountsForUser(session.user.id);
         logger?.info("OAuth accounts for user", {
           accountCount: accounts.length,
           accounts: accounts.map((a) => ({
@@ -194,7 +221,7 @@ export const api = new Hono()
 
       if (session?.user) {
         // Get user's OAuth accounts with tokens directly from database
-        const accounts = getOAuthAccountsForUser(session.user.id);
+        const accounts = await getOAuthAccountsForUser(session.user.id);
         const oidcAccount = accounts.find((acc) => acc.idToken);
 
         if (oidcAccount?.idToken) {
@@ -229,6 +256,43 @@ export const api = new Hono()
     logger?.error("AuthN API error", { error: err.message });
     return errorToResponse(err);
   });
+
+/**
+ * SCIM routes configuration
+ */
+export interface ScimConfig {
+  adapter: DatabaseAdapter;
+  baseUrl: string;
+  bulkEnabled?: boolean;
+  enabled: boolean;
+  logger?: PluginLogger;
+  maxBulkOperations?: number;
+  maxResults?: number;
+}
+
+/**
+ * Mount SCIM routes on the API
+ * Should be called after database adapter is available
+ */
+export function mountScimRoutes(config: ScimConfig): void {
+  if (!config.enabled) {
+    return;
+  }
+
+  const scimRoutes = createScimRoutes({
+    adapter: config.adapter,
+    baseUrl: config.baseUrl,
+    bulkEnabled: config.bulkEnabled,
+    logger: config.logger,
+    maxBulkOperations: config.maxBulkOperations,
+    maxResults: config.maxResults,
+  });
+
+  // Mount SCIM routes at /api/scim/v2
+  api.route("/scim/v2", scimRoutes);
+
+  config.logger?.info("SCIM 2.0 routes mounted at /auth/api/scim/v2");
+}
 
 // Export type for API client
 export type ApiType = typeof api;

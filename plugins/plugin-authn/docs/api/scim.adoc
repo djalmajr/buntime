@@ -1,0 +1,550 @@
+== SCIM 2.0
+
+O plugin implementa SCIM 2.0 (System for Cross-domain Identity Management) conforme RFC 7643 e RFC 7644 para provisionamento de usuários e grupos.
+
+=== Habilitando SCIM
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    ["@buntime/plugin-database", { ... }],
+    ["@buntime/plugin-authn", {
+      "providers": [...],
+      "scim": {
+        "enabled": true,
+        "maxResults": 100,
+        "bulkEnabled": true,
+        "maxBulkOperations": 1000
+      }
+    }]
+  ]
+}
+----
+
+=== Autenticação
+
+Todos os endpoints SCIM (exceto discovery) requerem autenticação via Bearer token:
+
+[source,bash]
+----
+curl -H "Authorization: Bearer <scim-token>" \
+     https://example.com/auth/api/scim/v2/Users
+----
+
+NOTE: A gestão de tokens SCIM deve ser feita via API administrativa (não documentada publicamente).
+
+=== Endpoints
+
+==== Discovery
+
+[cols="1,2,3"]
+|===
+| Método | Endpoint | Descrição
+
+| `GET`
+| `/auth/api/scim/v2/ServiceProviderConfig`
+| Configuração do provedor SCIM
+
+| `GET`
+| `/auth/api/scim/v2/ResourceTypes`
+| Tipos de recursos suportados
+
+| `GET`
+| `/auth/api/scim/v2/Schemas`
+| Lista de schemas
+
+| `GET`
+| `/auth/api/scim/v2/Schemas/:id`
+| Schema específico (User ou Group)
+|===
+
+==== Users
+
+[cols="1,2,3"]
+|===
+| Método | Endpoint | Descrição
+
+| `GET`
+| `/auth/api/scim/v2/Users`
+| Listar usuários (com filtro e paginação)
+
+| `GET`
+| `/auth/api/scim/v2/Users/:id`
+| Obter usuário por ID
+
+| `POST`
+| `/auth/api/scim/v2/Users`
+| Criar usuário
+
+| `PUT`
+| `/auth/api/scim/v2/Users/:id`
+| Substituir usuário (replace)
+
+| `PATCH`
+| `/auth/api/scim/v2/Users/:id`
+| Atualizar usuário parcialmente
+
+| `DELETE`
+| `/auth/api/scim/v2/Users/:id`
+| Remover usuário
+|===
+
+==== Groups
+
+[cols="1,2,3"]
+|===
+| Método | Endpoint | Descrição
+
+| `GET`
+| `/auth/api/scim/v2/Groups`
+| Listar grupos
+
+| `GET`
+| `/auth/api/scim/v2/Groups/:id`
+| Obter grupo por ID
+
+| `POST`
+| `/auth/api/scim/v2/Groups`
+| Criar grupo
+
+| `PUT`
+| `/auth/api/scim/v2/Groups/:id`
+| Substituir grupo
+
+| `PATCH`
+| `/auth/api/scim/v2/Groups/:id`
+| Atualizar grupo parcialmente
+
+| `DELETE`
+| `/auth/api/scim/v2/Groups/:id`
+| Remover grupo
+|===
+
+==== Bulk Operations
+
+[cols="1,2,3"]
+|===
+| Método | Endpoint | Descrição
+
+| `POST`
+| `/auth/api/scim/v2/Bulk`
+| Executar operações em lote
+|===
+
+=== Schema de Usuário SCIM
+
+[source,json]
+----
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+  "id": "user-uuid",
+  "externalId": "external-id",
+  "userName": "user@example.com",
+  "name": {
+    "formatted": "John Doe",
+    "familyName": "Doe",
+    "givenName": "John"
+  },
+  "displayName": "John Doe",
+  "active": true,
+  "emails": [
+    {
+      "value": "user@example.com",
+      "type": "work",
+      "primary": true
+    }
+  ],
+  "photos": [
+    {
+      "value": "https://example.com/photos/user.jpg",
+      "type": "photo",
+      "primary": true
+    }
+  ],
+  "groups": [
+    {
+      "value": "group-uuid",
+      "display": "Developers",
+      "$ref": "https://example.com/auth/api/scim/v2/Groups/group-uuid"
+    }
+  ],
+  "meta": {
+    "resourceType": "User",
+    "created": "2024-01-01T00:00:00.000Z",
+    "lastModified": "2024-01-01T00:00:00.000Z",
+    "location": "https://example.com/auth/api/scim/v2/Users/user-uuid"
+  }
+}
+----
+
+=== Schema de Grupo SCIM
+
+[source,json]
+----
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+  "id": "group-uuid",
+  "externalId": "external-group-id",
+  "displayName": "Developers",
+  "members": [
+    {
+      "value": "user-uuid",
+      "display": "John Doe",
+      "$ref": "https://example.com/auth/api/scim/v2/Users/user-uuid"
+    }
+  ],
+  "meta": {
+    "resourceType": "Group",
+    "created": "2024-01-01T00:00:00.000Z",
+    "lastModified": "2024-01-01T00:00:00.000Z",
+    "location": "https://example.com/auth/api/scim/v2/Groups/group-uuid"
+  }
+}
+----
+
+=== Filtros
+
+O SCIM suporta filtros para busca de recursos. Sintaxe:
+
+[source]
+----
+GET /auth/api/scim/v2/Users?filter=userName eq "user@example.com"
+----
+
+==== Operadores Suportados
+
+[cols="1,2,3"]
+|===
+| Operador | Descrição | Exemplo
+
+| `eq`
+| Igual
+| `userName eq "john"`
+
+| `ne`
+| Diferente
+| `active ne false`
+
+| `co`
+| Contém
+| `userName co "john"`
+
+| `sw`
+| Começa com
+| `userName sw "john"`
+
+| `ew`
+| Termina com
+| `email ew "@example.com"`
+
+| `gt`
+| Maior que
+| `meta.created gt "2024-01-01"`
+
+| `ge`
+| Maior ou igual
+| `meta.created ge "2024-01-01"`
+
+| `lt`
+| Menor que
+| `meta.created lt "2024-12-31"`
+
+| `le`
+| Menor ou igual
+| `meta.created le "2024-12-31"`
+
+| `pr`
+| Presente (não nulo)
+| `externalId pr`
+|===
+
+==== Operadores Lógicos
+
+[cols="1,2,3"]
+|===
+| Operador | Descrição | Exemplo
+
+| `and`
+| E lógico
+| `active eq true and userName sw "john"`
+
+| `or`
+| Ou lógico
+| `userName eq "john" or userName eq "jane"`
+
+| `not`
+| Negação
+| `not (active eq false)`
+|===
+
+==== Atributos Mapeados
+
+**Users:**
+
+[cols="1,1"]
+|===
+| Atributo SCIM | Campo no banco
+
+| `userName`
+| `email`
+
+| `name.formatted`
+| `name`
+
+| `name.givenName`
+| primeira parte de `name`
+
+| `name.familyName`
+| última parte de `name`
+
+| `displayName`
+| `name`
+
+| `active`
+| `active`
+
+| `externalId`
+| `externalId`
+
+| `emails.value`
+| `email`
+
+| `meta.created`
+| `createdAt`
+
+| `meta.lastModified`
+| `updatedAt`
+|===
+
+**Groups:**
+
+[cols="1,1"]
+|===
+| Atributo SCIM | Campo no banco
+
+| `displayName`
+| `displayName`
+
+| `externalId`
+| `externalId`
+
+| `meta.created`
+| `createdAt`
+
+| `meta.lastModified`
+| `updatedAt`
+|===
+
+=== Paginação
+
+Use os parâmetros `startIndex` e `count` para paginar resultados:
+
+[source,bash]
+----
+GET /auth/api/scim/v2/Users?startIndex=1&count=10
+----
+
+**Response:**
+
+[source,json]
+----
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+  "totalResults": 100,
+  "startIndex": 1,
+  "itemsPerPage": 10,
+  "Resources": [...]
+}
+----
+
+=== Ordenação
+
+Use o parâmetro `sortBy` para ordenar resultados:
+
+[source,bash]
+----
+GET /auth/api/scim/v2/Users?sortBy=userName&sortOrder=ascending
+----
+
+NOTE: Se `sortBy` não for especificado ou o atributo não for reconhecido, a ordenação padrão será por `id`.
+
+=== PATCH Operations
+
+O endpoint PATCH suporta operações conforme RFC 7644:
+
+[source,json]
+----
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+  "Operations": [
+    {
+      "op": "replace",
+      "path": "displayName",
+      "value": "New Name"
+    },
+    {
+      "op": "add",
+      "path": "members",
+      "value": [{ "value": "user-uuid" }]
+    },
+    {
+      "op": "remove",
+      "path": "members[value eq \"user-uuid\"]"
+    }
+  ]
+}
+----
+
+==== Operações Suportadas
+
+* `add` - Adicionar valor
+* `replace` - Substituir valor
+* `remove` - Remover valor
+
+=== Bulk Operations
+
+Execute múltiplas operações em uma única requisição:
+
+[source,json]
+----
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],
+  "Operations": [
+    {
+      "method": "POST",
+      "path": "/Users",
+      "bulkId": "user1",
+      "data": {
+        "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+        "userName": "user1@example.com",
+        "name": { "formatted": "User One" }
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/Users/existing-user-id",
+      "data": {
+        "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+        "userName": "updated@example.com"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/Users/user-to-delete"
+    }
+  ],
+  "failOnErrors": 1
+}
+----
+
+**Response:**
+
+[source,json]
+----
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:BulkResponse"],
+  "Operations": [
+    {
+      "bulkId": "user1",
+      "method": "POST",
+      "location": "https://example.com/auth/api/scim/v2/Users/new-user-id",
+      "status": "201"
+    },
+    {
+      "method": "PUT",
+      "status": "200"
+    },
+    {
+      "method": "DELETE",
+      "status": "204"
+    }
+  ]
+}
+----
+
+NOTE: O campo `location` é retornado apenas para operações `POST` bem-sucedidas.
+
+=== Erros
+
+Erros são retornados no formato SCIM:
+
+[source,json]
+----
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:Error"],
+  "status": "404",
+  "scimType": "invalidValue",
+  "detail": "User not found"
+}
+----
+
+NOTE: O campo `scimType` é opcional e pode estar ausente em algumas respostas de erro. Sempre presente quando aplicável (ex: `invalidValue`, `uniqueness`).
+
+==== Códigos de Status
+
+[cols="1,3"]
+|===
+| Status | Descrição
+
+| `200`
+| Sucesso
+
+| `201`
+| Recurso criado
+
+| `204`
+| Recurso deletado (sem conteúdo)
+
+| `400`
+| Request inválido
+
+| `401`
+| Não autenticado
+
+| `403`
+| Não autorizado
+
+| `404`
+| Recurso não encontrado
+
+| `409`
+| Conflito (ex: email duplicado)
+
+| `413`
+| Request muito grande (bulk)
+
+| `500`
+| Erro interno
+|===
+
+=== ServiceProviderConfig
+
+O endpoint `/ServiceProviderConfig` retorna as capacidades do servidor:
+
+[source,json]
+----
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"],
+  "patch": { "supported": true },
+  "bulk": {
+    "supported": true,
+    "maxOperations": 1000,
+    "maxPayloadSize": 1048576
+  },
+  "filter": {
+    "supported": true,
+    "maxResults": 100
+  },
+  "changePassword": { "supported": false },
+  "sort": { "supported": true },
+  "etag": { "supported": false },
+  "authenticationSchemes": [
+    {
+      "type": "oauthbearertoken",
+      "name": "OAuth Bearer Token",
+      "description": "Authentication using Bearer tokens"
+    }
+  ]
+}
+----

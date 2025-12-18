@@ -10,6 +10,46 @@ A integração client-side complementa a proteção server-side do plugin. Enqua
 * Provê contexto de usuário para componentes React
 * Permite verificação de permissões (autorização)
 
+=== Tipos
+
+==== User
+
+O tipo `User` inclui todos os campos retornados pelo endpoint de sessão:
+
+[source,typescript]
+----
+interface User {
+  active: boolean;
+  createdAt: string;
+  email: string;
+  emailVerified: boolean;
+  externalId?: string | null;
+  groups: string[];
+  id: string;
+  image?: string | null;
+  metadata?: Record<string, unknown>;
+  name: string;
+  roles: string[];
+  updatedAt: string;
+}
+----
+
+NOTE: Os campos `groups`, `roles` e `metadata` são armazenados como strings JSON no banco de dados. A API deserializa esses campos automaticamente, retornando arrays e objetos conforme mostrado acima.
+
+==== Identity
+
+O tipo `Identity` representa os dados injetados no header `X-Identity`:
+
+[source,typescript]
+----
+interface Identity {
+  claims: Record<string, unknown>;
+  groups: string[];
+  roles: string[];
+  sub: string;
+}
+----
+
 === Contexto de Autenticação
 
 ==== AuthProvider
@@ -22,10 +62,18 @@ O `AuthProvider` disponibiliza dados da sessão para toda a aplicação:
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 interface User {
-  avatar?: string | null;
+  active: boolean;
+  createdAt: string;
   email: string;
+  emailVerified: boolean;
+  externalId?: string | null;
+  groups: string[];
   id: string;
+  image?: string | null;
+  metadata?: Record<string, unknown>;
   name: string;
+  roles: string[];
+  updatedAt: string;
 }
 
 interface Session {

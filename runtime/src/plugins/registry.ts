@@ -406,6 +406,19 @@ export class PluginRegistry {
   }
 
   /**
+   * Check if a route is public for ANY plugin
+   * Used to determine if shell routing should be skipped
+   */
+  isPublicRouteForAnyPlugin(pathname: string, method: string): boolean {
+    for (const plugin of this.getAll()) {
+      if (this.isPublicRouteForPlugin(plugin, pathname, method)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Collect all plugin server.routes and wrap with auth check
    * Returns routes object for Bun.serve({ routes })
    */
@@ -495,55 +508,6 @@ export class PluginRegistry {
       bases.add(plugin.base);
     }
     return bases;
-  }
-
-  /**
-   * Get the shell plugin (plugin with shell: true)
-   * Only one plugin should have shell: true
-   */
-  getShellPlugin(): BuntimePlugin | undefined {
-    return this.getAll().find((p) => p.shell === true);
-  }
-
-  /**
-   * Check if a pathname should be routed to the shell
-   * Returns true for navigation requests to:
-   * - "/" (homepage)
-   * - Any path starting with a plugin base (e.g., "/metrics", "/metrics/workers")
-   *
-   * Returns false for:
-   * - Non-navigation requests (e.g., fetch from fragment-outlet)
-   * - API routes (paths containing "/api/")
-   *
-   * @param pathname - The request pathname
-   * @param secFetchMode - The Sec-Fetch-Mode header value (optional)
-   */
-  shouldRouteToShell(pathname: string, secFetchMode?: string): boolean {
-    // Only intercept top-level navigation requests
-    // Fragment-outlet uses fetch() which has Sec-Fetch-Mode: cors or same-origin
-    if (secFetchMode && secFetchMode !== "navigate") {
-      return false;
-    }
-
-    // Homepage always goes to shell
-    if (pathname === "/" || pathname === "") {
-      return true;
-    }
-
-    // Don't intercept API routes - let them go directly to plugins
-    if (pathname.includes("/api/")) {
-      return false;
-    }
-
-    // Check if pathname starts with any plugin base
-    const pluginBases = this.getPluginBasePaths();
-    for (const base of pluginBases) {
-      if (pathname === base || pathname.startsWith(`${base}/`)) {
-        return true;
-      }
-    }
-
-    return false;
   }
 
   /**

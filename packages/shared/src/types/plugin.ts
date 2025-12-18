@@ -125,16 +125,42 @@ export type PublicRoutesConfig =
 export type PluginConfig = string | [name: string, config: Record<string, unknown>];
 
 /**
+ * Homepage configuration for app-shell mode
+ * When shell: true, the worker acts as an app-shell managing micro-frontends
+ */
+export interface HomepageConfig {
+  /**
+   * Worker app name (must exist in workspaces)
+   * @example "cpanel"
+   */
+  app: string;
+
+  /**
+   * Enable app-shell mode
+   * When true, the worker intercepts navigation to plugin base paths
+   * and renders fragments within its layout
+   * @default false
+   */
+  shell?: boolean;
+}
+
+/**
  * Buntime global configuration (buntime.jsonc)
  */
 export interface BuntimeConfig {
   /**
-   * Homepage app to serve when no worker matches
-   * This app typically orchestrates micro-frontends via fragments
-   * Format: "app-name@version" or "app-name" (uses latest)
-   * @example "cpanel" or "dashboard@1"
+   * Homepage configuration
+   *
+   * String format (redirect mode):
+   * - "/my-app" - redirects GET / to /my-app
+   *
+   * Object format (app-shell mode):
+   * - { app: "cpanel", shell: true } - worker acts as app-shell
+   *
+   * @example "/my-app"
+   * @example { "app": "cpanel", "shell": true }
    */
-  homepage?: string;
+  homepage?: string | HomepageConfig;
 
   /**
    * Plugins to load (Babel-style array, order matters!)
@@ -244,7 +270,7 @@ export interface AppInfo {
 }
 
 /**
- * Worker configuration from worker.jsonc (per-app)
+ * Worker configuration from buntime.jsonc (per-app)
  */
 /**
  * App visibility in the deployments UI
@@ -436,20 +462,6 @@ export interface BuntimePlugin {
    * - fetch: invoked in app.fetch (Hono)
    */
   server?: PluginServer;
-
-  /**
-   * When true, this plugin acts as an app-shell that manages all fragments.
-   * The shell intercepts navigation to plugin base paths and renders them
-   * within its layout. Only one plugin should have shell: true.
-   *
-   * When a shell plugin is set as homepage:
-   * - GET / → Shell renders (with fragment route injection)
-   * - GET /{plugin-base} → Shell renders with that fragment
-   * - GET /{plugin-base}/* → Goes directly to the plugin worker
-   *
-   * @default false
-   */
-  shell?: boolean;
 
   /**
    * Fragment configuration for embedding this plugin in the shell (C-Panel)

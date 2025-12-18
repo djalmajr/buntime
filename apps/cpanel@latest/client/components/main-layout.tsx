@@ -6,21 +6,21 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
   cn,
+  DropdownMenuItem,
   Icon,
   NavMain,
+  NavUser,
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
   SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarProvider,
   SidebarRail,
   SidebarTrigger,
 } from "@buntime/shadcn-ui";
 import type * as React from "react";
+import { useTranslation } from "react-i18next";
 import { AppInfo } from "~/components/app-info";
 
 export interface MainLayoutBreadcrumb {
@@ -75,6 +75,7 @@ export interface MainLayoutProps {
   groups: SidebarNavGroup[];
   header?: MainLayoutHeader;
   LinkComponent?: React.ComponentType<{ children: React.ReactNode; to: string }>;
+  onLogout?: () => void;
   user: MainLayoutUser;
 }
 
@@ -141,29 +142,6 @@ function DefaultHeader({
   );
 }
 
-interface NavUserProps {
-  user: MainLayoutUser;
-}
-
-function NavUser({ user }: NavUserProps) {
-  return (
-    <SidebarMenu>
-      <SidebarMenuItem>
-        <SidebarMenuButton size="lg">
-          <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg text-xs font-medium">
-            {user.name.charAt(0).toUpperCase()}
-          </div>
-          <div className="grid flex-1 text-left text-sm leading-tight">
-            <span className="truncate font-medium">{user.name}</span>
-            <span className="truncate text-xs">{user.email}</span>
-          </div>
-          <Icon className="ml-auto size-4" icon="lucide:chevrons-up-down" />
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-    </SidebarMenu>
-  );
-}
-
 export function MainLayout({
   apps,
   breadcrumbs,
@@ -172,8 +150,10 @@ export function MainLayout({
   groups,
   header,
   LinkComponent,
+  onLogout,
   user,
 }: MainLayoutProps) {
+  const { t } = useTranslation();
   const activeApp = apps.find((app) => app.isActive) ?? apps[0];
 
   return (
@@ -203,7 +183,14 @@ export function MainLayout({
             ))}
           </SidebarContent>
           <SidebarFooter>
-            <NavUser user={user} />
+            <NavUser user={{ ...user, fallback: user.name.charAt(0).toUpperCase() }}>
+              {onLogout && (
+                <DropdownMenuItem onClick={onLogout}>
+                  <Icon icon="lucide:log-out" />
+                  {t("nav.logout")}
+                </DropdownMenuItem>
+              )}
+            </NavUser>
           </SidebarFooter>
           <SidebarRail />
         </Sidebar>

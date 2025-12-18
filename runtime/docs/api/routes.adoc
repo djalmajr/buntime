@@ -649,7 +649,7 @@ O runtime busca entrypoints nesta ordem de prioridade:
 3. `index.js` (worker JavaScript)
 4. `index.mjs` (worker JavaScript)
 
-Entrypoints podem ser customizados em `worker.jsonc`:
+Entrypoints podem ser customizados em `buntime.jsonc`:
 
 [source,json]
 ----
@@ -691,7 +691,7 @@ Processo:
 
 1. Verifica se é plugin app (rotas registradas por plugins)
 2. Resolve versão nos workspaces usando semver
-3. Carrega worker config (`worker.jsonc`)
+3. Carrega worker config (`buntime.jsonc`)
 4. Encontra entrypoint (HTML ou TS/JS)
 5. Cria/reutiliza worker do pool
 6. Injeta header `x-base` com base path (`/my-app`)

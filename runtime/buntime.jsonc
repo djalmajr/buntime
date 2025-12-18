@@ -1,5 +1,5 @@
 {
-  "homepage": "@buntime/plugin-cpanel",
+  "homepage": { "app": "cpanel", "shell": true },
   "workspaces": ["../../buntime-apps", "../apps"],
   "poolSize": 100,
   "plugins": [
@@ -29,10 +29,33 @@
       "@buntime/plugin-authz",
       {
         "defaultEffect": "permit",
-        "excludePaths": [".*\\.(js|css|woff2?|png|svg|ico|json)$"]
+        "excludePaths": [".*\\.(js|css|woff2?|png|svg|ico|json)$"],
+        "policySeed": {
+          "policies": [
+            {
+              "id": "cpanel-admin-access",
+              "name": "CPanel Admin Full Access",
+              "description": "Allow admin role full access to cpanel",
+              "effect": "permit",
+              "priority": 100,
+              "subjects": [{ "role": "admin" }],
+              "resources": [{ "path": "/cpanel/**" }],
+              "actions": [{ "method": "*" }]
+            },
+            {
+              "id": "cpanel-viewer-readonly",
+              "name": "CPanel Viewer Read-Only",
+              "description": "Allow viewer role read-only access to cpanel",
+              "effect": "permit",
+              "priority": 90,
+              "subjects": [{ "role": "viewer" }],
+              "resources": [{ "path": "/cpanel/**" }],
+              "actions": [{ "method": "GET" }]
+            }
+          ]
+        }
       }
     ],
-    "@buntime/plugin-cpanel",
     "@buntime/plugin-metrics",
     [
       "@buntime/plugin-deployments",

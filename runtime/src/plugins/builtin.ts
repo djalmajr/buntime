@@ -8,7 +8,6 @@
 
 import authn from "@buntime/plugin-authn";
 import authz from "@buntime/plugin-authz";
-import cpanel from "@buntime/plugin-cpanel";
 import gateway from "@buntime/plugin-gateway";
 import metrics from "@buntime/plugin-metrics";
 import proxy from "@buntime/plugin-proxy";
@@ -31,7 +30,6 @@ const lazyPlugins: Record<string, () => Promise<PluginFactory>> = {
 const staticPlugins: Record<string, PluginFactory> = {
   "@buntime/plugin-authn": authn,
   "@buntime/plugin-authz": authz,
-  "@buntime/plugin-cpanel": cpanel,
   "@buntime/plugin-gateway": gateway,
   "@buntime/plugin-metrics": metrics,
   "@buntime/plugin-proxy": proxy,

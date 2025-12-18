@@ -1,5 +1,7 @@
 # Shell como Worker (não Plugin)
 
+**Status: IMPLEMENTADO**
+
 ## Objetivo
 
 Remover suporte a `shell: true` de plugins e permitir apenas workers como app-shell.
@@ -187,3 +189,11 @@ async onInit(ctx) {
 | Arquivo | Motivo |
 |---------|--------|
 | `plugins/plugin-cpanel/` | Migrado para worker |
+
+## Notas de Implementação
+
+- cpanel foi movido para `apps/cpanel@latest/` (seguindo convenção de versionamento)
+- Políticas foram movidas para `policySeed` no config do authz
+- `HomepageConfig` tipo adicionado em `packages/shared/src/types/plugin.ts`
+- `resolveShell` atualizado em `runtime/src/app.ts` para usar `getAppDir`
+- Removido `shell?: boolean` de `BuntimePlugin` e métodos relacionados do registry

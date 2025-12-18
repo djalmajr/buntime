@@ -13,29 +13,20 @@ async function build() {
     rmSync(join(import.meta.dir, "../dist"), { recursive: true, force: true });
   } catch {}
 
-  console.log("Building plugin-cpanel...");
+  console.log("Building cpanel...");
 
-  const [serverResult, clientResult] = await Promise.all([
-    Bun.build({
-      entrypoints: ["./index.ts"],
-      minify: !isWatch,
-      outdir: "./dist",
-      splitting: true,
-      target: "bun",
-    }),
-    Bun.build({
-      entrypoints: ["./client/index.html"],
-      minify: !isWatch,
-      outdir: "./dist/client",
-      plugins: [tsr, iconify, i18next, tailwind],
-      publicPath: "./",
-      splitting: true,
-      target: "browser",
-    }),
-  ]);
+  const result = await Bun.build({
+    entrypoints: ["./client/index.html"],
+    minify: !isWatch,
+    outdir: "./dist",
+    plugins: [tsr, iconify, i18next, tailwind],
+    publicPath: "./",
+    splitting: true,
+    target: "browser",
+  });
 
-  if (!serverResult.success || !clientResult.success) {
-    console.error("Build failed:", serverResult.logs, clientResult.logs);
+  if (!result.success) {
+    console.error("Build failed:", result.logs);
     if (!isWatch) process.exit(1);
     return false;
   }

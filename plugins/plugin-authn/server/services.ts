@@ -1,7 +1,23 @@
 import type { PluginLogger } from "@buntime/shared/types";
-import { type Auth, type BetterAuthConfig, createBetterAuth } from "./auth";
+import { type Auth, type BetterAuthConfig, createBetterAuth, getDatabase } from "./auth";
 import type { AuthProvider, ProviderConfig, ProviderInfo } from "./providers";
 import { createProviders, getProvidersInfo } from "./providers";
+
+/**
+ * OAuth account record from database
+ */
+export interface OAuthAccountRecord {
+  accessToken: string | null;
+  accessTokenExpiresAt: string | null;
+  accountId: string;
+  id: string;
+  idToken: string | null;
+  providerId: string;
+  refreshToken: string | null;
+  refreshTokenExpiresAt: string | null;
+  scope: string | null;
+  userId: string;
+}
 
 // Module-level state
 let auth: Auth | null = null;
@@ -66,10 +82,41 @@ export function getProviders(): ProviderInfo[] {
 }
 
 /**
+ * Get provider by ID (e.g., "keycloak", "auth0")
+ */
+export function getProviderById(providerId: string): AuthProvider | null {
+  return providers.find((p) => p.getProviderInfo().providerId === providerId) ?? null;
+}
+
+/**
  * Get the logger instance
  */
 export function getLogger(): PluginLogger | null {
   return logger;
+}
+
+/**
+ * Get OAuth accounts with tokens for a user (direct database query)
+ * This is needed because better-auth's listUserAccounts doesn't return OAuth tokens
+ */
+export function getOAuthAccountsForUser(userId: string): OAuthAccountRecord[] {
+  const db = getDatabase();
+  if (!db) {
+    return [];
+  }
+
+  try {
+    const query = db.query<OAuthAccountRecord, [string]>(`
+      SELECT id, accountId, providerId, userId, accessToken, refreshToken, idToken,
+             accessTokenExpiresAt, refreshTokenExpiresAt, scope
+      FROM account
+      WHERE userId = ? AND providerId != 'credential'
+    `);
+    return query.all(userId);
+  } catch (err) {
+    logger?.error("Failed to get OAuth accounts", { error: String(err), userId });
+    return [];
+  }
 }
 
 /**

@@ -15,6 +15,7 @@
     "gateway": "Gateway",
     "health": "Health",
     "keyval": "KeyVal",
+    "logout": "Sign Out",
     "logs": "Logs",
     "metrics": "Metrics",
     "platform": "Platform",

@@ -1,19 +1,14 @@
 {
-  "name": "@buntime/plugin-cpanel",
+  "name": "cpanel",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "main": "./plugin.ts",
-  "exports": {
-    ".": "./plugin.ts"
-  },
   "scripts": {
     "build": "NODE_ENV=production bun scripts/build.ts",
     "dev": "bun scripts/build.ts --watch",
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
-    "lint": "bun run lint:format && bun run lint:types",
-    "start": "bun run build && bun --port=5010 dist/index.js"
+    "lint": "bun run lint:format && bun run lint:types"
   },
   "dependencies": {
     "@buntime/piercing": "workspace:*",
@@ -53,7 +48,17 @@
     "tailwindcss": "^4.1.17"
   },
   "buntime": {
-    "entrypoint": "dist/index.js",
-    "visibility": "internal"
+    "entrypoint": "dist/index.html",
+    "visibility": "internal",
+    "publicRoutes": {
+      "GET": [
+        "/*.js",
+        "/*.css",
+        "/*.woff2",
+        "/*.png",
+        "/*.svg",
+        "/*.ico"
+      ]
+    }
   }
 }

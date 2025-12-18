@@ -373,7 +373,7 @@ interface AppInfo {
 }
 ----
 
-NOTE: Atualmente a versão é hardcoded como "1.0.0". Futuramente virá de `worker.jsonc` ou `package.json`.
+NOTE: Atualmente a versão é hardcoded como "1.0.0". Futuramente virá de `buntime.jsonc` ou `package.json`.
 
 ===== Base Path Injection
 

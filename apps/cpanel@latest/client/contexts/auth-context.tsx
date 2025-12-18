@@ -34,8 +34,8 @@ export function AuthProvider({ children, session }: AuthProviderProps) {
       isAuthenticated: true,
       logout: async () => {
         const authnBase = getPluginBase("@buntime/plugin-authn");
-        const redirect = encodeURIComponent(window.location.pathname);
-        window.location.href = `${authnBase}/api/logout?redirect=${authnBase}/login?redirect=${redirect}`;
+        // Redirect to home after OIDC logout - the auth hook will redirect to login if needed
+        window.location.href = `${authnBase}/api/logout?redirect=/`;
       },
       session,
       user: session.user,

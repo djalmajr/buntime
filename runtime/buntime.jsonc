@@ -1,8 +1,38 @@
 {
+  "homepage": "/cpanel",
   "workspaces": ["../../buntime-apps", "../apps"],
   "poolSize": 100,
-  "homepage": "cpanel",
   "plugins": [
+    [
+      "@buntime/plugin-authn",
+      {
+        "providers": [
+          {
+            "type": "email-password",
+            "displayName": "Email",
+            "allowSignUp": true
+          },
+          {
+            "type": "keycloak",
+            "displayName": "SSO Corporativo",
+            "icon": "lucide:building",
+            "issuer": "${KEYCLOAK_URL}",
+            "realm": "${KEYCLOAK_REALM}",
+            "clientId": "${KEYCLOAK_CLIENT_ID}",
+            "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
+          }
+        ],
+        "trustedOrigins": ["http://localhost:8000"]
+      }
+    ],
+    [
+      "@buntime/plugin-authz",
+      {
+        "defaultEffect": "permit",
+        "excludePaths": [".*\\.(js|css|woff2?|png|svg|ico|json)$"]
+      }
+    ],
+    "@buntime/plugin-cpanel",
     "@buntime/plugin-metrics",
     [
       "@buntime/plugin-deployments",

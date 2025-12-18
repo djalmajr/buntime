@@ -48,6 +48,7 @@ export default function deploymentsPlugin(_pluginConfig: DeploymentsConfig = {})
 
   return {
     name: "@buntime/plugin-deployments",
+    base: "/deployments",
 
     // Fragment with patch sandbox (internal plugin)
     fragment: {

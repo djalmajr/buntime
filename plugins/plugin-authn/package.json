@@ -2,9 +2,6 @@
   "name": "@buntime/plugin-authn",
   "version": "1.0.0",
   "type": "module",
-  "buntime": {
-    "entrypoint": "dist/index.js"
-  },
   "exports": {
     ".": "./plugin.ts"
   },
@@ -13,7 +10,9 @@
     "dev": "bun scripts/build.ts --watch",
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
-    "lint": "bun run lint:format && bun run lint:types"
+    "lint": "bun run lint:format && bun run lint:types",
+    "start": "bun run build && bun --port=5010 dist/index.js",
+    "test": "bun test"
   },
   "dependencies": {
     "@buntime/shadcn-ui": "workspace:*",
@@ -29,7 +28,11 @@
   "devDependencies": {
     "@types/react": "^19.2.6",
     "@types/react-dom": "^19.2.3",
+    "@zomme/bun-plugin-tsr": "^0.1.1",
     "bun-plugin-tailwind": "^0.1.2",
     "tailwindcss": "^4.1.17"
+  },
+  "buntime": {
+    "entrypoint": "dist/index.js"
   }
 }

@@ -69,8 +69,8 @@ Quando uma resposta HTML é processada, o plugin:
 ----
 <!-- HTML original -->
 <div id="app">
-  <fragment-outlet src="/p/metrics" base="/cpanel"></fragment-outlet>
-  <fragment-outlet src="/p/health" base="/cpanel"></fragment-outlet>
+  <fragment-outlet src="/metrics" base="/cpanel"></fragment-outlet>
+  <fragment-outlet src="/health" base="/cpanel"></fragment-outlet>
 </div>
 ----
 
@@ -101,15 +101,15 @@ Os fragmentos são envolvidos em `<fragment-host src="...">` e injetados antes d
   <head>...</head>
   <body>
     <div id="app">
-      <fragment-outlet src="/p/metrics" base="/cpanel"></fragment-outlet>
-      <fragment-outlet src="/p/health" base="/cpanel"></fragment-outlet>
+      <fragment-outlet src="/metrics" base="/cpanel"></fragment-outlet>
+      <fragment-outlet src="/health" base="/cpanel"></fragment-outlet>
     </div>
 
     <!-- Fragmentos injetados pelo plugin -->
-    <fragment-host src="/p/metrics">
+    <fragment-host src="/metrics">
       <div class="metrics-dashboard">...</div>
     </fragment-host>
-    <fragment-host src="/p/health">
+    <fragment-host src="/health">
       <div class="health-status">...</div>
     </fragment-host>
   </body>
@@ -158,7 +158,7 @@ Se um fragmento falha no pre-piercing:
 
 [source,console]
 ----
-[plugin-piercing] Failed to fetch fragment from /p/metrics: 500
+[plugin-piercing] Failed to fetch fragment from /metrics: 500
 ----
 
 ==== HTML sem Tag `</body>`
@@ -198,12 +198,12 @@ Se o HTML não contém `</body>`, os fragmentos são concatenados ao final do do
 <html>
   <head>
     <title>Dashboard</title>
-    <script type="module" src="/p/piercing/client.js"></script>
+    <script type="module" src="/piercing/client.js"></script>
   </head>
   <body>
     <nav>...</nav>
     <main>
-      <fragment-outlet src="/p/metrics" base="/cpanel"></fragment-outlet>
+      <fragment-outlet src="/metrics" base="/cpanel"></fragment-outlet>
     </main>
   </body>
 </html>
@@ -217,15 +217,15 @@ Se o HTML não contém `</body>`, os fragmentos são concatenados ao final do do
 <html>
   <head>
     <title>Dashboard</title>
-    <script type="module" src="/p/piercing/client.js"></script>
+    <script type="module" src="/piercing/client.js"></script>
   </head>
   <body>
     <nav>...</nav>
     <main>
-      <fragment-outlet src="/p/metrics" base="/cpanel"></fragment-outlet>
+      <fragment-outlet src="/metrics" base="/cpanel"></fragment-outlet>
     </main>
 
-    <fragment-host src="/p/metrics">
+    <fragment-host src="/metrics">
       <div class="metrics-dashboard">
         <h1>Metrics</h1>
         <!-- Conteúdo completo do fragmento -->

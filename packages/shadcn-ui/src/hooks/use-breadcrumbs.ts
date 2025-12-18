@@ -6,6 +6,11 @@ import type { MainLayoutBreadcrumb } from "../components/layouts/main-layout";
 
 type BreadcrumbLabel = string | [string, Record<string, unknown>?];
 
+interface RouteMatch {
+  loaderData?: { breadcrumb?: BreadcrumbLabel };
+  pathname: string;
+}
+
 interface I18nInstance {
   hasLoadedNamespace: (ns: string) => boolean;
   loadNamespaces: (ns: string[]) => Promise<void>;
@@ -55,7 +60,7 @@ export function useBreadcrumbs({
     }
 
     // loaderData mode: read from route loaderData.breadcrumb
-    return matches
+    return (matches as RouteMatch[])
       .filter((match) => match.loaderData?.breadcrumb)
       .map((match) => ({
         label: match.loaderData!.breadcrumb as BreadcrumbLabel,

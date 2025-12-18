@@ -27,6 +27,7 @@
     "@buntime/piercing": "workspace:*",
     "@buntime/plugin-authn": "workspace:*",
     "@buntime/plugin-authz": "workspace:*",
+    "@buntime/plugin-cpanel": "workspace:*",
     "@buntime/plugin-database": "workspace:*",
     "@buntime/plugin-deployments": "workspace:*",
     "@buntime/plugin-durable": "workspace:*",

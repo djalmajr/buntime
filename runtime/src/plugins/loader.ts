@@ -324,6 +324,9 @@ export class PluginLoader {
     if (!plugin.name) {
       throw new Error(`Plugin "${name}" is missing required field: name`);
     }
+    if (!plugin.base) {
+      throw new Error(`Plugin "${name}" is missing required field: base`);
+    }
 
     // Validate dependencies are loaded (already sorted topologically, so this should pass)
     if (plugin.dependencies) {
@@ -345,20 +348,10 @@ export class PluginLoader {
       );
     }
 
-    // Normalize plugin base to always include /p/ prefix
-    // This ensures consistent routing for all plugins
-    const normalizeBase = (base: string): string => {
-      if (!base.startsWith("/p/")) {
-        return `/p/${base.replace(/^\//, "")}`;
-      }
-      return base;
-    };
-
-    // Override base from config if specified, otherwise normalize plugin's own base
+    // Override base from config if specified
+    // Plugins define their own base path (e.g., "/cpanel", "/metrics")
     if (options.base !== undefined) {
-      plugin.base = normalizeBase(options.base as string);
-    } else if (plugin.base !== undefined) {
-      plugin.base = normalizeBase(plugin.base);
+      plugin.base = options.base as string;
     }
 
     // Create context for initialization with service access

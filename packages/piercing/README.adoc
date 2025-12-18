@@ -37,8 +37,8 @@ Piercing permite que você:
 [source,html]
 ----
 <!-- No shell HTML -->
-<fragment-outlet src="/p/metrics" base="/cpanel"></fragment-outlet>
-<fragment-outlet src="/p/health" base="/cpanel"></fragment-outlet>
+<fragment-outlet src="/metrics" base="/cpanel"></fragment-outlet>
+<fragment-outlet src="/health" base="/cpanel"></fragment-outlet>
 ----
 
 [source,typescript]

@@ -1,14 +1,14 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "baseUrl": ".",
     "jsx": "react-jsx",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "outDir": "./dist",
+    "baseUrl": ".",
     "paths": {
       "~/*": ["./client/*"]
-    }
+    },
+    "types": ["@buntime/shared/types/virtual-modules"]
   },
-  "include": ["index.ts", "plugin.ts", "client/**/*", "server/**/*", "scripts/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["index.ts", "plugin.ts", "client/**/*", "server/**/*", "scripts/*"]
 }

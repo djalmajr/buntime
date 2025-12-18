@@ -33,24 +33,30 @@ interface HealthReport {
   uptime: number;
 }
 
-function getBasePath(): string {
-  // First, try to get base from fragment-outlet's data attribute
-  // This is set when the fragment is loaded inside a shell (e.g., cpanel)
-  const outlet = document.querySelector("fragment-outlet[data-fragment-base]");
-  if (outlet) {
-    const fragmentBase = outlet.getAttribute("data-fragment-base");
-    if (fragmentBase) {
-      return fragmentBase.replace(/\/$/, "");
+function getApiBase(): string {
+  const rootElement = document.getElementById("plugin-health-root");
+  if (!rootElement) return "/health";
+
+  // Fragment content is inside Shadow DOM, host is the fragment-outlet
+  const rootNode = rootElement.getRootNode();
+  if (rootNode instanceof ShadowRoot) {
+    // Get the src attribute from fragment-outlet (this is where APIs are served)
+    const outlet = rootNode.host;
+    const src = outlet?.getAttribute("src");
+    if (src) {
+      // Extract the plugin path from src (e.g., "/health" from "/health/subpath")
+      const match = src.match(/^(\/[^/]+)/);
+      return match?.[1] || "/health";
     }
   }
 
-  // Fall back to document's base tag (for standalone mode at /p/health)
+  // Fallback: read from base tag (standalone mode)
   const base = document.querySelector("base");
   if (base) {
     const href = base.getAttribute("href") || "";
-    return href.replace(/\/$/, "");
+    return href.replace(/\/$/, "") || "/health";
   }
-  return "";
+  return "/health";
 }
 
 function formatUptime(ms: number): string {
@@ -81,11 +87,11 @@ export function HealthDashboard() {
   const [report, setReport] = useState<HealthReport | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const basePath = getBasePath();
+  const apiBase = getApiBase();
 
   const fetchHealth = async () => {
     try {
-      const res = await fetch(`${basePath}/api/health`);
+      const res = await fetch(`${apiBase}/api/health`);
       const data = await res.json();
       setReport(data);
     } catch (err) {
@@ -100,7 +106,7 @@ export function HealthDashboard() {
 
     const interval = setInterval(fetchHealth, 10000);
     return () => clearInterval(interval);
-  }, [basePath]);
+  }, [apiBase]);
 
   if (loading) {
     return (

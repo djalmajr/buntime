@@ -6,7 +6,7 @@ Deno KV-like key-value store for Buntime. Client: `@buntime/keyval`, Server: `@b
 
 ```typescript
 import { Kv } from "@buntime/keyval";
-const kv = new Kv("http://localhost:8000/p/keyval/api");
+const kv = new Kv("http://localhost:8000/keyval/api");
 ```
 
 ## Keys
@@ -284,7 +284,7 @@ Para SSE no cliente via watch:
 
 ```typescript
 // Cliente conecta diretamente ao KeyVal watch
-const kv = new Kv("/p/keyval/api");
+const kv = new Kv("/keyval/api");
 kv.watch(["events"], (entries) => {
   for (const entry of entries) {
     updateUI(entry.value);

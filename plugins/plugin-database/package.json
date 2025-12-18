@@ -3,13 +3,14 @@
   "version": "1.0.0",
   "type": "module",
   "buntime": {
-    "entrypoint": "index.ts"
+    "entrypoint": "dist/index.js",
+    "idleTimeout": 60
   },
   "exports": {
     ".": "./plugin.ts"
   },
   "scripts": {
-    "build": "bun scripts/build.ts",
+    "build": "NODE_ENV=production bun scripts/build.ts",
     "dev": "bun scripts/build.ts --watch",
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
@@ -19,12 +20,26 @@
     "test:watch": "bun test --watch"
   },
   "dependencies": {
+    "@buntime/shadcn-ui": "workspace:*",
     "@buntime/shared": "workspace:*",
+    "@tanstack/react-table": "^8.21.3",
+    "@iconify-icon/react": "^2.1.0",
     "@libsql/client": "^0.15.0",
-    "quick-lru": "^7.3.0"
+    "@tanstack/react-router": "^1.141.2",
+    "quick-lru": "^7.3.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tw-animate-css": "^1.3.4"
   },
   "peerDependencies": {
     "hono": "^4.0.0",
     "typescript": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.6",
+    "@types/react-dom": "^19.2.3",
+    "@zomme/bun-plugin-tsr": "^0.1.1",
+    "bun-plugin-tailwind": "^0.1.2",
+    "tailwindcss": "^4.1.17"
   }
 }

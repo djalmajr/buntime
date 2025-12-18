@@ -4,8 +4,20 @@ import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
 import type { PluginRegistry } from "@/plugins/registry";
 
+export interface HomepageConfig {
+  /** Plugin or app path (e.g., "/cpanel" or "my-app") */
+  app: string;
+  /** Base path to inject. If omitted, redirects to app path instead of serving inline */
+  base?: string;
+}
+
 export interface WorkerRoutesConfig {
-  homepage?: string;
+  /**
+   * Homepage configuration:
+   * - string: redirects to the path (e.g., "/cpanel" → redirect to /cpanel)
+   * - object: serves app at root with custom base (e.g., { app: "/cpanel", base: "/" })
+   */
+  homepage?: string | HomepageConfig;
   version: string;
 }
 
@@ -19,11 +31,15 @@ export interface WorkerRoutesDeps {
 export function createWorkerRoutes({ config, getAppDir, pool, registry }: WorkerRoutesDeps) {
   /**
    * Handle plugin app (served as worker from plugin directory)
+   * @param ctx - Hono context
+   * @param overridePath - Optional path to use instead of ctx.req.path (for homepage)
+   * @param overrideBase - Optional base path override (e.g., "/" for homepage)
    */
-  async function runPluginApp(ctx: Context) {
+  async function runPluginApp(ctx: Context, overridePath?: string, overrideBase?: string) {
     if (!registry) return null;
 
-    const pluginApp = registry.resolvePluginApp(ctx.req.path);
+    const requestPath = overridePath || ctx.req.path;
+    const pluginApp = registry.resolvePluginApp(requestPath);
     if (!pluginApp) return null;
 
     try {
@@ -31,10 +47,11 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
       const merged = { ...workerConfig, ...pluginApp.config };
 
       // Calculate pathname relative to plugin app base path
-      const pathname = ctx.req.path.slice(pluginApp.basePath.length) || "/";
+      const pathname = requestPath.slice(pluginApp.basePath.length) || "/";
 
       const req = new Request(new URL(pathname, ctx.req.url).href, ctx.req.raw);
-      req.headers.set("x-base", pluginApp.basePath);
+      // Use override base if provided (for homepage), otherwise use plugin base path
+      req.headers.set("x-base", overrideBase ?? pluginApp.basePath);
 
       return pool.fetch(pluginApp.dir, merged, req);
     } catch (err) {
@@ -78,9 +95,78 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
     return runApp(ctx, app);
   }
 
-  return new Hono()
-    .all(":app/*", (ctx) => run(ctx, ctx.req.param("app")))
-    .get("/*", (ctx) =>
-      config.homepage ? run(ctx, config.homepage) : new Response(`Buntime v${config.version}`),
-    );
+  /**
+   * Handle homepage request
+   * - string: redirects to the path
+   * - object with base: serves app inline with custom base path
+   */
+  async function runHomepage(ctx: Context) {
+    if (!config.homepage) {
+      return new Response(`Buntime v${config.version}`);
+    }
+
+    // Simple string config: redirect to the path
+    if (typeof config.homepage === "string") {
+      if (config.homepage.startsWith("/")) {
+        return ctx.redirect(config.homepage);
+      }
+      // Workspace app name - redirect to /:app
+      return ctx.redirect(`/${config.homepage}`);
+    }
+
+    // Object config: serve app with custom base
+    const { app, base } = config.homepage;
+
+    // No base specified: redirect instead of serving inline
+    if (base === undefined) {
+      return ctx.redirect(app.startsWith("/") ? app : `/${app}`);
+    }
+
+    // Plugin path (e.g., /cpanel)
+    if (app.startsWith("/")) {
+      // Build the full path: app base + current request path
+      // e.g., /cpanel + /chunk-xxx.js = /cpanel/chunk-xxx.js
+      const fullPath = ctx.req.path === "/" ? app : `${app}${ctx.req.path}`;
+
+      const pluginResponse = await runPluginApp(ctx, fullPath, base);
+      if (pluginResponse) return pluginResponse;
+      return ctx.json({ error: `Homepage plugin not found: ${app}` }, 404);
+    }
+
+    // Workspace app name
+    return runApp(ctx, app);
+  }
+
+  /**
+   * Get normalized homepage config
+   */
+  function getHomepageConfig(): HomepageConfig | null {
+    if (!config.homepage) return null;
+    if (typeof config.homepage === "string") {
+      return { app: config.homepage };
+    }
+    return config.homepage;
+  }
+
+  /**
+   * Handle app routes - with homepage fallback for inline mode
+   */
+  async function handleAppRoute(ctx: Context) {
+    // 1. Try normal app routing first
+    const response = await run(ctx, ctx.req.param("app"));
+
+    // 2. If app not found and homepage is inline, fallback to homepage
+    if (response.status === 404) {
+      const homepage = getHomepageConfig();
+      if (homepage?.base !== undefined && homepage.app.startsWith("/")) {
+        const fullPath = `${homepage.app}${ctx.req.path}`;
+        const pluginResponse = await runPluginApp(ctx, fullPath, homepage.base);
+        if (pluginResponse) return pluginResponse;
+      }
+    }
+
+    return response;
+  }
+
+  return new Hono().all(":app/*", handleAppRoute).all("/*", runHomepage);
 }

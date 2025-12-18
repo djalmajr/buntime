@@ -10,18 +10,16 @@ O plugin expõe alguns endpoints REST para gerenciamento e monitoramento.
 
 == Base URL
 
-Por padrão, os endpoints estão em `/p/database/api`.
+Por padrão, os endpoints estão em `/database/api`.
 
-O caminho pode ser customizado via configuração, mas sempre fica sob `/p/`:
+O caminho pode ser customizado via configuração:
 
 [source,jsonc]
 ----
 ["@buntime/plugin-database", { "base": "db" }]
 ----
 
-Neste caso, os endpoints ficam em `/p/db/api/*`.
-
-NOTE: O prefixo `/p/` é obrigatório e adicionado automaticamente pelo runtime para evitar conflitos com rotas de aplicações.
+Neste caso, os endpoints ficam em `/db/api/*`.
 
 == Endpoints
 
@@ -29,7 +27,7 @@ NOTE: O prefixo `/p/` é obrigatório e adicionado automaticamente pelo runtime 
 
 Retorna a lista de tipos de adapters configurados e qual é o adapter padrão.
 
-`GET /p/database/api/adapters`
+`GET /database/api/adapters`
 
 **Response:**
 
@@ -45,7 +43,7 @@ Retorna a lista de tipos de adapters configurados e qual é o adapter padrão.
 
 Verifica a saúde da conexão com o banco de dados.
 
-`GET /p/database/api/health`
+`GET /database/api/health`
 
 **Response:**
 
@@ -62,7 +60,7 @@ Gerenciamento de tenants (namespaces).
 
 ==== Listar Tenants
 
-`GET /p/database/api/tenants`
+`GET /database/api/tenants`
 
 **Response:**
 
@@ -77,7 +75,7 @@ Gerenciamento de tenants (namespaces).
 
 Cria um novo tenant (namespace).
 
-`POST /p/database/api/tenants`
+`POST /database/api/tenants`
 
 **Body:**
 
@@ -102,7 +100,7 @@ Cria um novo tenant (namespace).
 
 Remove um tenant existente.
 
-`DELETE /p/database/api/tenants/:id`
+`DELETE /database/api/tenants/:id`
 
 **Response:**
 

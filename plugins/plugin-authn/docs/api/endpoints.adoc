@@ -1,0 +1,108 @@
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+== Endpoints da API
+
+=== Resumo
+
+[cols="1,2,3"]
+|===
+| Método | Endpoint | Descrição
+
+| `ALL`
+| `/auth/api/auth/*`
+| Endpoints do better-auth (OAuth callbacks, etc.)
+
+| `GET`
+| `/auth/api/session`
+| Retorna a sessão atual do usuário
+
+| `GET`
+| `/auth/api/logout`
+| Logout com redirect (query param `redirect`)
+
+| `POST`
+| `/auth/api/logout`
+| Logout via API (retorna JSON)
+|===
+
+=== Sessão
+
+==== GET /auth/api/session
+
+Retorna informações da sessão atual.
+
+**Response (autenticado):**
+
+[source,json]
+----
+{
+  "session": {
+    "id": "session-id",
+    "userId": "user-id",
+    "expiresAt": "2024-01-01T00:00:00.000Z"
+  },
+  "user": {
+    "id": "user-id",
+    "email": "user@example.com",
+    "name": "User Name"
+  }
+}
+----
+
+**Response (não autenticado):**
+
+[source,json]
+----
+{
+  "session": null,
+  "user": null
+}
+----
+
+=== Logout
+
+==== GET /auth/api/logout
+
+Encerra a sessão e redireciona.
+
+**Query params:**
+
+* `redirect` - URL de redirecionamento após logout (default: `/`)
+
+**Exemplo:**
+
+[source,bash]
+----
+curl -X GET "http://localhost:8000/auth/api/logout?redirect=/login"
+----
+
+==== POST /auth/api/logout
+
+Encerra a sessão via API.
+
+**Response:**
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+=== Fluxo OAuth
+
+O fluxo de autenticação OAuth é gerenciado pelo better-auth:
+
+. Usuário acessa rota protegida
+. Redirecionado para `/auth/login`
+. Clica em "Sign in with Keycloak"
+. Redirecionado para Keycloak
+. Após autenticação, redirecionado de volta com código
+. better-auth troca código por tokens
+. Sessão criada e cookie setado
+. Usuário redirecionado para URL original

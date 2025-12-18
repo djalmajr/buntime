@@ -30,6 +30,7 @@ export default function healthPlugin(pluginConfig: HealthConfig = {}): BuntimePl
 
   return {
     name: "@buntime/plugin-health",
+    base: "/health",
 
     // Fragment with patch sandbox (internal plugin)
     fragment: {

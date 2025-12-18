@@ -7,6 +7,7 @@
     "./errors": "./src/errors.ts",
     "./logger": "./src/logger/index.ts",
     "./types": "./src/types/plugin.ts",
+    "./types/virtual-modules": "./src/types/virtual-modules.d.ts",
     "./utils/config-validation": "./src/utils/config-validation.ts",
     "./utils/duration": "./src/utils/duration.ts",
     "./utils/static-handler": "./src/utils/static-handler.ts",

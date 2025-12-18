@@ -1,0 +1,45 @@
+= AuthN Plugin
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+ifdef::env-github[]
+:tip-caption: 💡
+:note-caption: ℹ️
+:important-caption: ⚠️
+:caution-caption: 🔥
+:warning-caption: ⚠️
+endif::[]
+
+image:https://img.shields.io/badge/Bun-1.x-blue[Bun]
+image:https://img.shields.io/badge/better--auth-1.x-green[better-auth]
+image:https://img.shields.io/badge/TypeScript-5.0+-blue[TypeScript]
+
+toc::[]
+
+== Visão Geral
+
+**plugin-authn** é o plugin Buntime para autenticação de usuários via Keycloak/OIDC usando better-auth.
+
+Funcionalidades:
+
+* Integração com Keycloak via OAuth2/OIDC
+* Gerenciamento automático de sessões
+* Página de login com fluxo OAuth
+* Interceptação de requests para rotas protegidas
+* Suporte a variáveis de ambiente na configuração
+
+== Setup
+
+include::docs/overview/setup.adoc[leveloffset=+1]
+
+include::docs/overview/configuration.adoc[leveloffset=+1]
+
+include::docs/overview/client-integration.adoc[leveloffset=+1]
+
+== API
+
+include::docs/api/endpoints.adoc[leveloffset=+1]

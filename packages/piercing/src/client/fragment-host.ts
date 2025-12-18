@@ -51,7 +51,7 @@ class FragmentMessageBus {
  * Wraps the fragment HTML and manages its lifecycle
  *
  * @example
- * <fragment-host src="/p/metrics">...SSR content...</fragment-host>
+ * <fragment-host src="/metrics">...SSR content...</fragment-host>
  */
 export class PiercingFragmentHost extends HTMLElement {
   private cleanup = true;
@@ -207,12 +207,12 @@ export class PiercingFragmentHost extends HTMLElement {
  *
  * @example
  * <!-- Basic fragment without isolation -->
- * <fragment-outlet src="/p/metrics" base="/cpanel" />
+ * <fragment-outlet src="/metrics" base="/cpanel" />
  *
  * @example
  * <!-- Fragment with history patch -->
  * <fragment-outlet
- *   src="/p/metrics"
+ *   src="/metrics"
  *   base="/cpanel"
  *   history="patch"
  * />
@@ -420,6 +420,35 @@ export class PiercingFragmentOutlet extends HTMLElement {
       },
     });
 
+    if (!response.ok) {
+      // Try to parse error details from response
+      let errorDetails: { error?: string; reason?: string; policy?: string } = {};
+      try {
+        errorDetails = await response.json();
+      } catch {
+        // Response is not JSON, use status text
+      }
+
+      const errorEvent = new CustomEvent("piercing-error", {
+        bubbles: true,
+        composed: true,
+        detail: {
+          error: errorDetails.error || response.statusText,
+          policy: errorDetails.policy,
+          reason: errorDetails.reason,
+          status: response.status,
+          url,
+        },
+      });
+      this.dispatchEvent(errorEvent);
+
+      throw new Error(
+        errorDetails.reason ||
+          errorDetails.error ||
+          `HTTP ${response.status}: ${response.statusText}`,
+      );
+    }
+
     if (!response.body) {
       throw new Error(`Empty response when fetching fragment from "${url}"`);
     }
@@ -439,28 +468,31 @@ export class PiercingFragmentOutlet extends HTMLElement {
     // Clear shadow DOM before streaming
     this.clearChildren();
 
-    // Store the plugin's base URL as a data attribute so fragments can access it for API calls
-    this.setAttribute("data-fragment-base", baseUrl);
+    // Cache-bust scripts if fragment was previously unmounted
+    // This forces ES modules to re-execute on remount
+    const unmounted = PiercingFragmentOutlet.unmountedFragmentIds.has(fragmentId);
+    const cacheBuster = unmounted ? `?_t=${Date.now()}` : "";
 
-    // Check if this fragment was previously unmounted (needs cache-busting for scripts)
-    const wasUnmounted = PiercingFragmentOutlet.unmountedFragmentIds.has(fragmentId);
-    const cacheBuster = wasUnmounted ? `?_t=${Date.now()}` : "";
+    // Extract plugin base from src (e.g., "/database/studio" -> "/database")
+    // This is where assets are actually served from
+    const pluginBaseMatch = baseUrl.match(/^(\/[^/]+)/);
+    const assetBase = pluginBaseMatch?.[1] || baseUrl;
 
     // Create transform stream to rewrite relative URLs before parsing
     // This is needed because WritableDOM parses elements immediately, triggering
     // resource loads before we can post-process the URLs
     const urlRewriteTransform = new TransformStream<string, string>({
       transform(chunk, controller) {
-        // Rewrite src="./..." and href="./..." to absolute URLs
+        // Rewrite src="./..." and href="./..." to absolute URLs using the plugin's asset base
         let modified = chunk
-          .replace(/src="\.\/([^"]+)"/g, `src="${baseUrl}/$1"`)
-          .replace(/href="\.\/([^"]+)"/g, `href="${baseUrl}/$1"`);
+          .replace(/src="\.\/([^"]+)"/g, `src="${assetBase}/$1"`)
+          .replace(/href="\.\/([^"]+)"/g, `href="${assetBase}/$1"`);
 
-        // Add cache buster for scripts if fragment was previously unmounted
-        if (wasUnmounted) {
+        // Add cache buster for scripts if previously unmounted
+        if (unmounted) {
           modified = modified.replace(
-            new RegExp(`src="${baseUrl}/([^"?]+)"`, "g"),
-            `src="${baseUrl}/$1${cacheBuster}"`,
+            new RegExp(`src="${assetBase}/([^"?]+)"`, "g"),
+            `src="${assetBase}/$1${cacheBuster}"`,
           );
         }
 
@@ -473,6 +505,42 @@ export class PiercingFragmentOutlet extends HTMLElement {
 
     const writable = new WritableDOM(this.shadow);
     await textStream.pipeTo(writable);
+
+    // Scripts streamed via WritableDOM don't execute automatically
+    // Recreate them via document.createElement to force execution
+    this.executeScripts();
+  }
+
+  /**
+   * Execute scripts that were streamed into shadow DOM
+   * Scripts added via streaming don't execute - we need to recreate them
+   * Cache-busting is already handled by the transform stream
+   */
+  private executeScripts(): void {
+    const scripts = this.shadow.querySelectorAll("script");
+
+    for (const oldScript of Array.from(scripts)) {
+      // Skip non-JS scripts (e.g., type="application/json")
+      if (oldScript.type && oldScript.type !== "text/javascript" && oldScript.type !== "module") {
+        continue;
+      }
+
+      // Create new script element to force execution
+      const newScript = document.createElement("script");
+
+      // Copy all attributes (URLs already have cache-buster from transform stream)
+      for (const attr of oldScript.attributes) {
+        newScript.setAttribute(attr.name, attr.value);
+      }
+
+      // Copy inline content
+      if (oldScript.textContent) {
+        newScript.textContent = oldScript.textContent;
+      }
+
+      // Replace old script with new one to trigger execution
+      oldScript.replaceWith(newScript);
+    }
   }
 
   private findFragmentHost(src: string, insideOutlet = false): PiercingFragmentHost | null {

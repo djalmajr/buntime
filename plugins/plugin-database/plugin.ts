@@ -1,5 +1,5 @@
 import type { BuntimePlugin, PluginContext, PluginLogger } from "@buntime/shared/types";
-import { setService } from "./server/api";
+import { api, setService } from "./server/api";
 import { DatabaseServiceImpl } from "./server/service";
 import type { AdapterConfig, DatabasePluginConfig, DatabaseService } from "./server/types";
 
@@ -109,7 +109,29 @@ function processConfig(config: DatabasePluginConfig, log: PluginLogger): Databas
 export default function databasePlugin(config: DatabasePluginConfig): BuntimePlugin {
   return {
     name: "@buntime/plugin-database",
-    base: config.base,
+    base: config.base ?? "/database",
+
+    // API routes run on main thread
+    routes: api,
+
+    // Fragment with patch sandbox (internal plugin)
+    fragment: {
+      type: "patch",
+    },
+
+    // Menu items for C-Panel sidebar
+    menus: [
+      {
+        icon: "lucide:database",
+        path: "/database",
+        priority: 70,
+        title: "Database",
+        items: [
+          { icon: "lucide:home", path: "/database", title: "Overview" },
+          { icon: "lucide:table-2", path: "/database/studio", title: "Studio" },
+        ],
+      },
+    ],
 
     async onInit(ctx: PluginContext) {
       logger = ctx.logger;

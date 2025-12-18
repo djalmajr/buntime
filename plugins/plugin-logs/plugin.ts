@@ -33,6 +33,7 @@ export default function logsPlugin(pluginConfig: LogsConfig = {}): BuntimePlugin
 
   return {
     name: "@buntime/plugin-logs",
+    base: "/logs",
     routes: api, // SSE requires main thread (streaming doesn't work in workers)
 
     // Fragment with patch sandbox (internal plugin)

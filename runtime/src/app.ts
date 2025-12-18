@@ -9,6 +9,11 @@ import type { PluginRegistry } from "@/plugins/registry";
 
 export interface AppDeps {
   getAppDir: (appName: string) => string | undefined;
+  /**
+   * Homepage configuration from buntime.jsonc
+   * Can be a plugin name (e.g., "@buntime/plugin-cpanel") or path (e.g., "/my-app")
+   */
+  homepage?: string;
   pluginsInfo: Hono;
   pool?: WorkerPool;
   registry?: PluginRegistry;
@@ -120,15 +125,86 @@ async function servePluginApp(
 }
 
 /**
+ * Resolved shell configuration
+ */
+interface ResolvedShell {
+  plugin: NonNullable<ReturnType<PluginRegistry["getShellPlugin"]>>;
+  dir: string;
+  config: WorkerConfig;
+}
+
+/**
+ * Resolve shell plugin if homepage points to a shell plugin
+ */
+async function resolveShell(
+  homepage: string | undefined,
+  registry: PluginRegistry | undefined,
+): Promise<ResolvedShell | undefined> {
+  if (!homepage || !registry) return undefined;
+
+  // Check if homepage is a plugin reference
+  const isPluginRef = homepage.startsWith("@");
+  if (!isPluginRef) return undefined;
+
+  // Get the shell plugin
+  const shellPlugin = registry.getShellPlugin();
+  if (!shellPlugin) return undefined;
+
+  // Check if homepage matches the shell plugin
+  if (shellPlugin.name !== homepage) return undefined;
+
+  // Get shell plugin directory and config
+  const dir = registry.getPluginDir(shellPlugin.name);
+  if (!dir) return undefined;
+
+  const config = await loadWorkerConfig(dir);
+
+  return { plugin: shellPlugin, dir, config };
+}
+
+/**
+ * Serve the shell app with fragment route injection
+ */
+async function serveShellApp(
+  req: Request,
+  pool: WorkerPool,
+  shell: ResolvedShell,
+  fragmentRoute: string,
+  notFound: boolean = false,
+): Promise<Response> {
+  const url = new URL(req.url);
+
+  // Shell always serves from root, so pathname is "/"
+  const newReq = new Request(new URL("/" + url.search, req.url).href, req);
+
+  // Set headers for shell to know the fragment route
+  // x-base must be the shell's actual base path so assets load correctly
+  // e.g., shell at /cpanel -> <base href="/cpanel/"> -> /cpanel/index.js
+  newReq.headers.set("x-base", shell.plugin.base);
+  newReq.headers.set("x-fragment-route", fragmentRoute);
+  if (notFound) {
+    newReq.headers.set("x-not-found", "true");
+  }
+
+  return pool.fetch(shell.dir, shell.config, newReq);
+}
+
+/**
  * Create the main Hono app with unified routing
  */
-export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: AppDeps) {
+export function createApp({ getAppDir, homepage, pluginsInfo, pool, registry, workers }: AppDeps) {
   const app = new HonoApp();
 
   // Build plugin routes map: base -> { plugin, routes }
   type PluginType = NonNullable<typeof registry>["getAll"] extends () => (infer T)[] ? T : never;
   const pluginRoutes = new Map<string, { plugin: PluginType; routes: Hono }>();
   const pluginPaths = new Map<string, string>();
+
+  // Resolve shell plugin early (will be used in routing)
+  let shellPromise: Promise<ResolvedShell | undefined> | undefined;
+  if (homepage && registry && pool) {
+    shellPromise = resolveShell(homepage, registry);
+  }
 
   if (registry) {
     for (const plugin of registry.getAll()) {
@@ -171,6 +247,30 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
     const requestBody = ctx.req.raw.body
       ? await Bun.readableStreamToArrayBuffer(ctx.req.raw.clone().body!)
       : null;
+
+    // Resolve shell if configured
+    const shell = shellPromise ? await shellPromise : undefined;
+
+    // APP-SHELL MODE: If we have a shell and pathname should go to shell, serve it
+    // This intercepts navigation requests to: "/" (homepage), "/metrics", "/metrics/workers", etc.
+    // But NOT: "/metrics/api/*" (API routes), or fetch requests from fragment-outlet
+    const secFetchMode = ctx.req.header("sec-fetch-mode");
+    if (shell && pool && registry?.shouldRouteToShell(pathname, secFetchMode)) {
+      // Run onRequest hooks first (for auth)
+      const authResult = await registry.runOnRequest(ctx.req.raw);
+      if (authResult instanceof Response) {
+        return authResult; // Auth failed
+      }
+
+      // Create request with processed headers
+      const shellReq = new Request(ctx.req.url, {
+        body: requestBody,
+        headers: authResult.headers,
+        method: ctx.req.method,
+      });
+
+      return serveShellApp(shellReq, pool, shell, pathname);
+    }
 
     // Resolve target app early for use in onResponse
     let appInfo: AppInfo | undefined;
@@ -286,6 +386,18 @@ export function createApp({ getAppDir, pluginsInfo, pool, registry, workers }: A
       method: ctx.req.method,
     });
     const response = await workers.fetch(workerReq);
+
+    // 6. If 404 and we have a shell, serve shell with not-found flag
+    // This allows the shell to display a consistent 404 page with its layout
+    if (response.status === 404 && shell && pool) {
+      const shellReq = new Request(ctx.req.url, {
+        body: requestBody,
+        headers: processedReq.headers,
+        method: ctx.req.method,
+      });
+      return serveShellApp(shellReq, pool, shell, pathname, true);
+    }
+
     return runOnResponse(response);
   });
 

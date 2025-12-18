@@ -16,6 +16,13 @@ const BREADCRUMB_MAP: Record<string, string> = {
 };
 
 /**
+ * Check if we're in app-shell mode (shell manages routes from root)
+ */
+function isAppShellMode(): boolean {
+  return window.__ROUTER_BASEPATH__ === "/";
+}
+
+/**
  * Get shell base from <base> tag
  */
 function getShellBase(): string {
@@ -34,9 +41,15 @@ function getSegment(path: string): string | undefined {
 
 /**
  * Calculate the fragment's base path for TanStack Router
- * e.g., shellBase="/cpanel", segment="database" -> "/cpanel/database"
+ * In app-shell mode: URL is /metrics, so fragment base is /metrics
+ * In normal mode: URL is /cpanel/metrics, so fragment base is /cpanel/metrics
  */
 function getFragmentBase(shellBase: string, segment: string): string {
+  // In app-shell mode, fragment base matches the actual URL path
+  if (isAppShellMode()) {
+    return `/${segment}`;
+  }
+  // In normal mode (accessing /cpanel directly), include shell base
   return `${shellBase}/${segment}`;
 }
 
@@ -76,6 +89,12 @@ function FragmentRouter() {
     outlet.addEventListener("piercing-error", handleError);
     return () => outlet.removeEventListener("piercing-error", handleError);
   }, []);
+
+  // App-shell mode: check if runtime flagged this as a 404
+  // This happens when no plugin, worker, or proxy matched the route
+  if (window.__NOT_FOUND__) {
+    throw notFound();
+  }
 
   if (!segment || !BREADCRUMB_MAP[segment]) {
     throw notFound();

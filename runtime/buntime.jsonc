@@ -1,5 +1,5 @@
 {
-  "homepage": "/cpanel",
+  "homepage": "@buntime/plugin-cpanel",
   "workspaces": ["../../buntime-apps", "../apps"],
   "poolSize": 100,
   "plugins": [

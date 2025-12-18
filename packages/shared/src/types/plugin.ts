@@ -438,6 +438,20 @@ export interface BuntimePlugin {
   server?: PluginServer;
 
   /**
+   * When true, this plugin acts as an app-shell that manages all fragments.
+   * The shell intercepts navigation to plugin base paths and renders them
+   * within its layout. Only one plugin should have shell: true.
+   *
+   * When a shell plugin is set as homepage:
+   * - GET / → Shell renders (with fragment route injection)
+   * - GET /{plugin-base} → Shell renders with that fragment
+   * - GET /{plugin-base}/* → Goes directly to the plugin worker
+   *
+   * @default false
+   */
+  shell?: boolean;
+
+  /**
    * Fragment configuration for embedding this plugin in the shell (C-Panel)
    * The plugin's UI is served from its base path and "pierced" into the shell
    *

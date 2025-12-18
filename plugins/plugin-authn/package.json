@@ -15,9 +15,12 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@buntime/plugin-database": "workspace:*",
     "@buntime/shadcn-ui": "workspace:*",
     "@buntime/shared": "workspace:*",
+    "@libsql/client": "^0.15.0",
     "better-auth": "^1.4.6",
+    "drizzle-orm": "^0.38.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

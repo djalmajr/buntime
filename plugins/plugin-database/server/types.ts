@@ -1,4 +1,5 @@
 import type { BasePluginConfig, PluginLogger } from "@buntime/shared/types";
+import type { Client as LibSqlClient } from "@libsql/client";
 
 /**
  * Supported database adapter types
@@ -80,6 +81,12 @@ export interface DatabaseAdapter {
    * Close the adapter and release resources
    */
   close(): Promise<void>;
+
+  /**
+   * Get the raw database client for advanced operations
+   * Use this when you need to pass the client to external libraries
+   */
+  getRawClient(): LibSqlClient | unknown;
 }
 
 /**
@@ -159,6 +166,12 @@ export interface DatabaseService {
   getAdapter(type?: AdapterType, tenantId?: string): Promise<DatabaseAdapter>;
 
   /**
+   * Get the root adapter (no tenant isolation)
+   * @param type - Adapter type (uses default if not specified)
+   */
+  getRootAdapter(type?: AdapterType): DatabaseAdapter;
+
+  /**
    * Create a new tenant on the specified adapter
    * @param tenantId - Tenant ID to create
    * @param type - Adapter type (uses default if not specified)
@@ -177,12 +190,6 @@ export interface DatabaseService {
    * @param type - Adapter type (uses default if not specified)
    */
   listTenants(type?: AdapterType): Promise<string[]>;
-
-  /**
-   * Get the root adapter (no tenant isolation)
-   * @param type - Adapter type (uses default if not specified)
-   */
-  getRootAdapter(type?: AdapterType): DatabaseAdapter;
 
   /**
    * Get the default adapter type

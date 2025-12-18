@@ -67,6 +67,13 @@ export class LibSqlAdapter implements DatabaseAdapter {
   }
 
   /**
+   * Get the raw LibSQL client
+   */
+  getRawClient(): Client {
+    return this.client;
+  }
+
+  /**
    * Get a client for read operations (uses replicas with round-robin)
    */
   private getReadClient(): Client {

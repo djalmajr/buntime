@@ -1,7 +1,13 @@
+import type { AdapterType, DatabaseAdapter, DatabaseService } from "@buntime/plugin-database";
 import type { PluginLogger } from "@buntime/shared/types";
-import { type Auth, type BetterAuthConfig, createBetterAuth, getDatabase } from "./auth";
+import type { Client } from "@libsql/client";
+import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+import { mountScimRoutes } from "./api";
+import { type Auth, type BetterAuthConfig, createBetterAuth } from "./auth";
+import * as schema from "./db/schema";
 import type { AuthProvider, ProviderConfig, ProviderInfo } from "./providers";
 import { createProviders, getProvidersInfo } from "./providers";
+import { initializeSchema } from "./schema";
 
 /**
  * OAuth account record from database
@@ -23,29 +29,86 @@ export interface OAuthAccountRecord {
 let auth: Auth | null = null;
 let providers: AuthProvider[] = [];
 let logger: PluginLogger | null = null;
+let dbAdapter: DatabaseAdapter | null = null;
+let dbService: DatabaseService | null = null;
+let db: LibSQLDatabase<typeof schema> | null = null;
+let adapterType: AdapterType | undefined;
+let basePath = "/auth";
 
 export interface AuthnServiceConfig {
-  databasePath: string;
+  /**
+   * Base path for auth routes (e.g., "/auth")
+   */
+  basePath?: string;
+
+  /**
+   * Database adapter type to use (uses default if not specified)
+   */
+  database?: AdapterType;
+
+  /**
+   * Authentication providers
+   */
   providers: ProviderConfig[];
+
+  /**
+   * SCIM configuration
+   */
+  scim?: {
+    /** Enable SCIM 2.0 endpoints */
+    enabled?: boolean;
+    /** Maximum results per page (default: 100) */
+    maxResults?: number;
+    /** Enable bulk operations (default: true) */
+    bulkEnabled?: boolean;
+    /** Maximum operations per bulk request (default: 1000) */
+    maxBulkOperations?: number;
+  };
+
+  /**
+   * Trusted origins for CORS
+   */
   trustedOrigins?: string[];
 }
 
 /**
  * Initialize the authentication service
  */
-export function initialize(config: AuthnServiceConfig, pluginLogger: PluginLogger): Auth | null {
+export async function initialize(
+  database: DatabaseService,
+  config: AuthnServiceConfig,
+  pluginLogger: PluginLogger,
+): Promise<Auth | null> {
   logger = pluginLogger;
+  dbService = database;
+  adapterType = config.database;
+  basePath = config.basePath || "/auth";
 
   if (!config.providers || config.providers.length === 0) {
     logger.warn("No providers configured - authentication will be disabled");
     return null;
   }
 
+  // Get database adapter (root adapter, multi-tenancy handled at request level)
+  dbAdapter = database.getRootAdapter(config.database);
+
+  // Get raw libsql client and create Drizzle instance
+  const rawClient = dbAdapter.getRawClient() as Client;
+  db = drizzle({ client: rawClient, schema });
+
+  // Initialize schema (create tables if not exist)
+  // Using raw SQL for table creation as drizzle-kit would be the proper way
+  await initializeSchema(async (sql) => {
+    await dbAdapter!.execute(sql, []);
+  });
+
+  logger.debug("Database schema initialized");
+
   // Create provider instances
   providers = createProviders(config.providers);
 
   const authConfig: BetterAuthConfig = {
-    databasePath: config.databasePath,
+    db,
     providers,
     trustedOrigins: config.trustedOrigins,
   };
@@ -53,7 +116,26 @@ export function initialize(config: AuthnServiceConfig, pluginLogger: PluginLogge
   auth = createBetterAuth(authConfig);
 
   const providerTypes = config.providers.map((p) => p.type).join(", ");
-  logger.info(`Authentication service initialized with providers: ${providerTypes}`);
+  const dbType = config.database ?? database.getDefaultType();
+  logger.info(
+    `Authentication service initialized (providers: ${providerTypes}, database: ${dbType}, orm: drizzle)`,
+  );
+
+  // Mount SCIM routes if enabled
+  if (config.scim?.enabled) {
+    // Determine base URL from trusted origins
+    const baseUrl = config.trustedOrigins?.[0] ?? "http://localhost:8000";
+
+    mountScimRoutes({
+      adapter: dbAdapter,
+      baseUrl,
+      bulkEnabled: config.scim.bulkEnabled ?? true,
+      enabled: true,
+      logger,
+      maxBulkOperations: config.scim.maxBulkOperations ?? 1000,
+      maxResults: config.scim.maxResults ?? 100,
+    });
+  }
 
   return auth;
 }
@@ -64,6 +146,9 @@ export function initialize(config: AuthnServiceConfig, pluginLogger: PluginLogge
 export function shutdown(): void {
   auth = null;
   providers = [];
+  dbAdapter = null;
+  dbService = null;
+  db = null;
   logger?.info("Authentication service shut down");
 }
 
@@ -72,6 +157,34 @@ export function shutdown(): void {
  */
 export function getAuth(): Auth | null {
   return auth;
+}
+
+/**
+ * Get the database adapter
+ */
+export function getDatabaseAdapter(): DatabaseAdapter | null {
+  return dbAdapter;
+}
+
+/**
+ * Get the Drizzle database instance
+ */
+export function getDrizzle(): LibSQLDatabase<typeof schema> | null {
+  return db;
+}
+
+/**
+ * Get the database service
+ */
+export function getDatabaseService(): DatabaseService | null {
+  return dbService;
+}
+
+/**
+ * Get configured adapter type
+ */
+export function getAdapterType(): AdapterType | undefined {
+  return adapterType;
 }
 
 /**
@@ -96,23 +209,30 @@ export function getLogger(): PluginLogger | null {
 }
 
 /**
- * Get OAuth accounts with tokens for a user (direct database query)
+ * Get the base path for auth routes (e.g., "/auth")
+ */
+export function getBasePath(): string {
+  return basePath;
+}
+
+/**
+ * Get OAuth accounts with tokens for a user (async database query)
  * This is needed because better-auth's listUserAccounts doesn't return OAuth tokens
  */
-export function getOAuthAccountsForUser(userId: string): OAuthAccountRecord[] {
-  const db = getDatabase();
-  if (!db) {
+export async function getOAuthAccountsForUser(userId: string): Promise<OAuthAccountRecord[]> {
+  if (!dbAdapter) {
     return [];
   }
 
   try {
-    const query = db.query<OAuthAccountRecord, [string]>(`
-      SELECT id, accountId, providerId, userId, accessToken, refreshToken, idToken,
-             accessTokenExpiresAt, refreshTokenExpiresAt, scope
-      FROM account
-      WHERE userId = ? AND providerId != 'credential'
-    `);
-    return query.all(userId);
+    const results = await dbAdapter.execute<OAuthAccountRecord>(
+      `SELECT id, accountId, providerId, userId, accessToken, refreshToken, idToken,
+              accessTokenExpiresAt, refreshTokenExpiresAt, scope
+       FROM account
+       WHERE userId = ? AND providerId != 'credential'`,
+      [userId],
+    );
+    return results;
   } catch (err) {
     logger?.error("Failed to get OAuth accounts", { error: String(err), userId });
     return [];

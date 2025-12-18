@@ -1,10 +1,3 @@
-:toc: left
-:toclevels: 3
-:sectnums:
-:sectnumlevels: 5
-:icons: font
-:source-highlighter: highlightjs
-
 == Opções de Configuração
 
 === Referência de Opções
@@ -13,30 +6,15 @@
 |===
 | Opção | Tipo | Default | Descrição
 
-| `issuer`
-| `string`
-| -
-| URL base do Keycloak (ex: `http://localhost:8180/auth`). Suporta `${ENV_VAR}`.
+| `providers`
+| `ProviderConfig[]`
+| (obrigatório)
+| Array de provedores de autenticação. Ver seção de provedores abaixo.
 
-| `realm`
+| `database`
 | `string`
-| -
-| Nome do realm no Keycloak. Suporta `${ENV_VAR}`.
-
-| `clientId`
-| `string`
-| -
-| ID do client OIDC. Suporta `${ENV_VAR}`.
-
-| `clientSecret`
-| `string`
-| -
-| Secret do client OIDC. Suporta `${ENV_VAR}`.
-
-| `databasePath`
-| `string`
-| `./data/auth.db`
-| Caminho do banco SQLite para sessões.
+| adapter padrão
+| Tipo de adapter do plugin-database a usar (`libsql`, `bun-sql`).
 
 | `trustedOrigins`
 | `string[]`
@@ -47,6 +25,242 @@
 | `string`
 | `/auth/login`
 | Caminho para redirecionamento de login.
+
+| `scim`
+| `ScimConfig`
+| -
+| Configuração SCIM 2.0. Ver seção SCIM.
+|===
+
+=== Configuração de Provedores
+
+==== Email/Password
+
+[cols="2,1,1,4"]
+|===
+| Opção | Tipo | Default | Descrição
+
+| `type`
+| `"email-password"`
+| (obrigatório)
+| Tipo do provedor.
+
+| `allowSignUp`
+| `boolean`
+| `true`
+| Permitir registro de novos usuários.
+
+| `requireEmailVerification`
+| `boolean`
+| `false`
+| Exigir verificação de email antes de permitir login.
+
+| `displayName`
+| `string`
+| `"Email"`
+| Nome de exibição na página de login.
+
+| `icon`
+| `string`
+| `"lucide:mail"`
+| Ícone na página de login (formato Iconify).
+|===
+
+==== Keycloak
+
+[cols="2,1,1,4"]
+|===
+| Opção | Tipo | Default | Descrição
+
+| `type`
+| `"keycloak"`
+| (obrigatório)
+| Tipo do provedor.
+
+| `issuer`
+| `string`
+| (obrigatório)
+| URL base do Keycloak. Suporta `${ENV_VAR}`.
+
+| `realm`
+| `string`
+| (obrigatório)
+| Nome do realm. Suporta `${ENV_VAR}`.
+
+| `clientId`
+| `string`
+| (obrigatório)
+| ID do client OIDC. Suporta `${ENV_VAR}`.
+
+| `clientSecret`
+| `string`
+| (obrigatório)
+| Secret do client. Suporta `${ENV_VAR}`.
+
+| `displayName`
+| `string`
+| `"Keycloak"`
+| Nome de exibição na página de login.
+
+| `icon`
+| `string`
+| `"simple-icons:keycloak"`
+| Ícone na página de login (formato Iconify).
+|===
+
+==== Auth0
+
+[cols="2,1,1,4"]
+|===
+| Opção | Tipo | Default | Descrição
+
+| `type`
+| `"auth0"`
+| (obrigatório)
+| Tipo do provedor.
+
+| `domain`
+| `string`
+| (obrigatório)
+| Domínio Auth0 (ex: `tenant.auth0.com`). Suporta `${ENV_VAR}`.
+
+| `clientId`
+| `string`
+| (obrigatório)
+| ID do client. Suporta `${ENV_VAR}`.
+
+| `clientSecret`
+| `string`
+| (obrigatório)
+| Secret do client. Suporta `${ENV_VAR}`.
+
+| `displayName`
+| `string`
+| `"Auth0"`
+| Nome de exibição na página de login.
+
+| `icon`
+| `string`
+| `"simple-icons:auth0"`
+| Ícone na página de login (formato Iconify).
+|===
+
+==== Okta
+
+[cols="2,1,1,4"]
+|===
+| Opção | Tipo | Default | Descrição
+
+| `type`
+| `"okta"`
+| (obrigatório)
+| Tipo do provedor.
+
+| `domain`
+| `string`
+| (obrigatório)
+| Domínio Okta (ex: `domain.okta.com`). Suporta `${ENV_VAR}`.
+
+| `clientId`
+| `string`
+| (obrigatório)
+| ID do client. Suporta `${ENV_VAR}`.
+
+| `clientSecret`
+| `string`
+| (obrigatório)
+| Secret do client. Suporta `${ENV_VAR}`.
+
+| `displayName`
+| `string`
+| `"Okta"`
+| Nome de exibição na página de login.
+
+| `icon`
+| `string`
+| `"simple-icons:okta"`
+| Ícone na página de login (formato Iconify).
+|===
+
+==== OIDC Genérico
+
+[cols="2,1,1,4"]
+|===
+| Opção | Tipo | Default | Descrição
+
+| `type`
+| `"generic-oidc"`
+| (obrigatório)
+| Tipo do provedor.
+
+| `issuer`
+| `string`
+| (obrigatório)
+| URL do issuer OIDC. Suporta `${ENV_VAR}`.
+
+| `clientId`
+| `string`
+| (obrigatório)
+| ID do client. Suporta `${ENV_VAR}`.
+
+| `clientSecret`
+| `string`
+| (obrigatório)
+| Secret do client. Suporta `${ENV_VAR}`.
+
+| `displayName`
+| `string`
+| `"SSO"`
+| Nome de exibição na página de login.
+
+| `icon`
+| `string`
+| `"lucide:key-round"`
+| Ícone na página de login (formato Iconify).
+
+| `authorizationEndpoint`
+| `string`
+| (auto-descoberto)
+| URL do endpoint de autorização. Sobrescreve o valor do discovery document.
+
+| `tokenEndpoint`
+| `string`
+| (auto-descoberto)
+| URL do endpoint de token. Sobrescreve o valor do discovery document.
+
+| `userinfoEndpoint`
+| `string`
+| (auto-descoberto)
+| URL do endpoint de userinfo. Sobrescreve o valor do discovery document.
+|===
+
+NOTE: O ID do provedor é gerado automaticamente a partir do hostname do issuer.
+
+=== Configuração SCIM
+
+[cols="2,1,1,4"]
+|===
+| Opção | Tipo | Default | Descrição
+
+| `enabled`
+| `boolean`
+| `false`
+| Habilitar endpoints SCIM 2.0.
+
+| `maxResults`
+| `number`
+| `100`
+| Máximo de resultados por página.
+
+| `bulkEnabled`
+| `boolean`
+| `true`
+| Habilitar operações em lote.
+
+| `maxBulkOperations`
+| `number`
+| `1000`
+| Máximo de operações por request bulk.
 |===
 
 === Exemplo Completo
@@ -55,14 +269,26 @@
 ----
 {
   "plugins": [
+    ["@buntime/plugin-database", {
+      "adapters": [{ "type": "libsql", "default": true }]
+    }],
     ["@buntime/plugin-authn", {
-      "issuer": "${KEYCLOAK_URL}",
-      "realm": "${KEYCLOAK_REALM}",
-      "clientId": "${KEYCLOAK_CLIENT_ID}",
-      "clientSecret": "${KEYCLOAK_CLIENT_SECRET}",
-      "databasePath": "./data/sessions.db",
+      "providers": [
+        { "type": "email-password", "allowSignUp": true },
+        {
+          "type": "keycloak",
+          "issuer": "${KEYCLOAK_URL}",
+          "realm": "${KEYCLOAK_REALM}",
+          "clientId": "${KEYCLOAK_CLIENT_ID}",
+          "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
+        }
+      ],
       "trustedOrigins": ["http://localhost:8000", "https://myapp.com"],
-      "loginPath": "/auth/login"
+      "loginPath": "/auth/login",
+      "scim": {
+        "enabled": true,
+        "maxResults": 100
+      }
     }]
   ]
 }
@@ -81,6 +307,39 @@ O plugin intercepta todos os requests e:
 
 . Verifica se a rota é pública
 . Verifica se existe cookie de sessão (`better-auth.session_token`)
+. Se autenticado, injeta header `X-Identity` com dados do usuário
 . Se não autenticado:
 ** Requests de API (`Accept: application/json`): retorna 401
 ** Outros requests: redireciona para página de login
+
+=== Header X-Identity
+
+Quando o usuário está autenticado, o plugin injeta o header `X-Identity` em todos os requests. Este header contém um JSON com a identidade do usuário:
+
+[source,typescript]
+----
+interface Identity {
+  claims: Record<string, unknown>;  // Claims adicionais do token
+  groups: string[];                 // Grupos do usuário
+  roles: string[];                  // Roles do usuário
+  sub: string;                      // Subject (user ID)
+}
+----
+
+Exemplo de uso no worker:
+
+[source,typescript]
+----
+app.get("/api/protected", (ctx) => {
+  const identityHeader = ctx.req.header("X-Identity");
+  if (!identityHeader) {
+    return ctx.json({ error: "Unauthorized" }, 401);
+  }
+
+  const identity = JSON.parse(identityHeader);
+  console.log("User ID:", identity.sub);
+  console.log("Roles:", identity.roles);
+
+  return ctx.json({ message: "Hello " + identity.sub });
+});
+----

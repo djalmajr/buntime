@@ -105,6 +105,10 @@ export default function cpanelPlugin(config: CpanelConfig = {}): BuntimePlugin {
     dependencies: ["@buntime/plugin-authn"],
     optionalDependencies: ["@buntime/plugin-authz"],
 
+    // CPanel is the app-shell that manages all fragments
+    // When set as homepage, it intercepts navigation to plugin base paths
+    shell: true,
+
     // Static assets should not require authorization
     publicRoutes: {
       GET: ["/cpanel/*.js", "/cpanel/*.css", "/cpanel/*.woff2", "/cpanel/*.png", "/cpanel/*.svg"],

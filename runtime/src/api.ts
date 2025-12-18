@@ -58,6 +58,7 @@ const workers = createWorkerRoutes({
 // Create app with routes and plugins
 const app = createApp({
   getAppDir,
+  homepage: runtimeConfig.homepage,
   pluginsInfo,
   pool,
   registry,

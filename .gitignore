@@ -10,3 +10,6 @@
 # Build and dependencies
 dist/
 node_modules
+
+# Local runtime config
+runtime/buntime.jsonc

@@ -70,7 +70,7 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
       if (!dir) return ctx.json({ error: `App not found: ${app}` }, 404);
 
       const workerConfig = await loadWorkerConfig(dir);
-      const pathname = ctx.req.path.split(app)[1] || "/";
+      const pathname = ctx.req.path.slice(`/${app}`.length) || "/";
 
       const req = new Request(new URL(pathname, ctx.req.url).href, ctx.req.raw);
       req.headers.set("x-base", `/${app}`);

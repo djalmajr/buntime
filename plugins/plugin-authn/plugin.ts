@@ -216,9 +216,9 @@ function processProviderConfig(input: ProviderConfigInput): ProviderConfig {
  * }
  * ```
  */
-export default function authnPlugin(config: AuthnConfig): BuntimePlugin {
+export default function authnPlugin(config: AuthnConfig = {} as AuthnConfig): BuntimePlugin {
   // Process provider configs (substitute env vars)
-  const providers = config.providers.map(processProviderConfig);
+  const providers = (config.providers ?? []).map(processProviderConfig);
 
   // Process API keys (substitute env vars in key field)
   const apiKeys = config.apiKeys?.map((ak) => ({

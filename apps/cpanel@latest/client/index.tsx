@@ -3,7 +3,7 @@ import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import type { Session } from "~/contexts/auth-context";
-import { getPluginBase, initPluginBases } from "~/helpers/api-client";
+import { getPluginBase, initPluginBases, isPluginLoaded } from "~/helpers/api-client";
 import { routeTree } from "./routeTree.gen";
 
 import "~/helpers/i18n";
@@ -58,27 +58,20 @@ declare module "@tanstack/react-router" {
   }
 }
 
-function redirectToLogin() {
-  const authnBase = getPluginBase("@buntime/plugin-authn");
-  const currentPath = window.location.pathname + window.location.search;
-  const loginUrl = `${authnBase}/login?redirect=${encodeURIComponent(currentPath)}`;
-  window.location.href = loginUrl;
-}
-
-async function getSession(): Promise<Session | null> {
+async function getSession(): Promise<Session | undefined> {
   const authnBase = getPluginBase("@buntime/plugin-authn");
   try {
     const res = await fetch(`${authnBase}/api/session`);
     if (!res.ok) {
-      return null;
+      return undefined;
     }
     const data = await res.json();
     if (!data?.user) {
-      return null;
+      return undefined;
     }
     return data as Session;
   } catch {
-    return null;
+    return undefined;
   }
 }
 
@@ -86,12 +79,11 @@ async function main() {
   // Initialize plugin bases before rendering
   await initPluginBases();
 
-  // Check authentication before rendering
-  const session = await getSession();
-
-  if (!session) {
-    redirectToLogin();
-    return;
+  // Fetch session for UI (authentication is handled server-side)
+  // If plugin-authn is not loaded, session will be undefined (Guest mode)
+  let session: Session | undefined;
+  if (isPluginLoaded("@buntime/plugin-authn")) {
+    session = await getSession();
   }
 
   const rootElement = document.getElementById("root");

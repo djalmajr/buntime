@@ -13,9 +13,27 @@ async function build() {
     rmSync(join(import.meta.dir, "../dist"), { recursive: true, force: true });
   } catch {}
 
-  console.log("Building cpanel...");
+  console.log("Building cpanel server...");
 
-  const result = await Bun.build({
+  // Build server
+  const serverResult = await Bun.build({
+    entrypoints: ["./index.ts"],
+    external: ["@buntime/*"],
+    minify: !isWatch,
+    outdir: "./dist",
+    target: "bun",
+  });
+
+  if (!serverResult.success) {
+    console.error("Server build failed:", serverResult.logs);
+    if (!isWatch) process.exit(1);
+    return false;
+  }
+
+  console.log("Building cpanel client...");
+
+  // Build client
+  const clientResult = await Bun.build({
     entrypoints: ["./client/index.html"],
     minify: !isWatch,
     outdir: "./dist",
@@ -25,8 +43,8 @@ async function build() {
     target: "browser",
   });
 
-  if (!result.success) {
-    console.error("Build failed:", result.logs);
+  if (!clientResult.success) {
+    console.error("Client build failed:", clientResult.logs);
     if (!isWatch) process.exit(1);
     return false;
   }

@@ -8,6 +8,7 @@
 
 import authn from "@buntime/plugin-authn";
 import authz from "@buntime/plugin-authz";
+import deployments from "@buntime/plugin-deployments";
 import gateway from "@buntime/plugin-gateway";
 import metrics from "@buntime/plugin-metrics";
 import proxy from "@buntime/plugin-proxy";
@@ -30,6 +31,7 @@ const lazyPlugins: Record<string, () => Promise<PluginFactory>> = {
 const staticPlugins: Record<string, PluginFactory> = {
   "@buntime/plugin-authn": authn,
   "@buntime/plugin-authz": authz,
+  "@buntime/plugin-deployments": deployments,
   "@buntime/plugin-gateway": gateway,
   "@buntime/plugin-metrics": metrics,
   "@buntime/plugin-proxy": proxy,

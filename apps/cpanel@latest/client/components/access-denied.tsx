@@ -13,7 +13,7 @@ import { useAuth } from "~/contexts/auth-context";
 
 export function AccessDenied() {
   const { t } = useTranslation();
-  const { logout } = useAuth();
+  const auth = useAuth();
   const navigate = useNavigate();
 
   const handleGoBack = () => {
@@ -21,7 +21,7 @@ export function AccessDenied() {
   };
 
   const handleLogout = async () => {
-    await logout();
+    await auth?.logout();
   };
 
   return (

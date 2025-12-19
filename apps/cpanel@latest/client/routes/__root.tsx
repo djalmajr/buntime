@@ -19,7 +19,7 @@ import { queryClient } from "~/helpers/query-client";
 import { type MenuItemInfo, usePlugins } from "~/hooks/use-plugins";
 
 interface RouterContext {
-  session: Session;
+  session?: Session;
 }
 
 export const Route = createRootRouteWithContext<RouterContext>()({
@@ -30,18 +30,25 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 function RootLayoutContent() {
   const { t } = useTranslation();
   const { header } = useHeader();
-  const { logout, session } = useAuth();
+  const auth = useAuth();
   const breadcrumbs = useBreadcrumbs({ i18n });
   const plugins$ = usePlugins();
   const location = useLocation();
 
   const userData = useMemo(
-    () => ({
-      avatar: session.user.avatar ?? "/avatars/default.jpg",
-      email: session.user.email,
-      name: session.user.name,
-    }),
-    [session.user],
+    () =>
+      auth
+        ? {
+            avatar: auth.session.user.avatar ?? "/avatars/default.jpg",
+            email: auth.session.user.email,
+            name: auth.session.user.name,
+          }
+        : {
+            avatar: "/avatars/default.jpg",
+            email: "guest@localhost",
+            name: "Guest",
+          },
+    [auth],
   );
 
   const apps = [
@@ -109,7 +116,7 @@ function RootLayoutContent() {
       groups={navGroups}
       header={header ?? undefined}
       LinkComponent={Link}
-      onLogout={logout}
+      onLogout={auth?.logout}
       user={userData}
     >
       <div className="flex flex-1 flex-col gap-4 overflow-auto">
@@ -122,16 +129,18 @@ function RootLayoutContent() {
 function RootLayout() {
   const { session } = useRouteContext({ from: "__root__" });
 
+  const content = (
+    <HeaderProvider>
+      <RootLayoutContent />
+      <FragmentNavigationBridge />
+      <Toaster />
+    </HeaderProvider>
+  );
+
   return (
     <IconProvider registry={registry}>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider session={session}>
-          <HeaderProvider>
-            <RootLayoutContent />
-            <FragmentNavigationBridge />
-            <Toaster />
-          </HeaderProvider>
-        </AuthProvider>
+        {session ? <AuthProvider session={session}>{content}</AuthProvider> : content}
       </QueryClientProvider>
     </IconProvider>
   );

@@ -1,7 +1,8 @@
 import type { AdapterType, DatabaseAdapter, DatabaseService } from "@buntime/plugin-database";
 import type { PluginLogger } from "@buntime/shared/types";
-import type { Client } from "@libsql/client";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+import type { Client } from "@libsql/client/http";
+import type { LibSQLDatabase } from "drizzle-orm/libsql";
+import { drizzle } from "drizzle-orm/libsql/http";
 import { mountScimRoutes } from "./api";
 import { type Auth, type BetterAuthConfig, createBetterAuth } from "./auth";
 import * as schema from "./db/schema";

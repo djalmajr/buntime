@@ -1,4 +1,4 @@
-import { renameSync, rmSync } from "node:fs";
+import { copyFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 const DIST_DIR = join(import.meta.dir, "../dist");
@@ -14,13 +14,58 @@ console.log("Building server...");
 if (process.argv.includes("--compile")) {
   const outfile = join(DIST_DIR, "buntime");
 
-  await Bun.$`bun build ${SERVER_ENTRYPOINT} ${WORKER_FILE} \
-    --compile \
-    --define 'BUNTIME_COMPILED=true' \
-    --minify \
-    --outfile ${outfile}`;
+  const args = [
+    "build",
+    SERVER_ENTRYPOINT,
+    WORKER_FILE,
+    "--compile",
+    "--define",
+    "BUNTIME_COMPILED=true",
+    "--minify",
+    "--outfile",
+    outfile,
+  ];
+
+  const proc = Bun.spawn(["bun", ...args], {
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    console.error("Compilation failed");
+    process.exit(exitCode);
+  }
+
+  // Copy buntime.jsonc to dist
+  const configSrc = join(import.meta.dir, "../buntime.jsonc");
+  const configDst = join(DIST_DIR, "buntime.jsonc");
+  try {
+    copyFileSync(configSrc, configDst);
+    console.log("Copied: buntime.jsonc -> dist/");
+  } catch {
+    console.warn("Warning: buntime.jsonc not found, skipping copy");
+  }
 
   console.log("Compiled: dist/buntime");
+
+  // Test the binary (start server, wait 3s, kill)
+  console.log("\nTesting binary...");
+  const testProc = Bun.spawn([outfile], {
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+
+  // Wait 3s for startup, then kill
+  await Bun.sleep(3000);
+  testProc.kill();
+  const testExit = await testProc.exited;
+
+  // 143 = SIGTERM (killed), 0 = normal exit - both are OK
+  if (testExit === 0 || testExit === 143) {
+    console.log("\nBinary test passed!");
+  } else {
+    console.error("\nBinary test failed with exit code:", testExit);
+  }
+
   process.exit(0);
 }
 

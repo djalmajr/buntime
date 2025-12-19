@@ -9,6 +9,6 @@
     },
     "types": ["@buntime/shared/types/virtual-modules"]
   },
-  "include": ["client", "scripts"],
+  "include": ["client", "scripts", "server", "index.ts"],
   "exclude": ["node_modules", "dist"]
 }

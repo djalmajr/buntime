@@ -192,7 +192,7 @@ O adaptador para libSQL é o mais complexo devido ao suporte a HTTP, WebSockets 
 
 ==== Cliente HTTP/WebSocket
 
-Usa a biblioteca `@libsql/client`. O protocolo é determinado pelo esquema da URL:
+Usa a biblioteca `@libsql/client/http`. O protocolo é determinado pelo esquema da URL:
 
 *   **HTTP**: URLs com `http://` ou `https://`
   - Stateless. Cada `execute` é um fetch. Ideal para serverless.

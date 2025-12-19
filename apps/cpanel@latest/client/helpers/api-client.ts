@@ -41,6 +41,14 @@ export async function initPluginBases(): Promise<void> {
 }
 
 /**
+ * Check if a plugin is loaded by name.
+ * Supports both full name (@buntime/plugin-authn) and short name (authn).
+ */
+export function isPluginLoaded(name: string): boolean {
+  return name in bases;
+}
+
+/**
  * Get plugin base path by name.
  * Supports both full name (@buntime/plugin-authn) and short name (authn).
  */

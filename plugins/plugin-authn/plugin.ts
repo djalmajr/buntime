@@ -44,7 +44,47 @@ type ProviderConfigInput =
       issuer: string;
     });
 
+/**
+ * API Key configuration for machine-to-machine authentication
+ */
+export interface ApiKeyConfig {
+  /**
+   * The API key value. Supports ${ENV_VAR} substitution.
+   */
+  key: string;
+
+  /**
+   * Display name for this API key (used in X-Identity)
+   */
+  name: string;
+
+  /**
+   * Roles to assign to this API key
+   * @default ["api-client"]
+   */
+  roles?: string[];
+}
+
 export interface AuthnConfig {
+  /**
+   * API keys for machine-to-machine authentication (CI/CD, external services)
+   * Requests with valid X-API-Key header will be authenticated without session
+   *
+   * @example
+   * ```jsonc
+   * {
+   *   "apiKeys": [
+   *     {
+   *       "key": "${GITLAB_DEPLOY_KEY}",
+   *       "name": "GitLab CI/CD",
+   *       "roles": ["deployer"]
+   *     }
+   *   ]
+   * }
+   * ```
+   */
+  apiKeys?: ApiKeyConfig[];
+
   /**
    * Database adapter type to use
    * Uses default adapter from plugin-database if not specified
@@ -156,10 +196,35 @@ function processProviderConfig(input: ProviderConfigInput): ProviderConfig {
  *   ]
  * }
  * ```
+ *
+ * @example
+ * ```jsonc
+ * // buntime.jsonc - With API keys for CI/CD
+ * {
+ *   "plugins": [
+ *     ["@buntime/plugin-authn", {
+ *       "providers": [{ "type": "email-password" }],
+ *       "apiKeys": [
+ *         {
+ *           "key": "${GITLAB_DEPLOY_KEY}",
+ *           "name": "GitLab CI/CD",
+ *           "roles": ["deployer"]
+ *         }
+ *       ]
+ *     }]
+ *   ]
+ * }
+ * ```
  */
 export default function authnPlugin(config: AuthnConfig): BuntimePlugin {
   // Process provider configs (substitute env vars)
   const providers = config.providers.map(processProviderConfig);
+
+  // Process API keys (substitute env vars in key field)
+  const apiKeys = config.apiKeys?.map((ak) => ({
+    ...ak,
+    key: substituteEnvVars(ak.key),
+  }));
 
   // Custom base path (default would be /authn)
   const basePath = "/auth";
@@ -216,7 +281,35 @@ export default function authnPlugin(config: AuthnConfig): BuntimePlugin {
         return;
       }
 
-      // Check for session cookie
+      // 1. Check for API Key (machine-to-machine auth, e.g., CI/CD)
+      const apiKeyHeader = req.headers.get("X-API-Key");
+      if (apiKeyHeader && apiKeys) {
+        const keyConfig = apiKeys.find((k) => k.key === apiKeyHeader);
+        if (keyConfig) {
+          const newHeaders = new Headers(req.headers);
+          newHeaders.set(
+            "X-Identity",
+            JSON.stringify({
+              id: `apikey:${keyConfig.name}`,
+              name: keyConfig.name,
+              roles: keyConfig.roles ?? ["api-client"],
+            }),
+          );
+          return new Request(req.url, {
+            body: req.body,
+            duplex: "half",
+            headers: newHeaders,
+            method: req.method,
+          } as RequestInit);
+        }
+        // Invalid API key - return 401 immediately
+        return new Response(JSON.stringify({ error: "Invalid API key" }), {
+          headers: { "Content-Type": "application/json" },
+          status: 401,
+        });
+      }
+
+      // 2. Check for session cookie
       const sessionCookie = req.headers.get("cookie")?.includes("better-auth.session_token");
       if (sessionCookie) {
         // Get identity from session and inject X-Identity header

@@ -60,11 +60,13 @@ export function useAuthorization({
   method = "GET",
   resource,
 }: UseAuthorizationOptions): AuthorizationResult {
-  const { user } = useAuth();
+  const auth = useAuth();
 
   const authorization$ = useQuery({
-    enabled,
+    enabled: enabled && !!auth,
     queryFn: async () => {
+      if (!auth) return false;
+
       const context: EvaluationContext = {
         action: {
           method,
@@ -81,7 +83,7 @@ export function useAuthorization({
         subject: {
           claims: {},
           groups: [],
-          id: user.id,
+          id: auth.user.id,
           roles: [],
         },
       };
@@ -99,7 +101,7 @@ export function useAuthorization({
       const decision: Decision = await res.json();
       return decision.effect === "permit";
     },
-    queryKey: ["authorization", resource, method, action, user.id],
+    queryKey: ["authorization", resource, method, action, auth?.user.id],
     staleTime: 30_000, // Cache for 30 seconds
   });
 

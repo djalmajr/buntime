@@ -1,81 +1,85 @@
 {
-  "homepage": { "app": "cpanel", "shell": true },
-  "workspaces": ["../../buntime-apps", "../apps"],
+  // "homepage": { "app": "cpanel", "shell": true },
+  "workspaces": [
+    "/home/user/Developer/team/edge-functions",
+    "/home/user/Developer/zomme/buntime-apps",
+    "/home/user/Developer/zomme/buntime/apps"
+  ],
   "poolSize": 100,
   "plugins": [
-    [
-      "@buntime/plugin-authn",
-      {
-        "providers": [
-          {
-            "type": "email-password",
-            "displayName": "Email",
-            "allowSignUp": true
-          },
-          {
-            "type": "keycloak",
-            "displayName": "SSO Corporativo",
-            "icon": "lucide:building",
-            "issuer": "${KEYCLOAK_URL}",
-            "realm": "${KEYCLOAK_REALM}",
-            "clientId": "${KEYCLOAK_CLIENT_ID}",
-            "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
-          }
-        ],
-        "trustedOrigins": ["http://localhost:8000"]
-      }
-    ],
-    [
-      "@buntime/plugin-authz",
-      {
-        "defaultEffect": "permit",
-        "excludePaths": [".*\\.(js|css|woff2?|png|svg|ico|json)$"],
-        "policySeed": {
-          "policies": [
-            {
-              "id": "cpanel-admin-access",
-              "name": "CPanel Admin Full Access",
-              "description": "Allow admin role full access to cpanel",
-              "effect": "permit",
-              "priority": 100,
-              "subjects": [{ "role": "admin" }],
-              "resources": [{ "path": "/cpanel/**" }],
-              "actions": [{ "method": "*" }]
-            },
-            {
-              "id": "cpanel-viewer-readonly",
-              "name": "CPanel Viewer Read-Only",
-              "description": "Allow viewer role read-only access to cpanel",
-              "effect": "permit",
-              "priority": 90,
-              "subjects": [{ "role": "viewer" }],
-              "resources": [{ "path": "/cpanel/**" }],
-              "actions": [{ "method": "GET" }]
-            }
-          ]
-        }
-      }
-    ],
+    // [
+    //   "@buntime/plugin-authn",
+    //   {
+    //     "providers": [
+    //       {
+    //         "type": "email-password",
+    //         "displayName": "Email",
+    //         "allowSignUp": true
+    //       },
+    //       {
+    //         "type": "keycloak",
+    //         "displayName": "SSO Corporativo",
+    //         "icon": "lucide:building",
+    //         "issuer": "${KEYCLOAK_URL}",
+    //         "realm": "${KEYCLOAK_REALM}",
+    //         "clientId": "${KEYCLOAK_CLIENT_ID}",
+    //         "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
+    //       }
+    //     ],
+    //     "trustedOrigins": ["http://localhost:8000"]
+    //   }
+    // ],
+    // [
+    //   "@buntime/plugin-authz",
+    //   {
+    //     "defaultEffect": "permit",
+    //     "excludePaths": [".*\\.(js|css|woff2?|png|svg|ico|json)$"],
+    //     "policySeed": {
+    //       "policies": [
+    //         {
+    //           "id": "cpanel-admin-access",
+    //           "name": "CPanel Admin Full Access",
+    //           "description": "Allow admin role full access to cpanel",
+    //           "effect": "permit",
+    //           "priority": 100,
+    //           "subjects": [{ "role": "admin" }],
+    //           "resources": [{ "path": "/cpanel/**" }],
+    //           "actions": [{ "method": "*" }]
+    //         },
+    //         {
+    //           "id": "cpanel-viewer-readonly",
+    //           "name": "CPanel Viewer Read-Only",
+    //           "description": "Allow viewer role read-only access to cpanel",
+    //           "effect": "permit",
+    //           "priority": 90,
+    //           "subjects": [{ "role": "viewer" }],
+    //           "resources": [{ "path": "/cpanel/**" }],
+    //           "actions": [{ "method": "GET" }]
+    //         }
+    //       ]
+    //     }
+    //   }
+    // ],
     "@buntime/plugin-metrics",
     [
       "@buntime/plugin-deployments",
       {
         "excludes": [".cache"]
       }
-    ],
-    "@buntime/plugin-health",
-    "@buntime/plugin-logs",
-    [
-      "@buntime/plugin-database",
-      {
-        "adapters": [
-          {
-            "type": "libsql",
-            "urls": ["http://localhost:8880"]
-          }
-        ]
-      }
-    ],
-    "@buntime/plugin-keyval"
+    ]
+    // "@buntime/plugin-health",
+    // "@buntime/plugin-logs",
+    // [
+    //   "@buntime/plugin-database",
+    //   {
+    //     "adapters": [
+    //       {
+    //         "type": "libsql",
+    //         "urls": ["http://localhost:8880"]
+    //       }
+    //     ]
+    //   }
+    // ],
+    // "@buntime/plugin-keyval"
   ]
 }

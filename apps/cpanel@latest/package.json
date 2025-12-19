@@ -48,7 +48,7 @@
     "tailwindcss": "^4.1.17"
   },
   "buntime": {
-    "entrypoint": "dist/index.html",
+    "entrypoint": "dist/index.js",
     "visibility": "internal",
     "publicRoutes": {
       "GET": [

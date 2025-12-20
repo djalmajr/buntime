@@ -1,0 +1,256 @@
+== Local Execution
+
+There are three ways to run Buntime locally:
+
+[cols="1,1,2,1"]
+|===
+| Mode | Command | Use Case | Size
+
+| Development
+| `bun dev`
+| Hot reload, debugging
+| N/A
+
+| Bundle
+| `bun run index.ts`
+| Production-like, needs Bun
+| ~1.5MB
+
+| Compiled
+| `./buntime`
+| Standalone binary, no dependencies
+| ~130MB
+|===
+
+=== Development Mode
+
+[source,bash]
+----
+cd runtime
+bun dev
+----
+
+Features:
+
+* Hot reload on file changes
+* Source maps for debugging
+* Slower startup (plugins loaded from node_modules)
+
+=== Bundle Mode
+
+Build and run the bundled JavaScript:
+
+[source,bash]
+----
+cd runtime
+
+# Build bundle
+bun run build
+
+# Run with Bun
+bun run dist/index.ts
+----
+
+Output structure:
+
+[source]
+----
+dist/
+├── index.ts       # Main bundle (~1.3MB)
+├── wrapper.ts     # Worker thread (~23KB)
+└── buntime.jsonc  # Configuration
+----
+
+=== Compiled Binary
+
+Build a standalone executable with all dependencies embedded:
+
+[source,bash]
+----
+cd runtime
+
+# Build binary
+bun run build:bin
+
+# Run directly
+./dist/buntime
+----
+
+Output:
+
+[source]
+----
+dist/
+├── buntime        # Standalone binary (~130MB)
+└── buntime.jsonc  # Configuration
+----
+
+==== Compiled Mode Features
+
+* No Bun installation required
+* All plugins embedded in binary
+* Single file deployment
+* Works on any Linux x64 system
+
+==== Configuration in Compiled Mode
+
+The binary reads `buntime.jsonc` from the current directory:
+
+[source,bash]
+----
+# Option 1: Run from dist folder
+cd dist
+./buntime
+
+# Option 2: Copy binary and config together
+cp dist/buntime dist/buntime.jsonc /opt/buntime/
+cd /opt/buntime
+./buntime
+----
+
+==== Environment Variables
+
+[source,bash]
+----
+# Required
+export WORKSPACES_DIR=/path/to/apps
+
+# Optional
+export PORT=8000
+export POOL_SIZE=100
+export LOG_LEVEL=info
+export LIBSQL_URL=http://localhost:8880
+
+# Run
+./buntime
+----
+
+==== Systemd Service
+
+Create `/etc/systemd/system/buntime.service`:
+
+[source,ini]
+----
+[Unit]
+Description=Buntime Runtime
+After=network.target
+
+[Service]
+Type=simple
+User=buntime
+Group=buntime
+WorkingDirectory=/opt/buntime
+ExecStart=/opt/buntime/buntime
+Restart=always
+RestartSec=5
+
+Environment=PORT=8000
+Environment=WORKSPACES_DIR=/opt/buntime/apps
+Environment=LIBSQL_URL=http://localhost:8880
+Environment=LOG_LEVEL=info
+
+[Install]
+WantedBy=multi-user.target
+----
+
+Enable and start:
+
+[source,bash]
+----
+sudo systemctl daemon-reload
+sudo systemctl enable buntime
+sudo systemctl start buntime
+sudo systemctl status buntime
+----
+
+=== Docker
+
+==== Build Image
+
+[source,bash]
+----
+# From project root
+docker build -t buntime:latest .
+----
+
+==== Run Container
+
+[source,bash]
+----
+docker run -d \
+  --name buntime \
+  -p 8000:8000 \
+  -v /path/to/apps:/app/apps \
+  -e WORKSPACES_DIR=/app/apps \
+  -e LIBSQL_URL=http://host.docker.internal:8880 \
+  buntime:latest
+----
+
+==== Docker Compose
+
+[source,yaml]
+----
+services:
+  buntime:
+    image: ghcr.io/user/buntime:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./apps:/app/apps
+    environment:
+      PORT: 8000
+      WORKSPACES_DIR: /app/apps
+      LIBSQL_URL: http://libsql:8080
+    depends_on:
+      - libsql
+
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8880:8080"
+    volumes:
+      - libsql-data:/var/lib/sqld
+    environment:
+      SQLD_NODE: primary
+      SQLD_DISABLE_AUTH: "true"
+
+volumes:
+  libsql-data:
+----
+
+=== Comparison
+
+[cols="1,1,1,1,1"]
+|===
+| Feature | Dev | Bundle | Compiled | Docker
+
+| Hot Reload
+| Yes
+| No
+| No
+| No
+
+| Bun Required
+| Yes
+| Yes
+| No
+| No
+
+| Deployment Size
+| N/A
+| ~1.5MB + Bun
+| ~130MB
+| ~132MB
+
+| Startup Time
+| Slow
+| Fast
+| Fast
+| Fast
+
+| Plugins from
+| node_modules
+| Embedded
+| Embedded
+| Embedded
+|===

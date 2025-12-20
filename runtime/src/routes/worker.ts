@@ -48,8 +48,9 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
 
       // Calculate pathname relative to plugin app base path
       const pathname = requestPath.slice(pluginApp.basePath.length) || "/";
+      const originalUrl = new URL(ctx.req.url);
 
-      const req = new Request(new URL(pathname, ctx.req.url).href, ctx.req.raw);
+      const req = new Request(new URL(pathname + originalUrl.search, ctx.req.url).href, ctx.req.raw);
       // Use override base if provided (for homepage), otherwise use plugin base path
       req.headers.set("x-base", overrideBase ?? pluginApp.basePath);
 
@@ -71,8 +72,9 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
 
       const workerConfig = await loadWorkerConfig(dir);
       const pathname = ctx.req.path.slice(`/${app}`.length) || "/";
+      const originalUrl = new URL(ctx.req.url);
 
-      const req = new Request(new URL(pathname, ctx.req.url).href, ctx.req.raw);
+      const req = new Request(new URL(pathname + originalUrl.search, ctx.req.url).href, ctx.req.raw);
       req.headers.set("x-base", `/${app}`);
 
       return pool.fetch(dir, workerConfig, req);

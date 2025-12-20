@@ -1,0 +1,21 @@
+Buntime deployed successfully!
+
+Release: {{ .Release.Name }}
+{{- if .Values.ingress.enabled }}
+
+Access via Ingress:
+  http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}
+{{- else if .Values.route.enabled }}
+
+Access via Route:
+  https://{{ .Values.route.host | default (printf "%s.apps.cluster.local" (include "buntime.fullname" .)) }}
+{{- else }}
+
+Access via NodePort:
+  export NODE_PORT=$(kubectl get svc {{ include "buntime.fullname" . }} -n {{ .Release.Namespace }} -o jsonpath='{.spec.ports[0].nodePort}')
+  export NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[0].address}')
+  echo http://$NODE_IP:$NODE_PORT
+{{- end }}
+
+Check config:
+  kubectl get configmap {{ include "buntime.fullname" . }}-config -n {{ .Release.Namespace }} -o yaml

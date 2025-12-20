@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "buntime.fullname" . }}
+  labels:
+    {{- include "buntime.labels" . | nindent 4 }}
+data:
+  PORT: {{ .Values.buntime.port | quote }}
+  POOL_SIZE: {{ .Values.buntime.poolSize | quote }}
+  WORKSPACES_DIR: {{ .Values.buntime.workspaces | quote }}
+  LOG_LEVEL: {{ .Values.buntime.logLevel | quote }}
+  {{- $libsqlUrl := include "buntime.libsqlUrl" . }}
+  {{- if $libsqlUrl }}
+  LIBSQL_URL: {{ $libsqlUrl | quote }}
+  {{- end }}

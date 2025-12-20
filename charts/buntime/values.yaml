@@ -1,0 +1,59 @@
+# Buntime Helm Chart - Default Values
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/user/buntime
+  tag: latest
+  pullPolicy: Always
+
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: NodePort
+  port: 8000
+
+# Ingress (Kubernetes)
+ingress:
+  enabled: false
+  className: ""  # nginx, traefik, alb, etc
+  host: ""
+  path: "/"  # Use "/b" for path-based routing (auto-adds rewrite)
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: ""  # auto-generated if empty
+
+# Route (OpenShift/OKD)
+route:
+  enabled: false
+  host: ""
+  tls:
+    enabled: true
+    termination: edge  # edge, passthrough, reencrypt
+
+# Buntime configuration
+buntime:
+  port: 8000
+  poolSize: 100
+  workspaces: "/app/apps"
+  libsqlUrl: ""
+  logLevel: "info"
+
+# Plugins (generates buntime.jsonc)
+plugins:
+  metrics:
+    enabled: true
+  deployments:
+    enabled: true
+  database:
+    enabled: false
+  keyval:
+    enabled: false
+  health:
+    enabled: false
+
+# External LibSQL
+libsql:
+  externalUrl: ""

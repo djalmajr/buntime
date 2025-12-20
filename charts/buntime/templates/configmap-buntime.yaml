@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "buntime.fullname" . }}-config
+  labels:
+    {{- include "buntime.labels" . | nindent 4 }}
+data:
+  buntime.jsonc: |
+    {
+      "workspaces": ["${WORKSPACES_DIR}"],
+      "poolSize": {{ .Values.buntime.poolSize }},
+      "plugins": [
+        {{- $plugins := list }}
+        {{- if .Values.plugins.metrics.enabled }}
+        {{- $plugins = append $plugins "@buntime/plugin-metrics" }}
+        {{- end }}
+        {{- if .Values.plugins.deployments.enabled }}
+        {{- $deployments := dict "excludes" (list ".cache") }}
+        {{- $plugins = append $plugins (list "@buntime/plugin-deployments" $deployments) }}
+        {{- end }}
+        {{- if .Values.plugins.database.enabled }}
+        {{- $dbConfig := dict "adapters" (list (dict "type" "libsql" "urls" (list (include "buntime.libsqlUrl" .)))) }}
+        {{- $plugins = append $plugins (list "@buntime/plugin-database" $dbConfig) }}
+        {{- end }}
+        {{- if .Values.plugins.keyval.enabled }}
+        {{- $plugins = append $plugins "@buntime/plugin-keyval" }}
+        {{- end }}
+        {{- if .Values.plugins.health.enabled }}
+        {{- $plugins = append $plugins "@buntime/plugin-health" }}
+        {{- end }}
+        {{- range $i, $p := $plugins }}
+        {{- if $i }},{{ end }}
+        {{ $p | toJson }}
+        {{- end }}
+
+      ]
+    }

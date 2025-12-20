@@ -1,0 +1,40 @@
+# Dependencies (will be installed fresh)
+node_modules
+**/node_modules
+
+# Build outputs
+dist
+**/dist
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# Env files
+.env*
+!.env.example
+
+# Cache
+.cache
+.tanstack
+**/.cache
+
+# Logs
+*.log
+
+# Tests
+coverage
+**/*.test.ts
+**/tests
+
+# Docs
+*.md
+*.adoc
+docs
+
+# Examples (not needed for runtime)
+examples

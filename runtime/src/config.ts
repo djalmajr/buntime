@@ -54,6 +54,22 @@ function resolvePath(path: string, baseDir: string): string {
 }
 
 /**
+ * Expand workspace paths from config
+ * Handles comma-separated values from env vars: "${WORKSPACES_DIR}" where WORKSPACES_DIR="/app,/data"
+ */
+function expandWorkspaces(dirs: string[], baseDir: string): string[] {
+  return dirs.flatMap((dir) => {
+    const expanded = substituteEnvVars(dir);
+    // Split by comma if env var contains multiple paths
+    return expanded
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((p) => (isAbsolute(p) ? p : resolve(baseDir, p)));
+  });
+}
+
+/**
  * Parse WORKSPACES_DIR env var (supports comma-separated paths)
  * @example "../../buntime-apps" or "/dir1,/dir2,../dir3"
  */
@@ -71,8 +87,9 @@ function parseWorkspacesEnv(envValue: string, baseDir: string): string[] {
 export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): RuntimeConfig {
   // Get workspaces: buntime.jsonc (array) > env var (comma-separated paths)
   // Relative paths are resolved against the config file directory
+  // Supports comma-separated values in env vars: WORKSPACES_DIR="/app,/data"
   const workspaces = buntimeConfig.workspaces
-    ? buntimeConfig.workspaces.map((dir) => resolvePath(dir, baseDir))
+    ? expandWorkspaces(buntimeConfig.workspaces, baseDir)
     : Bun.env.WORKSPACES_DIR
       ? parseWorkspacesEnv(Bun.env.WORKSPACES_DIR, baseDir)
       : [];

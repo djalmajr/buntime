@@ -5,6 +5,17 @@ const DIST_DIR = join(import.meta.dir, "../dist");
 const SERVER_ENTRYPOINT = join(import.meta.dir, "../src/index.ts");
 const WORKER_FILE = join(import.meta.dir, "../src/libs/pool/wrapper.ts");
 
+function copyConfig() {
+  const configSrc = join(import.meta.dir, "../buntime.jsonc");
+  const configDst = join(DIST_DIR, "buntime.jsonc");
+  try {
+    copyFileSync(configSrc, configDst);
+    console.log("Copied: buntime.jsonc -> dist/");
+  } catch {
+    console.warn("Warning: buntime.jsonc not found, skipping copy");
+  }
+}
+
 try {
   rmSync(DIST_DIR, { force: true, recursive: true });
 } catch {}
@@ -14,38 +25,13 @@ console.log("Building server...");
 if (process.argv.includes("--compile")) {
   const outfile = join(DIST_DIR, "buntime");
 
-  const args = [
-    "build",
-    SERVER_ENTRYPOINT,
-    WORKER_FILE,
-    "--compile",
-    "--define",
-    "BUNTIME_COMPILED=true",
-    "--minify",
-    "--outfile",
-    outfile,
-  ];
+  await Bun.$`bun build ${SERVER_ENTRYPOINT} ${WORKER_FILE} \
+    --compile \
+    --define 'BUNTIME_COMPILED=true' \
+    --minify \
+    --outfile ${outfile}`;
 
-  const proc = Bun.spawn(["bun", ...args], {
-    stdio: ["inherit", "inherit", "inherit"],
-  });
-  const exitCode = await proc.exited;
-
-  if (exitCode !== 0) {
-    console.error("Compilation failed");
-    process.exit(exitCode);
-  }
-
-  // Copy buntime.jsonc to dist
-  const configSrc = join(import.meta.dir, "../buntime.jsonc");
-  const configDst = join(DIST_DIR, "buntime.jsonc");
-  try {
-    copyFileSync(configSrc, configDst);
-    console.log("Copied: buntime.jsonc -> dist/");
-  } catch {
-    console.warn("Warning: buntime.jsonc not found, skipping copy");
-  }
-
+  copyConfig();
   console.log("Compiled: dist/buntime");
 
   // Test the binary (start server, wait 3s, kill)
@@ -80,6 +66,8 @@ const result = await Bun.build({
 // Rename .js to .ts to match source extensions
 renameSync(join(DIST_DIR, "index.js"), join(DIST_DIR, "index.ts"));
 renameSync(join(DIST_DIR, "wrapper.js"), join(DIST_DIR, "wrapper.ts"));
+
+copyConfig();
 
 if (!result.success) {
   console.error("Build failed:", result.logs);

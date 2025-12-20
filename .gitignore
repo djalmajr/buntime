@@ -8,8 +8,9 @@
 .tanstack
 
 # Build and dependencies
-dist/
+dist
 node_modules
+tmp
 
 # Local runtime config
 runtime/buntime.jsonc

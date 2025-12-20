@@ -59,6 +59,23 @@ services:
       retries: 3
     restart: unless-stopped
 
+  buntime:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./tmp:/app/apps
+    environment:
+      PORT: 8000
+      LIBSQL_URL: http://libsql:8080
+      WORKSPACES_DIR: /app/apps
+    depends_on:
+      libsql:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   keycloak-data:
   libsql-data:

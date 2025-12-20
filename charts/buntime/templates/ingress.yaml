@@ -1,0 +1,45 @@
+{{- if .Values.ingress.enabled }}
+{{- $path := .Values.ingress.path | default "/" }}
+{{- $hasPrefix := ne $path "/" }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "buntime.fullname" . }}
+  labels:
+    {{- include "buntime.labels" . | nindent 4 }}
+  annotations:
+    {{- if $hasPrefix }}
+    # Rewrite path: strip prefix before forwarding to backend
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ .Values.ingress.tls.secretName | default (printf "%s-tls" (include "buntime.fullname" .)) }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          {{- if $hasPrefix }}
+          - path: {{ $path }}(/|$)(.*)
+            pathType: ImplementationSpecific
+          {{- else }}
+          - path: /
+            pathType: Prefix
+          {{- end }}
+            backend:
+              service:
+                name: {{ include "buntime.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+{{- end }}

@@ -400,6 +400,10 @@ include::docs/api/routes.adoc[leveloffset=+1]
 
 == Deployment
 
+include::docs/deployment/local.adoc[leveloffset=+1]
+
+include::docs/deployment/kubernetes.adoc[leveloffset=+1]
+
 include::docs/deployment/configuration.adoc[leveloffset=+1]
 
 == Operations

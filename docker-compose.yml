@@ -80,7 +80,24 @@ services:
     #     condition: service_healthy
     restart: unless-stopped
 
+  # Rancher for Kubernetes cluster management and Helm chart testing
+  # Access at https://localhost:8443 (self-signed cert warning expected)
+  # First login: get bootstrap password with:
+  #   docker logs buntime-rancher-1 2>&1 | grep "Bootstrap Password:"
+  rancher:
+    image: rancher/rancher:latest # pass: f3t2KuFbiIFnj0Rr
+    privileged: true
+    ports:
+      - "8443:443"
+      - "8080:80"
+    volumes:
+      - rancher-data:/var/lib/rancher
+    environment:
+      CATTLE_BOOTSTRAP_PASSWORD: admin
+    restart: unless-stopped
+
 volumes:
   keycloak-data:
   libsql-data:
   libsql-replica-data:
+  rancher-data:

@@ -29,6 +29,40 @@ RUN NODE_ENV=production bun scripts/build.ts --compile
 WORKDIR /build/apps/cpanel@latest
 RUN NODE_ENV=production bun run build
 
+# Build all builtin plugins (they are only enabled via buntime.jsonc)
+WORKDIR /build/plugins/plugin-authn
+RUN NODE_ENV=production bun run build
+
+WORKDIR /build/plugins/plugin-authz
+RUN NODE_ENV=production bun run build
+
+WORKDIR /build/plugins/plugin-database
+RUN NODE_ENV=production bun run build
+
+WORKDIR /build/plugins/plugin-deployments
+RUN NODE_ENV=production bun run build
+
+WORKDIR /build/plugins/plugin-durable
+RUN NODE_ENV=production bun run build
+
+WORKDIR /build/plugins/plugin-gateway
+RUN NODE_ENV=production bun run build
+
+WORKDIR /build/plugins/plugin-health
+RUN NODE_ENV=production bun run build
+
+WORKDIR /build/plugins/plugin-keyval
+RUN NODE_ENV=production bun run build
+
+WORKDIR /build/plugins/plugin-logs
+RUN NODE_ENV=production bun run build
+
+WORKDIR /build/plugins/plugin-metrics
+RUN NODE_ENV=production bun run build
+
+WORKDIR /build/plugins/plugin-proxy
+RUN NODE_ENV=production bun run build
+
 # =============================================================================
 # Stage 2: Runtime (minimal)
 # =============================================================================
@@ -45,6 +79,21 @@ COPY --from=builder /build/runtime/dist/buntime.jsonc /app/buntime.jsonc
 # Copy built apps
 COPY --from=builder /build/apps/cpanel@latest/dist /app/apps/cpanel@latest/dist
 COPY --from=builder /build/apps/cpanel@latest/package.json /app/apps/cpanel@latest/package.json
+
+# Copy built plugins (for fragment UI serving in compiled mode)
+# Client files go to root so pool.fetch finds index.html
+# Only copy plugins that have client UI (dist/client with index.html)
+COPY --from=builder /build/plugins/plugin-authn/dist/client /app/plugins/authn
+COPY --from=builder /build/plugins/plugin-authz/dist/client /app/plugins/authz
+COPY --from=builder /build/plugins/plugin-database/dist/client /app/plugins/database
+COPY --from=builder /build/plugins/plugin-deployments/dist/client /app/plugins/deployments
+COPY --from=builder /build/plugins/plugin-durable/dist/client /app/plugins/durable
+COPY --from=builder /build/plugins/plugin-gateway/dist/client /app/plugins/gateway
+COPY --from=builder /build/plugins/plugin-health/dist/client /app/plugins/health
+COPY --from=builder /build/plugins/plugin-keyval/dist/client /app/plugins/keyval
+COPY --from=builder /build/plugins/plugin-logs/dist/client /app/plugins/logs
+COPY --from=builder /build/plugins/plugin-metrics/dist/client /app/plugins/metrics
+COPY --from=builder /build/plugins/plugin-proxy/dist/client /app/plugins/proxy
 
 EXPOSE 8000
 

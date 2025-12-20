@@ -4,7 +4,7 @@ import type {
   MenuItem,
   PluginContext,
 } from "@buntime/shared/types";
-import { getDirNames, getExcludes, setExcludes, setWorkspaces } from "./server/api";
+import { api, getDirNames, getExcludes, setExcludes, setWorkspaces } from "./server/api";
 
 export interface DeploymentsConfig extends BasePluginConfig {
   /**
@@ -49,6 +49,7 @@ export default function deploymentsPlugin(_pluginConfig: DeploymentsConfig = {})
   return {
     name: "@buntime/plugin-deployments",
     base: "/deployments",
+    routes: api,
 
     // Fragment with patch sandbox (internal plugin)
     fragment: {

@@ -6,13 +6,10 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
   cn,
-  DropdownMenuItem,
   Icon,
   NavMain,
-  NavUser,
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarHeader,
   SidebarInset,
   SidebarProvider,
@@ -20,7 +17,6 @@ import {
   SidebarTrigger,
 } from "@buntime/shadcn-ui";
 import type * as React from "react";
-import { useTranslation } from "react-i18next";
 import { AppInfo } from "~/components/app-info";
 
 export interface MainLayoutBreadcrumb {
@@ -76,7 +72,7 @@ export interface MainLayoutProps {
   header?: MainLayoutHeader;
   LinkComponent?: React.ComponentType<{ children: React.ReactNode; to: string }>;
   onLogout?: () => void;
-  user: MainLayoutUser;
+  // user: MainLayoutUser;
 }
 
 interface DefaultHeaderProps {
@@ -150,10 +146,10 @@ export function MainLayout({
   groups,
   header,
   LinkComponent,
-  onLogout,
-  user,
+  // onLogout,
+  // user,
 }: MainLayoutProps) {
-  const { t } = useTranslation();
+  // const { t } = useTranslation();
   const activeApp = apps.find((app) => app.isActive) ?? apps[0];
 
   return (
@@ -182,7 +178,7 @@ export function MainLayout({
               />
             ))}
           </SidebarContent>
-          <SidebarFooter>
+          {/* <SidebarFooter>
             <NavUser user={{ ...user, fallback: user.name.charAt(0).toUpperCase() }}>
               {onLogout && (
                 <DropdownMenuItem onClick={onLogout}>
@@ -191,7 +187,7 @@ export function MainLayout({
                 </DropdownMenuItem>
               )}
             </NavUser>
-          </SidebarFooter>
+          </SidebarFooter> */}
           <SidebarRail />
         </Sidebar>
         <SidebarInset className="flex flex-col overflow-hidden">

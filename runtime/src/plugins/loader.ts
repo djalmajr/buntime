@@ -10,12 +10,14 @@ import type {
   PluginModule,
   PublicRoutesConfig,
 } from "@buntime/shared/types";
+import { getConfig, IS_COMPILED } from "@/config";
 import { getBuiltinPlugin } from "./builtin";
 import { createPluginLogger, PluginRegistry } from "./registry";
 
 const logger = getChildLogger("PluginLoader");
 
 const EXTERNAL_PLUGINS_DIR = "./plugins";
+const BUILTIN_PLUGINS_DIR = "./plugins";
 
 const HTTP_METHODS = ["ALL", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"] as const;
 
@@ -278,11 +280,25 @@ export class PluginLoader {
       }
     };
 
+    // Helper to resolve built-in plugin directory in compiled mode
+    // Looks for ./plugins/{shortName}/ with index.html (fragment UI)
+    const resolveBuiltinDir = (packageName: string): string => {
+      const shortName = packageName.replace(/^@buntime\/plugin-/, "").replace(/^@buntime\//, "");
+      const pluginDir = join(process.cwd(), BUILTIN_PLUGINS_DIR, shortName);
+      const indexHtml = join(pluginDir, "index.html");
+
+      if (existsSync(indexHtml)) {
+        return pluginDir;
+      }
+      return "";
+    };
+
     // 1. Try built-in plugins first (works in compiled binary)
     const builtinFactory = await getBuiltinPlugin(name);
     if (builtinFactory) {
-      // Built-in plugins: use factory but still resolve directory for worker spawning
-      const dir = resolveDir(name);
+      // In compiled mode, try to find plugin directory in ./plugins/
+      // In dev mode, use Bun.resolveSync
+      const dir = IS_COMPILED ? resolveBuiltinDir(name) : resolveDir(name);
       return { module: builtinFactory, dir };
     }
 
@@ -355,10 +371,12 @@ export class PluginLoader {
     }
 
     // Create context for initialization with service access
+    // Use resolved config (with env var substitution) for workspaces
     const registry = this.registry;
+    const runtimeConfig = getConfig();
     const globalConfig = {
-      poolSize: this.config.poolSize || 100,
-      workspaces: this.config.workspaces || ["./apps"],
+      poolSize: runtimeConfig.poolSize,
+      workspaces: runtimeConfig.workspaces,
     };
 
     const context: PluginContext = {

@@ -59,11 +59,11 @@ export function NewFolderDialog({
   const [name, setName] = useState("");
 
   // Determine folder type based on depth and whether inside version
-  // - depth 1: create app or app@version
+  // - depth 0 or 1: create app or app@version (root or inside virtual root folder)
   // - depth 2+ and inside version: create any folder
   // - depth 2 and NOT inside version (nested app folder): create version
   const folderType = useMemo(() => {
-    if (depth === 1) return "app";
+    if (depth <= 1) return "app";
     if (isInsideVersion) return "any";
     return "version";
   }, [depth, isInsideVersion]);

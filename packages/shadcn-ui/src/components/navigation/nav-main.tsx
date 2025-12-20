@@ -25,7 +25,7 @@ export interface NavMainItem {
   items?: NavMainSubItem[];
   linkProps?: Record<string, unknown>;
   title: string;
-  url: string;
+  url?: string;
 }
 
 export interface NavMainProps {
@@ -85,6 +85,18 @@ export function NavMain({
                     </CollapsibleContent>
                   </SidebarMenuItem>
                 </Collapsible>
+              );
+            }
+
+            // Items without url and without sub-items are rendered as non-clickable
+            if (!item.url) {
+              return (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton isActive={item.isActive} tooltip={item.title}>
+                    {item.icon}
+                    <span>{item.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
               );
             }
 

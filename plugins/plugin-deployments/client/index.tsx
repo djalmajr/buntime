@@ -1,3 +1,5 @@
+import { registry } from "virtual:icons";
+import { IconProvider } from "@buntime/shadcn-ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import i18n from "i18next";
 import { StrictMode } from "react";
@@ -38,10 +40,12 @@ if (!rootElement) throw new Error("Root element not found");
 const root = createRoot(rootElement);
 root.render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <DeploymentsPage />
-      <Toaster position="bottom-right" richColors />
-    </QueryClientProvider>
+    <IconProvider registry={registry}>
+      <QueryClientProvider client={queryClient}>
+        <DeploymentsPage />
+        <Toaster position="bottom-right" richColors />
+      </QueryClientProvider>
+    </IconProvider>
   </StrictMode>,
 );
 

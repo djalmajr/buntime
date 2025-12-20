@@ -35,21 +35,21 @@ function RootLayoutContent() {
   const plugins$ = usePlugins();
   const location = useLocation();
 
-  const userData = useMemo(
-    () =>
-      auth
-        ? {
-            avatar: auth.session.user.avatar ?? "/avatars/default.jpg",
-            email: auth.session.user.email,
-            name: auth.session.user.name,
-          }
-        : {
-            avatar: "/avatars/default.jpg",
-            email: "guest@localhost",
-            name: "Guest",
-          },
-    [auth],
-  );
+  // const userData = useMemo(
+  //   () =>
+  //     auth
+  //       ? {
+  //           avatar: auth.session.user.avatar ?? "/avatars/default.jpg",
+  //           email: auth.session.user.email,
+  //           name: auth.session.user.name,
+  //         }
+  //       : {
+  //           avatar: "/avatars/default.jpg",
+  //           email: "guest@localhost",
+  //           name: "Guest",
+  //         },
+  //   [auth],
+  // );
 
   const apps = [
     {
@@ -117,7 +117,7 @@ function RootLayoutContent() {
       header={header ?? undefined}
       LinkComponent={Link}
       onLogout={auth?.logout}
-      user={userData}
+      // user={userData}
     >
       <div className="flex flex-1 flex-col gap-4 overflow-auto">
         <Outlet />

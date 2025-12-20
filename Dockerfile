@@ -23,6 +23,7 @@ RUN bun install
 
 # Build the compiled binary
 WORKDIR /build/runtime
+
 RUN NODE_ENV=production bun scripts/build.ts --compile
 
 # Build cpanel app
@@ -72,9 +73,8 @@ WORKDIR /app
 
 # Distroless already includes ca-certificates
 
-# Copy the binary and config
+# Copy the binary (config provided via Helm ConfigMap or volume mount)
 COPY --from=builder /build/runtime/dist/buntime /app/buntime
-COPY --from=builder /build/runtime/dist/buntime.jsonc /app/buntime.jsonc
 
 # Copy built apps
 COPY --from=builder /build/apps/cpanel@latest/dist /app/apps/cpanel@latest/dist

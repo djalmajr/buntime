@@ -1,0 +1,140 @@
+== Cache
+:order: 3
+
+=== Gestión de Cache
+
+NOTE: La implementación actual de Leaf usa cache de sistema de archivos a través de los mecanismos de lectura de archivos de Bun y cache del sistema operativo. No hay capa explícita de cache de API en la versión actual.
+
+=== Arquitectura de Cache
+
+[mermaid]
+----
+flowchart TD
+    Request[API Request]
+    Parse[Parse AsciiDoc]
+    OS[OS File System Cache]
+    Disk[Disk Storage]
+
+    Request --> Parse
+    Parse --> OS
+    OS -->|Cache Hit| Parse
+    OS -->|Cache Miss| Disk
+    Disk --> OS
+
+    style OS fill:#F5A623
+    style Disk fill:#95A5A6
+----
+
+=== Comportamiento Actual
+
+**Cache de Sistema de Archivos:**
+
+* El sistema operativo almacena en cache los archivos accedidos frecuentemente
+* El runtime Bun optimiza las lecturas de archivos
+* No se necesita TTL ni invalidación explícita
+* El cache se actualiza automáticamente cuando se modifican archivos
+
+**Características de Rendimiento:**
+
+1. **Primera Petición**: Lee del disco (~1-5ms para archivos pequeños)
+2. **Peticiones Subsiguientes**: Cache del SO (~0.1-1ms)
+3. **Archivo Modificado**: SO detecta cambio, cache invalidado automáticamente
+
+=== Parseo de AsciiDoc
+
+Cada petición procesa el contenido AsciiDoc nuevamente (sin cache de HTML):
+
+[mermaid]
+----
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant F as File Cache
+    participant P as Parser
+
+    C->>A: Request document
+    A->>F: Read .adoc file
+    Note over F: OS caches file content
+    F-->>A: Raw AsciiDoc
+    A->>P: Parse to HTML
+    Note over P: No HTML caching
+    P-->>A: Fresh HTML
+    A-->>C: Response
+
+    C->>A: Same request again
+    A->>F: Read .adoc file
+    Note over F: Returns from OS cache
+    F-->>A: Raw AsciiDoc (fast)
+    A->>P: Parse to HTML
+    P-->>A: Fresh HTML
+    A-->>C: Response
+----
+
+=== Monitoreo de Archivos
+
+La implementación actual no incluye monitoreo activo de archivos, pero se beneficia de:
+
+* **Detección de cambios a nivel de SO**: Los archivos modificados se vuelven a leer automáticamente
+* **Sin contenido obsoleto**: Cada petición obtiene el estado actual del archivo
+* **Amigable con el desarrollo**: Los cambios aparecen inmediatamente en la siguiente petición
+
+=== Mejoras Futuras de Cache
+
+Mejoras potenciales para escenarios de alto tráfico:
+
+[mermaid]
+----
+flowchart LR
+    Current[Current: OS Cache Only]
+    Future[Future Options]
+
+    Future --> HTMLCache[HTML Cache with TTL]
+    Future --> Redis[Redis for Multi-Instance]
+    Future --> CDN[CDN for Static Content]
+    Future --> FileWatch[Active File Watching]
+
+    HTMLCache --> Benefit1[Faster responses]
+    Redis --> Benefit2[Shared cache]
+    CDN --> Benefit3[Global distribution]
+    FileWatch --> Benefit4[Smart invalidation]
+
+    style Current fill:#4A90E2
+    style Future fill:#F5A623
+----
+
+**Consideraciones:**
+
+* **Cache de HTML**: Cachear HTML procesado con invalidación en cambio de archivo
+* **Integración Redis**: Compartir cache entre múltiples instancias de servidor
+* **Observadores de Archivo**: Usar `fs.watch()` para detectar cambios e invalidar cache
+* **CDN**: Servir documentos accedidos frecuentemente desde ubicaciones edge de CDN
+
+=== Gestión de Memoria
+
+El enfoque actual tiene huella mínima de memoria:
+
+[cols="2,3"]
+|===
+| Aspecto | Implementación Actual
+
+| Contenido de Archivo
+| SO gestiona cache, no en el heap de Node
+
+| HTML Procesado
+| Generado por petición, sin almacenamiento
+
+| Estructura de Árbol
+| Construida bajo demanda, sin cache persistente
+
+| Uso de Memoria
+| ~10-50MB para carga de trabajo típica
+|===
+
+=== Consejos de Rendimiento
+
+**Para rendimiento óptimo:**
+
+1. **Mantenga archivos pequeños**: Divida documentos grandes en múltiples archivos
+2. **Optimice imágenes**: Use imágenes comprimidas, referencie externamente si son grandes
+3. **Minimice atributos**: Procese solo atributos de front-matter necesarios
+4. **Use CDN**: Sirva assets estáticos desde CDN en producción

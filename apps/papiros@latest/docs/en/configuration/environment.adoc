@@ -1,0 +1,90 @@
+== Environment Variables
+:order: 1
+
+=== Environment Flow
+
+[mermaid]
+----
+flowchart LR
+    subgraph "Environment Setup"
+        E1[Set GITLAB_URL]
+        E2[Set GITLAB_TOKEN]
+        E3[Set BUNTIME_URL]
+    end
+
+    subgraph "Application Startup"
+        A[Leaf starts]
+        A --> V[Validate config]
+        V --> C{All required vars set?}
+    end
+
+    subgraph "Runtime"
+        R[Server ready]
+        R --> API[API endpoints active]
+        API --> GL[GitLab integration]
+    end
+
+    E1 --> A
+    E2 --> A
+    E3 --> A
+    C -->|Yes| R
+    C -->|No| ERR[Error: Missing config]
+
+    style E1 fill:#e1f5ff
+    style E2 fill:#e1f5ff
+    style E3 fill:#e1f5ff
+    style R fill:#d4edda
+    style ERR fill:#f8d7da
+----
+
+=== Configuration
+
+[cols="2,1,2,2"]
+|===
+| Variable | Type | Default | Description
+
+| `GITLAB_URL`
+| string
+| `https://gitlab.example.com`
+| Base URL of the GitLab instance
+
+| `GITLAB_TOKEN`
+| string
+| (empty)
+| Personal or project access token
+
+| `BUNTIME_URL`
+| string
+| `http://localhost:8000`
+| Internal buntime URL (for server-side calls)
+|===
+
+=== Example
+
+[source,bash]
+----
+# Local development
+export GITLAB_URL=https://gitlab.example.com
+export GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx
+
+# Production
+export GITLAB_URL=https://gitlab.example.com
+export GITLAB_TOKEN=${GITLAB_TOKEN_SECRET}
+----
+
+=== Security
+
+IMPORTANT: Never commit tokens in code. Use environment variables or secrets management.
+
+==== Minimum Permissions
+
+The token only needs:
+
+* `read_repository` - To read files from repositories
+
+==== Best Practices
+
+* Use project tokens when possible (limited scope)
+* Configure token expiration
+* Rotate tokens periodically
+* Use secrets management in production (Vault, K8s Secrets, etc)

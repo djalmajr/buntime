@@ -1,0 +1,146 @@
+== File Endpoints
+:order: 2
+
+=== Fetch Specific File (Legacy)
+
+WARNING: This endpoint is kept for backwards compatibility. Use `/api/projects/:project/docs/:slug` for new implementations.
+
+Returns the raw content of a specific .adoc file by direct file path.
+
+[source,http]
+----
+GET /api/projects/:project/files/:path?lang=en
+----
+
+**Parameters:**
+
+* `project` - Project name
+* `path` - File path relative to language folder (e.g., `api/projects.adoc`)
+* `lang` - Language code (optional, defaults to `en`)
+
+**Flow:**
+
+[mermaid]
+----
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant S as Security Check
+    participant F as File System
+    participant P as Parser
+
+    C->>A: GET /api/projects/leaf/files/api/projects.adoc?lang=en
+    A->>A: Build full path: content/leaf/en/api/projects.adoc
+    A->>S: Validate path within content/
+    alt Path invalid
+        S-->>A: Security violation
+        A-->>C: 400 Bad Request
+    else Path valid
+        S-->>A: Valid
+        A->>F: Read file
+        alt File not found
+            F-->>A: Error
+            A-->>C: 404 Not Found
+        else File exists
+            F-->>A: AsciiDoc content
+            A->>P: Convert to HTML
+            P-->>A: HTML + metadata
+            A-->>C: JSON response
+        end
+    end
+----
+
+**Example:**
+
+[source,bash]
+----
+curl "http://localhost:3000/api/projects/leaf/files/api/projects.adoc?lang=en"
+----
+
+**Response:**
+
+[source,json]
+----
+{
+  "html": "<h2>Project Endpoints</h2>...",
+  "lang": "en",
+  "modifiedAt": "2025-12-20T10:30:00Z",
+  "path": "api/projects.adoc"
+}
+----
+
+=== Security
+
+The files endpoint includes security measures to prevent path traversal attacks:
+
+[mermaid]
+----
+flowchart TD
+    Request[File Request]
+    BuildPath[Build Full Path]
+    Check{Path starts with<br/>CONTENT_DIR?}
+    Valid[Read File]
+    Invalid[Return 400 Error]
+
+    Request --> BuildPath
+    BuildPath --> Check
+    Check -->|Yes| Valid
+    Check -->|No| Invalid
+
+    style Invalid fill:#E74C3C
+    style Valid fill:#7ED321
+----
+
+**Protected against:**
+
+* Path traversal: `../../../etc/passwd`
+* Absolute paths: `/etc/passwd`
+* Symbolic link exploitation
+
+=== Common Errors
+
+[cols="1,2,3"]
+|===
+| Code | Error | Cause
+
+| 400
+| Invalid path
+| Path traversal attempt or path outside content directory
+
+| 404
+| File not found
+| File doesn't exist at specified path
+
+| 404
+| No documentation available
+| Language folder doesn't exist for project
+|===
+
+=== Migration Guide
+
+Migrate from the legacy `/files/` endpoint to the modern `/docs/` endpoint:
+
+[cols="2,2"]
+|===
+| Legacy (files) | Modern (docs with slug)
+
+| `/api/projects/leaf/files/api/projects.adoc`
+| `/api/projects/leaf/docs/api/projects`
+
+| Direct file path required
+| SEO-friendly slug
+
+| No slug mapping
+| Automatic slug resolution
+
+| Manual path construction
+| Hierarchical tree navigation
+|===
+
+**Benefits of `/docs/` endpoint:**
+
+* SEO-friendly URLs
+* Automatic slug mapping
+* Support for custom slugs via `:slug:` attribute
+* Better security through slug validation
+* Timeline folder detection

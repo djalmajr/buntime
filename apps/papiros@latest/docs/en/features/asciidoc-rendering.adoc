@@ -1,0 +1,130 @@
+== AsciiDoc Rendering
+:order: 2
+
+=== How It Works
+
+The app uses the `asciidoctor.js` library to convert AsciiDoc to HTML directly in the browser.
+
+=== Rendering Pipeline
+
+[mermaid]
+----
+flowchart LR
+    User[User Request] --> API[API Route]
+    API --> FileSystem[Read .adoc File]
+    FileSystem --> Asciidoctor[Asciidoctor.js]
+    Asciidoctor --> RawHTML[Raw HTML]
+    RawHTML --> Response[API Response]
+
+    Response --> Browser[Browser]
+    Browser --> DocViewer[DocViewer Component]
+
+    DocViewer --> Process[HTML Processing]
+    Process --> FixAnchors[Fix Anchor Links]
+    Process --> FixDocLinks[Fix Doc Links]
+
+    FixAnchors --> ProcessedHTML[Processed HTML]
+    FixDocLinks --> ProcessedHTML
+
+    ProcessedHTML --> Render[Render HTML Content]
+    ProcessedHTML --> ExtractTOC[Extract TOC Items]
+
+    Render --> Display[Display Article]
+    ExtractTOC --> TocAside[TocAside Component]
+
+    style Asciidoctor fill:#ff9999
+    style Process fill:#99ccff
+    style DocViewer fill:#fff4e1
+----
+
+[source,typescript]
+----
+import Asciidoctor from "asciidoctor";
+
+const asciidoctor = Asciidoctor();
+
+const html = asciidoctor.convert(content, {
+  safe: "safe",
+  attributes: {
+    showtitle: true,
+    icons: "font",
+    sectanchors: true,
+    toc: "auto",
+  },
+});
+----
+
+=== Supported Attributes
+
+[cols="2,3"]
+|===
+| Attribute | Description
+
+| `showtitle`
+| Displays the document title
+
+| `icons: font`
+| Uses Font Awesome for icons
+
+| `sectanchors`
+| Adds anchors to sections
+
+| `sectlinks`
+| Transforms titles into links
+
+| `toc: auto`
+| Generates Table of Contents
+
+| `toclevels: 3`
+| TOC depth levels
+
+| `source-highlighter`
+| Syntax highlighting for code blocks
+|===
+
+=== CSS Styles
+
+The app includes custom styles for rendered content:
+
+* Tables with borders and zebra striping
+* Code blocks with dark background
+* Colored admonitions (NOTE, TIP, WARNING, etc)
+* Styled links
+* Lists with appropriate spacing
+
+=== Link Processing
+
+The DocViewer component transforms links in two ways:
+
+[mermaid]
+----
+flowchart TD
+    HTML[Raw HTML from API]
+
+    HTML --> CheckAnchor{Anchor Link?}
+    CheckAnchor -->|Yes| FixAnchor[Fix: href=#section<br/>becomes<br/>href=/project/file#section]
+    CheckAnchor -->|No| CheckDoc{.adoc Link?}
+
+    CheckDoc -->|Yes| FixDoc[Fix: href=file.adoc<br/>becomes<br/>href=/project/file<br/>+ data-doc-link attribute]
+    CheckDoc -->|No| Keep[Keep Original]
+
+    FixAnchor --> Final[Processed HTML]
+    FixDoc --> Final
+    Keep --> Final
+
+    Final --> Intercept[Click Event Listener]
+    Intercept --> SPANav{Has data-doc-link?}
+    SPANav -->|Yes| RouterPush[router.history.push]
+    SPANav -->|No| NormalNav[Normal Navigation]
+
+    style FixAnchor fill:#99ff99
+    style FixDoc fill:#99ccff
+    style RouterPush fill:#ffcc99
+----
+
+=== Current Limitations
+
+* `include::` directives are not processed (included files are not fetched)
+* Images need absolute URLs
+* Mermaid/PlantUML diagrams are not rendered
+* Cross-references between documents don't work

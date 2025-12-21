@@ -1,0 +1,72 @@
+= Visión General
+:order: 3
+
+Esta sección documenta los endpoints de la API REST disponibles en Leaf.
+
+== Arquitectura de la API
+
+La API de Leaf proporciona endpoints para acceder a contenido de documentación almacenado localmente en formato AsciiDoc. La API soporta contenido multi-idioma con mecanismos automáticos de fallback.
+
+[mermaid]
+----
+flowchart TD
+    Client[Client Application]
+    API[Leaf API Server]
+    FS[File System]
+    Cache[In-Memory Cache]
+
+    Client -->|HTTP Request| API
+    API -->|Check Cache| Cache
+    Cache -->|Cache Miss| FS
+    FS -->|Read .adoc files| API
+    API -->|Parse & Convert| API
+    API -->|Store Result| Cache
+    API -->|JSON Response| Client
+
+    style API fill:#4A90E2
+    style Cache fill:#F5A623
+    style FS fill:#7ED321
+----
+
+== Flujo de Petición
+
+[mermaid]
+----
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant L as Language Resolver
+    participant P as Parser
+    participant F as File System
+
+    C->>A: GET /api/projects/:project/docs/:slug?lang=es
+    A->>L: Resolve Language
+    L->>F: Check es folder exists
+    alt Language exists
+        L-->>A: Use es
+    else Fallback
+        L->>F: Check en folder
+        L-->>A: Use en (fallback)
+    end
+    A->>F: Build hierarchical tree
+    F-->>A: Tree structure
+    A->>F: Resolve slug to file path
+    F-->>A: File path
+    A->>P: Parse AsciiDoc
+    P-->>A: HTML + Metadata
+    A-->>C: JSON Response
+----
+
+== En Esta Sección
+
+* link:projects.adoc[Proyectos] - Endpoints de listado y consulta de proyectos
+* link:files.adoc[Archivos] - Endpoints para buscar archivos específicos
+* link:cache.adoc[Cache] - Endpoints de gestión de cache
+
+== Características Principales
+
+* **Soporte Multi-idioma**: Fallback automático de idioma (solicitado → Inglés → primero disponible)
+* **Enrutamiento basado en Slug**: URLs amigables para SEO mapeadas a rutas de archivos
+* **Árbol Jerárquico**: Estructura de navegación ordenada basada en atributos `:order:`
+* **Soporte de Timeline**: Endpoint especial para notas de versión con ordenamiento cronológico
+* **Seguridad**: Protección contra travesía de ruta y validación de directorio de contenido

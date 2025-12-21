@@ -1,0 +1,55 @@
+== Instalación
+:order: 1
+
+=== Prerrequisitos
+
+* Bun >= 1.0
+* Acceso a GitLab (token con permiso read_repository)
+
+=== Flujo de Instalación
+
+[mermaid]
+----
+flowchart TD
+    A[Inicio] --> B{Prerrequisitos cumplidos?}
+    B -->|No| C[Instalar Bun >= 1.0]
+    B -->|Sí| D[Clonar repositorio]
+    C --> D
+    D --> E[Navegar al proyecto]
+    E --> F[Instalar dependencias]
+    F --> G[Compilar proyecto]
+    G --> H[Configurar entorno]
+    H --> I[Ejecutar aplicación]
+    I --> J[Acceder en localhost:8000]
+
+    style A fill:#e1f5ff
+    style J fill:#d4edda
+----
+
+=== Clone e Instalación
+
+[source,bash]
+----
+# En el monorepo buntime
+cd apps/docs@latest
+
+# Instalar dependencias
+bun install
+
+# Build
+bun run build
+----
+
+=== Ejecutar Localmente
+
+[source,bash]
+----
+# Configurar variables de entorno
+export GITLAB_URL=https://gitlab.example.com
+export GITLAB_TOKEN=su_token_aqui
+
+# Ejecutar con buntime (desde la raíz del monorepo)
+bun run dev
+----
+
+La aplicación estará disponible en +http://localhost:8000/docs+ (o el puerto configurado en buntime).

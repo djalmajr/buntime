@@ -1,0 +1,9 @@
+= Visão Geral
+:order: 1
+
+Esta seção cobre tudo o que você precisa para começar a usar o Leaf.
+
+== Nesta Seção
+
+* link:installation.adoc[Instalação] - Como instalar e executar a aplicação
+* link:configuration.adoc[Configuração] - Variáveis de ambiente e setup inicial

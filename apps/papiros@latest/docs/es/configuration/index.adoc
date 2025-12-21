@@ -1,0 +1,9 @@
+= Visión General
+:order: 5
+
+Esta sección cubre opciones avanzadas de configuración de Leaf.
+
+== En Esta Sección
+
+* link:environment.adoc[Variables de Entorno] - Configuraciones del sistema
+* link:projects.adoc[Proyectos] - Cómo añadir y configurar proyectos

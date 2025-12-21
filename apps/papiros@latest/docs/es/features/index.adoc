@@ -1,0 +1,10 @@
+= Visión General
+:order: 4
+
+Esta sección describe las principales características de Leaf.
+
+== En Esta Sección
+
+* link:navigation.adoc[Navegación] - Estructura de la interfaz y navegación
+* link:asciidoc-rendering.adoc[Renderización AsciiDoc] - Cómo se procesa el contenido
+* link:caching.adoc[Caching] - Estrategias de cache

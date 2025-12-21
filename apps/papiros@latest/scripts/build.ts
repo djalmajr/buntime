@@ -1,5 +1,6 @@
 import { createAppBuilder } from "@buntime/shared/build";
 
 createAppBuilder({
-  name: "cpanel",
+  name: "papiros",
+  external: ["asciidoctor"],
 }).run();

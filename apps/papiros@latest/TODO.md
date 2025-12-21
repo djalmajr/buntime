@@ -1,0 +1,5 @@
+- [X] Ordenar os menus da documentação
+- [X] Deixar a busca das docs no minio (Bun.s3)
+- [ ] Deixar timeline com destaque para o último release
+- [X] Mover a documentação para <root>/docs e atualizar o README.adoc
+- [ ] Configurar icones para cada index.adoc (pastas)

@@ -63,41 +63,101 @@ services:
   #     retries: 3
   #   restart: unless-stopped
 
-  buntime:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  # buntime:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "8001:8000"
+  #   volumes:
+  #     - ./tmp:/app/apps
+  #   environment:
+  #     PORT: 8000
+  #     LIBSQL_URL: http://libsql:8080
+  #     WORKSPACES_DIR: /app/apps
+  #   depends_on:
+  #     libsql:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
     ports:
-      - "8001:8000"
+      - "9000:9000" # S3 API
+      - "9001:9001" # Console
     volumes:
-      - ./tmp:/app/apps
+      - minio-data:/data
     environment:
-      PORT: 8000
-      LIBSQL_URL: http://libsql:8080
-      WORKSPACES_DIR: /app/apps
-    # depends_on:
-    #   libsql:
-    #     condition: service_healthy
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
-  # Rancher for Kubernetes cluster management and Helm chart testing
-  # Access at https://localhost:8443 (self-signed cert warning expected)
-  # First login: get bootstrap password with:
-  #   docker logs buntime-rancher-1 2>&1 | grep "Bootstrap Password:"
-  rancher:
-    image: rancher/rancher:latest # pass: f3t2KuFbiIFnj0Rr
-    privileged: true
+  gitlab:
+    image: yrzr/gitlab-ce-arm64v8:latest
+    hostname: gitlab.local
     ports:
-      - "8443:443"
-      - "8080:80"
+      - "8929:8929" # HTTP
+      - "2224:22" # SSH
+      - "5050:5050" # Container Registry
     volumes:
-      - rancher-data:/var/lib/rancher
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
     environment:
-      CATTLE_BOOTSTRAP_PASSWORD: admin
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://localhost:8929'
+        gitlab_rails['gitlab_shell_ssh_port'] = 2224
+        gitlab_rails['initial_root_password'] = 'Admin@2024'
+        gitlab_rails['gitlab_signup_enabled'] = false
+        gitlab_rails['time_zone'] = 'America/Sao_Paulo'
+        # Container Registry
+        registry_external_url 'http://localhost:5050'
+        gitlab_rails['registry_enabled'] = true
+        # Reduce memory usage for development
+        puma['worker_processes'] = 2
+        sidekiq['concurrency'] = 5
+        prometheus_monitoring['enable'] = false
+    shm_size: "512m"
+    networks:
+      - gitlab-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8929/-/health"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 300s
+    restart: unless-stopped
+
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    depends_on:
+      gitlab:
+        condition: service_healthy
+    environment:
+      - CI_SERVER_URL=http://gitlab:8929
+    volumes:
+      - gitlab-runner-config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - gitlab-network
     restart: unless-stopped
 
 volumes:
+  gitlab-config:
+  gitlab-data:
+  gitlab-logs:
+  gitlab-runner-config:
   keycloak-data:
   libsql-data:
   libsql-replica-data:
-  rancher-data:
+  minio-data:
+
+networks:
+  gitlab-network:
+    driver: bridge

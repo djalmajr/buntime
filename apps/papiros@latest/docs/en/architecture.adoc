@@ -1,0 +1,264 @@
+= Architecture
+:order: 2
+
+== Overview
+
+The Docs App follows the standard buntime architecture: a Hono server that serves both the API and the React client static assets.
+
+[mermaid]
+----
+graph TB
+    Browser[Browser]
+    Buntime[buntime Runtime]
+    Static[Static Files Handler<br/>React Build]
+    API[API Routes<br/>/api/*]
+    Content[Content Files<br/>AsciiDoc]
+
+    Browser --> Buntime
+    Buntime --> Static
+    Buntime --> API
+    API --> Content
+
+    style Browser fill:#e1f5ff
+    style Buntime fill:#fff4e1
+    style Static fill:#f0f0f0
+    style API fill:#e8f5e9
+    style Content fill:#fce4ec
+----
+
+== Components
+
+=== Server (index.ts)
+
+Entry point that configures:
+
+* API routes (`/api/*`)
+* Static file handler (React client)
+* Lifecycle hooks (`onIdle`, `onTerminate`)
+
+[source,typescript]
+----
+export default {
+  routes: { "/api/*": api.fetch },
+  fetch: createStaticHandler(join(import.meta.dir, "client")),
+};
+----
+
+=== API (server/api.ts)
+
+Hono server with REST endpoints:
+
+* `GET /api/projects` - List projects
+* `GET /api/projects/:project` - Get project info
+* `GET /api/projects/:project/tree` - File tree
+* `GET /api/projects/:project/overview` - Main overview (index.adoc)
+* `GET /api/projects/:project/docs/*` - Document by slug
+* `GET /api/projects/:project/releases/*` - Release timeline
+* `GET /api/projects/:project/files/*` - Specific file (legacy)
+* `POST /api/cache/clear` - Clear cache
+
+=== Client (client/)
+
+React application with:
+
+* TanStack Router - File-based routing
+* TanStack Query - Data fetching and caching
+* i18next - Internationalization
+* Radix UI - Accessible components
+* Tailwind CSS - Styling
+
+Key components:
+
+* `ProjectSwitcher` - Navigation between projects
+* `LanguageSwitcher` - Change language
+* `TocAside` - Table of contents navigation
+* `DocViewer` - AsciiDoc rendering
+* `ReleaseTimeline` - Release notes timeline
+
+== Component Architecture
+
+[mermaid]
+----
+graph TB
+    subgraph Client["Client Layer"]
+        Router[TanStack Router]
+        Query[TanStack Query]
+        Root[Root Layout]
+        ProjectRoute[Project Route]
+        DocViewer[Doc Viewer]
+        Timeline[Release Timeline]
+    end
+
+    subgraph Server["Server Layer"]
+        API[Hono API]
+        Projects[Projects Router]
+        Utils[Utils]
+    end
+
+    subgraph Storage["Storage Layer"]
+        Content[Content Files<br/>AsciiDoc]
+    end
+
+    Router --> Root
+    Root --> ProjectRoute
+    ProjectRoute --> DocViewer
+    ProjectRoute --> Timeline
+
+    Query --> API
+    API --> Projects
+    Projects --> Utils
+    Utils --> Content
+
+    style Client fill:#e3f2fd
+    style Server fill:#f1f8e9
+    style Storage fill:#fce4ec
+----
+
+== Data Flow
+
+[mermaid]
+----
+sequenceDiagram
+    participant User
+    participant Router
+    participant Query
+    participant API
+    participant Content
+
+    User->>Router: Navigate to /project/doc
+    Router->>Query: Fetch document
+    Query->>API: GET /api/projects/:project/docs/*
+    API->>Content: Read .adoc file
+    Content-->>API: File content
+    API->>API: Convert to HTML
+    API-->>Query: JSON response
+    Query-->>Router: Cached data
+    Router->>User: Render document
+----
+
+== Technologies
+
+[cols="1,2"]
+|===
+| Layer | Technology
+
+| Runtime
+| Bun + buntime
+
+| Server
+| Hono
+
+| Client
+| React 19
+
+| Styling
+| Tailwind CSS 4
+
+| Build
+| Bun bundler
+
+| AsciiDoc
+| asciidoctor.js
+|===
+
+== File Structure
+
+[mermaid]
+----
+graph TB
+    subgraph Root["Project Root"]
+        Entry[index.ts<br/>Entry Point]
+        Config[Configuration<br/>package.json, tsconfig.json, bunfig.toml]
+    end
+
+    subgraph Server["Server"]
+        ServerIndex[server/index.ts<br/>API Router]
+        Routes[server/routes/<br/>projects.ts]
+        Utils[server/utils/<br/>content, asciidoc, language, slug]
+        Types[server/types.ts]
+    end
+
+    subgraph Client["Client"]
+        ClientIndex[client/index.tsx<br/>React App]
+        ClientRoutes[client/routes/<br/>TanStack Router]
+        Components[client/components/<br/>UI Components]
+        Hooks[client/hooks/<br/>Custom Hooks]
+        Helpers[client/helpers/<br/>i18n, query-client]
+    end
+
+    subgraph Content["Content"]
+        Projects[content/<br/>Projects]
+        Locales[Localized Docs<br/>en, pt, es]
+        ADoc[AsciiDoc Files<br/>.adoc]
+    end
+
+    Entry --> ServerIndex
+    Entry --> ClientIndex
+    ServerIndex --> Routes
+    Routes --> Utils
+    ClientIndex --> ClientRoutes
+    ClientRoutes --> Components
+    Components --> Hooks
+    ClientIndex --> Helpers
+    Routes --> Projects
+    Projects --> Locales
+    Locales --> ADoc
+
+    style Root fill:#fff4e1
+    style Server fill:#e8f5e9
+    style Client fill:#e3f2fd
+    style Content fill:#fce4ec
+----
+
+== Directory Structure
+
+[source]
+----
+releases@latest/
+├── index.ts                    # Entry point
+├── package.json
+├── tsconfig.json
+├── bunfig.toml                 # Bun plugins config
+├── server/
+│   ├── index.ts                # Hono API setup
+│   ├── types.ts                # TypeScript types
+│   ├── constants.ts            # Constants
+│   ├── routes/
+│   │   └── projects.ts         # Projects API endpoints
+│   └── utils/
+│       ├── content.ts          # Tree building, file reading
+│       ├── asciidoc.ts         # AsciiDoc parsing
+│       ├── language.ts         # Language detection
+│       └── slug.ts             # Slug generation
+├── client/
+│   ├── index.html
+│   ├── index.tsx               # React app entry
+│   ├── index.css               # Global styles
+│   ├── routeTree.gen.ts        # Generated routes
+│   ├── routes/
+│   │   ├── __root.tsx          # Root layout
+│   │   ├── index.tsx           # Home page
+│   │   ├── $project.tsx        # Project layout
+│   │   └── $project/
+│   │       └── $slug.tsx       # Document viewer
+│   ├── components/
+│   │   ├── doc-viewer.tsx      # AsciiDoc renderer
+│   │   ├── project-switcher.tsx
+│   │   ├── language-switcher.tsx
+│   │   ├── toc-aside.tsx
+│   │   ├── release-timeline.tsx
+│   │   └── ui/                 # Radix UI components
+│   ├── hooks/
+│   │   ├── use-project.ts
+│   │   └── use-releases.ts
+│   └── helpers/
+│       ├── i18n.ts             # i18next setup
+│       └── query-client.ts     # TanStack Query
+├── content/                    # Documentation content
+│   └── {project}/
+│       ├── en/                 # English docs
+│       ├── pt/                 # Portuguese docs
+│       └── es/                 # Spanish docs
+└── scripts/
+    └── build.ts                # Build script
+----

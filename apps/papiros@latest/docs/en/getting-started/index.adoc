@@ -1,0 +1,9 @@
+= Overview
+:order: 1
+
+This section covers everything you need to get started with Leaf.
+
+== In This Section
+
+* link:installation.adoc[Installation] - How to install and run the application
+* link:configuration.adoc[Configuration] - Environment variables and initial setup

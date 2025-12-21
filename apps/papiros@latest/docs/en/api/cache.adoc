@@ -1,0 +1,140 @@
+== Cache
+:order: 3
+
+=== Cache Management
+
+NOTE: The current Leaf implementation uses file system caching through Bun's file reading mechanisms and operating system cache. There is no explicit API cache layer in the current version.
+
+=== Caching Architecture
+
+[mermaid]
+----
+flowchart TD
+    Request[API Request]
+    Parse[Parse AsciiDoc]
+    OS[OS File System Cache]
+    Disk[Disk Storage]
+
+    Request --> Parse
+    Parse --> OS
+    OS -->|Cache Hit| Parse
+    OS -->|Cache Miss| Disk
+    Disk --> OS
+
+    style OS fill:#F5A623
+    style Disk fill:#95A5A6
+----
+
+=== Current Behavior
+
+**File System Caching:**
+
+* Operating system caches frequently accessed files
+* Bun runtime optimizes file reads
+* No explicit TTL or invalidation needed
+* Cache automatically updates when files change
+
+**Performance Characteristics:**
+
+1. **First Request**: Reads from disk (~1-5ms for small files)
+2. **Subsequent Requests**: OS cache hit (~0.1-1ms)
+3. **File Modified**: OS detects change, cache invalidated automatically
+
+=== AsciiDoc Parsing
+
+Each request parses AsciiDoc content fresh (no HTML cache):
+
+[mermaid]
+----
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant F as File Cache
+    participant P as Parser
+
+    C->>A: Request document
+    A->>F: Read .adoc file
+    Note over F: OS caches file content
+    F-->>A: Raw AsciiDoc
+    A->>P: Parse to HTML
+    Note over P: No HTML caching
+    P-->>A: Fresh HTML
+    A-->>C: Response
+
+    C->>A: Same request again
+    A->>F: Read .adoc file
+    Note over F: Returns from OS cache
+    F-->>A: Raw AsciiDoc (fast)
+    A->>P: Parse to HTML
+    P-->>A: Fresh HTML
+    A-->>C: Response
+----
+
+=== File Watching
+
+The current implementation does not include active file watching, but benefits from:
+
+* **OS-level change detection**: Modified files are automatically re-read
+* **No stale content**: Every request gets current file state
+* **Development friendly**: Changes appear immediately on next request
+
+=== Future Cache Enhancements
+
+Potential improvements for high-traffic scenarios:
+
+[mermaid]
+----
+flowchart LR
+    Current[Current: OS Cache Only]
+    Future[Future Options]
+
+    Future --> HTMLCache[HTML Cache with TTL]
+    Future --> Redis[Redis for Multi-Instance]
+    Future --> CDN[CDN for Static Content]
+    Future --> FileWatch[Active File Watching]
+
+    HTMLCache --> Benefit1[Faster responses]
+    Redis --> Benefit2[Shared cache]
+    CDN --> Benefit3[Global distribution]
+    FileWatch --> Benefit4[Smart invalidation]
+
+    style Current fill:#4A90E2
+    style Future fill:#F5A623
+----
+
+**Considerations:**
+
+* **HTML Caching**: Cache parsed HTML with invalidation on file change
+* **Redis Integration**: Share cache across multiple server instances
+* **File Watchers**: Use `fs.watch()` to detect changes and invalidate cache
+* **CDN**: Serve frequently accessed docs from CDN edge locations
+
+=== Memory Management
+
+Current approach has minimal memory footprint:
+
+[cols="2,3"]
+|===
+| Aspect | Current Implementation
+
+| File Content
+| OS handles caching, not in Node heap
+
+| Parsed HTML
+| Generated per request, no storage
+
+| Tree Structure
+| Built on demand, no persistent cache
+
+| Memory Usage
+| ~10-50MB for typical workload
+|===
+
+=== Performance Tips
+
+**For optimal performance:**
+
+1. **Keep files small**: Split large documents into multiple files
+2. **Optimize images**: Use compressed images, reference externally if large
+3. **Minimize attributes**: Parse only needed front-matter attributes
+4. **Use CDN**: Serve static assets from CDN in production

@@ -1,0 +1,117 @@
+== Configuración de Proyectos
+:order: 2
+
+=== Estructura de Proyectos
+
+[mermaid]
+----
+graph TD
+    subgraph "Estructura del Directorio Content"
+        ROOT[content/]
+        ROOT --> P1[nombre-proyecto/]
+        ROOT --> P2[otro-proyecto/]
+
+        P1 --> IDX1[index.adoc]
+        P1 --> L1[en/]
+        P1 --> L2[pt/]
+        P1 --> L3[es/]
+
+        L1 --> D1[getting-started/]
+        L1 --> D2[configuration/]
+        L1 --> D3[releases/]
+
+        D1 --> F1[installation.adoc]
+        D1 --> F2[configuration.adoc]
+    end
+
+    subgraph "Resolución de la API"
+        API[/api/projects/:project]
+        API --> SCAN[Escanear content/]
+        SCAN --> CONFIG[Cargar config del proyecto]
+        CONFIG --> TREE[Construir árbol de docs]
+    end
+
+    ROOT --> API
+
+    style ROOT fill:#fff3cd
+    style API fill:#e1f5ff
+----
+
+=== Mapa de Proyectos
+
+Los proyectos se configuran estáticamente en el archivo `server/api.ts`:
+
+[source,typescript]
+----
+const PROJECTS: Record<string, string> = {
+  // Clave: nombre amigable (usado en la URL)
+  // Valor: path del proyecto en GitLab
+
+  "example-spa": "hyper/example-spa",
+  "lowcode-studio": "hyper/lowcode-studio",
+  "gestao-pessoas": "hyper/gestao-pessoas",
+  "gestor-licencas": "hyper/gestor-licencas-api",
+  "hyper-kanban": "hyper/hyper-kanban-front-react",
+  "edge-runtime": "hyper/edge-runtime",
+  "hyper-admin": "hyper/hyper-admin-front",
+};
+----
+
+=== Agregar Nuevo Proyecto
+
+[mermaid]
+----
+flowchart TD
+    START[Agregar nuevo proyecto] --> PREP[Preparar proyecto]
+    PREP --> CHECK1{Tiene carpeta docs/?}
+    CHECK1 -->|No| CREATE[Crear estructura docs]
+    CHECK1 -->|Sí| CHECK2{Tiene index.adoc?}
+    CREATE --> CHECK2
+    CHECK2 -->|No| CREATEIDX[Crear index.adoc con metadatos]
+    CHECK2 -->|Sí| LANG{Multi-idioma?}
+    CREATEIDX --> LANG
+    LANG -->|Sí| LANGDIR[Crear carpetas en/, pt/, es/]
+    LANG -->|No| SINGLE[Estructura de idioma único]
+    LANGDIR --> CONTENT[Agregar archivos de contenido]
+    SINGLE --> CONTENT
+    CONTENT --> MKDIR[Crear carpeta en content/]
+    MKDIR --> COPY[Copiar docs a content/nombre-proyecto/idioma/]
+    COPY --> TEST[Probar localmente]
+    TEST --> DEPLOY[Deploy]
+
+    style START fill:#e1f5ff
+    style DEPLOY fill:#d4edda
+----
+
+.Pasos para agregar un proyecto:
+1. Localice el path del proyecto en GitLab (ej: `grupo/subgrupo/proyecto`)
+2. Agregue una entrada en el mapa `PROJECTS`
+3. Reconstruya la aplicación
+
+[source,typescript]
+----
+const PROJECTS: Record<string, string> = {
+  // ... proyectos existentes
+  "mi-proyecto": "hyper/mi-proyecto",
+};
+----
+
+=== Requisitos del Proyecto
+
+Para funcionar correctamente, el proyecto debe tener:
+
+* `README.adoc` en la raíz (para Visión General)
+* Carpeta `docs/` con archivos `.adoc`
+* Release notes en una de las rutas estándar:
+  - `docs/pt-br/release-notes.adoc`
+  - `docs/en-us/release-notes.adoc`
+  - `docs/release-notes.adoc`
+  - `CHANGELOG.adoc`
+
+=== Configuración Dinámica (Futuro)
+
+Planificado para versiones futuras:
+
+* API para agregar/remover proyectos
+* Configuración vía archivo YAML/JSON
+* Interfaz de administración

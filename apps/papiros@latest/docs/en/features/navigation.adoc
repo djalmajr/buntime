@@ -1,0 +1,112 @@
+== Navigation
+:order: 1
+
+=== Interface Structure
+
+The interface is divided into three main areas:
+
+1. **Header**: Logo, title and external links
+2. **Sidebar**: List of projects and files
+3. **Content**: Rendered document content
+
+[mermaid]
+----
+flowchart TB
+    Root[__root.tsx<br/>RootLayout]
+    Root --> Header[Header Component]
+    Root --> Outlet1[Outlet]
+
+    Header --> Logo[Logo + Title Link]
+    Header --> Actions[Header Actions]
+    Actions --> LangSwitch[LanguageSwitcher]
+    Actions --> ModeToggle[ModeToggle]
+
+    Outlet1 --> ProjectLayout[$project.tsx<br/>ProjectLayout]
+
+    ProjectLayout --> SidebarProvider[SidebarProvider]
+    SidebarProvider --> Sidebar[Sidebar]
+    SidebarProvider --> SidebarInset
+
+    Sidebar --> SidebarHeader[ProjectSwitcher]
+    Sidebar --> SidebarContent
+    SidebarContent --> SidebarMenu
+    SidebarMenu --> Overview[Overview Link]
+    SidebarMenu --> SidebarTree[SidebarTree<br/>Recursive]
+
+    SidebarInset --> HeaderBar[Header Bar]
+    SidebarInset --> ScrollContainer[doc-scroll-container]
+
+    HeaderBar --> SidebarTrigger
+    HeaderBar --> Breadcrumb
+
+    ScrollContainer --> Outlet2[Outlet]
+    Outlet2 --> DocViewer[DocViewer Component]
+
+    DocViewer --> Article[Article Content]
+    DocViewer --> TocAside[TocAside<br/>Table of Contents]
+
+    Article --> HTML[Processed HTML]
+    Article --> Timeline[ReleaseTimeline<br/>optional]
+
+    style Root fill:#e1f5ff
+    style ProjectLayout fill:#e1f5ff
+    style DocViewer fill:#fff4e1
+    style SidebarTree fill:#f0f0f0
+----
+
+=== Sidebar
+
+The sidebar displays:
+
+* List of configured projects
+* Expands on click to show files
+* Quick links to Overview and Release Notes
+* Project .adoc files
+
+=== Project Navigation
+
+1. Click on a project to expand
+2. Click "Overview" to see the README
+3. Click "Release Notes" to see the changelog
+4. Click on a file to view
+
+=== Interface States
+
+* **Loading**: Spinner during loading
+* **Error**: Error message with guidance
+* **Empty**: Message when no project selected
+* **Content**: Rendered document
+
+=== Responsiveness
+
+* Sidebar can be hidden on smaller screens
+* Toggle button in header
+* Content takes full width when sidebar is hidden
+
+=== Navigation Flow
+
+[mermaid]
+----
+sequenceDiagram
+    participant User
+    participant Router
+    participant Layout
+    participant Hooks
+    participant API
+    participant DocViewer
+
+    User->>Router: Click project link
+    Router->>Layout: Navigate to /$project
+    Layout->>Hooks: useProjectTree(project, lang)
+    Hooks->>API: GET /api/projects/{project}/tree
+    API-->>Hooks: TreeResponse
+    Layout->>Layout: Render sidebar with tree
+
+    User->>Router: Click document link
+    Router->>DocViewer: Navigate to /$project/{slug}
+    DocViewer->>Hooks: useProjectDoc(project, slug, lang)
+    Hooks->>API: GET /api/projects/{project}/docs/{slug}
+    API-->>Hooks: DocResponse with HTML
+    DocViewer->>DocViewer: Process HTML (fix links)
+    DocViewer->>DocViewer: Render content + TOC
+----

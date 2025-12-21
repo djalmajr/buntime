@@ -1,0 +1,57 @@
+= Projeto Leaf
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+ifdef::env-github[]
+:tip-caption: :bulb:
+:note-caption: :information_source:
+:important-caption: :heavy_exclamation_mark:
+:caution-caption: :fire:
+:warning-caption: :warning:
+endif::[]
+
+toc::[]
+
+== Quick Start
+
+Guia rapido para rodar o app localmente.
+
+include::docs/pt/getting-started/installation.adoc[leveloffset=+1]
+
+include::docs/pt/getting-started/configuration.adoc[leveloffset=+1]
+
+== Arquitetura
+
+include::docs/pt/architecture.adoc[leveloffset=+1]
+
+== API
+
+Documentacao da API REST.
+
+include::docs/pt/api/projects.adoc[leveloffset=+1]
+
+include::docs/pt/api/files.adoc[leveloffset=+1]
+
+include::docs/pt/api/cache.adoc[leveloffset=+1]
+
+== Funcionalidades
+
+Recursos disponiveis no app.
+
+include::docs/pt/features/asciidoc-rendering.adoc[leveloffset=+1]
+
+include::docs/pt/features/navigation.adoc[leveloffset=+1]
+
+include::docs/pt/features/caching.adoc[leveloffset=+1]
+
+== Configuracao
+
+Como configurar o app para diferentes ambientes.
+
+include::docs/pt/configuration/environment.adoc[leveloffset=+1]
+
+include::docs/pt/configuration/projects.adoc[leveloffset=+1]

@@ -878,27 +878,111 @@ EOF
 ipconfig /flushdns
 ```
 
-**Opção B: Acquia Dev Desktop / Acrylic DNS Proxy (wildcard)**
+**Opção B: Acrylic DNS Proxy (wildcard *.home)**
 
-1. Baixar Acrylic DNS Proxy: https://mayakron.altervista.org/support/acrylic/Home.htm
-2. Instalar
-3. Editar `AcrylicHosts.txt`:
+1. Baixar e instalar:
+   - Link: https://mayakron.altervista.org/support/acrylic/Home.htm
+   - Executar instalador como Admin
+   - Instalar com opções padrão
 
-```
-192.168.0.201 *.home
-```
-
-4. Configurar adaptador de rede para usar 127.0.0.1 como DNS primário:
-   - Configurações > Rede e Internet > Ethernet/Wi-Fi > Propriedades
-   - IPv4 > Propriedades > Usar os seguintes endereços de servidor DNS
-   - DNS preferencial: 127.0.0.1
-   - DNS alternativo: 8.8.8.8
-
-5. Reiniciar serviço Acrylic:
+2. Parar o serviço (PowerShell como Admin):
 
 ```powershell
 net stop "Acrylic DNS Proxy"
+```
+
+3. Configurar wildcard (PowerShell como Admin):
+
+```powershell
+notepad "C:\Program Files (x86)\Acrylic DNS Proxy\AcrylicHosts.txt"
+```
+
+Adicionar no final do arquivo:
+
+```
+# Dev Environment - Wildcard *.home
+192.168.0.201 *.home
+```
+
+Salvar (Ctrl+S) e fechar.
+
+4. Configurar DNS upstream (PowerShell como Admin):
+
+```powershell
+notepad "C:\Program Files (x86)\Acrylic DNS Proxy\AcrylicConfiguration.ini"
+```
+
+Procurar seção `[GlobalSection]` e modificar:
+
+```ini
+PrimaryServerAddress=8.8.8.8
+SecondaryServerAddress=1.1.1.1
+```
+
+Salvar (Ctrl+S) e fechar.
+
+5. Reiniciar serviço (PowerShell como Admin):
+
+```powershell
 net start "Acrylic DNS Proxy"
+```
+
+6. Configurar adaptador de rede (PowerShell como Admin):
+
+```powershell
+# Listar adaptadores
+Get-NetAdapter | Where-Object {$_.Status -eq "Up"} | Select-Object Name
+
+# Configurar DNS (substituir "Ethernet" pelo nome do seu adaptador)
+Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses ("127.0.0.1","8.8.8.8")
+
+# Limpar cache DNS
+ipconfig /flushdns
+```
+
+7. Testar (PowerShell):
+
+```powershell
+nslookup gitlab.example.com
+nslookup qualquercoisa.home  # wildcard
+ping gitlab.example.com
+```
+
+8. Verificar WSL2:
+
+```bash
+# No WSL2
+cat /etc/resolv.conf
+ping gitlab.example.com
+curl -k https://keycloak.home
+```
+
+Se WSL2 não resolver, criar resolv.conf manual:
+
+```bash
+# No WSL2
+sudo tee /etc/wsl.conf << 'EOF'
+[network]
+generateResolvConf = false
+EOF
+
+# Descobrir IP do Windows
+ip route | grep default
+
+# Criar resolv.conf (substituir 172.x.x.x pelo gateway)
+sudo rm /etc/resolv.conf
+sudo tee /etc/resolv.conf << 'EOF'
+nameserver 172.x.x.x
+nameserver 8.8.8.8
+EOF
+```
+
+Reiniciar WSL:
+
+```powershell
+# No PowerShell
+wsl --shutdown
+wsl
 ```
 
 **Opção C: PowerShell (temporário, por sessão)**

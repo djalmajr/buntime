@@ -1,0 +1,40 @@
+= Leaf Project
+:name: leaf
+:description: Technical documentation for Leaf
+:icon: tabler:leaf
+:toc: left
+:toclevels: 3
+:sectnums:
+:order: 1
+
+== Introduction
+
+Leaf is an application for viewing documentation in AsciiDoc format. It allows browsing projects, viewing release notes, and accessing technical documentation in an organized way.
+
+== Sections
+
+=== Getting Started
+
+* link:getting-started/installation.adoc[Installation] - How to install and run the app
+* link:getting-started/configuration.adoc[Configuration] - Environment variables and initial setup
+
+=== Architecture
+
+* link:architecture.adoc[Overview] - System architecture and components
+
+=== API
+
+* link:api/projects.adoc[Projects] - Endpoints for listing and querying projects
+* link:api/files.adoc[Files] - Endpoints for fetching specific files
+* link:api/cache.adoc[Cache] - Cache management
+
+=== Features
+
+* link:features/navigation.adoc[Navigation] - Interface structure and navigation
+* link:features/asciidoc-rendering.adoc[AsciiDoc Rendering] - How content is processed
+* link:features/caching.adoc[Caching] - Caching strategies
+
+=== Configuration
+
+* link:configuration/projects.adoc[Projects] - How to add new projects
+* link:configuration/environment.adoc[Environment Variables] - System settings

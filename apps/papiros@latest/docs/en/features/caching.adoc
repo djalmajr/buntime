@@ -1,0 +1,114 @@
+== Caching
+:order: 3
+
+=== Cache Strategy
+
+The app implements caching in two layers:
+
+1. **Server-side**: Cache of GitLab API responses
+2. **Client-side**: React Query cache (no persistence)
+
+=== Two-Layer Caching Architecture
+
+[mermaid]
+----
+flowchart TB
+    subgraph Browser["Browser (Client)"]
+        Component[React Component]
+        ReactQuery[React Query Cache]
+        Component -->|1. Request| ReactQuery
+        ReactQuery -->|2. Cache Miss| APIClient[API Client]
+        ReactQuery -->|Cache Hit| Component
+    end
+
+    subgraph Server["Edge Function (Server)"]
+        APIRoute[API Route Handler]
+        ServerCache[In-Memory Cache<br/>Map with TTL]
+        FileSystem[File System / GitLab API]
+
+        APIClient -->|3. HTTP Request| APIRoute
+        APIRoute -->|4. Check Cache| ServerCache
+        ServerCache -->|Cache Hit| APIRoute
+        ServerCache -->|5. Cache Miss| FileSystem
+        FileSystem -->|6. Data| ServerCache
+        ServerCache -->|7. Response| APIRoute
+        APIRoute -->|8. JSON| APIClient
+    end
+
+    APIClient -->|9. Store| ReactQuery
+    ReactQuery -->|10. Deliver| Component
+
+    style ReactQuery fill:#99ccff
+    style ServerCache fill:#ffcc99
+    style Component fill:#e1f5ff
+----
+
+=== Server Cache
+
+[source,typescript]
+----
+// In-memory cache with 15 minute TTL
+const cache = new Map<string, { data: unknown; expires: number }>();
+const CACHE_TTL = 15 * 60 * 1000; // 15 min
+----
+
+==== Benefits
+
+* Reduces calls to GitLab
+* Improves latency (< 1ms for cache hit)
+* Avoids GitLab rate limiting
+
+==== Drawbacks
+
+* Data can be outdated for up to 15 min
+* Cache lost on restart
+* Each instance has its own cache
+
+=== Invalidation
+
+==== Manual
+
+[source,bash]
+----
+curl -X POST http://localhost:8000/api/cache/clear
+----
+
+==== Automatic (Future)
+
+Planned for v1.2.0:
+
+* GitLab webhook to invalidate cache
+* Selective invalidation per project
+* Configurable TTL per project
+
+=== React Query Cache Keys
+
+Each query uses a unique key for caching:
+
+[mermaid]
+----
+flowchart LR
+    subgraph "Query Keys Strategy"
+        Projects["['projects']"]
+        Project["['project', projectId]"]
+        Tree["['project-tree', projectId, lang]"]
+        Overview["['project-overview', projectId, lang]"]
+        Doc["['project-doc', projectId, slug, lang]"]
+        Releases["['project-releases', projectId, folder, lang]"]
+    end
+
+    Projects --> ReactQuery[React Query Cache]
+    Project --> ReactQuery
+    Tree --> ReactQuery
+    Overview --> ReactQuery
+    Doc --> ReactQuery
+    Releases --> ReactQuery
+
+    ReactQuery --> Auto[Automatic Features]
+    Auto --> Dedup[Request Deduplication]
+    Auto --> Background[Background Refetch]
+    Auto --> Stale[Stale-While-Revalidate]
+
+    style ReactQuery fill:#99ccff
+    style Auto fill:#e1ffe1
+----

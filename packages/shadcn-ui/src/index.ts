@@ -37,12 +37,15 @@ export * from "./components/form/form-header";
 export * from "./components/json-viewer";
 // Layout Components
 export * from "./components/layouts/main-layout";
+export * from "./components/mode-toggle";
 // Navigation Components
 export * from "./components/navigation/nav-main";
 export * from "./components/navigation/nav-menu";
 export * from "./components/navigation/nav-user";
 // Team Switcher Component
 export * from "./components/team-switcher";
+export * from "./components/theme-provider";
+export * from "./components/toc-aside";
 // UI Components
 export * from "./components/ui/accordion";
 export * from "./components/ui/alert";
@@ -105,6 +108,7 @@ export * from "./components/ui/switchable-section";
 export * from "./components/ui/table";
 export * from "./components/ui/tabs";
 export * from "./components/ui/textarea";
+export * from "./components/ui/timeline";
 export * from "./components/ui/toggle";
 export * from "./components/ui/toggle-group";
 export * from "./components/ui/tooltip";
@@ -118,6 +122,8 @@ export * from "./hooks/use-badge-overflow";
 export * from "./hooks/use-breadcrumbs";
 export * from "./hooks/use-data-table";
 export * from "./hooks/use-debounce";
+export * from "./hooks/use-isomorphic-layout-effect";
+export * from "./hooks/use-lazy-ref";
 export * from "./hooks/use-max-width";
 export * from "./hooks/use-mobile";
 export * from "./hooks/use-query-state";

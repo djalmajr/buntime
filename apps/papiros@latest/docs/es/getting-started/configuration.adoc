@@ -1,0 +1,107 @@
+== Configuración Inicial
+:order: 2
+
+=== Arquitectura de Configuración
+
+[mermaid]
+----
+graph TB
+    subgraph "Variables de Entorno"
+        E1[GITLAB_URL]
+        E2[GITLAB_TOKEN]
+        E3[BUNTIME_URL]
+    end
+
+    subgraph "Capa de Aplicación"
+        A[Leaf App]
+        A --> S[Rutas del Servidor]
+    end
+
+    subgraph "Capa de Contenido"
+        C[directorio content/]
+        C --> P1[Proyecto 1]
+        C --> P2[Proyecto 2]
+        C --> P3[Proyecto N]
+
+        P1 --> L1[en/]
+        P1 --> L2[pt/]
+        P1 --> L3[es/]
+    end
+
+    E1 --> A
+    E2 --> A
+    E3 --> A
+    S --> C
+
+    style A fill:#e1f5ff
+    style C fill:#fff3cd
+----
+
+=== Variables de Entorno
+
+[cols="2,1,3,2"]
+|===
+| Variable | Obligatoria | Descripción | Ejemplo
+
+| `GITLAB_URL`
+| No
+| URL base de GitLab
+| `https://gitlab.example.com`
+
+| `GITLAB_TOKEN`
+| Sí*
+| Token de acceso con permiso read_repository
+| `glpat-xxxxxxxxxxxx`
+
+| `BUNTIME_URL`
+| No
+| URL base de buntime (para llamadas internas)
+| `http://localhost:8000`
+|===
+
+NOTE: El token es obligatorio para repositorios privados. Para repositorios públicos, puede ser omitido.
+
+=== Crear Token en GitLab
+
+[mermaid]
+----
+sequenceDiagram
+    actor User
+    participant GitLab
+    participant Leaf
+
+    User->>GitLab: Navegar a Settings > Access Tokens
+    User->>GitLab: Crear token (read_repository)
+    GitLab-->>User: Generar token (glpat-xxx)
+    User->>User: Copiar token
+    User->>Leaf: Definir GITLAB_TOKEN env var
+    Leaf->>GitLab: Petición API con token
+    GitLab-->>Leaf: Contenido del repositorio
+
+    Note over User,Leaf: Token obligatorio para repos privados
+----
+
+.Pasos para crear token:
+1. Acceda a GitLab > Settings > Access Tokens
+2. Cree un token con:
+   - Nombre: `docs-app`
+   - Scopes: `read_repository`
+   - Expiration: según política de seguridad
+
+3. Copie el token generado
+
+=== Configurar Proyectos
+
+Los proyectos se configuran en el archivo `server/api.ts`:
+
+[source,typescript]
+----
+const PROJECTS: Record<string, string> = {
+  "example-spa": "hyper/example-spa",
+  "lowcode-studio": "hyper/lowcode-studio",
+  "gestao-pessoas": "hyper/gestao-pessoas",
+  // Agregue más proyectos aquí
+};
+----
+
+Cada entrada mapea un nombre amigable para el path del proyecto en GitLab.

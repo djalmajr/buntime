@@ -1,0 +1,368 @@
+== Endpoints de Proyectos
+:order: 1
+
+=== Visión General de Endpoints
+
+[mermaid]
+----
+flowchart LR
+    Root[/api/projects]
+    Project[/:project]
+    Tree[/tree]
+    Overview[/overview]
+    Docs[/docs/*]
+    Releases[/releases/*]
+    Files[/files/*]
+
+    Root -->|GET| ListProjects[List All Projects]
+    Project -->|GET| ProjectInfo[Get Project Info]
+    Project --> Tree
+    Project --> Overview
+    Project --> Docs
+    Project --> Releases
+    Project --> Files
+
+    Tree -->|GET + ?lang| TreeStructure[Get File Tree]
+    Overview -->|GET + ?lang| ProjectOverview[Get index.adoc]
+    Docs -->|GET + ?lang| DocBySlug[Get Doc by Slug]
+    Releases -->|GET + ?lang| ReleasesList[Get Releases Timeline]
+    Files -->|GET + ?lang| FileContent[Get File Content]
+
+    style Root fill:#4A90E2
+    style ListProjects fill:#7ED321
+    style ProjectInfo fill:#7ED321
+    style TreeStructure fill:#7ED321
+    style ProjectOverview fill:#7ED321
+    style DocBySlug fill:#7ED321
+    style ReleasesList fill:#7ED321
+    style FileContent fill:#F5A623
+----
+
+=== Listar Proyectos
+
+Lista todos los proyectos configurados mediante el escaneo del directorio de contenido.
+
+[source,http]
+----
+GET /api/projects
+----
+
+**Flujo:**
+
+[mermaid]
+----
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant F as File System
+
+    C->>A: GET /api/projects
+    A->>F: Read content/ directory
+    F-->>A: List of project folders
+    loop For each project folder
+        A->>F: Check for index.adoc or project.json
+        F-->>A: Project config
+    end
+    A-->>C: JSON array of projects
+----
+
+**Respuesta:**
+
+[source,json]
+----
+[
+  {
+    "name": "leaf",
+    "title": "Documentación Leaf",
+    "description": "Documentación oficial de Leaf",
+    "icon": "lucide:book",
+    "repo": "https://github.com/org/leaf"
+  },
+  {
+    "name": "my-project",
+    "title": "Mi Proyecto"
+  }
+]
+----
+
+=== Obtener Información del Proyecto
+
+Retorna información detallada sobre un proyecto específico incluyendo idiomas disponibles.
+
+[source,http]
+----
+GET /api/projects/:project
+----
+
+**Parámetros:**
+
+* `project` - Nombre del proyecto (ej: `leaf`)
+
+**Flujo:**
+
+[mermaid]
+----
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant F as File System
+
+    C->>A: GET /api/projects/leaf
+    A->>F: Load project config
+    F-->>A: Config from index.adoc
+    loop For each supported language
+        A->>F: Check language folder exists
+        F-->>A: Boolean
+    end
+    A-->>C: Project info + available languages
+----
+
+**Respuesta:**
+
+[source,json]
+----
+{
+  "name": "leaf",
+  "title": "Documentación Leaf",
+  "description": "Documentación oficial",
+  "icon": "lucide:book",
+  "repo": "https://github.com/org/leaf",
+  "languages": ["en", "pt", "es"]
+}
+----
+
+=== Obtener Árbol de Archivos
+
+Retorna la estructura jerárquica de los archivos de documentación de un proyecto.
+
+[source,http]
+----
+GET /api/projects/:project/tree?lang=es
+----
+
+**Parámetros:**
+
+* `project` - Nombre del proyecto
+* `lang` - Código de idioma (opcional, por defecto es `en`)
+
+**Flujo:**
+
+[mermaid]
+----
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant L as Language Resolver
+    participant F as File System
+    participant P as Parser
+
+    C->>A: GET /api/projects/leaf/tree?lang=es
+    A->>F: Check project exists
+    F-->>A: Confirmed
+    A->>L: Resolve language
+    L->>F: Check es/ folder
+    alt Folder exists
+        L-->>A: Use es
+    else Fallback
+        L-->>A: Use en
+    end
+    A->>F: Scan language directory
+    F-->>A: List of .adoc files
+    loop For each file
+        A->>P: Parse :order: and :title:
+        P-->>A: Metadata
+    end
+    A->>A: Build hierarchical tree
+    A-->>C: Tree structure
+----
+
+**Respuesta:**
+
+[source,json]
+----
+{
+  "lang": "es",
+  "tree": [
+    {
+      "name": "Primeros Pasos",
+      "path": "getting-started",
+      "order": 1,
+      "children": [
+        {
+          "name": "Instalación",
+          "path": "getting-started/installation.adoc",
+          "order": 1,
+          "slug": "getting-started/installation"
+        }
+      ]
+    },
+    {
+      "name": "API",
+      "path": "api",
+      "order": 4,
+      "children": []
+    }
+  ]
+}
+----
+
+=== Obtener Visión General del Proyecto
+
+Retorna el archivo index.adoc principal de un proyecto (página de inicio del proyecto).
+
+[source,http]
+----
+GET /api/projects/:project/overview?lang=es
+----
+
+**Parámetros:**
+
+* `project` - Nombre del proyecto
+* `lang` - Código de idioma (opcional)
+
+**Respuesta:**
+
+[source,json]
+----
+{
+  "html": "<div class='content'>...</div>",
+  "lang": "es",
+  "modifiedAt": "2025-12-20T10:30:00Z",
+  "path": "index.adoc"
+}
+----
+
+=== Obtener Documento por Slug
+
+Retorna un documento específico usando su slug (ruta de URL amigable para SEO).
+
+[source,http]
+----
+GET /api/projects/:project/docs/:slug?lang=es
+----
+
+**Parámetros:**
+
+* `project` - Nombre del proyecto
+* `slug` - Slug del documento (ej: `getting-started/installation`)
+* `lang` - Código de idioma (opcional)
+
+**Flujo:**
+
+[mermaid]
+----
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant M as Slug Mapper
+    participant P as Parser
+    participant F as File System
+
+    C->>A: GET /api/projects/leaf/docs/api/projects?lang=es
+    A->>F: Build tree for language
+    F-->>A: Tree structure
+    A->>M: Build slug map
+    M-->>A: Map of slug → file path
+    A->>M: Resolve slug "api/projects"
+    M-->>A: File path "api/projects.adoc"
+    A->>F: Security check (path within content/)
+    F-->>A: Valid
+    A->>F: Read file content
+    F-->>A: AsciiDoc content
+    A->>P: Parse AsciiDoc to HTML
+    P-->>A: HTML + metadata
+    A-->>C: JSON response
+----
+
+**Respuesta:**
+
+[source,json]
+----
+{
+  "html": "<h2>Endpoints de Proyectos</h2>...",
+  "lang": "es",
+  "modifiedAt": "2025-12-20T10:30:00Z",
+  "path": "api/projects.adoc",
+  "slug": "api/projects"
+}
+----
+
+**Respuesta con Timeline:**
+
+Si el documento tiene un atributo `:timeline:`:
+
+[source,json]
+----
+{
+  "html": "<h2>Notas de Versión</h2>...",
+  "lang": "es",
+  "modifiedAt": "2025-12-20T10:30:00Z",
+  "path": "releases/index.adoc",
+  "slug": "releases",
+  "timelineFolder": "releases"
+}
+----
+
+=== Obtener Timeline de Versiones
+
+Retorna una lista cronológicamente ordenada de versiones de una carpeta.
+
+[source,http]
+----
+GET /api/projects/:project/releases/:folder?lang=es
+----
+
+**Parámetros:**
+
+* `project` - Nombre del proyecto
+* `folder` - Ruta de la carpeta (opcional, por defecto es `releases`)
+* `lang` - Código de idioma (opcional)
+
+**Flujo:**
+
+[mermaid]
+----
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant F as File System
+    participant P as Parser
+
+    C->>A: GET /api/projects/leaf/releases/releases?lang=es
+    A->>F: Check releases folder exists
+    F-->>A: Confirmed
+    A->>F: Read all .adoc files (except index.adoc)
+    F-->>A: List of files
+    loop For each file
+        A->>P: Parse :release-date:, :title:, :release-summary:
+        P-->>A: Release metadata
+        alt Has release-date
+            A->>A: Add to releases list
+        end
+    end
+    A->>A: Sort by date descending
+    A-->>C: Releases array
+----
+
+**Respuesta:**
+
+[source,json]
+----
+{
+  "lang": "es",
+  "releases": [
+    {
+      "date": "2025-12-15",
+      "name": "Versión 1.2.0",
+      "slug": "releases/v1-2-0",
+      "summary": "Añadido soporte de timeline y mejoras de i18n"
+    },
+    {
+      "date": "2025-12-01",
+      "name": "Versión 1.1.0",
+      "slug": "releases/v1-1-0",
+      "summary": "Mejoras de rendimiento"
+    }
+  ]
+}
+----

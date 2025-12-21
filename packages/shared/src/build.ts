@@ -1,5 +1,5 @@
 /**
- * Shared build utilities for Buntime plugins
+ * Shared build utilities for Buntime plugins and apps
  *
  * Usage in plugin scripts/build.ts:
  *
@@ -14,6 +14,21 @@
  *   name: "plugin-health",
  *   client: true,
  *   external: ["@buntime/shared"],
+ * }).run();
+ * ```
+ *
+ * Usage in app scripts/build.ts:
+ *
+ * ```ts
+ * import { createAppBuilder } from "@buntime/shared/build";
+ *
+ * // Basic app (server + client)
+ * createAppBuilder({ name: "my-app" }).run();
+ *
+ * // App with extra external dependencies
+ * createAppBuilder({
+ *   name: "papiros",
+ *   external: ["asciidoctor"],
  * }).run();
  * ```
  */
@@ -176,4 +191,150 @@ export function createPluginBuilder(config: PluginBuildConfig): PluginBuilder {
  */
 export function inferPluginName(): string {
   return basename(process.cwd());
+}
+
+// =============================================================================
+// App Builder
+// =============================================================================
+
+export interface AppBuildConfig {
+  /** App name for logging (e.g., "papiros", "cpanel") */
+  name: string;
+  /** Extra external dependencies to exclude (added to @buntime/*) */
+  external?: string[];
+  /** Additional watch directories (defaults to ["./client", "./server", "."]) */
+  watchDirs?: string[];
+}
+
+export interface AppBuilder {
+  run(): Promise<void>;
+}
+
+/**
+ * Create an app builder with watch mode support
+ * Apps always have server + client, with parallel builds
+ */
+export function createAppBuilder(config: AppBuildConfig): AppBuilder {
+  const isWatch = process.argv.includes("--watch");
+  const cwd = process.cwd();
+
+  const external = ["@buntime/*", ...(config.external ?? [])];
+  const watchDirs = config.watchDirs ?? ["./client", "./server", "."];
+  const watchExtensions = /\.(ts|tsx|css|html|json)$/;
+
+  async function loadPlugins(): Promise<BunPlugin[]> {
+    const plugins: BunPlugin[] = [];
+    const bunfigPath = join(cwd, "bunfig.toml");
+
+    if (existsSync(bunfigPath)) {
+      const { parse } = await import("smol-toml");
+      const bunfigContent = await Bun.file(bunfigPath).text();
+      const bunfig = parse(bunfigContent) as {
+        serve?: { static?: { plugins?: string[] } };
+      };
+      const pluginNames = bunfig?.serve?.static?.plugins ?? [];
+
+      for (const name of pluginNames) {
+        try {
+          const { default: plugin } = await import(name);
+          plugins.push(plugin);
+        } catch {
+          console.warn(`Plugin ${name} not available, skipping`);
+        }
+      }
+    } else {
+      // Fallback: load default plugins
+      const defaultPlugins = [
+        "@zomme/bun-plugin-tsr",
+        "@zomme/bun-plugin-iconify",
+        "@zomme/bun-plugin-i18next",
+        "bun-plugin-tailwind",
+      ];
+
+      for (const name of defaultPlugins) {
+        try {
+          const { default: plugin } = await import(name);
+          plugins.push(plugin);
+        } catch {
+          // Plugin not available, skip
+        }
+      }
+    }
+
+    return plugins;
+  }
+
+  async function build(): Promise<boolean> {
+    // Clean dist
+    try {
+      rmSync(join(cwd, "dist"), { recursive: true, force: true });
+    } catch {}
+
+    console.log(`Building ${config.name}...`);
+
+    // Load client plugins
+    const plugins = await loadPlugins();
+
+    // Build server and client in parallel
+    const [serverResult, clientResult] = await Promise.all([
+      Bun.build({
+        entrypoints: ["./index.ts"],
+        external,
+        minify: !isWatch,
+        outdir: "./dist",
+        splitting: true,
+        target: "bun",
+      }),
+      Bun.build({
+        entrypoints: ["./client/index.html"],
+        minify: !isWatch,
+        outdir: "./dist",
+        plugins,
+        publicPath: "./",
+        splitting: true,
+        target: "browser",
+      }),
+    ]);
+
+    if (!serverResult.success || !clientResult.success) {
+      console.error("Build failed:");
+      if (!serverResult.success) console.error("Server:", serverResult.logs);
+      if (!clientResult.success) console.error("Client:", clientResult.logs);
+      if (!isWatch) process.exit(1);
+      return false;
+    }
+
+    console.log("Build completed successfully");
+    return true;
+  }
+
+  async function run(): Promise<void> {
+    // Initial build
+    await build();
+
+    // Watch mode
+    if (isWatch) {
+      console.log("\nWatching for changes...");
+
+      let debounce: Timer | null = null;
+
+      for (const dir of watchDirs) {
+        const fullPath = join(cwd, dir);
+        if (!existsSync(fullPath)) continue;
+
+        watch(fullPath, { recursive: true }, (event, filename) => {
+          if (!filename || filename.includes("dist")) return;
+          if (!watchExtensions.test(filename)) return;
+
+          if (debounce) clearTimeout(debounce);
+          debounce = setTimeout(async () => {
+            console.log(`\n[${event}] ${filename}`);
+            await build();
+          }, 100);
+        });
+      }
+    }
+  }
+
+  return { run };
 }

@@ -1,0 +1,9 @@
+= Overview
+:order: 5
+
+This section covers advanced configuration options for Leaf.
+
+== In This Section
+
+* link:environment.adoc[Environment Variables] - System settings
+* link:projects.adoc[Projects] - How to add and configure projects

@@ -1,163 +1,17 @@
 services:
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.0
-    command: start-dev
+  buntime:
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
-      - "8180:8080"
-    environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
-      KC_HTTP_RELATIVE_PATH: /auth
+      - "8001:8000"
     volumes:
-      - keycloak-data:/opt/keycloak/data
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e 'GET /auth/health/ready HTTP/1.1\\r\\nhost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3;if [ $? -eq 0 ]; then echo 'Healthcheck Successful';exit 0;else echo 'Healthcheck Failed';exit 1;fi;",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    restart: unless-stopped
-
-  libsql:
-    image: ghcr.io/tursodatabase/libsql-server:latest
-    ports:
-      - "8880:8080" # HTTP API
-      - "8881:5001" # gRPC API (for replication)
-    volumes:
-      - libsql-data:/var/lib/sqld
+      - ./tmp:/app/apps
     environment:
-      SQLD_NODE: primary
-      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
-      SQLD_GRPC_LISTEN_ADDR: 0.0.0.0:5001
-      # Development mode - no auth required
-      SQLD_DISABLE_AUTH: "true"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    restart: unless-stopped
-
-  # libsql-replica:
-  #   image: ghcr.io/tursodatabase/libsql-server:latest
-  #   ports:
-  #     - "8882:8080" # HTTP API (replica)
-  #   volumes:
-  #     - libsql-replica-data:/var/lib/sqld
-  #   environment:
-  #     SQLD_NODE: replica
-  #     SQLD_PRIMARY_URL: http://libsql:5001
-  #     SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
-  #     SQLD_DISABLE_AUTH: "true"
-  #   depends_on:
-  #     libsql:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 3
-  #   restart: unless-stopped
-
-  # buntime:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     - "8001:8000"
-  #   volumes:
-  #     - ./tmp:/app/apps
-  #   environment:
-  #     PORT: 8000
-  #     LIBSQL_URL: http://libsql:8080
-  #     WORKSPACES_DIR: /app/apps
-  #   depends_on:
-  #     libsql:
-  #       condition: service_healthy
-  #   restart: unless-stopped
-
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000" # S3 API
-      - "9001:9001" # Console
-    volumes:
-      - minio-data:/data
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    restart: unless-stopped
-
-  gitlab:
-    image: yrzr/gitlab-ce-arm64v8:latest
-    hostname: gitlab.local
-    ports:
-      - "8929:8929" # HTTP
-      - "2224:22" # SSH
-      - "5050:5050" # Container Registry
-    volumes:
-      - gitlab-config:/etc/gitlab
-      - gitlab-logs:/var/log/gitlab
-      - gitlab-data:/var/opt/gitlab
-    environment:
-      GITLAB_OMNIBUS_CONFIG: |
-        external_url 'http://localhost:8929'
-        gitlab_rails['gitlab_shell_ssh_port'] = 2224
-        gitlab_rails['initial_root_password'] = 'Admin@2024'
-        gitlab_rails['gitlab_signup_enabled'] = false
-        gitlab_rails['time_zone'] = 'America/Sao_Paulo'
-        # Container Registry
-        registry_external_url 'http://localhost:5050'
-        gitlab_rails['registry_enabled'] = true
-        # Reduce memory usage for development
-        puma['worker_processes'] = 2
-        sidekiq['concurrency'] = 5
-        prometheus_monitoring['enable'] = false
-    shm_size: "512m"
-    networks:
-      - gitlab-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8929/-/health"]
-      interval: 60s
-      timeout: 30s
-      retries: 5
-      start_period: 300s
-    restart: unless-stopped
-
-  gitlab-runner:
-    image: gitlab/gitlab-runner:latest
+      PORT: 8000
+      LIBSQL_URL: http://libsql:8080
+      WORKSPACES_DIR: /app/apps
     depends_on:
-      gitlab:
+      libsql:
         condition: service_healthy
-    environment:
-      - CI_SERVER_URL=http://gitlab:8929
-    volumes:
-      - gitlab-runner-config:/etc/gitlab-runner
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - gitlab-network
     restart: unless-stopped
-
-volumes:
-  gitlab-config:
-  gitlab-data:
-  gitlab-logs:
-  gitlab-runner-config:
-  keycloak-data:
-  libsql-data:
-  libsql-replica-data:
-  minio-data:
-
-networks:
-  gitlab-network:
-    driver: bridge

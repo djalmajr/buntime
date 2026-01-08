@@ -317,9 +317,15 @@ spec:
           name: http
         - containerPort: 5001
           name: grpc
+        - containerPort: 9090
+          name: admin
         env:
         - name: SQLD_NODE
           value: primary
+        - name: SQLD_ENABLE_NAMESPACES
+          value: "true"
+        - name: SQLD_ADMIN_LISTEN_ADDR
+          value: "0.0.0.0:9090"
         resources:
           requests:
             memory: 512Mi
@@ -405,6 +411,9 @@ spec:
   - port: 5001
     targetPort: 5001
     name: grpc
+  - port: 9090
+    targetPort: 9090
+    name: admin
 ---
 apiVersion: v1
 kind: Service
@@ -471,8 +480,77 @@ spec:
             name: libsql-replica
             port:
               number: 8080
+---
+# Wildcard Certificate for namespaces (*.libsql.home)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: libsql-wildcard
+  namespace: libsql
+spec:
+  secretName: libsql-wildcard-tls
+  issuerRef:
+    name: home-ca-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  - "*.libsql.home"
+  - "libsql.home"
+---
+# Wildcard Ingress for namespaces (e.g., skedly.libsql.home)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: libsql-namespaces
+  namespace: libsql
+  annotations:
+    cert-manager.io/cluster-issuer: home-ca-issuer
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - "*.libsql.home"
+    secretName: libsql-wildcard-tls
+  rules:
+  - host: "*.libsql.home"
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: libsql-primary
+            port:
+              number: 8080
 EOF
 ```
+
+#### Conectar via DBeaver
+
+O DBeaver possui driver nativo para libSQL. Para conectar:
+
+1. Nova Conexão > LibSQL
+2. Server URL: `https://libsql.home`
+3. Token: (deixar vazio se não configurou autenticação)
+
+**Erro de certificado SSL:**
+
+Se aparecer erro `unable to find valid certification path to requested target`, importe o CA no keystore do Java do DBeaver:
+
+```bash
+# Exportar CA do cluster
+kubectl get secret home-ca-secret -n cert-manager -o jsonpath='{.data.ca\.crt}' | base64 -d > ~/home-ca.crt
+
+# Importar no Java do DBeaver (macOS)
+sudo keytool -import -trustcacerts \
+  -alias home-ca \
+  -file ~/home-ca.crt \
+  -keystore "/Applications/DBeaver.app/Contents/Eclipse/jre/Contents/Home/lib/security/cacerts" \
+  -storepass changeit -noprompt
+```
+
+Reinicie o DBeaver após importar.
+
+> **Nota:** Após atualizar o DBeaver, pode ser necessário reimportar o certificado pois a atualização pode sobrescrever o keystore.
 
 ### 4.3 Keycloak
 
@@ -1069,6 +1147,8 @@ Import-Certificate -FilePath "home-ca.crt" -CertStoreLocation Cert:\LocalMachine
 | Rancher | https://rancher.home | admin / REDACTED-LOCAL-PASSWORD |
 | libSQL (write) | https://libsql.home | - |
 | libSQL (read) | https://libsql-ro.home | - |
+| libSQL (namespaces) | https://{namespace}.libsql.home | - |
+| libSQL Admin API | http://libsql-primary.libsql:9090 | interno k8s |
 
 > **Nota:** O GitLab mantém a senha original pois o reset via rails console requer mais recursos.
 > Para alterar, use a interface web: Admin Area > Users > root > Edit > Password.

@@ -81,9 +81,7 @@ export function ReleaseTimeline({ folder = "", project }: ReleaseTimelineProps) 
               <TimelineTime>{formatDate(release.date)}</TimelineTime>
             </TimelineHeader>
             {release.summary && (
-              <TimelineDescription className="mt-2">
-                {release.summary}
-              </TimelineDescription>
+              <TimelineDescription className="mt-2">{release.summary}</TimelineDescription>
             )}
           </TimelineContent>
         </TimelineItem>

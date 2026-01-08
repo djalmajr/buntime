@@ -1,7 +1,15 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { getChildLogger } from "@buntime/shared/logger";
 import { maxSatisfying, rsort, valid } from "semver";
 
+const logger = getChildLogger("getAppDir");
+
+/**
+ * Special version tag for apps without explicit versioning.
+ * When no version is specified, "latest" takes precedence over semver versions.
+ * Usage: workspace/app-name@latest/ or workspace/app-name/latest/
+ */
 const LATEST = "latest";
 
 /**
@@ -159,7 +167,7 @@ export function createAppResolver(workspaces: string[]) {
       return allDirs.get(matched) ?? "";
     }
 
-    console.error(`[getAppDir] No version satisfies range: ${versionRange}`);
+    logger.error(`No version satisfies range: ${versionRange}`);
     return "";
   };
 }

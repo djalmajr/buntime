@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { KvMetrics } from "./metrics";
+import { initSchema } from "./schema";
+import { createTestAdapter } from "./test-helpers";
 
 describe("KvMetrics", () => {
   let metrics: KvMetrics;
@@ -88,6 +90,137 @@ describe("KvMetrics", () => {
 
       expect(Object.keys(json.operations)).toHaveLength(0);
       expect(json.totals.operations).toBe(0);
+    });
+  });
+
+  describe("persistent metrics", () => {
+    let adapter: ReturnType<typeof createTestAdapter>;
+
+    beforeAll(async () => {
+      adapter = createTestAdapter();
+      await initSchema(adapter);
+    });
+
+    afterAll(async () => {
+      await adapter.close();
+    });
+
+    beforeEach(async () => {
+      await adapter.execute("DELETE FROM kv_metrics");
+    });
+
+    it("should persist metrics to database", async () => {
+      const persistentMetrics = new KvMetrics({
+        adapter,
+        flushInterval: 100, // Short interval for testing
+      });
+
+      persistentMetrics.recordOperation("get", 5);
+      persistentMetrics.recordOperation("set", 10);
+
+      // Manually flush
+      await persistentMetrics.flush();
+
+      // Check database
+      const rows = await adapter.execute<{ operation: string; count: number }>(
+        "SELECT operation, count FROM kv_metrics",
+      );
+
+      expect(rows.length).toBe(2);
+
+      await persistentMetrics.close();
+    });
+
+    it("should load existing metrics from database", async () => {
+      // Pre-populate database
+      await adapter.execute(
+        "INSERT INTO kv_metrics (id, operation, count, errors, latency_sum, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        ["get", "get", 100, 5, 500, Date.now()],
+      );
+
+      const persistentMetrics = new KvMetrics({ adapter });
+
+      // Give it time to load
+      await new Promise((r) => setTimeout(r, 100));
+
+      await persistentMetrics.close();
+    });
+
+    it("should handle flush with no pending updates", async () => {
+      const persistentMetrics = new KvMetrics({ adapter });
+
+      // Flush with no pending updates should not throw
+      await persistentMetrics.flush();
+
+      await persistentMetrics.close();
+    });
+
+    it("should start periodic flush timer", async () => {
+      const persistentMetrics = new KvMetrics({
+        adapter,
+        flushInterval: 50,
+      });
+
+      persistentMetrics.recordOperation("get", 5);
+
+      // Wait for periodic flush
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Check that data was flushed
+      const rows = await adapter.execute<{ operation: string }>(
+        "SELECT operation FROM kv_metrics WHERE operation = 'get'",
+      );
+
+      expect(rows.length).toBe(1);
+
+      await persistentMetrics.close();
+    });
+
+    it("should stop flush timer on close", async () => {
+      const persistentMetrics = new KvMetrics({
+        adapter,
+        flushInterval: 50,
+      });
+
+      persistentMetrics.recordOperation("get", 5);
+
+      // Close before flush
+      await persistentMetrics.close();
+
+      // Verify close completed (data should have been flushed)
+      const rows = await adapter.execute<{ operation: string }>(
+        "SELECT operation FROM kv_metrics WHERE operation = 'get'",
+      );
+
+      expect(rows.length).toBe(1);
+    });
+
+    it("should handle flush when no adapter is configured", async () => {
+      const metricsWithoutAdapter = new KvMetrics();
+
+      // Should not throw
+      await metricsWithoutAdapter.flush();
+
+      await metricsWithoutAdapter.close();
+    });
+
+    it("should accumulate updates with ON CONFLICT clause", async () => {
+      const persistentMetrics = new KvMetrics({ adapter });
+
+      persistentMetrics.recordOperation("get", 5);
+      await persistentMetrics.flush();
+
+      persistentMetrics.recordOperation("get", 10);
+      await persistentMetrics.flush();
+
+      // Check that counts accumulated
+      const rows = await adapter.execute<{ count: number }>(
+        "SELECT count FROM kv_metrics WHERE operation = 'get'",
+      );
+
+      expect(rows[0]?.count).toBe(2); // 2 operations
+
+      await persistentMetrics.close();
     });
   });
 });

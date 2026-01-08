@@ -1,89 +1,86 @@
 == Sistema de Plugins
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
 
-=== Visao Geral
+=== Visão Geral
 
-O sistema de plugins do Buntime permite extensibilidade modular do runtime atraves de componentes reutilizaveis. Plugins podem interceptar requests, modificar responses, fornecer APIs proprias, gerenciar workers e integrar-se ao ciclo de vida do servidor.
+O sistema de plugins do Buntime permite extensibilidade modular do runtime através de componentes reutilizáveis. Plugins podem interceptar requests, modificar responses, fornecer APIs próprias, gerenciar workers e integrar-se ao ciclo de vida do servidor.
 
-*Caracteristicas Principais*:
+*Características Principais*:
 
-* **Lifecycle Hooks**: Interceptacao em diferentes estagios do request/response
-* **Dependency Management**: Resolucao automatica de dependencias entre plugins
-* **Priority Ordering**: Execucao ordenada baseada em dependencias
-* **Service Registry**: Compartilhamento de servicos entre plugins
+* **Lifecycle Hooks**: Interceptação em diferentes estágios do request/response
+* **Dependency Management**: Resolução automática de dependências entre plugins
+* **Topological Ordering**: Execução ordenada baseada em dependências (via sort topológico)
+* **Service Registry**: Compartilhamento de serviços entre plugins
 * **Fragment Support**: Plugins podem fornecer UI embeddable no shell
 
 === Arquitetura
 
 ==== Componentes
 
-[source]
+[mermaid]
 ----
-┌────────────────────────────────────────────────────────────┐
-│                      buntime.jsonc                          │
-│  plugins: [                                                 │
-│    "@buntime/plugin-metrics",                               │
-│    ["@buntime/plugin-authn", { ... }]                       │
-│  ]                                                           │
-└────────────────┬───────────────────────────────────────────┘
-                 │
-                 ▼
-┌────────────────────────────────────────────────────────────┐
-│                    PluginLoader                             │
-│  • Parse configuration (Babel-style)                        │
-│  • Resolve modules (builtin/external/npm)                   │
-│  • Topological sort by dependencies                         │
-│  • Initialize plugins in order                              │
-└────────────────┬───────────────────────────────────────────┘
-                 │
-                 ▼
-┌────────────────────────────────────────────────────────────┐
-│                   PluginRegistry                            │
-│  • Store loaded plugins                                     │
-│  • Run lifecycle hooks                                      │
-│  • Service registry                                         │
-│  • Route resolution                                         │
-│  • Public routes management                                 │
-└────────────────┬───────────────────────────────────────────┘
-                 │
-     ┌───────────┴───────────┬────────────────┬──────────┐
-     ▼                       ▼                ▼          ▼
-┌──────────┐        ┌──────────────┐   ┌──────────┐  ┌─────────┐
-│ Metrics  │        │    AuthN     │   │  Gateway │  │ KeyVal  │
-│ (prio 0) │        │   (prio 10)  │   │ (prio 15)│  │(prio 30)│
-└──────────┘        └──────────────┘   └──────────┘  └─────────┘
-  onRequest           onRequest          onRequest     routes
+flowchart TD
+    subgraph config["buntime.jsonc"]
+        C1["plugins: [<br/>  '@buntime/plugin-metrics',<br/>  ['@buntime/plugin-authn', {...}]<br/>]"]
+    end
+
+    subgraph loader["PluginLoader"]
+        L1["Parse configuration (Babel-style)"]
+        L2["Resolve modules (builtin/external/npm)"]
+        L3["Topological sort by dependencies"]
+        L4["Initialize plugins in order"]
+    end
+
+    subgraph registry["PluginRegistry"]
+        R1["Store loaded plugins"]
+        R2["Run lifecycle hooks"]
+        R3["Service registry"]
+        R4["Route resolution"]
+        R5["Public routes management"]
+    end
+
+    config --> loader
+    loader --> registry
+
+    registry --> Metrics["Metrics<br/>onRequest"]
+    registry --> AuthN["AuthN<br/>onRequest"]
+    registry --> Gateway["Gateway<br/>onRequest"]
+    registry --> KeyVal["KeyVal<br/>routes"]
 ----
 
-==== Resolucao de Plugins
+==== Resolução de Plugins
 
-O `PluginLoader` resolve plugins em tres estagios:
+O `PluginLoader` resolve plugins em três estágios:
 
 *1. Built-in Plugins (Embedded)*:
 
-Plugins compilados no binario, sempre disponiveis:
+Plugins compilados no binário, sempre disponíveis. Todos usam lazy loading para comportamento consistente e evitar problemas de bundling com binários compilados:
 
 [source,typescript]
 ----
-const staticPlugins = {
-  "@buntime/plugin-authn": authn,
-  "@buntime/plugin-authz": authz,
-  "@buntime/plugin-gateway": gateway,
-  "@buntime/plugin-metrics": metrics,
-  "@buntime/plugin-proxy": proxy,
-};
-
-const lazyPlugins = {
-  "@buntime/plugin-keyval": () => import("@buntime/plugin-keyval"),
-  "@buntime/plugin-durable": () => import("@buntime/plugin-durable"),
-  "@buntime/plugin-database": () => import("@buntime/plugin-database"),
+const plugins: Record<string, () => Promise<PluginFactory>> = {
+  "@buntime/plugin-authn": async () => (await import("@buntime/plugin-authn")).default,
+  "@buntime/plugin-authz": async () => (await import("@buntime/plugin-authz")).default,
+  "@buntime/plugin-database": async () => (await import("@buntime/plugin-database")).default,
+  "@buntime/plugin-deployments": async () => (await import("@buntime/plugin-deployments")).default,
+  "@buntime/plugin-durable": async () => (await import("@buntime/plugin-durable")).default,
+  "@buntime/plugin-gateway": async () => (await import("@buntime/plugin-gateway")).default,
+  "@buntime/plugin-keyval": async () => (await import("@buntime/plugin-keyval")).default,
+  "@buntime/plugin-metrics": async () => (await import("@buntime/plugin-metrics")).default,
+  "@buntime/plugin-proxy": async () => (await import("@buntime/plugin-proxy")).default,
 };
 ----
 
-Plugins com dependencias nativas (libsql) usam lazy loading para evitar bundling de binarios nativos.
+Lista completa de plugins builtin: authn, authz, database, deployments, durable, gateway, keyval, metrics, proxy.
 
 *2. External Plugins (./plugins/)*:
 
-Plugins locais no diretorio `./plugins/`:
+Plugins locais no diretório `./plugins/`:
 
 [source]
 ----
@@ -104,11 +101,11 @@ bun add @company/buntime-plugin-sso
 
 ==== Topological Sorting
 
-Plugins sao carregados em ordem baseada em dependencias usando o algoritmo de Kahn:
+Plugins são carregados em ordem baseada em dependências usando o algoritmo de Kahn:
 
 [source,typescript]
 ----
-// Configuracao
+// Configuração
 {
   "plugins": [
     "@buntime/plugin-keyval",     // dependencies: ["@buntime/plugin-database"]
@@ -117,23 +114,23 @@ Plugins sao carregados em ordem baseada em dependencias usando o algoritmo de Ka
   ]
 }
 
-// Ordem de carregamento (apos sort)
-1. @buntime/plugin-database   (sem dependencias)
+// Ordem de carregamento (após sort)
+1. @buntime/plugin-database   (sem dependências)
 2. @buntime/plugin-keyval     (depende de database)
-3. @buntime/plugin-authn      (sem dependencias)
+3. @buntime/plugin-authn      (sem dependências)
 ----
 
-*Tipos de Dependencias*:
+*Tipos de Dependências*:
 
-* **dependencies**: Obrigatorias, falha se nao configurado
-* **optionalDependencies**: Opcionais, carregadas se disponivel
+* **dependencies**: Obrigatórias, falha se não configurado
+* **optionalDependencies**: Opcionais, carregadas se disponível
 
 [source,typescript]
 ----
 export default function createPlugin(): BuntimePlugin {
   return {
     name: "@buntime/plugin-keyval",
-    dependencies: ["@buntime/plugin-database"],  // Obrigatorio
+    dependencies: ["@buntime/plugin-database"],  // Obrigatório
     optionalDependencies: ["@buntime/plugin-metrics"],  // Opcional
     // ...
   };
@@ -144,7 +141,7 @@ export default function createPlugin(): BuntimePlugin {
 
 ==== onInit
 
-Chamado quando o plugin e inicializado, antes do servidor iniciar.
+Chamado quando o plugin é inicializado, antes do servidor iniciar.
 
 *Assinatura*:
 
@@ -158,7 +155,7 @@ onInit?: (ctx: PluginContext) => Promise<void> | void;
 [source,typescript]
 ----
 interface PluginContext {
-  config: Record<string, unknown>;        // Configuracao do plugin
+  config: Record<string, unknown>;        // Configuração do plugin
   globalConfig: GlobalPluginConfig;       // buntime.jsonc (workspaces, poolSize)
   logger: PluginLogger;                   // Logger com contexto do plugin
   pool?: unknown;                         // WorkerPool instance
@@ -166,6 +163,10 @@ interface PluginContext {
   getService<T>(name: string): T | undefined;
 }
 ----
+
+*Timeout de Inicialização*:
+
+O hook `onInit` possui um timeout de 30 segundos. Se a inicialização não completar nesse período, o plugin falha com erro de timeout. Isso previne que plugins mal configurados bloqueiem a inicialização do servidor indefinidamente.
 
 *Exemplo*:
 
@@ -180,20 +181,57 @@ export default function createPlugin(config: KeyValConfig): BuntimePlugin {
     dependencies: ["@buntime/plugin-database"],
 
     async onInit(ctx) {
-      // Obter servico de outro plugin
+      // Obter serviço de outro plugin
       db = ctx.getService<DatabaseAdapter>("database")!;
 
       // Inicializar KV
       kv = new Kv({ db, logger: ctx.logger });
       await kv.init();
 
-      // Registrar servico para outros plugins
+      // Registrar serviço para outros plugins
       ctx.registerService("kv", kv);
 
       ctx.logger.info("KeyVal initialized");
     },
   };
 }
+----
+
+==== Validação de Segurança
+
+O `PluginLoader` valida plugins durante o carregamento para prevenir problemas de segurança.
+
+*Validação de Base Path*:
+
+O base path deve seguir o padrão `/[a-zA-Z0-9_-]+`:
+
+[source,typescript]
+----
+// Válidos
+"/metrics"
+"/my-plugin"
+"/auth_v2"
+
+// Inválidos (causam erro)
+"/my/nested/path"    // Múltiplos segmentos
+"/../escape"         // Path traversal
+"/my plugin"         // Espaços
+----
+
+*Paths Reservados*:
+
+Os seguintes paths são reservados pelo runtime e não podem ser usados por plugins:
+
+- `/api` - Rotas internas da API do runtime
+- `/health` - Endpoint de health check
+- `/.well-known` - Recursos padrão web (ACME, etc.)
+
+Tentativas de usar paths reservados resultam em erro durante o carregamento:
+
+[source]
+----
+Error: Plugin "@company/my-plugin" cannot use reserved path "/api".
+Reserved paths: /api, /health, /.well-known
 ----
 
 ==== onRequest
@@ -210,7 +248,7 @@ onRequest?: (
 ) => Promise<Request | Response | undefined> | Request | Response | undefined;
 ----
 
-*Retornos Possiveis*:
+*Retornos Possíveis*:
 
 * **Request**: Request modificado (continua pipeline)
 * **Response**: Short-circuit (retorna imediatamente)
@@ -234,7 +272,7 @@ async onRequest(req: Request, app?: AppInfo) {
     return new Response("Invalid token", { status: 401 });
   }
 
-  // Injetar usuario no request
+  // Injetar usuário no request
   const newReq = new Request(req, {
     headers: {
       ...Object.fromEntries(req.headers),
@@ -247,24 +285,23 @@ async onRequest(req: Request, app?: AppInfo) {
 }
 ----
 
-*Ordem de Execucao*:
+*Ordem de Execução*:
 
-Plugins executam onRequest em ordem de registro (apos sort topologico):
+Plugins executam onRequest em ordem de registro (após sort topológico):
 
-[source]
+[mermaid]
 ----
-Request
-  |
-  ├─> Metrics.onRequest     (prio 0, coleta metricas)
-  ├─> Proxy.onRequest       (prio 5, pode short-circuit)
-  ├─> AuthN.onRequest       (prio 10, injeta identidade)
-  ├─> Gateway.onRequest     (prio 15, rate limit)
-  └─> Worker.fetch
+flowchart TD
+    Request --> Metrics["Metrics.onRequest<br/>(coleta métricas)"]
+    Metrics --> Proxy["Proxy.onRequest<br/>(pode short-circuit)"]
+    Proxy --> AuthN["AuthN.onRequest<br/>(injeta identidade)"]
+    AuthN --> Gateway["Gateway.onRequest<br/>(rate limit)"]
+    Gateway --> Worker["Worker.fetch"]
 ----
 
 ==== onResponse
 
-Chamado apos o worker gerar a response, antes de enviar ao cliente.
+Chamado após o worker gerar a response, antes de enviar ao cliente.
 
 *Assinatura*:
 
@@ -293,7 +330,7 @@ async onResponse(res: Response, app: AppInfo) {
 
 ==== onWorkerSpawn
 
-Chamado quando um worker e criado.
+Chamado quando um worker é criado.
 
 *Assinatura*:
 
@@ -316,7 +353,7 @@ onWorkerSpawn(worker, app) {
 
 ==== onWorkerTerminate
 
-Chamado quando um worker e terminado.
+Chamado quando um worker é terminado.
 
 *Assinatura*:
 
@@ -338,7 +375,7 @@ onWorkerTerminate(worker, app) {
 
 ==== onServerStart
 
-Chamado apos o `Bun.serve()` iniciar.
+Chamado após o `Bun.serve()` iniciar.
 
 *Assinatura*:
 
@@ -375,7 +412,7 @@ export default function createPlugin(): BuntimePlugin {
 
 ==== onShutdown
 
-Chamado quando o runtime esta sendo encerrado.
+Chamado quando o runtime está sendo encerrado.
 
 *Assinatura*:
 
@@ -393,10 +430,10 @@ onShutdown?: () => Promise<void> | void;
 async onShutdown() {
   logger.info("Shutting down KeyVal plugin");
 
-  // Flush metricas pendentes
+  // Flush métricas pendentes
   await metrics.flush();
 
-  // Fechar conexoes DB
+  // Fechar conexões DB
   await db.close();
 
   logger.info("KeyVal shutdown complete");
@@ -405,18 +442,18 @@ async onShutdown() {
 
 === Public Routes
 
-Plugins e workers podem definir rotas publicas que pulam hooks `onRequest` (ex: autenticacao).
+Plugins e workers podem definir rotas públicas que pulam hooks `onRequest` (ex: autenticação).
 
-==== Formato de Configuracao
+==== Formato de Configuração
 
-*Array (todos metodos)*:
+*Array (todos métodos)*:
 
 [source,typescript]
 ----
 publicRoutes: ["/health", "/api/public/**"]
 ----
 
-*Object (por metodo HTTP)*:
+*Object (por método HTTP)*:
 
 [source,typescript]
 ----
@@ -430,13 +467,13 @@ publicRoutes: {
 ==== Wildcards
 
 * **\*** - Match um segmento: `/api/*/health`
-* **\**** - Match multiplos segmentos: `/api/**`
+* **\**** - Match múltiplos segmentos: `/api/**`
 
 ==== Plugin vs Worker Public Routes
 
 *Plugin Public Routes*:
 
-Paths absolutos, configuraveis em `buntime.jsonc`:
+Paths absolutos, configuráveis em `buntime.jsonc`:
 
 [source,jsonc]
 ----
@@ -454,7 +491,7 @@ Paths absolutos, configuraveis em `buntime.jsonc`:
 
 *Worker Public Routes*:
 
-Paths relativos ao worker, configuraveis em `buntime.jsonc`:
+Paths relativos ao worker, configuráveis em `buntime.jsonc`:
 
 [source,jsonc]
 ----
@@ -478,7 +515,7 @@ Base: /todos-kv
 
 ==== Merge de Public Routes
 
-Config routes sao adicionadas as routes do plugin:
+Config routes são adicionadas às routes do plugin:
 
 [source,typescript]
 ----
@@ -500,35 +537,35 @@ publicRoutes: {
 
 === Service Registry
 
-Plugins podem registrar servicos para compartilhar funcionalidades.
+Plugins podem registrar serviços para compartilhar funcionalidades.
 
-==== Registrando um Servico
+==== Registrando um Serviço
 
 [source,typescript]
 ----
 async onInit(ctx) {
   const db = await createDatabase(ctx.config);
 
-  // Registrar servico
+  // Registrar serviço
   ctx.registerService("database", db);
 
   ctx.logger.info("Database service registered");
 }
 ----
 
-==== Consumindo um Servico
+==== Consumindo um Serviço
 
 [source,typescript]
 ----
 async onInit(ctx) {
-  // Obter servico de outro plugin
+  // Obter serviço de outro plugin
   const db = ctx.getService<DatabaseAdapter>("database");
 
   if (!db) {
     throw new Error("Database service not available");
   }
 
-  // Usar servico
+  // Usar serviço
   const kv = new Kv({ db });
 }
 ----
@@ -548,7 +585,7 @@ export default function createDatabase(config: DbConfig): BuntimePlugin {
       adapter = new DatabaseAdapter(config.libsqlUrl);
       await adapter.connect();
 
-      // Registrar servico
+      // Registrar serviço
       ctx.registerService("database", adapter);
     },
 
@@ -567,24 +604,142 @@ export default function createKeyVal(): BuntimePlugin {
     dependencies: ["@buntime/plugin-database"],
 
     async onInit(ctx) {
-      // Consumir servico
+      // Consumir serviço
       const db = ctx.getService<DatabaseAdapter>("database")!;
       kv = new Kv({ db });
 
-      // Registrar proprio servico
+      // Registrar próprio serviço
       ctx.registerService("kv", kv);
     },
   };
 }
 ----
 
+=== Registry Methods
+
+A classe `PluginRegistry` gerencia plugins carregados e orquestra a execução de lifecycle hooks. A tabela abaixo documenta os métodos públicos disponíveis.
+
+==== Métodos de Lifecycle
+
+[cols="2,3"]
+|===
+| Método | Descrição
+
+| `runOnRequest(req: Request, app?: AppInfo): Promise<Request \| Response>`
+| Executa todos os hooks `onRequest` em ordem de registro. Retorna o request modificado ou uma response para short-circuit. Se um plugin retornar `Response`, a execução para imediatamente.
+
+| `runOnResponse(res: Response, app: AppInfo): Promise<Response>`
+| Executa todos os hooks `onResponse` em ordem de registro. Cada plugin pode modificar a response antes de enviar ao cliente.
+
+| `runOnServerStart(server: Server<unknown>): void`
+| Notifica todos os plugins quando o servidor inicia via `Bun.serve()`. Plugins podem armazenar a referência do server para WebSocket upgrades.
+
+| `runOnShutdown(): Promise<void>`
+| Executa hooks de shutdown em ordem reversa (LIFO). Plugins carregados por último são encerrados primeiro, garantindo que dependências ainda estejam disponíveis durante cleanup.
+
+| `runOnWorkerSpawn(worker: WorkerInstance, app: AppInfo): void`
+| Chamado quando um novo worker é criado. Plugins podem registrar o worker em sistemas de monitoramento ou inicializar recursos específicos.
+
+| `runOnWorkerTerminate(worker: WorkerInstance, app: AppInfo): void`
+| Chamado quando um worker é terminado. Plugins podem coletar métricas finais ou limpar recursos associados ao worker.
+|===
+
+==== Métodos de Resolução
+
+[cols="2,3"]
+|===
+| Método | Descrição
+
+| `getPluginBasePaths(): Set<string>`
+| Retorna um `Set` com todos os base paths dos plugins registrados. Usado pelo app-shell para determinar quais paths devem ser interceptados.
+
+| `resolvePluginApp(pathname: string): { dir: string; basePath: string } \| undefined`
+| Resolve um pathname para o diretório e base path do plugin correspondente. Retorna `undefined` se nenhum plugin corresponder ao path.
+
+| `collectServerRoutes(): Record<string, RouteHandler>`
+| Coleta todas as rotas definidas em `server.routes` de cada plugin e aplica wrapper de autenticação. O resultado é usado diretamente em `Bun.serve({ routes })`.
+|===
+
+==== Métodos de Serviço
+
+[cols="2,3"]
+|===
+| Método | Descrição
+
+| `registerService<T>(name: string, service: T): void`
+| Registra um serviço para compartilhamento entre plugins. Se um serviço com o mesmo nome já existir, emite um warning e sobrescreve.
+
+| `getService<T>(name: string): T \| undefined`
+| Recupera um serviço registrado por outro plugin. Retorna `undefined` se o serviço não existir.
+|===
+
+==== Métodos de Acesso
+
+[cols="2,3"]
+|===
+| Método | Descrição
+
+| `get(name: string): BuntimePlugin \| undefined`
+| Retorna um plugin pelo nome.
+
+| `getAll(): BuntimePlugin[]`
+| Retorna todos os plugins em ordem de registro (após ordenação topológica).
+
+| `has(name: string): boolean`
+| Verifica se um plugin está registrado.
+
+| `size: number`
+| Propriedade que retorna o número de plugins registrados.
+
+| `getPluginDir(name: string): string \| undefined`
+| Retorna o diretório de um plugin (usado para spawning de workers).
+
+| `getPluginsWithServerFetch(): BuntimePlugin[]`
+| Retorna plugins que possuem `server.fetch` handlers.
+
+| `getWebSocketHandler(): WebSocketHandler \| undefined`
+| Retorna handler WebSocket combinado de todos os plugins. Se múltiplos plugins definem handlers, eles são combinados em um único handler.
+
+| `getMountedPaths(): Map<string, string>`
+| Retorna um `Map` com paths montados e seus plugins correspondentes. Usado para detecção de conflitos de rotas.
+
+| `setMountedPaths(paths: Map<string, string>): void`
+| Define os paths montados para detecção de conflitos. O mapa relaciona path com nome do plugin.
+|===
+
+==== Exemplo de Uso
+
+[source,typescript]
+----
+// Obtendo o registry do loader
+const registry = loader.getRegistry();
+
+// Verificar plugins carregados
+console.log("Total:", registry.size);
+console.log("Plugins:", registry.getAll().map((p) => p.name));
+
+// Verificar base paths para routing
+const bases = registry.getPluginBasePaths();
+console.log("Plugin bases:", [...bases]);
+
+// Resolver um path para plugin
+const result = registry.resolvePluginApp("/keyval/api/entries");
+if (result) {
+  console.log("Plugin dir:", result.dir);
+  console.log("Base path:", result.basePath);
+}
+
+// Obter serviço registrado por outro plugin
+const kv = registry.getService<Kv>("kv");
+----
+
 === Plugin Server Module
 
-Plugins podem servir arquivos estaticos e APIs diretamente no processo principal via `server.routes` e `server.fetch`.
+Plugins podem servir arquivos estáticos e APIs diretamente no processo principal via `server.routes` e `server.fetch`.
 
 ==== Server Routes
 
-Routes sao mapeadas para `Bun.serve({ routes })` com wrapper de autenticacao.
+Routes são mapeadas para `Bun.serve({ routes })` com wrapper de autenticação.
 
 [source,typescript]
 ----
@@ -594,7 +749,7 @@ export default function createPlugin(): BuntimePlugin {
 
     server: {
       routes: {
-        // Arquivo estatico
+        // Arquivo estático
         "/login": Bun.file("./public/login.html"),
 
         // Handler function
@@ -617,7 +772,7 @@ export default function createPlugin(): BuntimePlugin {
 
 ==== Server Fetch
 
-Handler invocado apos routes nao matcharem, antes de routes Hono.
+Handler invocado após routes não matcharem, antes de routes Hono.
 
 [source,typescript]
 ----
@@ -636,25 +791,76 @@ export default function createPlugin(): BuntimePlugin {
 }
 ----
 
-==== Ordem de Resolucao
+==== Ordem de Resolução
 
-[source]
+[mermaid]
 ----
-Request
-  |
-  ├─> Bun.serve routes (server.routes de todos plugins)
-  │   ├─> /login (plugin-authn)
-  │   └─> /api/health/* (plugin-authn)
-  │
-  ├─> server.fetch (de cada plugin em ordem)
-  │   ├─> plugin-authn.server.fetch
-  │   ├─> plugin-keyval.server.fetch
-  │   └─> plugin-gateway.server.fetch
-  │
-  └─> Hono app.routes (agregacao de todos plugin.routes)
-      ├─> /api/keyval/* (plugin-keyval)
-      └─> /api/metrics/* (plugin-metrics)
+flowchart TD
+    Request --> BunRoutes{"Bun.serve routes<br/>(server.routes de todos plugins)"}
+    BunRoutes --> Login["/login (plugin-authn)"]
+    BunRoutes --> Health["/api/health/* (plugin-authn)"]
+    BunRoutes -->|no match| ServerFetch{"server.fetch<br/>(de cada plugin em ordem)"}
+
+    ServerFetch --> AuthnFetch["plugin-authn.server.fetch"]
+    ServerFetch --> KeyvalFetch["plugin-keyval.server.fetch"]
+    ServerFetch --> GatewayFetch["plugin-gateway.server.fetch"]
+    ServerFetch -->|no match| HonoRoutes{"Hono app.routes<br/>(agregação de todos plugin.routes)"}
+
+    HonoRoutes --> KeyvalAPI["/api/keyval/* (plugin-keyval)"]
+    HonoRoutes --> MetricsAPI["/api/metrics/* (plugin-metrics)"]
 ----
+
+==== Middleware
+
+Alternativa ao `onRequest` usando o padrão de middleware do Hono. O middleware é executado no contexto da aplicação Hono principal.
+
+*Assinatura*:
+
+[source,typescript]
+----
+middleware?: MiddlewareHandler;
+----
+
+*Exemplo*:
+
+[source,typescript]
+----
+import { createMiddleware } from "hono/factory";
+import type { BuntimePlugin } from "@buntime/shared/types";
+
+export default function createPlugin(): BuntimePlugin {
+  return {
+    name: "@company/request-logger",
+    base: "/logger",
+
+    middleware: createMiddleware(async (c, next) => {
+      const start = Date.now();
+      await next();
+      const duration = Date.now() - start;
+      console.log(`${c.req.method} ${c.req.path} - ${duration}ms`);
+    }),
+  };
+}
+----
+
+*Diferença entre middleware e onRequest*:
+
+[cols="1,2,2"]
+|===
+| Aspecto | middleware | onRequest
+
+| Contexto
+| Hono Context (c)
+| Request + AppInfo
+
+| Retorno
+| Chama next() para continuar
+| Retorna Request, Response ou undefined
+
+| Posicionamento
+| Executado dentro do Hono app
+| Executado antes do Hono app
+|===
 
 === Fragment Support
 
@@ -666,7 +872,7 @@ Plugins podem fornecer UI embeddable no shell (C-Panel) via `fragment`.
 ----
 interface FragmentOptions {
   type: "patch" | "iframe";
-  origin?: string;              // Obrigatorio para iframe
+  origin?: string;              // Obrigatório para iframe
   preloadStyles?: string;       // CSS para reduzir flash
 }
 ----
@@ -675,7 +881,7 @@ interface FragmentOptions {
 
 *Patch (Recomendado)*:
 
-Intercepta History API, previne mudancas de URL.
+Intercepta History API, previne mudanças de URL. Ideal para plugins internos.
 
 [source,typescript]
 ----
@@ -697,7 +903,7 @@ export default function createPlugin(): BuntimePlugin {
 
 *Iframe (Full Isolation)*:
 
-Carrega app externo em iframe, isolamento completo.
+Carrega app externo em iframe com isolamento completo. Ideal para aplicações de terceiros não confiáveis.
 
 [source,typescript]
 ----
@@ -707,9 +913,28 @@ fragment: {
 }
 ----
 
+*Comparação dos Tipos*:
+
+[cols="1,1,1,1"]
+|===
+| Tipo | Isolamento | Compartilha Estilos | Caso de Uso
+
+| patch
+| Baixo
+| Sim
+| Plugins internos
+
+| iframe
+| Alto
+| Não
+| Apps não confiáveis
+|===
+
+NOTE: A propriedade `origin` é obrigatória para o tipo `iframe`.
+
 ==== Menu Items
 
-Plugins definem items de menu para navegacao no shell.
+Plugins definem items de menu para navegação no shell.
 
 [source,typescript]
 ----
@@ -734,7 +959,7 @@ menus: [
 
 === Criando um Plugin Customizado
 
-==== Estrutura Basica
+==== Estrutura Básica
 
 [source,typescript]
 ----
@@ -762,7 +987,7 @@ export default function createMyPlugin(config: MyPluginConfig): BuntimePlugin {
 
 ==== Factory Function
 
-Plugins sao factory functions que recebem configuracao e retornam `BuntimePlugin`.
+Plugins são factory functions que recebem configuração e retornam `BuntimePlugin`.
 
 *Formato*:
 
@@ -880,7 +1105,7 @@ export default function createRateLimiter(config: RateLimitConfig): BuntimePlugi
 }
 ----
 
-*Configuracao*:
+*Configuração*:
 
 [source,jsonc]
 ----
@@ -967,8 +1192,6 @@ export default function createCustomLogger(): BuntimePlugin {
     },
 
     async onRequest(req: Request, app) {
-      const start = performance.now();
-
       addLog("info", "Request received", {
         url: req.url,
         method: req.method,
@@ -979,11 +1202,8 @@ export default function createCustomLogger(): BuntimePlugin {
     },
 
     async onResponse(res: Response, app) {
-      const duration = performance.now();
-
       addLog("info", "Response sent", {
         status: res.status,
-        duration,
         app: app.name,
       });
 
@@ -997,20 +1217,20 @@ export default function createCustomLogger(): BuntimePlugin {
 
 ==== Use Dependencies
 
-Declare dependencias explicitas para garantir ordem de carregamento:
+Declare dependências explícitas para garantir ordem de carregamento:
 
 [source,typescript]
 ----
 export default function createPlugin(): BuntimePlugin {
   return {
     name: "@company/my-plugin",
-    dependencies: ["@buntime/plugin-database"],  // Obrigatorio
+    dependencies: ["@buntime/plugin-database"],  // Obrigatório
     optionalDependencies: ["@buntime/plugin-metrics"],  // Opcional
   };
 }
 ----
 
-==== Registre Servicos
+==== Registre Serviços
 
 Exponha funcionalidades para outros plugins via service registry:
 
@@ -1024,7 +1244,7 @@ async onInit(ctx) {
 
 ==== Use Logger com Contexto
 
-Use o logger fornecido para ter contexto automatico:
+Use o logger fornecido para ter contexto automático:
 
 [source,typescript]
 ----
@@ -1048,7 +1268,7 @@ async onShutdown() {
 
 ==== Public Routes
 
-Declare rotas publicas para evitar overhead de autenticacao:
+Declare rotas públicas para evitar overhead de autenticação:
 
 [source,typescript]
 ----
@@ -1113,7 +1333,7 @@ Verificar ordem de carregamento:
 
 ==== Service Registry
 
-Verificar servicos registrados:
+Verificar serviços registrados:
 
 [source,typescript]
 ----
@@ -1123,11 +1343,98 @@ if (!db) {
 }
 ----
 
-=== Limitacoes e Consideracoes
+=== Utilitários
+
+==== getShortName
+
+Função utilitária para extrair o nome curto de um plugin a partir do nome completo do pacote. Localizada em `runtime/src/utils/plugins.ts`.
+
+*Assinatura*:
+
+[source,typescript]
+----
+function getShortName(pluginName: string): string;
+----
+
+*Exemplos*:
+
+[source,typescript]
+----
+import { getShortName } from "@/utils/plugins";
+
+getShortName("@buntime/plugin-keyval");  // "keyval"
+getShortName("@buntime/keyval");         // "keyval"
+getShortName("@other/plugin-foo");       // "foo"
+getShortName("@company/metrics");        // "metrics"
+----
+
+*Validação de Segurança*:
+
+A função valida o resultado contra ataques de path traversal. Nomes resultantes devem conter apenas caracteres alfanuméricos e hifens (`[a-z0-9-]+`):
+
+[source,typescript]
+----
+// Válidos
+getShortName("@buntime/plugin-keyval");     // "keyval"
+getShortName("@buntime/my-plugin");         // "my-plugin"
+
+// Inválidos (lançam erro)
+getShortName("@malicious/../../../etc");    // Error: invalid characters
+getShortName("@bad/plugin with spaces");    // Error: invalid characters
+----
+
+=== Worker Config Visibility
+
+Workers podem definir uma propriedade `visibility` que controla como aparecem na UI de deployments.
+
+==== Tipos de Visibilidade
+
+[cols="1,2,2"]
+|===
+| Valor | Descrição | Caso de Uso
+
+| `public`
+| Visível e editável na UI (padrão)
+| Aplicações normais gerenciadas via UI
+
+| `protected`
+| Visível mas somente leitura
+| Aplicações que não devem ser editadas acidentalmente
+
+| `internal`
+| Oculto da UI
+| Serviços internos do runtime (authn, shell)
+|===
+
+==== Configuração
+
+*Em buntime.jsonc do app*:
+
+[source,jsonc]
+----
+{
+  "visibility": "internal"
+}
+----
+
+*Exemplo de app interno*:
+
+[source,jsonc]
+----
+// apps/authn-app@latest/buntime.jsonc
+{
+  "entrypoint": "server/index.ts",
+  "visibility": "internal"
+}
+----
+
+*Valor padrão*: Se não especificado, `visibility` é `"public"`.
+
+=== Limitações e Considerações
 
 ==== Circular Dependencies
 
-Dependencias circulares sao detectadas e causam erro:
+Dependências circulares são detectadas e causam erro:
 
 [source]
 ----
@@ -1138,7 +1445,7 @@ Plugin B depends on A
 
 ==== Service Availability
 
-Servicos so estao disponiveis apos o plugin que os registra ser inicializado:
+Serviços só estão disponíveis após o plugin que os registra ser inicializado:
 
 [source,typescript]
 ----
@@ -1146,36 +1453,36 @@ Servicos so estao disponiveis apos o plugin que os registra ser inicializado:
 dependencies: ["plugin-b"]  // Garante que B carrega primeiro
 
 async onInit(ctx) {
-  const service = ctx.getService("service-b");  // Sempre disponivel
+  const service = ctx.getService("service-b");  // Sempre disponível
 }
 ----
 
 ==== Hook Performance
 
-Hooks `onRequest`/`onResponse` sao chamados para cada request. Evite operacoes pesadas:
+Hooks `onRequest`/`onResponse` são chamados para cada request. Evite operações pesadas:
 
 [source,typescript]
 ----
 // Evite
 async onRequest(req) {
-  await heavyDatabaseQuery();  // Adiciona latencia
+  await heavyDatabaseQuery();  // Adiciona latência
 }
 
 // Prefira
 async onRequest(req) {
-  const cached = cache.get(key);  // Operacao rapida
+  const cached = cache.get(key);  // Operação rápida
   if (cached) return cached;
 }
 ----
 
 ==== Public Routes Precedence
 
-Public routes de plugins tem precedencia sobre workers:
+Public routes de plugins têm precedência sobre workers:
 
 [source]
 ----
 Plugin define: /api/health (public)
 Worker define: /api/health
 
-→ Plugin handler e executado, worker nao recebe request
+→ Plugin handler é executado, worker não recebe request
 ----

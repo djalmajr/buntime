@@ -33,14 +33,13 @@ export interface MenuItem {
  * - "none": No sandbox, fragment shares context with shell (default for internal plugins)
  * - "patch": Intercepts History API, prevents URL changes (lightweight)
  * - "iframe": Full isolation via iframe (for untrusted external apps)
- * - "service-worker": Intercepts all requests, injects sandbox script (for external apps needing shared styles)
  */
-export type SandboxStrategy = "none" | "patch" | "iframe" | "service-worker";
+export type SandboxStrategy = "none" | "patch" | "iframe";
 
 /**
  * Fragment sandbox type (excludes "none" - if no sandbox needed, don't define fragment)
  */
-export type FragmentType = "patch" | "iframe" | "service-worker";
+export type FragmentType = "patch" | "iframe";
 
 /**
  * Fragment configuration for plugins that can be embedded in the shell
@@ -50,13 +49,12 @@ export interface FragmentOptions {
    * Sandbox type for isolating the fragment
    * - "patch": Intercepts History API (lightweight, recommended for most cases)
    * - "iframe": Full isolation via iframe (for untrusted external apps)
-   * - "service-worker": Intercepts all requests (for external apps needing shared styles)
    */
   type: FragmentType;
 
   /**
-   * External origin for iframe/service-worker types
-   * Required when type is "iframe" or "service-worker"
+   * External origin for iframe type
+   * Required when type is "iframe"
    * @example "https://legacy-app.company.com"
    */
   origin?: string;
@@ -136,6 +134,13 @@ export interface HomepageConfig {
   app: string;
 
   /**
+   * Base path to inject for SPA routing
+   * If omitted, redirects to app path instead of serving inline
+   * @example "/" for serving at root
+   */
+  base?: string;
+
+  /**
    * Enable app-shell mode
    * When true, the worker intercepts navigation to plugin base paths
    * and renders fragments within its layout
@@ -148,6 +153,20 @@ export interface HomepageConfig {
  * Buntime global configuration (buntime.jsonc)
  */
 export interface BuntimeConfig {
+  /**
+   * Global body size limits for request payloads
+   * Workers can configure their own limit up to max
+   *
+   * @example
+   * { default: "10mb", max: "100mb" }
+   */
+  bodySize?: {
+    /** Default body size limit for all workers */
+    default?: number | string;
+    /** Maximum allowed body size (ceiling for per-worker config) */
+    max?: number | string;
+  };
+
   /**
    * Homepage configuration
    *
@@ -438,14 +457,6 @@ export interface BuntimePlugin {
   base: string;
 
   /**
-   * Routes that bypass this plugin's onRequest hook
-   * These are absolute paths (not relative to base)
-   * Supports wildcards: * (single segment), ** (multiple segments)
-   * @example { ALL: ["/health"], GET: ["/api/public/**"] }
-   */
-  publicRoutes?: PublicRoutesConfig;
-
-  /**
    * Hono routes for the plugin API
    * Mounted at /{base}/* (e.g., "/keyval/api/*")
    */
@@ -480,13 +491,6 @@ export interface BuntimePlugin {
    * fragment: {
    *   type: "iframe",
    *   origin: "https://external-app.com",
-   * }
-   *
-   * @example
-   * // Service worker for external apps needing shared styles
-   * fragment: {
-   *   type: "service-worker",
-   *   origin: "https://legacy-app.com",
    * }
    */
   fragment?: FragmentOptions;

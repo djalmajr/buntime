@@ -1,4 +1,10 @@
 == Logging
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
 
 O sistema de logging do Buntime é centralizado no pacote `@buntime/shared/logger`.
 
@@ -162,8 +168,8 @@ O logger só emite logs com prioridade >= nível configurado:
 const logger = createLogger({ level: "warn" });
 logger.debug("ignored");  // não aparece
 logger.info("ignored");   // não aparece
-logger.warn("appears");   // ✓ aparece
-logger.error("appears");  // ✓ aparece
+logger.warn("appears");   // aparece
+logger.error("appears");  // aparece
 ----
 
 ==== Variáveis de Ambiente
@@ -260,9 +266,9 @@ logger.info("User created", { userId: 123, email: "user@example.com" });
 
 [source,typescript]
 ----
-// ❌ Ruim
+// ERRADO
 console.log("User created:", user);
 
-// ✓ Bom
+// CORRETO
 logger.info("User created", { userId: user.id });
 ----

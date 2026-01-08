@@ -3,8 +3,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useProjectDoc, useProjectOverview } from "~/hooks/use-projects";
 import { ReleaseTimeline } from "./release-timeline";
-import { Skeleton } from "./ui/skeleton";
 import { TocAside } from "./toc-aside";
+import { Skeleton } from "./ui/skeleton";
 
 interface DocViewerProps {
   file: string | null;
@@ -97,9 +97,7 @@ export function DocViewer({ file, project }: DocViewerProps) {
   // Build paths for link fixing (both need basepath since we use window.location for navigation)
   const basepath = router.basepath === "/" ? "" : router.basepath;
   const projectPath = `${basepath}/${project}`;
-  const currentPath = file === null
-    ? projectPath
-    : `${basepath}/${project}/${file}`;
+  const currentPath = file === null ? projectPath : `${basepath}/${project}/${file}`;
 
   // Process HTML to fix anchor links and doc links
   const processedHtml = useMemo(() => {
@@ -161,9 +159,7 @@ export function DocViewer({ file, project }: DocViewerProps) {
 
     preElements.forEach((pre, index) => {
       const content = pre.textContent?.trim() || "";
-      const isMermaid = mermaidKeywords.some((keyword) =>
-        content.startsWith(keyword),
-      );
+      const isMermaid = mermaidKeywords.some((keyword) => content.startsWith(keyword));
 
       if (isMermaid) {
         hasMermaid = true;
@@ -195,13 +191,9 @@ export function DocViewer({ file, project }: DocViewerProps) {
     const errorMessage = query$.data?.error ?? query$.error?.message ?? "Unknown error";
     return (
       <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
-        <h2 className="text-lg font-semibold text-destructive mb-2">
-          {t("docLoadError")}
-        </h2>
+        <h2 className="text-lg font-semibold text-destructive mb-2">{t("docLoadError")}</h2>
         <p className="text-destructive/80">{errorMessage}</p>
-        <p className="text-sm text-destructive/60 mt-4">
-          {t("docLoadErrorHint")}
-        </p>
+        <p className="text-sm text-destructive/60 mt-4">{t("docLoadErrorHint")}</p>
       </div>
     );
   }
@@ -210,10 +202,7 @@ export function DocViewer({ file, project }: DocViewerProps) {
     <div className="flex gap-8" ref={contentRef}>
       <article className="flex-1 min-w-0 max-w-4xl">
         {processedHtml && (
-          <div
-            className="adoc-content"
-            dangerouslySetInnerHTML={{ __html: processedHtml }}
-          />
+          <div className="adoc-content" dangerouslySetInnerHTML={{ __html: processedHtml }} />
         )}
         {timelineFolder && (
           <div className="mt-8">
@@ -222,10 +211,7 @@ export function DocViewer({ file, project }: DocViewerProps) {
         )}
       </article>
       {processedHtml && !timelineFolder && (
-        <TocAside
-          html={processedHtml}
-          scrollContainerId="doc-scroll-container"
-        />
+        <TocAside html={processedHtml} scrollContainerId="doc-scroll-container" />
       )}
     </div>
   );

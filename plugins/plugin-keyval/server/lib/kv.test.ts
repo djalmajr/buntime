@@ -302,30 +302,161 @@ describe("Kv", () => {
       await tempAdapter.close();
     });
 
-    it("should handle cleanup errors gracefully", async () => {
-      const errorLogs: string[] = [];
+    it("should not throw when stopCleanup is called multiple times", async () => {
+      const tempAdapter = createTestAdapter();
+      await initSchema(tempAdapter);
+      const tempKv = new Kv(tempAdapter);
+
+      // Close multiple times should not throw
+      tempKv.close();
+      tempKv.close();
+
+      await tempAdapter.close();
+    });
+  });
+
+  describe("count", () => {
+    it("should count all entries when prefix is empty", async () => {
+      await kv.set(["a"], 1);
+      await kv.set(["b"], 2);
+      await kv.set(["c"], 3);
+
+      const count = await kv.count([]);
+      expect(count).toBe(3);
+    });
+
+    it("should count entries by prefix", async () => {
+      await kv.set(["users", 1], { name: "Alice" });
+      await kv.set(["users", 2], { name: "Bob" });
+      await kv.set(["posts", 1], { title: "Post" });
+
+      const usersCount = await kv.count(["users"]);
+      expect(usersCount).toBe(2);
+
+      const postsCount = await kv.count(["posts"]);
+      expect(postsCount).toBe(1);
+    });
+
+    it("should return 0 for non-existent prefix", async () => {
+      const count = await kv.count(["nonexistent"]);
+      expect(count).toBe(0);
+    });
+
+    it("should not count expired entries", async () => {
+      await kv.set(["temp", 1], "val1", { expiresIn: 100 });
+      await kv.set(["temp", 2], "val2");
+
+      // Wait for first entry to expire
+      await new Promise((r) => setTimeout(r, 200));
+
+      const count = await kv.count(["temp"]);
+      expect(count).toBe(1);
+    });
+
+    it("should record metrics for count operation", async () => {
+      await kv.set(["metric-count"], { value: 1 });
+      await kv.count(["metric-count"]);
+
+      const metrics = kv.metrics.toJSON() as {
+        operations: Record<string, { count: number }>;
+      };
+      expect(metrics.operations.count?.count).toBeGreaterThan(0);
+    });
+  });
+
+  describe("list with empty prefix", () => {
+    it("should list all entries when prefix is empty", async () => {
+      await kv.set(["x"], 1);
+      await kv.set(["y"], 2);
+      await kv.set(["z"], 3);
+
+      const entries = [];
+      for await (const entry of kv.list([])) {
+        entries.push(entry);
+      }
+
+      expect(entries.length).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  describe("count with prefix", () => {
+    it("should count entries correctly", async () => {
+      await kv.set(["count-test", 1], { value: 1 });
+      await kv.set(["count-test", 2], { value: 2 });
+      await kv.set(["count-test", 3], { value: 3 });
+
+      const count = await kv.count(["count-test"]);
+      expect(count).toBe(3);
+    });
+  });
+
+  describe("cleanup error handling", () => {
+    it("should log cleanup error and record metrics when adapter fails", async () => {
+      const errorLogs: Array<{ message: string; context?: unknown }> = [];
       const mockLogger = {
         debug: () => {},
-        error: (msg: string) => errorLogs.push(msg),
+        error: (msg: string, ctx?: unknown) => errorLogs.push({ message: msg, context: ctx }),
+        info: () => {},
+        warn: () => {},
+      };
+
+      // Create a kv instance with the mock logger and short cleanup interval
+      const tempAdapter = createTestAdapter();
+      await initSchema(tempAdapter);
+
+      const kvWithLogger = new Kv(tempAdapter, {
+        cleanupIntervalMs: 50, // Very short interval for testing
+        logger: mockLogger,
+      });
+
+      // Close the underlying adapter to cause cleanup to fail
+      await tempAdapter.close();
+
+      // Wait for the cleanup interval to trigger and fail
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Verify error was logged
+      expect(errorLogs.length).toBeGreaterThan(0);
+      expect(errorLogs[0].message).toBe("Cleanup failed");
+
+      // Verify metrics recorded the error
+      const metricsJson = kvWithLogger.metrics.toJSON() as {
+        operations: Record<string, { count: number; errors: number }>;
+      };
+      expect(metricsJson.operations.cleanup).toBeDefined();
+      expect(metricsJson.operations.cleanup.errors).toBeGreaterThan(0);
+
+      // Clean up
+      kvWithLogger.close();
+    });
+
+    it("should handle adapter errors during cleanup gracefully", async () => {
+      const mockLogger = {
+        debug: () => {},
+        error: () => {},
         info: () => {},
         warn: () => {},
       };
 
       const tempAdapter = createTestAdapter();
       await initSchema(tempAdapter);
+      const kvWithLogger = new Kv(tempAdapter, { logger: mockLogger });
 
-      // Drop the table to cause cleanup errors
-      await tempAdapter.execute("DROP TABLE kv_entries");
+      // Just verify the cleanup is started and can be stopped
+      kvWithLogger.close();
+      await tempAdapter.close();
 
-      const tempKv = new Kv(tempAdapter, { logger: mockLogger });
+      // Verify logger is set correctly
+      expect(kvWithLogger.getLogger()).toBe(mockLogger);
+    });
 
-      // Wait for cleanup to run and fail (cleanup runs every 60s, but we can trigger manually)
-      // Since cleanup is internal, we just verify the kv works despite missing table
-      try {
-        await tempKv.get(["test"]);
-      } catch {
-        // Expected to fail since table is dropped
-      }
+    it("should use default cleanup interval when not specified", async () => {
+      const tempAdapter = createTestAdapter();
+      await initSchema(tempAdapter);
+      const tempKv = new Kv(tempAdapter);
+
+      // Just verify it starts without error
+      expect(tempKv).toBeDefined();
 
       tempKv.close();
       await tempAdapter.close();

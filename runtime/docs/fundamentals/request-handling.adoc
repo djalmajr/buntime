@@ -1,0 +1,298 @@
+== Request Handling
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+O runtime fornece utilitários para manipulação de requests, serviço de arquivos estáticos e detecção de entrypoints.
+
+=== Utilitários de Request
+
+==== cloneRequestBody
+
+Clona o body de uma request com limite de tamanho para prevenção de ataques DoS.
+
+[source,typescript]
+----
+import { cloneRequestBody, BodyTooLargeError } from "@/utils/request";
+
+try {
+  const body = await cloneRequestBody(req, maxSizeBytes);
+  // body: ArrayBuffer | null
+} catch (error) {
+  if (error instanceof BodyTooLargeError) {
+    return new Response("Payload Too Large", { status: 413 });
+  }
+}
+----
+
+Comportamento:
+
+[cols="1,2"]
+|===
+| Cenário | Ação
+
+| Request sem body
+| Retorna `null`
+
+| `Content-Length` inválido ou negativo
+| Lança `BodyTooLargeError`
+
+| `Content-Length` excede limite
+| Lança `BodyTooLargeError` (fast path)
+
+| Body excede limite (chunked encoding)
+| Lê body completo, verifica tamanho, lança se exceder
+|===
+
+==== rewriteUrl
+
+Remove base path de URL preservando query string.
+
+[source,typescript]
+----
+import { rewriteUrl } from "@/utils/request";
+
+const url = new URL("http://localhost:8000/api/keyval/keys?prefix=user");
+const rewritten = rewriteUrl(url, "/api/keyval");
+// rewritten.pathname = "/keys"
+// rewritten.search = "?prefix=user"
+----
+
+Casos especiais:
+
+[cols="2,2,2"]
+|===
+| Cenário | Entrada | Resultado
+
+| basePath vazio
+| `rewriteUrl(url, "")`
+| Retorna pathname original
+
+| pathname igual ao basePath
+| `rewriteUrl("/api/keyval", "/api/keyval")`
+| Retorna `"/"`
+
+| pathname não inicia com basePath
+| `rewriteUrl("/other/path", "/api/keyval")`
+| Comportamento indefinido (slice produz resultado incorreto)
+|===
+
+WARNING: A função assume que o pathname inicia com o basePath fornecido. Se essa condição não for satisfeita, o slice produzirá resultados inesperados. Valide o prefixo antes de chamar esta função.
+
+==== createWorkerRequest
+
+Cria uma nova request para worker com headers apropriados.
+
+[source,typescript]
+----
+import { createWorkerRequest } from "@/utils/request";
+
+const workerReq = createWorkerRequest({
+  originalRequest: req,
+  targetPath: "/api/users",
+  base: "/my-app",
+  fragmentRoute: "/dashboard",  // opcional
+  notFound: false,              // opcional
+});
+
+// Headers injetados:
+// x-base: /my-app
+// x-fragment-route: /dashboard (se fornecido)
+// x-not-found: true (se notFound = true)
+----
+
+=== Serviço de Arquivos Estáticos
+
+O `serveStatic` serve arquivos estáticos com fallback para SPA routing.
+
+[source,typescript]
+----
+import { serveStatic } from "@/utils/serve-static";
+
+const response = await serveStatic(
+  "/apps/my-app/public/index.html",  // entrypoint
+  "/assets/style.css"                 // pathname relativo
+);
+----
+
+Comportamento:
+
+[mermaid]
+----
+flowchart TD
+    A[serveStatic] --> B[Resolve caminho]
+    B --> C{Path dentro de baseDir?}
+    C -->|Não| D[403 Forbidden]
+    C -->|Sim| E{Arquivo existe?}
+    E -->|Sim| F[Response com arquivo]
+    E -->|Não| G{Entrypoint existe?}
+    G -->|Sim| H[Response com index.html]
+    G -->|Não| I[404 Not Found]
+----
+
+Proteção contra path traversal:
+
+[source,typescript]
+----
+// Atacante tenta: /../../etc/passwd
+const resolved = resolve(baseDir, "../../etc/passwd");
+// resolved = "/etc/passwd"
+
+// Validação: resolved.startsWith(baseDir)?
+// "/etc/passwd".startsWith("/apps/my-app") = false
+// → 403 Forbidden
+----
+
+=== Detecção de Entrypoint
+
+O `getEntrypoint` detecta o arquivo de entrada de uma aplicação worker.
+
+==== Ordem de Prioridade
+
+1. Entrypoint configurado em `buntime.jsonc`
+2. Auto-discovery: `index.html` → `index.ts` → `index.js` → `index.mjs`
+
+[source,typescript]
+----
+import { getEntrypoint } from "@/utils/get-entrypoint";
+
+const { path, static: isStatic } = await getEntrypoint(appDir, configEntry);
+// path: "index.html" | "index.ts" | ...
+// static: true (HTML) | false (JS/TS)
+----
+
+Parâmetros:
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `appDir`
+| `string`
+| Diretório raiz da aplicação (caminho absoluto)
+
+| `entry`
+| `string` (opcional)
+| Caminho relativo ao `appDir`. Se fornecido, a função usa `join(appDir, entry)` para resolver o caminho completo. Se omitido, executa auto-discovery.
+|===
+
+==== Tipos de Entrypoint
+
+[cols="1,1,2"]
+|===
+| Tipo | static | Comportamento
+
+| `index.html`
+| `true`
+| Servido via `serveStatic`, SPA routing
+
+| `index.ts/js/mjs`
+| `false`
+| Carregado como worker, executa `fetch()`
+|===
+
+==== Exemplo de Configuração
+
+[source,jsonc]
+----
+// buntime.jsonc
+{
+  "entrypoint": "server/index.ts"  // Override auto-discovery
+}
+----
+
+Se não configurado, o runtime detecta automaticamente:
+
+[source]
+----
+my-app/
+  index.html    ← Detectado (prioridade 1)
+  index.ts      ← Ignorado se index.html existe
+
+other-app/
+  index.ts      ← Detectado (prioridade 2)
+  server.ts     ← Ignorado
+----
+
+=== Limites de Tamanho
+
+O runtime aplica limites de tamanho em request bodies para prevenir ataques de negação de serviço.
+
+==== Configuração Global
+
+O limite de tamanho de body é configurado no `buntime.jsonc` principal do runtime:
+
+[source,jsonc]
+----
+// buntime.jsonc (configuração principal do runtime)
+{
+  "bodySize": {
+    "default": "10mb",  // Limite padrão aplicado a workers sem config
+    "max": "100mb"      // Teto máximo permitido (ceiling)
+  }
+}
+----
+
+Valores padrão:
+
+[cols="1,1,2"]
+|===
+| Propriedade | Valor Padrão | Descrição
+
+| `default`
+| 10MB (10485760 bytes)
+| Limite aplicado quando worker não especifica
+
+| `max`
+| 100MB (104857600 bytes)
+| Teto máximo (ceiling) que não pode ser ultrapassado
+|===
+
+==== Configuração por Worker
+
+Workers podem definir seu próprio limite de body via `maxBodySize` no `buntime.jsonc` do app:
+
+[source,jsonc]
+----
+// apps/my-app/buntime.jsonc
+{
+  "maxBodySize": "50mb"  // Limite específico para este worker
+}
+----
+
+O valor é validado contra o `max` global:
+
+* Se `maxBodySize > max`: warning e utiliza o valor `max`
+* Se `maxBodySize` não definido: utiliza o `default` global
+* Suporta formato string ("10mb", "1gb") ou número (bytes)
+
+==== Fluxo de Validação
+
+[mermaid]
+----
+flowchart TD
+    A[Request com body] --> B{Content-Length válido?}
+    B -->|Inválido/negativo| C[413 Payload Too Large]
+    B -->|Válido| D{Excede limite?}
+    D -->|Sim| C
+    D -->|Não| E[Lê body completo]
+    E --> F{Tamanho real excede limite?}
+    F -->|Sim| C
+    F -->|Não| G[Processa request]
+----
+
+==== Resposta de Erro
+
+[source,http]
+----
+HTTP/1.1 413 Payload Too Large
+Content-Type: application/json
+
+{
+  "error": "Request body too large: 52428800 bytes (max: 10485760)",
+  "code": "BODY_TOO_LARGE"
+}
+----

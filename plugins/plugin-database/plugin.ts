@@ -1,5 +1,13 @@
 import type { BuntimePlugin, PluginContext, PluginLogger } from "@buntime/shared/types";
-import { api, setService } from "./server/api";
+import type { Server } from "bun";
+import {
+  api,
+  handleWebSocketRequest,
+  hranaWebSocketHandler,
+  setServer,
+  setService,
+} from "./server/api";
+import type { HranaWebSocketData } from "./server/hrana/websocket";
 import { DatabaseServiceImpl } from "./server/service";
 import type { AdapterConfig, DatabasePluginConfig, DatabaseService } from "./server/types";
 
@@ -106,10 +114,12 @@ function processConfig(config: DatabasePluginConfig, log: PluginLogger): Databas
  * }
  * ```
  */
-export default function databasePlugin(config: DatabasePluginConfig): BuntimePlugin {
+export default function databasePlugin(config: DatabasePluginConfig = {}): BuntimePlugin {
+  const base = config.base ?? "/database";
+
   return {
     name: "@buntime/plugin-database",
-    base: config.base ?? "/database",
+    base,
 
     // API routes run on main thread
     routes: api,
@@ -133,6 +143,9 @@ export default function databasePlugin(config: DatabasePluginConfig): BuntimePlu
       },
     ],
 
+    // WebSocket handler for HRANA protocol
+    websocket: hranaWebSocketHandler as BuntimePlugin["websocket"],
+
     async onInit(ctx: PluginContext) {
       logger = ctx.logger;
 
@@ -145,13 +158,28 @@ export default function databasePlugin(config: DatabasePluginConfig): BuntimePlu
         logger,
       });
 
-      // Set service for API routes
-      setService(service, logger);
+      // Set service for API routes (with base path for WebSocket)
+      setService(service, logger, base);
 
       // Register service for other plugins
       ctx.registerService<DatabaseService>("database", service);
 
       logger.info("Database plugin initialized");
+    },
+
+    onServerStart(server) {
+      // Set server for WebSocket upgrades
+      setServer(server as Server<HranaWebSocketData>);
+      logger?.debug("Database plugin server configured for HRANA WebSocket");
+    },
+
+    async onRequest(req) {
+      // Handle WebSocket upgrade requests for HRANA
+      const result = handleWebSocketRequest(req);
+      if (result) {
+        return result;
+      }
+      return undefined;
     },
 
     async onShutdown() {

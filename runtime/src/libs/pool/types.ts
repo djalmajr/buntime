@@ -1,7 +1,7 @@
-export type WorkerNotification = { type: "IDLE" } | { type: "TERMINATE" };
+import type { MessageTypes } from "@/constants";
 
 export interface WorkerRequest {
-  type: "REQUEST";
+  type: typeof MessageTypes.REQUEST;
   reqId: string;
   req: {
     body: ArrayBuffer;
@@ -11,13 +11,11 @@ export interface WorkerRequest {
   };
 }
 
-export type WorkerMessage = WorkerNotification | WorkerRequest;
-
 export type WorkerResponse =
-  | { type: "READY" }
-  | { type: "ERROR"; reqId: string; error: string }
+  | { type: typeof MessageTypes.READY }
+  | { type: typeof MessageTypes.ERROR; reqId: string; error: string; stack?: string }
   | {
-      type: "RESPONSE";
+      type: typeof MessageTypes.RESPONSE;
       reqId: string;
       res: {
         body: ArrayBuffer;

@@ -7,70 +7,60 @@ import type {
   WorkerInstance,
 } from "@buntime/shared/types";
 import type { Server, ServerWebSocket } from "bun";
-import { getPublicRoutesForMethod } from "@/utils/get-public-routes";
-import { globArrayToRegex } from "@/utils/glob-to-regex";
 
 /**
  * Registry for managing loaded plugins
  */
 export class PluginRegistry {
-  private plugins: Map<string, BuntimePlugin> = new Map();
-  private pluginDirs: Map<string, string> = new Map(); // pluginName -> directory
-  private order: string[] = [];
+  private logger = getLogger().child("PluginRegistry");
   private mountedPaths: Map<string, string> = new Map(); // path -> pluginName
+  private order: string[] = [];
+  private pluginDirs: Map<string, string> = new Map(); // pluginName -> directory
+  private plugins: Map<string, BuntimePlugin> = new Map();
   private services: Map<string, unknown> = new Map(); // serviceName -> service
 
   /**
-   * Register a service for other plugins to use
+   * Get number of registered plugins
    */
-  registerService<T>(name: string, service: T): void {
-    if (this.services.has(name)) {
-      console.warn(`[PluginRegistry] Service "${name}" is already registered, overwriting`);
-    }
-    this.services.set(name, service);
+  get size(): number {
+    return this.plugins.size;
   }
 
   /**
-   * Get a service registered by another plugin
+   * Collect all plugin server.routes and wrap with auth check
+   * Returns routes object for Bun.serve({ routes })
    */
-  getService<T>(name: string): T | undefined {
-    return this.services.get(name) as T | undefined;
-  }
+  collectServerRoutes(): Record<string, RouteHandler> {
+    const routes: Record<string, RouteHandler> = {};
 
-  /**
-   * Register a plugin with its directory
-   * @param plugin The plugin to register
-   * @param dir The plugin's directory (for spawning as worker)
-   */
-  register(plugin: BuntimePlugin, dir?: string): void {
-    if (this.plugins.has(plugin.name)) {
-      throw new Error(`Plugin "${plugin.name}" is already registered`);
-    }
+    for (const plugin of this.getAll()) {
+      if (!plugin.server?.routes) continue;
 
-    // Validate dependencies
-    if (plugin.dependencies) {
-      for (const dep of plugin.dependencies) {
-        if (!this.plugins.has(dep)) {
-          throw new Error(
-            `Plugin "${plugin.name}" requires "${dep}" which is not loaded. ` +
-              `Make sure "${dep}" is listed before "${plugin.name}" in the plugins array.`,
-          );
-        }
+      for (const [path, handler] of Object.entries(plugin.server.routes)) {
+        // Wrap handler with auth check via onRequest hooks
+        // Security: If auth check fails/throws, deny access by default
+        routes[path] = async (req: Request): Promise<Response> => {
+          try {
+            const result = await this.runOnRequest(req);
+            if (result instanceof Response) {
+              return result; // Auth failed or plugin responded
+            }
+
+            // All plugins passed, call original handler
+            if (typeof handler === "function") {
+              return handler(result) as Promise<Response>;
+            }
+            return handler as Response;
+          } catch (error) {
+            // Security: Auth check failure = deny access
+            this.logger.error(`Auth check failed for ${path}`, { error });
+            return new Response("Unauthorized", { status: 401 });
+          }
+        };
       }
     }
 
-    this.plugins.set(plugin.name, plugin);
-    if (dir) {
-      this.pluginDirs.set(plugin.name, dir);
-    }
-    this.order.push(plugin.name);
-  }
-
-  /**
-   * Get the directory of a plugin
-   */
-  getPluginDir(name: string): string | undefined {
-    return this.pluginDirs.get(name);
+    return routes;
   }
 
   /**
@@ -84,165 +74,48 @@ export class PluginRegistry {
    * Get all plugins in registration order (topologically sorted by dependencies)
    */
   getAll(): BuntimePlugin[] {
-    return this.order.map((name) => this.plugins.get(name)!);
+    // Safe: order only contains names that were registered via register()
+    return this.order.map((name) => this.plugins.get(name)).filter(Boolean) as BuntimePlugin[];
   }
 
   /**
-   * Check if a plugin is registered
+   * Get all mounted plugin paths
    */
-  has(name: string): boolean {
-    return this.plugins.has(name);
+  getMountedPaths(): Map<string, string> {
+    return this.mountedPaths;
   }
 
   /**
-   * Get number of registered plugins
+   * Get all plugin base paths for app-shell routing
+   * Used to determine which paths should be intercepted by the shell
    */
-  get size(): number {
-    return this.plugins.size;
-  }
-
-  /**
-   * Run onRequest hooks in order
-   * Returns modified request or response (for short-circuit)
-   *
-   * @param req - The incoming request
-   * @param app - Optional app info (includes config.publicRoutes)
-   */
-  async runOnRequest(req: Request, app?: AppInfo): Promise<Request | Response> {
-    let currentReq = req;
-    const url = new URL(req.url);
-
+  getPluginBasePaths(): Set<string> {
+    const bases = new Set<string>();
     for (const plugin of this.getAll()) {
-      if (!plugin.onRequest) continue;
-
-      // Check if this route is public for this plugin
-      if (this.isPublicRoute(plugin, url.pathname, req.method, app)) {
-        continue; // Skip this plugin's onRequest
-      }
-
-      try {
-        const result = await plugin.onRequest(currentReq, app);
-
-        if (result instanceof Response) {
-          // Short-circuit: plugin returned a response
-          return result;
-        }
-
-        if (result instanceof Request) {
-          // Plugin modified the request
-          currentReq = result;
-        }
-      } catch (error) {
-        console.error(`[Plugin:${plugin.name}] onRequest error:`, error);
-        return new Response(
-          JSON.stringify({
-            error: `Plugin error: ${error instanceof Error ? error.message : String(error)}`,
-          }),
-          { status: 500, headers: { "Content-Type": "application/json" } },
-        );
-      }
+      bases.add(plugin.base);
     }
-
-    return currentReq;
+    return bases;
   }
 
   /**
-   * Check if a route is public for a specific plugin
-   * Checks both plugin's publicRoutes and worker's publicRoutes
+   * Get the directory of a plugin
    */
-  private isPublicRoute(
-    plugin: BuntimePlugin,
-    pathname: string,
-    method: string,
-    app?: AppInfo,
-  ): boolean {
-    // 1. Check plugin's own publicRoutes (absolute paths)
-    const pluginRoutes = getPublicRoutesForMethod(plugin.publicRoutes, method);
-    if (pluginRoutes.length > 0) {
-      const regex = globArrayToRegex(pluginRoutes);
-      if (regex?.test(pathname)) return true;
-    }
-
-    // 2. Check worker's publicRoutes (relative to app basePath)
-    if (app?.config?.publicRoutes && app.dir) {
-      const workerRoutes = getPublicRoutesForMethod(app.config.publicRoutes, method);
-      if (workerRoutes.length > 0) {
-        // Get app base path from name (e.g., "todos-kv" → "/todos-kv")
-        const basePath = `/${app.name}`;
-        // Prefix worker routes with app basePath: /api/health → /todos-kv/api/health
-        const absoluteRoutes = workerRoutes.map((route) => `${basePath}${route}`);
-        const regex = globArrayToRegex(absoluteRoutes);
-        if (regex?.test(pathname)) return true;
-      }
-    }
-
-    return false;
+  getPluginDir(name: string): string | undefined {
+    return this.pluginDirs.get(name);
   }
 
   /**
-   * Run onResponse hooks in order
-   * Returns modified response
+   * Get all plugins that have server.fetch handlers
    */
-  async runOnResponse(res: Response, app: AppInfo): Promise<Response> {
-    let currentRes = res;
-
-    for (const plugin of this.getAll()) {
-      if (!plugin.onResponse) continue;
-
-      try {
-        currentRes = await plugin.onResponse(currentRes, app);
-      } catch (error) {
-        console.error(`[Plugin:${plugin.name}] onResponse error:`, error);
-        throw error;
-      }
-    }
-
-    return currentRes;
+  getPluginsWithServerFetch(): BuntimePlugin[] {
+    return this.getAll().filter((p) => p.server?.fetch);
   }
 
   /**
-   * Run onWorkerSpawn hooks
+   * Get a service registered by another plugin
    */
-  runOnWorkerSpawn(worker: WorkerInstance, app: AppInfo): void {
-    for (const plugin of this.getAll()) {
-      if (!plugin.onWorkerSpawn) continue;
-
-      try {
-        plugin.onWorkerSpawn(worker, app);
-      } catch (error) {
-        console.error(`[Plugin:${plugin.name}] onWorkerSpawn error:`, error);
-      }
-    }
-  }
-
-  /**
-   * Run onWorkerTerminate hooks
-   */
-  runOnWorkerTerminate(worker: WorkerInstance, app: AppInfo): void {
-    for (const plugin of this.getAll()) {
-      if (!plugin.onWorkerTerminate) continue;
-
-      try {
-        plugin.onWorkerTerminate(worker, app);
-      } catch (error) {
-        console.error(`[Plugin:${plugin.name}] onWorkerTerminate error:`, error);
-      }
-    }
-  }
-
-  /**
-   * Run onServerStart hooks for all plugins
-   */
-  runOnServerStart(server: Server<unknown>): void {
-    for (const plugin of this.getAll()) {
-      if (!plugin.onServerStart) continue;
-
-      try {
-        plugin.onServerStart(server);
-      } catch (error) {
-        console.error(`[Plugin:${plugin.name}] onServerStart error:`, error);
-      }
-    }
+  getService<T>(name: string): T | undefined {
+    return this.services.get(name) as T | undefined;
   }
 
   /**
@@ -283,6 +156,52 @@ export class PluginRegistry {
   }
 
   /**
+   * Check if a plugin is registered
+   */
+  has(name: string): boolean {
+    return this.plugins.has(name);
+  }
+
+  /**
+   * Register a plugin with its directory
+   * @param plugin The plugin to register
+   * @param dir The plugin's directory (for spawning as worker)
+   */
+  register(plugin: BuntimePlugin, dir?: string): void {
+    if (this.plugins.has(plugin.name)) {
+      throw new Error(`Plugin "${plugin.name}" is already registered`);
+    }
+
+    // Validate dependencies
+    if (plugin.dependencies) {
+      for (const dep of plugin.dependencies) {
+        if (!this.plugins.has(dep)) {
+          throw new Error(
+            `Plugin "${plugin.name}" requires "${dep}" which is not loaded. ` +
+              `Make sure "${dep}" is listed before "${plugin.name}" in the plugins array.`,
+          );
+        }
+      }
+    }
+
+    this.plugins.set(plugin.name, plugin);
+    if (dir) {
+      this.pluginDirs.set(plugin.name, dir);
+    }
+    this.order.push(plugin.name);
+  }
+
+  /**
+   * Register a service for other plugins to use
+   */
+  registerService<T>(name: string, service: T): void {
+    if (this.services.has(name)) {
+      this.logger.warn(`Service "${name}" is being overwritten`);
+    }
+    this.services.set(name, service);
+  }
+
+  /**
    * Resolve a plugin app by pathname
    * Returns the plugin directory and base path if the plugin is a worker app
    *
@@ -291,9 +210,7 @@ export class PluginRegistry {
    * - Fragment UI (if has fragment): /{base}/
    * - Standalone access: /{base}/ (without shell)
    */
-  resolvePluginApp(
-    pathname: string,
-  ): { dir: string; basePath: string; config?: Record<string, unknown> } | undefined {
+  resolvePluginApp(pathname: string): { dir: string; basePath: string } | undefined {
     // Check each plugin with a directory (directory = is a worker app)
     for (const plugin of this.getAll()) {
       const dir = this.pluginDirs.get(plugin.name);
@@ -309,25 +226,76 @@ export class PluginRegistry {
   }
 
   /**
-   * Get all paths reserved by plugin apps (plugins with directory)
+   * Run onRequest hooks in order
+   * Returns modified request or response (for short-circuit)
+   *
+   * @param req - The incoming request
+   * @param app - Optional app info (includes config.publicRoutes)
    */
-  getReservedPaths(): Map<string, string> {
-    const paths = new Map<string, string>();
+  async runOnRequest(req: Request, app?: AppInfo): Promise<Request | Response> {
+    let currentReq = req;
 
     for (const plugin of this.getAll()) {
-      const dir = this.pluginDirs.get(plugin.name);
-      if (!dir) continue;
+      if (!plugin.onRequest) continue;
 
-      paths.set(plugin.base, plugin.name);
+      try {
+        const result = await plugin.onRequest(currentReq, app);
+
+        if (result instanceof Response) {
+          return result; // Short-circuit: plugin returned a response
+        }
+
+        if (result instanceof Request) {
+          currentReq = result; // Plugin modified the request
+        }
+      } catch (error) {
+        this.logger.error(`[${plugin.name}] onRequest error`, { error });
+      }
     }
 
-    return paths;
+    return currentReq;
+  }
+
+  /**
+   * Run onResponse hooks in order
+   * Returns modified response
+   */
+  async runOnResponse(res: Response, app: AppInfo): Promise<Response> {
+    let currentRes = res;
+
+    for (const plugin of this.getAll()) {
+      if (!plugin.onResponse) continue;
+
+      try {
+        currentRes = await plugin.onResponse(currentRes, app);
+      } catch (error) {
+        this.logger.error(`[${plugin.name}] onResponse error`, { error });
+        throw error;
+      }
+    }
+
+    return currentRes;
+  }
+
+  /**
+   * Run onServerStart hooks for all plugins
+   */
+  runOnServerStart(server: Server<unknown>): void {
+    for (const plugin of this.getAll()) {
+      if (!plugin.onServerStart) continue;
+
+      try {
+        plugin.onServerStart(server);
+      } catch (error) {
+        this.logger.error(`[${plugin.name}] onServerStart error`, { error });
+      }
+    }
   }
 
   /**
    * Run onShutdown hooks for all plugins
    */
-  async shutdown(): Promise<void> {
+  async runOnShutdown(): Promise<void> {
     // Run in reverse order (last loaded = first shutdown)
     const plugins = this.getAll().reverse();
 
@@ -337,7 +305,37 @@ export class PluginRegistry {
       try {
         await plugin.onShutdown();
       } catch (error) {
-        console.error(`[Plugin:${plugin.name}] onShutdown error:`, error);
+        this.logger.error(`[${plugin.name}] onShutdown error`, { error });
+      }
+    }
+  }
+
+  /**
+   * Run onWorkerSpawn hooks
+   */
+  runOnWorkerSpawn(worker: WorkerInstance, app: AppInfo): void {
+    for (const plugin of this.getAll()) {
+      if (!plugin.onWorkerSpawn) continue;
+
+      try {
+        plugin.onWorkerSpawn(worker, app);
+      } catch (error) {
+        this.logger.error(`[${plugin.name}] onWorkerSpawn error`, { error });
+      }
+    }
+  }
+
+  /**
+   * Run onWorkerTerminate hooks
+   */
+  runOnWorkerTerminate(worker: WorkerInstance, app: AppInfo): void {
+    for (const plugin of this.getAll()) {
+      if (!plugin.onWorkerTerminate) continue;
+
+      try {
+        plugin.onWorkerTerminate(worker, app);
+      } catch (error) {
+        this.logger.error(`[${plugin.name}] onWorkerTerminate error`, { error });
       }
     }
   }
@@ -347,188 +345,6 @@ export class PluginRegistry {
    */
   setMountedPaths(paths: Map<string, string>): void {
     this.mountedPaths = paths;
-  }
-
-  /**
-   * Get all mounted plugin paths
-   */
-  getMountedPaths(): Map<string, string> {
-    return this.mountedPaths;
-  }
-
-  /**
-   * Check if a path conflicts with a plugin route
-   * Returns the plugin name if there's a conflict, undefined otherwise
-   */
-  checkRouteConflict(appPath: string): string | undefined {
-    // Direct match
-    if (this.mountedPaths.has(appPath)) {
-      return this.mountedPaths.get(appPath);
-    }
-
-    // Check if app path starts with any plugin path
-    for (const [pluginPath, pluginName] of this.mountedPaths) {
-      if (appPath.startsWith(`${pluginPath}/`) || appPath === pluginPath) {
-        return pluginName;
-      }
-      // Check if plugin path starts with app path (plugin is more specific)
-      if (pluginPath.startsWith(`${appPath}/`) || pluginPath === appPath) {
-        return pluginName;
-      }
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Log warning if worker/app route conflicts with a plugin
-   */
-  warnIfRouteConflict(appName: string, appPath: string): void {
-    const conflictingPlugin = this.checkRouteConflict(appPath);
-    if (conflictingPlugin) {
-      console.warn(
-        `[Warning] App "${appName}" has route "${appPath}" which conflicts with plugin "${conflictingPlugin}". ` +
-          `Plugin routes take priority and will handle requests to this path.`,
-      );
-    }
-  }
-
-  /**
-   * Check if a route is public for a specific plugin
-   * Used by app.ts to check before calling server.fetch
-   */
-  isPublicRouteForPlugin(plugin: BuntimePlugin, pathname: string, method: string): boolean {
-    const pluginRoutes = getPublicRoutesForMethod(plugin.publicRoutes, method);
-    if (pluginRoutes.length === 0) return false;
-
-    const regex = globArrayToRegex(pluginRoutes);
-    return regex?.test(pathname) ?? false;
-  }
-
-  /**
-   * Check if a route is public for ANY plugin
-   * Used to determine if shell routing should be skipped
-   */
-  isPublicRouteForAnyPlugin(pathname: string, method: string): boolean {
-    for (const plugin of this.getAll()) {
-      if (this.isPublicRouteForPlugin(plugin, pathname, method)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Collect all plugin server.routes and wrap with auth check
-   * Returns routes object for Bun.serve({ routes })
-   */
-  collectServerRoutes(): Record<string, RouteHandler> {
-    const routes: Record<string, RouteHandler> = {};
-
-    for (const plugin of this.getAll()) {
-      if (!plugin.server?.routes) continue;
-
-      for (const [path, handler] of Object.entries(plugin.server.routes)) {
-        routes[path] = this.wrapRouteWithAuth(path, handler, plugin);
-      }
-    }
-
-    return routes;
-  }
-
-  /**
-   * Wrap a route handler with auth check based on publicRoutes
-   */
-  private wrapRouteWithAuth(
-    path: string,
-    handler: RouteHandler,
-    plugin: BuntimePlugin,
-  ): RouteHandler {
-    // Check if route matches any public route pattern
-    // Note: path may contain wildcards like "/api/*", we check the base path
-    const basePath = path.replace(/\/?\*+$/, "");
-
-    // Check all HTTP methods - if public for any, return original handler
-    // This is a simplification; for route-level we check against ALL and GET
-    const allRoutes = getPublicRoutesForMethod(plugin.publicRoutes, "ALL");
-    const getRoutes = getPublicRoutesForMethod(plugin.publicRoutes, "GET");
-    const combinedRoutes = [...allRoutes, ...getRoutes];
-
-    if (combinedRoutes.length > 0) {
-      const regex = globArrayToRegex(combinedRoutes);
-      if (regex?.test(basePath) || regex?.test(path)) {
-        return handler;
-      }
-    }
-
-    // Wrap with auth check - returns the handler result directly
-    // Bun.serve handles BunFile and Response types internally
-    return async (req: Request): Promise<Response> => {
-      const url = new URL(req.url);
-      const method = req.method;
-
-      // Check if this specific request is public
-      if (this.isPublicRouteForPlugin(plugin, url.pathname, method)) {
-        if (typeof handler === "function") {
-          return handler(req) as Promise<Response>;
-        }
-        // For static files (BunFile/Response), return as-is
-        // Bun.serve will handle BunFile conversion internally
-        return handler as Response;
-      }
-
-      // Run onRequest hooks (includes auth)
-      const result = await this.runOnRequest(req);
-      if (result instanceof Response) {
-        return result; // Auth failed
-      }
-
-      // Auth passed, call original handler
-      if (typeof handler === "function") {
-        return handler(result) as Promise<Response>;
-      }
-      return handler as Response;
-    };
-  }
-
-  /**
-   * Get all plugins that have server.fetch handlers
-   */
-  getPluginsWithServerFetch(): BuntimePlugin[] {
-    return this.getAll().filter((p) => p.server?.fetch);
-  }
-
-  /**
-   * Get all plugin base paths for app-shell routing
-   * Used to determine which paths should be intercepted by the shell
-   */
-  getPluginBasePaths(): Set<string> {
-    const bases = new Set<string>();
-    for (const plugin of this.getAll()) {
-      bases.add(plugin.base);
-    }
-    return bases;
-  }
-
-  /**
-   * Check if any plugins have fragment UI (embeddable in shell)
-   */
-  hasFragments(): boolean {
-    return this.getAll().some((p) => p.fragment !== undefined);
-  }
-
-  /**
-   * Get all plugins that are fragment-enabled (can be embedded in shell)
-   */
-  getFragmentPlugins(): BuntimePlugin[] {
-    return this.getAll().filter((p) => p.fragment !== undefined);
-  }
-
-  /**
-   * Check if a plugin has fragment enabled
-   */
-  isFragmentEnabled(plugin: BuntimePlugin): boolean {
-    return plugin.fragment !== undefined;
   }
 }
 

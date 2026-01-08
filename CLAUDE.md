@@ -6,6 +6,8 @@
 
 ## Code Conventions
 
+@.claude/rules/code-conventions/function-parameters.md
+
 @.claude/rules/code-conventions/lint-test-requirement.md
 
 @.claude/rules/code-conventions/no-barrel-files.md

@@ -1,3 +1,6 @@
+import { WorkerState, type WorkerStatus } from "@/constants";
+import { roundTwoDecimals } from "./stats";
+
 export interface PoolMetrics {
   activeWorkers: number;
   avgResponseTimeMs: number;
@@ -15,12 +18,14 @@ export interface PoolMetrics {
 }
 
 export interface WorkerStats {
-  age: number;
+  /** Worker age in ms (time since creation) or last response duration for ephemeral */
+  ageMs: number;
   avgResponseTimeMs: number;
   errorCount: number;
-  idle: number;
+  /** Time since last request in ms */
+  idleMs: number;
   requestCount: number;
-  status: "active" | "idle" | "ephemeral" | "offline";
+  status: WorkerStatus;
   totalResponseTimeMs: number;
   // Ephemeral-only: session metrics (reset on page load/API)
   lastRequestCount?: number;
@@ -46,9 +51,11 @@ interface EphemeralWorker {
 }
 
 const BUFFER_SIZE = 100;
+/** Maximum number of entries to retain in historical collections */
+const MAX_HISTORICAL_ENTRIES = 1000;
 
 export class WorkerMetrics {
-  /** Ephemeral workers (TTL=0) with creation timestamps */
+  /** Ephemeral workers (TTL=0) with creation timestamps - bounded to MAX_HISTORICAL_ENTRIES */
   private ephemeralWorkers: EphemeralWorker[] = [];
   private evictions = 0;
   private hits = 0;
@@ -73,10 +80,12 @@ export class WorkerMetrics {
     let avgResponseTimeMs = 0;
     if (this.requestTimesCount > 0) {
       let sum = 0;
-      for (let i = 0; i < this.requestTimesCount; i++) {
+      // Defensive bounds check to ensure we never exceed buffer size
+      const count = Math.min(this.requestTimesCount, BUFFER_SIZE);
+      for (let i = 0; i < count; i++) {
         sum += this.requestTimes[i]!;
       }
-      avgResponseTimeMs = sum / this.requestTimesCount;
+      avgResponseTimeMs = sum / count;
     }
 
     const totalCacheRequests = this.hits + this.misses;
@@ -84,13 +93,13 @@ export class WorkerMetrics {
 
     return {
       activeWorkers,
-      avgResponseTimeMs: Math.round(avgResponseTimeMs * 100) / 100,
+      avgResponseTimeMs: roundTwoDecimals(avgResponseTimeMs),
       evictions: this.evictions,
-      hitRate: Math.round(hitRate * 10000) / 100, // Percentage with 2 decimals
+      hitRate: roundTwoDecimals(hitRate * 100), // Percentage with 2 decimals
       hits: this.hits,
-      memoryUsageMB: Math.round((process.memoryUsage().heapUsed / 1024 / 1024) * 100) / 100,
+      memoryUsageMB: roundTwoDecimals(process.memoryUsage().heapUsed / 1024 / 1024),
       misses: this.misses,
-      requestsPerSecond: Math.round(requestsPerSecond * 100) / 100,
+      requestsPerSecond: roundTwoDecimals(requestsPerSecond),
       totalRequests: this.requestCount,
       totalWorkersFailed: this.totalWorkersFailed,
       totalWorkersCreated: this.totalWorkersCreated,
@@ -107,16 +116,16 @@ export class WorkerMetrics {
     const result: Record<string, WorkerStats> = {};
     for (const w of this.ephemeralWorkers) {
       result[w.key] = {
-        age: Math.round(w.lastResponseTimeMs), // Last response time for list view
-        avgResponseTimeMs: Math.round(w.avgResponseTimeMs * 100) / 100,
+        ageMs: Math.round(w.lastResponseTimeMs), // Last response duration for ephemeral
+        avgResponseTimeMs: roundTwoDecimals(w.avgResponseTimeMs),
         errorCount: 0, // Not tracked per ephemeral worker
-        idle: 0,
+        idleMs: 0,
         requestCount: w.totalRequestCount, // Total requests since server start
-        status: "ephemeral",
-        totalResponseTimeMs: Math.round(w.totalResponseTimeMs * 100) / 100,
+        status: WorkerState.EPHEMERAL,
+        totalResponseTimeMs: roundTwoDecimals(w.totalResponseTimeMs),
         // Session metrics
         lastRequestCount: w.lastRequestCount,
-        lastResponseTimeMs: Math.round(w.lastResponseTimeMs * 100) / 100,
+        lastResponseTimeMs: roundTwoDecimals(w.lastResponseTimeMs),
       };
     }
     return result;
@@ -155,6 +164,11 @@ export class WorkerMetrics {
         existing.avgResponseTimeMs = existing.totalResponseTimeMs / existing.totalRequestCount;
       }
     } else {
+      // Evict oldest entries if at capacity (prevent unbounded growth)
+      while (this.ephemeralWorkers.length >= MAX_HISTORICAL_ENTRIES) {
+        this.ephemeralWorkers.shift();
+      }
+
       this.ephemeralWorkers.push({
         avgResponseTimeMs: durationMs,
         key,
@@ -208,12 +222,20 @@ export class WorkerMetrics {
       const avgResponseTimeMs = totalRequestCount > 0 ? totalResponseTimeMs / totalRequestCount : 0;
 
       this.historicalStats.set(key, {
-        avgResponseTimeMs: Math.round(avgResponseTimeMs * 100) / 100,
+        avgResponseTimeMs: roundTwoDecimals(avgResponseTimeMs),
         errorCount: existing.errorCount + stats.errorCount,
         requestCount: totalRequestCount,
-        totalResponseTimeMs: Math.round(totalResponseTimeMs * 100) / 100,
+        totalResponseTimeMs: roundTwoDecimals(totalResponseTimeMs),
       });
     } else {
+      // Evict oldest entries if at capacity (prevent unbounded growth)
+      // Map iteration order is insertion order, so first key is oldest
+      while (this.historicalStats.size >= MAX_HISTORICAL_ENTRIES) {
+        const oldestKey = this.historicalStats.keys().next().value;
+        if (oldestKey !== undefined) {
+          this.historicalStats.delete(oldestKey);
+        }
+      }
       this.historicalStats.set(key, stats);
     }
   }

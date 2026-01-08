@@ -218,7 +218,8 @@ export function createAppBuilder(config: AppBuildConfig): AppBuilder {
   const isWatch = process.argv.includes("--watch");
   const cwd = process.cwd();
 
-  const external = ["@buntime/*", ...(config.external ?? [])];
+  // @buntime/shared is provided by runtime, @buntime/database is bundled (HTTP client)
+  const external = ["@buntime/shared", "@buntime/shadcn-ui", ...(config.external ?? [])];
   const watchDirs = config.watchDirs ?? ["./client", "./server", "."];
   const watchExtensions = /\.(ts|tsx|css|html|json)$/;
 

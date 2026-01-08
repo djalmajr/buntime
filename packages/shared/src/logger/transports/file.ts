@@ -1,5 +1,5 @@
 import { appendFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, normalize, resolve } from "node:path";
 import type { LogEntry, LogTransport } from "../types";
 
 /**
@@ -30,20 +30,36 @@ export class FileTransport implements LogTransport {
   private buffer: string[] = [];
   private readonly bufferSize: number;
   private flushTimer: Timer | null = null;
+  private flushError: Error | null = null;
   private initialized = false;
   private readonly path: string;
 
   constructor(options: FileTransportOptions) {
-    this.path = options.path;
+    // Security: Validate path to prevent path traversal attacks
+    const normalizedPath = normalize(options.path);
+    if (normalizedPath.includes("..")) {
+      throw new Error("Path traversal not allowed in log file path");
+    }
+    this.path = resolve(normalizedPath);
     this.bufferSize = options.bufferSize ?? 100;
 
     // Start flush interval
     const interval = options.flushInterval ?? 5000;
     this.flushTimer = setInterval(() => {
-      this.flush().catch(() => {
-        // Ignore flush errors in interval
+      this.flush().catch((err) => {
+        // Store error for debugging but don't throw (would crash interval)
+        this.flushError = err instanceof Error ? err : new Error(String(err));
+        // Log to stderr as fallback
+        process.stderr?.write(`[FileTransport] Flush failed: ${this.flushError.message}\n`);
       });
     }, interval);
+  }
+
+  /**
+   * Get the last flush error (if any)
+   */
+  getLastError(): Error | null {
+    return this.flushError;
   }
 
   async close(): Promise<void> {

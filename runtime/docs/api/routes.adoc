@@ -1,434 +1,14 @@
 == Rotas da API
-
-O servidor Buntime expõe quatro grupos principais de rotas: deployments, plugins info, fragments e worker routes.
-
-=== Deployments API
-
-Gerencia o ciclo de vida de aplicações worker (upload, listagem, download, exclusão, etc.).
-
-Base path: `/api/deployments`
-
-==== GET /api/deployments/list
-
-Lista o conteúdo de um diretório de apps.
-
-Query Parameters:
-
-[cols="1,1,3"]
-|===
-| Parâmetro | Tipo | Descrição
-
-| `path`
-| string
-| Caminho relativo do diretório (opcional, padrão: raiz)
-|===
-
-Exemplo:
-
-[source,bash]
-----
-GET /api/deployments/list?path=my-app
-----
-
-Resposta:
-
-[source,json]
-----
-{
-  "success": true,
-  "data": {
-    "entries": [
-      {
-        "name": "1.0.0",
-        "type": "directory",
-        "size": 4096,
-        "mtime": 1702500000000
-      },
-      {
-        "name": "index.ts",
-        "type": "file",
-        "size": 2048,
-        "mtime": 1702500000000
-      }
-    ],
-    "path": "my-app"
-  }
-}
-----
-
-==== POST /api/deployments/mkdir
-
-Cria um novo diretório.
-
-Request Body:
-
-[source,json]
-----
-{
-  "path": "my-app/1.0.0"
-}
-----
-
-Validações:
-
-- Verifica conflitos com rotas de plugins (top-level apenas)
-- Não permite nomes que conflitem com `/api/*` ou rotas registradas por plugins
-
-Resposta:
-
-[source,json]
-----
-{
-  "success": true
-}
-----
-
-Erros:
-
-[source,json]
-----
-{
-  "error": "App name \"api\" conflicts with plugin \"@buntime/plugin-metrics\". Choose a different name.",
-  "code": "APP_NAME_CONFLICT"
-}
-----
-
-==== DELETE /api/deployments/delete
-
-Remove um arquivo ou diretório.
-
-Request Body:
-
-[source,json]
-----
-{
-  "path": "my-app/1.0.0"
-}
-----
-
-Validações:
-
-- Não permite deletar raiz (`""` ou `"/"`)
-
-Resposta:
-
-[source,json]
-----
-{
-  "success": true
-}
-----
-
-==== POST /api/deployments/rename
-
-Renomeia um arquivo ou diretório.
-
-Request Body:
-
-[source,json]
-----
-{
-  "path": "my-app/1.0.0",
-  "newName": "1.0.1"
-}
-----
-
-Resposta:
-
-[source,json]
-----
-{
-  "success": true
-}
-----
-
-==== POST /api/deployments/move
-
-Move um arquivo ou diretório para outro local.
-
-Request Body:
-
-[source,json]
-----
-{
-  "path": "my-app/1.0.0",
-  "destPath": "archived/my-app/1.0.0"
-}
-----
-
-Resposta:
-
-[source,json]
-----
-{
-  "success": true
-}
-----
-
-==== POST /api/deployments/upload
-
-Faz upload de arquivos para um diretório específico. Suporta arquivos ZIP (extraídos automaticamente) e arquivos individuais.
-
-Content-Type: `multipart/form-data`
-
-Form Data:
-
-[cols="1,1,3"]
-|===
-| Campo | Tipo | Descrição
-
-| `path`
-| string
-| Diretório de destino (opcional, padrão: raiz)
-
-| `files`
-| File[]
-| Array de arquivos para upload
-
-| `paths`
-| string[]
-| Caminhos relativos correspondentes a cada arquivo (opcional)
-|===
-
-Validações:
-
-- Verifica conflitos com rotas de plugins (top-level apenas)
-- Extrai automaticamente arquivos `.zip`
-
-Exemplo (cURL):
-
-[source,bash]
-----
-curl -X POST http://localhost:8000/api/deployments/upload \
-  -F "path=my-app/1.0.0" \
-  -F "files=@index.html" \
-  -F "files=@index.ts" \
-  -F "paths=index.html" \
-  -F "paths=index.ts"
-----
-
-Resposta:
-
-[source,json]
-----
-{
-  "success": true
-}
-----
-
-==== GET /api/deployments/refresh
-
-Invalida o cache `.dirinfo` de um diretório, forçando recarregamento.
-
-Query Parameters:
-
-[cols="1,1,3"]
-|===
-| Parâmetro | Tipo | Descrição
-
-| `path`
-| string
-| Caminho do diretório (opcional, padrão: raiz)
-|===
-
-Exemplo:
-
-[source,bash]
-----
-GET /api/deployments/refresh?path=my-app
-----
-
-Resposta:
-
-[source,json]
-----
-{
-  "success": true
-}
-----
-
-==== POST /api/deployments/refresh
-
-Versão POST da rota refresh (aceita JSON).
-
-Request Body:
-
-[source,json]
-----
-{
-  "path": "my-app"
-}
-----
-
-Resposta:
-
-[source,json]
-----
-{
-  "success": true
-}
-----
-
-==== GET /api/deployments/download
-
-Baixa um arquivo ou diretório (diretórios são compactados como ZIP).
-
-Query Parameters:
-
-[cols="1,1,3"]
-|===
-| Parâmetro | Tipo | Descrição
-
-| `path`
-| string
-| Caminho do arquivo ou diretório (obrigatório)
-|===
-
-Exemplo:
-
-[source,bash]
-----
-GET /api/deployments/download?path=my-app/1.0.0
-----
-
-Resposta:
-
-- Arquivo: Stream do arquivo com `Content-Disposition: attachment`
-- Diretório: ZIP stream (exclui `.dirinfo`)
-
-Headers:
-
-[source,http]
-----
-Content-Disposition: attachment; filename="1.0.0.zip"
-Content-Type: application/zip
-----
-
-==== POST /api/deployments/delete-batch
-
-Remove múltiplos arquivos ou diretórios em uma única operação.
-
-Request Body:
-
-[source,json]
-----
-{
-  "paths": [
-    "my-app/1.0.0",
-    "my-app/1.0.1",
-    "old-app"
-  ]
-}
-----
-
-Comportamento:
-
-- Ignora raiz (`""` ou `"/"`) silenciosamente
-- Continua processando mesmo se houver erros
-- Retorna lista de erros (se houver)
-
-Resposta (sucesso completo):
-
-[source,json]
-----
-{
-  "success": true
-}
-----
-
-Resposta (com erros):
-
-[source,json]
-----
-{
-  "success": true,
-  "errors": [
-    "my-app/2.0.0: Path not found"
-  ]
-}
-----
-
-==== POST /api/deployments/move-batch
-
-Move múltiplos arquivos ou diretórios para um destino comum.
-
-Request Body:
-
-[source,json]
-----
-{
-  "paths": [
-    "my-app/1.0.0",
-    "my-app/1.0.1"
-  ],
-  "destPath": "archived"
-}
-----
-
-Comportamento:
-
-- Continua processando mesmo se houver erros
-- Retorna lista de erros (se houver)
-
-Resposta (sucesso completo):
-
-[source,json]
-----
-{
-  "success": true
-}
-----
-
-Resposta (com erros):
-
-[source,json]
-----
-{
-  "success": true,
-  "errors": [
-    "my-app/2.0.0: Path not found"
-  ]
-}
-----
-
-==== GET /api/deployments/download-batch
-
-Baixa múltiplos arquivos ou diretórios como um único arquivo ZIP.
-
-Query Parameters:
-
-[cols="1,1,3"]
-|===
-| Parâmetro | Tipo | Descrição
-
-| `paths`
-| string
-| Lista de caminhos separados por vírgula
-|===
-
-Exemplo:
-
-[source,bash]
-----
-GET /api/deployments/download-batch?paths=my-app/1.0.0,other-app/2.0.0
-----
-
-Comportamento:
-
-- Cria diretório temporário (`/tmp/buntime-download-*`)
-- Copia todos os itens para o temporário
-- Compacta como ZIP (exclui `.dirinfo`)
-- Remove temporário após streaming
-
-Resposta:
-
-Headers:
-
-[source,http]
-----
-Content-Disposition: attachment; filename="download-1702500000000.zip"
-Content-Type: application/zip
-----
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+O servidor Buntime expõe dois grupos principais de rotas: plugins info API e worker routes.
+
+NOTE: APIs específicas de plugins (como Deployments, KeyVal, Metrics) estão documentadas nos respectivos READMEs dos plugins em `plugins/plugin-*/README.adoc`.
 
 === Plugins Info API
 
@@ -454,18 +34,17 @@ Resposta:
 [
   {
     "name": "@buntime/plugin-metrics",
-    "base": "/api/metrics",
+    "base": "/metrics",
     "fragment": {
       "enabled": true,
-      "type": "iframe",
-      "origin": "http://localhost:8000/api/metrics",
-      "preloadStyles": "index.css"
+      "type": "patch"
     },
     "menus": [
       {
-        "label": "Metrics",
-        "path": "/api/metrics",
-        "icon": "lucide:activity"
+        "title": "Metrics",
+        "icon": "lucide:activity",
+        "path": "/metrics",
+        "priority": 5
       }
     ],
     "dependencies": [],
@@ -473,30 +52,34 @@ Resposta:
   },
   {
     "name": "@buntime/plugin-keyval",
-    "base": "/api/keyval",
+    "base": "/keyval",
     "fragment": {
       "enabled": true,
-      "type": "module",
-      "preloadStyles": "index.css"
+      "type": "patch"
     },
     "menus": [
       {
-        "label": "KeyVal",
-        "path": "/api/keyval",
-        "icon": "lucide:database"
+        "title": "KeyVal",
+        "icon": "lucide:database",
+        "path": "/keyval",
+        "priority": 80,
+        "items": [
+          { "title": "Overview", "icon": "lucide:home", "path": "/keyval" },
+          { "title": "Entries", "icon": "lucide:list", "path": "/keyval/entries" }
+        ]
       }
     ],
-    "dependencies": [],
+    "dependencies": ["@buntime/plugin-database"],
     "optionalDependencies": []
   },
   {
     "name": "@buntime/plugin-authn",
-    "base": "/api/authn",
+    "base": "/authn",
     "fragment": {
       "enabled": false
     },
     "menus": [],
-    "dependencies": [],
+    "dependencies": ["@buntime/plugin-database"],
     "optionalDependencies": []
   }
 ]
@@ -521,8 +104,8 @@ Estrutura de Plugin:
 | Se o plugin tem interface visual
 
 | `fragment.type`
-| "iframe" \| "module"
-| Tipo de carregamento do frontend (opcional)
+| "patch" \| "iframe"
+| Tipo de sandbox do fragment (opcional)
 
 | `fragment.origin`
 | string
@@ -530,11 +113,31 @@ Estrutura de Plugin:
 
 | `fragment.preloadStyles`
 | string
-| Arquivo CSS para preload (opcional)
+| CSS inline para injetar antes do load (opcional)
 
 | `menus`
-| array
+| MenuItem[]
 | Items de navegação para sidebar
+
+| `menus[].title`
+| string
+| Título do item de menu
+
+| `menus[].icon`
+| string
+| Ícone (ex: `lucide:database`)
+
+| `menus[].path`
+| string
+| Path de navegação
+
+| `menus[].priority`
+| number
+| Prioridade de ordenação (menor = primeiro)
+
+| `menus[].items`
+| MenuItem[]
+| Submenus aninhados (opcional)
 
 | `dependencies`
 | string[]
@@ -544,43 +147,6 @@ Estrutura de Plugin:
 | string[]
 | Plugins opcionais
 |===
-
-=== Fragment API
-
-Gerencia o carregamento dinâmico de fragmentos de plugins para o web component `fragment-outlet`.
-
-==== ALL /fragment/:fragmentId
-
-Serve o HTML de um fragmento de plugin.
-
-===== Parameters
-
-[cols="1,1,2"]
-|===
-| Parâmetro | Tipo | Descrição
-
-| `fragmentId`
-| string (path)
-| Nome curto do plugin (ex: "logs" para "@buntime/plugin-logs")
-|===
-
-===== Response
-
-Sucesso (200):
-
-Retorna a resposta HTML do plugin com injeção apropriada do base path.
-
-Erros:
-
-- `404 Not Found` - Fragmento não encontrado ou plugin não tem configuração de fragmento
-- `503 Service Unavailable` - Worker indisponível
-- `500 Internal Server Error` - Erro na execução do worker
-
-IMPORTANT: Erros relacionados a plugins podem usar formato simplificado `{ "error": "message" }` ao invés do formato padronizado com `code`.
-
-==== ALL /fragment/:fragmentId/*
-
-Serve caminhos aninhados dentro de um fragmento de plugin (mesmo comportamento da rota acima, mas para rotas aninhadas).
 
 === Worker Routes
 
@@ -638,7 +204,13 @@ O runtime usa semver para encontrar a versão correta:
 | `/my-app@^1.0.0/*`
 | Range semver
 | `1.0.1`
+
+| `/my-app@latest/*`
+| Tag especial latest
+| Diretório `my-app@latest` ou `my-app/latest`
 |===
+
+NOTE: Quando nenhuma versão é especificada (`/my-app/*`), o runtime prefere `latest` se existir, caso contrário usa a maior versão semver.
 
 ==== Entrypoints
 
@@ -737,55 +309,179 @@ GET /
 # Retorna: "Buntime v1.0.0"
 ----
 
-==== Plugin Apps
+==== Plugin Routes
 
-Plugins podem registrar apps próprios que são servidos como workers:
+Plugins registram rotas Hono no path base definido. Exemplo real do plugin-keyval:
 
 [source,typescript]
 ----
-// No plugin
-{
-  name: "@buntime/plugin-keyval",
-  apps: [
-    {
-      basePath: "/api/keyval",
-      dir: "/path/to/plugin-keyval/app",
-      config: { workers: 2 }
-    }
-  ]
+// plugins/plugin-keyval/plugin.ts
+export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugin {
+  return {
+    name: "@buntime/plugin-keyval",
+    base: config.base ?? "/keyval",
+    dependencies: ["@buntime/plugin-database"],
+    routes: api,
+
+    fragment: {
+      type: "patch",
+    },
+
+    menus: [
+      {
+        icon: "lucide:database",
+        path: "/keyval",
+        priority: 80,
+        title: "KeyVal",
+        items: [
+          { icon: "lucide:home", path: "/keyval", title: "Overview" },
+          { icon: "lucide:list", path: "/keyval/entries", title: "Entries" },
+        ],
+      },
+    ],
+
+    async onInit(ctx: PluginContext) {
+      const database = ctx.getService<DatabaseService>("database");
+      const kv = await initialize(database, { ... }, ctx.logger);
+      ctx.registerService("kv", kv);
+    },
+
+    async onShutdown() {
+      await shutdown();
+    },
+  };
 }
 ----
 
-Processo:
+Propriedades do `BuntimePlugin` (conforme `packages/shared/src/types/plugin.ts`):
 
-1. Plugin registra app durante inicialização
-2. Requisições para `/api/keyval/*` são interceptadas
-3. Runtime carrega worker do diretório do plugin
-4. Worker recebe pathname relativo ao basePath
+[cols="1,1,3"]
+|===
+| Propriedade | Tipo | Descrição
 
-Diferenças de apps normais:
+| `name`
+| string
+| Nome único do plugin (ex: `@buntime/plugin-keyval`)
 
-- Não usa workspaces (usa diretório do plugin)
-- Não suporta versionamento
-- Integrado ao ciclo de vida do plugin
+| `base`
+| string
+| Path base para montar as rotas (ex: `/keyval`)
+
+| `dependencies`
+| string[]
+| Plugins obrigatórios que devem ser carregados antes
+
+| `optionalDependencies`
+| string[]
+| Plugins opcionais carregados antes se disponíveis
+
+| `routes`
+| Hono
+| App Hono montado em `/{base}/*`
+
+| `middleware`
+| MiddlewareHandler
+| Alternativa ao `onRequest` como middleware Hono
+
+| `server`
+| PluginServer
+| Rotas para `Bun.serve({ routes })` e fetch handler
+
+| `fragment`
+| FragmentOptions
+| Configuração de sandbox (`patch` ou `iframe`)
+
+| `menus`
+| MenuItem[]
+| Items de menu com suporte a nested via `items`
+|===
+
+Lifecycle hooks:
+
+[cols="1,2"]
+|===
+| Hook | Descrição
+
+| `onInit(ctx)`
+| Chamado na inicialização, recebe `PluginContext`
+
+| `onShutdown()`
+| Chamado no shutdown do buntime
+
+| `onServerStart(server)`
+| Chamado após `Bun.serve()`, recebe instância do servidor
+
+| `onRequest(req, app?)`
+| Intercepta requisições antes do worker
+
+| `onResponse(res, app)`
+| Modifica response antes de enviar ao cliente
+
+| `onWorkerSpawn(worker, app)`
+| Chamado quando worker é criado
+
+| `onWorkerTerminate(worker, app)`
+| Chamado quando worker é terminado
+|===
 
 === Arquitetura de Roteamento
 
-Ordem de resolução de rotas:
+Ordem de resolução de rotas (conforme implementado em `app.ts`):
 
-1. **Plugin Routes** - Rotas montadas por plugins via Hono (ex: `/api/metrics/*`)
-2. **Deployments API** - `/api/deployments/*` (rotas montadas)
-3. **Fragment API** - `/fragment/:fragmentId/*` (rotas montadas)
-4. **Plugins Info API** - `/api/plugins` (rota montada)
-5. **Plugin Apps** - Apps registrados por plugins (ex: `/api/keyval/*`) (catch-all handler)
-6. **Worker Routes** - Apps nos workspaces (ex: `/my-app/*`) (catch-all handler)
-7. **Homepage/Fallback** - Raiz `/` (catch-all handler)
+1. **CSRF Protection** - Validação de Origin para requisições state-changing (POST, PUT, PATCH, DELETE)
+2. **Plugin onRequest Hooks** - Executa hooks de autenticação e pré-processamento
+3. **App-Shell Mode** - Intercepta navegação para shell se configurado (ver <<shell-routing>>)
+4. **Plugins Info API** - `/api/plugins` (informações sobre plugins carregados)
+5. **Plugin server.fetch** - Handlers de requisição de plugins com `server.fetch`
+6. **Plugin Routes** - Rotas Hono montadas por plugins (ex: `/keyval/*`, `/metrics/*`)
+7. **Plugin Apps** - Apps de plugins servidos via worker pool (fragmentos)
+8. **Worker Routes** - Apps nos workspaces (ex: `/my-app/*`)
+9. **404 with Shell** - Fallback para shell exibir página 404 consistente
 
-NOTE: Rotas 1-4 são montadas no Hono e têm prioridade sobre os catch-all handlers (5-7) que processam requisições não capturadas pelas rotas montadas.
+NOTE: A ordem de prioridade garante que rotas mais específicas (plugins) sejam resolvidas antes de rotas genéricas (workers). Plugin Routes são ordenados por especificidade (paths mais longos primeiro).
 
-=== Estrutura de Erros
+[[shell-routing]]
+==== Lógica de Shell Routing
 
-Todas as rotas retornam erros no formato padronizado:
+A função `shouldRouteToShell()` determina se uma requisição deve ser interceptada pelo app-shell:
+
+[cols="1,2"]
+|===
+| Condição | Comportamento
+
+| `Sec-Fetch-Mode !== "navigate"`
+| Rejeita - requests não-navegação (fetch, XMLHttpRequest) não são interceptados
+
+| Path contém `/api/`
+| Rejeita - rotas de API nunca vão para o shell
+
+| Path é `/` ou vazio
+| Aceita - homepage sempre vai para o shell
+
+| Path corresponde a base de plugin
+| Aceita - ex: `/metrics`, `/keyval/entries`
+|===
+
+O shell routing executa **após** os hooks `onRequest` dos plugins, permitindo que autenticação seja processada antes da decisão de roteamento.
+
+==== Fallback para Homepage
+
+Quando uma worker route retorna 404 e existe uma homepage configurada em modo inline (`base` definido), o runtime tenta servir o recurso a partir do app homepage:
+
+[source]
+----
+GET /unknown-app/chunk-abc.js
+  1. Worker route retorna 404
+  2. Se homepage = { app: "/cpanel", base: "/" }
+  3. Tenta buscar /cpanel/chunk-abc.js
+  4. Se encontrado, retorna o asset
+----
+
+Isso permite que SPAs servidas na raiz carreguem assets corretamente mesmo quando acessadas por paths que não correspondem a apps específicos.
+
+=== Formato de Erros
+
+Plugins retornam erros no formato:
 
 [source,json]
 ----
@@ -795,51 +491,4 @@ Todas as rotas retornam erros no formato padronizado:
 }
 ----
 
-NOTE: Rotas relacionadas a plugins (como Fragment API e Plugin Apps) podem usar formato simplificado `{ "error": "message" }` sem o campo `code`.
-
-Códigos de erro comuns:
-
-[cols="1,2,2"]
-|===
-| Código | Descrição | Status HTTP
-
-| `APP_NAME_CONFLICT`
-| Nome de app conflita com plugin
-| 400
-
-| `APP_NAME_RESERVED`
-| Nome de app reservado por plugin
-| 400
-
-| `PATH_REQUIRED`
-| Path obrigatório ausente
-| 400
-
-| `PATHS_REQUIRED`
-| Paths obrigatórios ausentes
-| 400
-
-| `PATH_AND_NAME_REQUIRED`
-| Path e newName obrigatórios
-| 400
-
-| `DEST_PATH_REQUIRED`
-| Destination path obrigatório
-| 400
-
-| `CANNOT_DELETE_ROOT`
-| Tentativa de deletar raiz
-| 400
-
-| `NO_FILES_PROVIDED`
-| Upload sem arquivos
-| 400
-
-| `DOWNLOAD_FAILED`
-| Falha ao criar download
-| 400
-
-| `FILE_NOT_FOUND`
-| Arquivo não encontrado
-| 404
-|===
+NOTE: Consulte a documentação de cada plugin (`plugins/plugin-*/README.adoc`) para os códigos de erro específicos.

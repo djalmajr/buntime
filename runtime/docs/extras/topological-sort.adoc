@@ -1,0 +1,344 @@
+== Algoritmo de Kahn: Ordenação Topológica
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+Imagine que você precisa se vestir pela manhã. Você não pode colocar os sapatos antes das meias, nem a camisa antes da camiseta. Existe uma ordem natural que deve ser respeitada.
+
+Este é exatamente o problema que a ordenação topológica resolve: dado um conjunto de tarefas com dependências entre si, encontrar uma ordem válida de execução onde cada tarefa só começa após suas dependências estarem completas.
+
+O Algoritmo de Kahn é uma das soluções mais elegantes e eficientes para este problema, e é usado pelo Buntime para ordenar plugins por dependências.
+
+=== História e Origem
+
+O algoritmo foi publicado em 1962 por Arthur B. Kahn no artigo _"Topological sorting of large networks"_ na revista Communications of the ACM.
+
+Kahn trabalhava com problemas de agendamento em redes de atividades, comuns em gerenciamento de projetos (como diagramas PERT). Ele precisava de um método eficiente para ordenar milhares de atividades respeitando suas precedências.
+
+A contribuição de Kahn foi propor um algoritmo que:
+
+* Opera em tempo linear O(V + E), onde V = vértices e E = arestas
+* Detecta ciclos automaticamente
+* É intuitivo e fácil de implementar
+* Funciona bem com grafos esparsos e densos
+
+=== Fundamentos Teóricos
+
+==== Grafos Direcionados Acíclicos (DAG)
+
+A ordenação topológica só é possível em DAGs (Directed Acyclic Graphs):
+
+* *Direcionado*: arestas têm direção (A -> B significa A precede B)
+* *Acíclico*: não existem ciclos (se sair de A seguindo as arestas, nunca volta para A)
+
+[mermaid]
+----
+graph LR
+    A --> B --> D
+    A --> C --> D
+----
+
+==== Grau de Entrada (In-Degree)
+
+O conceito central do algoritmo é o grau de entrada de cada vértice: quantas arestas apontam para ele.
+
+[mermaid]
+----
+graph LR
+    A["A (in: 0)"] --> B["B (in: 1)"]
+    A --> C["C (in: 1)"]
+    B --> D["D (in: 1)"]
+    B --> E["E (in: 2)"]
+    C --> E
+----
+
+Vértices com grau de entrada zero não têm dependências e podem ser processados imediatamente.
+
+=== O Algoritmo
+
+==== Ideia Central
+
+A intuição é simples:
+
+1. Encontre todos os vértices sem dependências (in-degree = 0)
+2. Processe-os e "remova-os" do grafo
+3. Isso pode liberar novos vértices (cujo in-degree agora é 0)
+4. Repita até processar todos os vértices
+5. Se sobrarem vértices não processados, existe um ciclo
+
+==== Implementação
+
+[source,python]
+----
+from collections import deque
+
+def kahn(graph: dict[str, list[str]]) -> list[str]:
+    # Calcular grau de entrada de cada vértice
+    in_degree = {v: 0 for v in graph}
+    for neighbors in graph.values():
+        for neighbor in neighbors:
+            in_degree[neighbor] += 1
+
+    # Inicializar fila com vértices sem dependências
+    queue = deque(v for v in graph if in_degree[v] == 0)
+
+    # Processar vértices
+    result = []
+    while queue:
+        v = queue.popleft()
+        result.append(v)
+        for neighbor in graph[v]:
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+
+    # Verificar ciclos
+    if len(result) != len(graph):
+        raise ValueError("Ciclo detectado!")
+
+    return result
+----
+
+==== Execução Passo a Passo
+
+Considere um pipeline de CI/CD:
+
+[mermaid]
+----
+graph LR
+    checkout --> install
+    install --> lint
+    install --> test
+    lint --> build
+    test --> build
+----
+
+*Estado 1: Inicial*
+
+checkout tem in-degree 0, entra na fila.
+
+*Estado 2: Após processar checkout e install*
+
+lint e test entram na fila (in-degree 0).
+
+*Estado 3: Final*
+
+Todos processados na ordem: checkout -> install -> lint -> test -> build
+
+==== Detecção de Ciclos
+
+Se ao final do algoritmo `len(result) < len(graph)`, significa que alguns vértices nunca tiveram in-degree 0. Isso só acontece quando há um ciclo.
+
+=== Complexidade
+
+==== Tempo: O(V + E)
+
+O algoritmo é linear - visita cada vértice e cada aresta exatamente uma vez:
+
+* Calcular in-degrees: O(E) - percorre todas as arestas
+* Inicializar fila: O(V) - verifica todos os vértices
+* Loop principal: O(V + E) - cada vértice e aresta processados uma vez
+
+==== Espaço: O(V)
+
+* Dicionário de in-degrees: O(V)
+* Fila: O(V) no pior caso
+* Lista resultado: O(V)
+
+=== Uso no Buntime
+
+O sistema de plugins do Buntime usa ordenação topológica para garantir que plugins sejam carregados na ordem correta:
+
+[source,jsonc]
+----
+{
+  "plugins": [
+    "@buntime/plugin-keyval",     // depende de database
+    "@buntime/plugin-authn",      // sem dependências
+    "@buntime/plugin-database"    // sem dependências
+  ]
+}
+----
+
+A ordem no arquivo de configuração não importa. O runtime reordena automaticamente:
+
+[source]
+----
+Ordem de carregamento (após sort):
+1. @buntime/plugin-database
+2. @buntime/plugin-keyval
+3. @buntime/plugin-authn
+----
+
+=== Casos de Uso
+
+==== Gerenciadores de Pacotes
+
+npm, yarn, pip, cargo - todos usam ordenação topológica para instalar dependências na ordem correta.
+
+==== Sistemas de Build
+
+Make, Webpack, Gradle, Bazel - compilam módulos na ordem correta baseada em dependências.
+
+==== Agendamento de Tarefas
+
+Sistemas de workflow como Apache Airflow, Prefect, Dagster usam DAGs para definir pipelines de dados.
+
+==== Compiladores
+
+Compiladores ordenam passes de otimização e análise semântica respeitando dependências entre fases.
+
+==== Spreadsheets
+
+Excel e Google Sheets recalculam células na ordem correta quando há fórmulas interdependentes.
+
+==== Migrações de Banco de Dados
+
+Ferramentas como Flyway, Liquibase, Prisma aplicam migrações em ordem.
+
+=== Algoritmo Alternativo: DFS
+
+Existe outra abordagem usando busca em profundidade (DFS):
+
+[source,python]
+----
+def topological_sort_dfs(graph: dict[str, list[str]]) -> list[str]:
+    visited = set()
+    recursion_stack = set()
+    result = []
+
+    def dfs(node):
+        if node in recursion_stack:
+            raise ValueError("Ciclo detectado!")
+        if node in visited:
+            return
+
+        recursion_stack.add(node)
+        for neighbor in graph.get(node, []):
+            dfs(neighbor)
+
+        recursion_stack.remove(node)
+        visited.add(node)
+        result.append(node)
+
+    for node in graph:
+        dfs(node)
+
+    return result[::-1]  # inverte o resultado
+----
+
+==== Kahn vs DFS
+
+[cols="1,1,1"]
+|===
+| Aspecto | Kahn | DFS
+
+| Complexidade
+| O(V + E)
+| O(V + E)
+
+| Estrutura
+| Iterativo (fila)
+| Recursivo (pilha)
+
+| Detecção de ciclo
+| Ao final (contagem)
+| Durante (recursion_stack)
+
+| Ordem do resultado
+| Natural (início -> fim)
+| Reversa (precisa inverter)
+
+| Paralelização
+| Fácil (nós na fila são independentes)
+| Difícil (recursão é sequencial)
+
+| Memória
+| O(V) para fila
+| O(V) para pilha de chamadas
+|===
+
+==== Quando usar cada um?
+
+*Use Kahn quando:*
+
+* Precisa executar tarefas em paralelo (nós na fila são independentes)
+* Quer processar em "níveis" ou "ondas" (ex: build systems)
+* Prefere código iterativo (sem risco de stack overflow)
+* Precisa saber quais tarefas podem rodar simultaneamente
+
+*Use DFS quando:*
+
+* Quer detectar ciclos imediatamente (falha rápido)
+* Já tem uma estrutura DFS no código (ex: explorando um grafo)
+* Grafo é muito profundo e estreito (menos overhead de fila)
+* Precisa de simplicidade conceitual (apenas uma função recursiva)
+
+Na prática, Kahn é preferido para sistemas de build, CI/CD e task runners porque permite paralelização natural. DFS é comum em compiladores e análise de dependências onde já se usa travessia de grafos.
+
+=== Extensões e Variações
+
+==== Ordenação Topológica Lexicográfica
+
+Quando múltiplas ordens são válidas, escolher a lexicograficamente menor.
+
+Solução: usar priority queue (min-heap) ao invés de fila simples.
+
+==== Todas as Ordenações Topológicas
+
+Encontrar todas as ordens válidas possíveis (útil para testes).
+
+Solução: backtracking com todos os vértices de in-degree 0 em cada passo.
+
+==== Ordenação Topológica em Grafos Dinâmicos
+
+Quando arestas são adicionadas/removidas frequentemente, recalcular do zero é ineficiente.
+
+Soluções:
+
+* Algoritmos incrementais (atualizam apenas a parte afetada)
+* Estruturas de dados especializadas (link-cut trees)
+
+==== Paralelização
+
+Vértices na fila de Kahn são independentes e podem ser processados em paralelo:
+
+[source,python]
+----
+import asyncio
+
+async def kahn_parallel(graph, process):
+    in_degree = {v: 0 for v in graph}
+    for neighbors in graph.values():
+        for n in neighbors:
+            in_degree[n] += 1
+
+    queue = [v for v in graph if in_degree[v] == 0]
+    result = []
+
+    while queue:
+        batch = queue[:]
+        queue.clear()
+
+        # Processar batch em paralelo
+        await asyncio.gather(*[process(node) for node in batch])
+
+        for node in batch:
+            for dependent in graph[node]:
+                in_degree[dependent] -= 1
+                if in_degree[dependent] == 0:
+                    queue.append(dependent)
+
+        result.extend(batch)
+
+    return result
+----
+
+=== Referências
+
+* Kahn, A. B. (1962). "Topological sorting of large networks". Communications of the ACM. 5 (11): 558-562.
+* Cormen, T. H., et al. "Introduction to Algorithms" (CLRS), Chapter 22: Elementary Graph Algorithms.
+* Sedgewick, R. & Wayne, K. "Algorithms, 4th Edition", Section 4.2: Directed Graphs.

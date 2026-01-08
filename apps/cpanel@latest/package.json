@@ -6,9 +6,12 @@
   "scripts": {
     "build": "NODE_ENV=production bun scripts/build.ts",
     "dev": "bun scripts/build.ts --watch",
+    "lint": "bun run lint:format && bun run lint:types",
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
-    "lint": "bun run lint:format && bun run lint:types"
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "test:watch": "bun test --watch"
   },
   "dependencies": {
     "@buntime/piercing": "workspace:*",

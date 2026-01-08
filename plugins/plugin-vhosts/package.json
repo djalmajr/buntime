@@ -1,0 +1,23 @@
+{
+  "name": "@buntime/plugin-vhosts",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./plugin.ts"
+  },
+  "scripts": {
+    "lint": "bun run lint:format && bun run lint:types",
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage 2>&1 | grep -vE '\\.\\./(packages|plugins)'",
+    "test:watch": "bun test --watch"
+  },
+  "dependencies": {
+    "@buntime/shared": "workspace:*"
+  },
+  "peerDependencies": {
+    "hono": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { Headers, MessageTypes } from "@/constants";
 import { serveStatic } from "@/utils/serve-static";
 import type { WorkerConfig } from "./config";
 import type { MethodHandlers, RouteHandler, WorkerApp, WorkerResponse } from "./types";
@@ -11,19 +12,77 @@ interface RequestWithParams extends Request {
 
 const Errors = {
   INVALID_APP: "Module must export default with fetch method or routes",
-  INVALID_ENTRY: "ENTRYPOINT env var is missing",
   INVALID_CONFIG: "APP_DIR or WORKER_CONFIG env var is missing",
+  INVALID_ENTRY: "ENTRYPOINT env var is missing",
 };
+
+/** Header size limits to prevent memory exhaustion */
+const HeaderLimits = {
+  MAX_COUNT: 100, // Maximum number of headers
+  MAX_TOTAL_SIZE: 64 * 1024, // 64KB total headers size
+  MAX_VALUE_SIZE: 8 * 1024, // 8KB per header value
+} as const;
+
+/**
+ * Escape special characters for safe HTML attribute/script injection
+ * Prevents XSS attacks from untrusted input in headers
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\\/g, "\\\\");
+}
+
+/**
+ * Safely copy headers with size limits to prevent memory exhaustion
+ * Truncates values exceeding limits, skips excess headers
+ */
+function safeHeaders(responseHeaders: Headers): Record<string, string> {
+  const headers: Record<string, string> = {};
+  let totalSize = 0;
+  let count = 0;
+
+  for (const [name, value] of responseHeaders.entries()) {
+    if (count >= HeaderLimits.MAX_COUNT) break;
+
+    const safeValue =
+      value.length > HeaderLimits.MAX_VALUE_SIZE
+        ? value.slice(0, HeaderLimits.MAX_VALUE_SIZE)
+        : value;
+
+    const entrySize = name.length + safeValue.length;
+    if (totalSize + entrySize > HeaderLimits.MAX_TOTAL_SIZE) break;
+
+    headers[name] = safeValue;
+    totalSize += entrySize;
+    count++;
+  }
+
+  return headers;
+}
 
 const { APP_DIR, ENTRYPOINT, WORKER_CONFIG } = Bun.env;
 
 if (!APP_DIR || !WORKER_CONFIG) throw new Error(Errors.INVALID_CONFIG);
 if (!ENTRYPOINT) throw new Error(Errors.INVALID_ENTRY);
 
+// Security: Validate entrypoint is within APP_DIR to prevent path traversal
+// This prevents malicious configs from loading files outside the app directory
+const { resolve } = await import("node:path");
+const resolvedEntry = resolve(APP_DIR, ENTRYPOINT);
+if (!resolvedEntry.startsWith(APP_DIR)) {
+  throw new Error(`Security: Entrypoint "${ENTRYPOINT}" escapes app directory`);
+}
+
 // Auto-install dependencies if configured (runs before app import)
+// Security: --ignore-scripts prevents execution of postinstall scripts from untrusted packages
 const config: WorkerConfig = JSON.parse(WORKER_CONFIG);
 if (config.autoInstall) {
-  const result = Bun.spawnSync(["bun", "install", "--frozen-lockfile"], {
+  const result = Bun.spawnSync(["bun", "install", "--frozen-lockfile", "--ignore-scripts"], {
     cwd: APP_DIR,
     stderr: "pipe",
     stdout: "pipe",
@@ -85,25 +144,26 @@ const fetcher = (() => {
 self.onmessage = async ({ data }) => {
   const { type, req, reqId } = data;
 
-  if (type === "IDLE") return app?.onIdle?.();
-  if (type === "TERMINATE") return app?.onTerminate?.();
+  if (type === MessageTypes.IDLE) return app?.onIdle?.();
+  if (type === MessageTypes.TERMINATE) return app?.onTerminate?.();
 
   try {
     const request = new Request(req.url, req);
     const response = await fetcher(request);
 
-    const headers = Object.fromEntries(response.headers.entries());
+    // Use safe headers with size limits to prevent memory exhaustion
+    const headers = safeHeaders(response.headers);
     headers["content-type"] ||= "text/plain; charset=utf-8";
 
     let body = await response.arrayBuffer();
-    const base = req.headers["x-base"];
-    const fragmentRoute = req.headers["x-fragment-route"];
-    const notFound = req.headers["x-not-found"] === "true";
+    const base = req.headers[Headers.BASE];
+    const fragmentRoute = req.headers[Headers.FRAGMENT_ROUTE];
+    const notFound = req.headers[Headers.NOT_FOUND] === "true";
     const isHtml = headers["content-type"]?.includes("text/html");
 
     if (isHtml && base) {
       const text = new TextDecoder().decode(body);
-      const baseHref = base === "/" ? "/" : `${base}/`;
+      const baseHref = escapeHtml(base === "/" ? "/" : `${base}/`);
 
       // Build injection: base tag + optional shell state
       let injection = `<base href="${baseHref}" />`;
@@ -112,7 +172,10 @@ self.onmessage = async ({ data }) => {
       // __ROUTER_BASEPATH__ tells the shell's router to use "/" as basepath
       // while <base> tag keeps assets loading from the shell's actual path (e.g., /cpanel)
       if (fragmentRoute !== undefined) {
-        injection += `<script>window.__FRAGMENT_ROUTE__="${fragmentRoute}";window.__NOT_FOUND__=${notFound};window.__ROUTER_BASEPATH__="/";</script>`;
+        const safeRoute = escapeHtml(fragmentRoute);
+        // Security: notFound must be a boolean literal to prevent XSS injection
+        const safeNotFound = notFound === true ? "true" : "false";
+        injection += `<script>window.__FRAGMENT_ROUTE__="${safeRoute}";window.__NOT_FOUND__=${safeNotFound};window.__ROUTER_BASEPATH__="/";</script>`;
       }
 
       const html = text.replace("<head>", `<head>${injection}`);
@@ -120,7 +183,7 @@ self.onmessage = async ({ data }) => {
     }
 
     const message: WorkerResponse = {
-      type: "RESPONSE",
+      type: MessageTypes.RESPONSE,
       res: { body, headers, status: response.status },
       reqId,
     };
@@ -128,8 +191,13 @@ self.onmessage = async ({ data }) => {
     self.postMessage(message, [body]);
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    self.postMessage({ type: "ERROR", error: err.message, reqId });
+    self.postMessage({
+      type: MessageTypes.ERROR,
+      error: err.message,
+      reqId,
+      stack: err.stack,
+    });
   }
 };
 
-self.postMessage({ type: "READY" });
+self.postMessage({ type: MessageTypes.READY });

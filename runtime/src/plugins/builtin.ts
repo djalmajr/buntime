@@ -1,63 +1,32 @@
 /**
  * Built-in plugins registry
  *
- * Plugins without native dependencies are imported statically.
- * Plugins with native dependencies (keyval, durable) use lazy loading
- * to avoid bundling issues with compiled binaries.
+ * All plugins use lazy loading for consistent behavior
+ * and to avoid bundling issues with compiled binaries.
  */
 
-import authn from "@buntime/plugin-authn";
-import authz from "@buntime/plugin-authz";
-import deployments from "@buntime/plugin-deployments";
-import gateway from "@buntime/plugin-gateway";
-import metrics from "@buntime/plugin-metrics";
-import proxy from "@buntime/plugin-proxy";
 import type { PluginFactory } from "@buntime/shared/types";
 
 /**
- * Plugins with native dependencies (libsql)
- * These are loaded lazily to avoid bundling native binaries
+ * Map of plugin names to their lazy loaders
  */
-const lazyPlugins: Record<string, () => Promise<PluginFactory>> = {
-  "@buntime/plugin-database": async () =>
-    (await import("@buntime/plugin-database")).default as unknown as PluginFactory,
+const plugins: Record<string, () => Promise<PluginFactory>> = {
+  "@buntime/plugin-authn": async () => (await import("@buntime/plugin-authn")).default,
+  "@buntime/plugin-authz": async () => (await import("@buntime/plugin-authz")).default,
+  "@buntime/plugin-database": async () => (await import("@buntime/plugin-database")).default,
+  "@buntime/plugin-deployments": async () => (await import("@buntime/plugin-deployments")).default,
   "@buntime/plugin-durable": async () => (await import("@buntime/plugin-durable")).default,
+  "@buntime/plugin-gateway": async () => (await import("@buntime/plugin-gateway")).default,
   "@buntime/plugin-keyval": async () => (await import("@buntime/plugin-keyval")).default,
+  "@buntime/plugin-metrics": async () => (await import("@buntime/plugin-metrics")).default,
+  "@buntime/plugin-proxy": async () => (await import("@buntime/plugin-proxy")).default,
 };
-
-/**
- * Map of plugin names to their factory functions (static plugins)
- */
-const staticPlugins: Record<string, PluginFactory> = {
-  "@buntime/plugin-authn": authn,
-  "@buntime/plugin-authz": authz,
-  "@buntime/plugin-deployments": deployments,
-  "@buntime/plugin-gateway": gateway,
-  "@buntime/plugin-metrics": metrics,
-  "@buntime/plugin-proxy": proxy,
-};
-
-/**
- * Check if a plugin is built-in (static or lazy)
- */
-export function isBuiltinPlugin(name: string): boolean {
-  return name in staticPlugins || name in lazyPlugins;
-}
 
 /**
  * Get a built-in plugin factory by name
- * Returns a factory function or undefined
+ * Built-in plugins are embedded in the binary for production use
  */
 export async function getBuiltinPlugin(name: string): Promise<PluginFactory | undefined> {
-  // Try static plugins first
-  if (name in staticPlugins) {
-    return staticPlugins[name];
-  }
-
-  // Try lazy plugins
-  if (name in lazyPlugins) {
-    return await lazyPlugins[name]!();
-  }
-
-  return undefined;
+  const loader = plugins[name];
+  return loader ? await loader() : undefined;
 }

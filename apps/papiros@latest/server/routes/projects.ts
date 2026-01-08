@@ -1,3 +1,4 @@
+import { Hono } from "hono";
 import { DEFAULT_LANG, SUPPORTED_LANGS } from "@/constants";
 import type { ProjectConfig, ReleaseInfo } from "@/types";
 import { parseAsciiDocAttributes, parseFileAttributes } from "@/utils/asciidoc";
@@ -5,7 +6,6 @@ import { buildHierarchicalTree, buildSlugMap, readFileContent } from "@/utils/co
 import { getAvailableLanguage, hasLanguage } from "@/utils/language";
 import { exists, listDir, readText } from "@/utils/s3";
 import { buildSlugPath, formatName } from "@/utils/slug";
-import { Hono } from "hono";
 
 /**
  * Load project config from index.adoc front-matter or fallback to project.json

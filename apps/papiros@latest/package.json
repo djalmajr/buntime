@@ -6,9 +6,9 @@
   "scripts": {
     "build": "NODE_ENV=production bun scripts/build.ts",
     "dev": "bun scripts/build.ts --watch",
+    "lint": "bun run lint:format && bun run lint:types",
     "lint:format": "bun biome check --write",
-    "lint:types": "bun tsc --noEmit",
-    "lint": "bun run lint:format && bun run lint:types"
+    "lint:types": "bun tsc --noEmit"
   },
   "dependencies": {
     "@buntime/shadcn-ui": "workspace:*",
@@ -46,7 +46,9 @@
     "entrypoint": "dist/index.js",
     "visibility": "protected",
     "publicRoutes": {
-      "GET": ["/**"]
+      "GET": [
+        "/**"
+      ]
     }
   }
 }

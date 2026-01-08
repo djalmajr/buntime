@@ -1,15 +1,11 @@
+import { NotFoundError } from "@buntime/shared/errors";
+import type { HomepageConfig } from "@buntime/shared/types";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
 import type { PluginRegistry } from "@/plugins/registry";
-
-export interface HomepageConfig {
-  /** Plugin or app path (e.g., "/cpanel" or "my-app") */
-  app: string;
-  /** Base path to inject. If omitted, redirects to app path instead of serving inline */
-  base?: string;
-}
+import { createWorkerRequest } from "@/utils/request";
 
 export interface WorkerRoutesConfig {
   /**
@@ -42,47 +38,41 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
     const pluginApp = registry.resolvePluginApp(requestPath);
     if (!pluginApp) return null;
 
-    try {
-      const workerConfig = await loadWorkerConfig(pluginApp.dir);
-      const merged = { ...workerConfig, ...pluginApp.config };
+    const workerConfig = await loadWorkerConfig(pluginApp.dir);
 
-      // Calculate pathname relative to plugin app base path
-      const pathname = requestPath.slice(pluginApp.basePath.length) || "/";
-      const originalUrl = new URL(ctx.req.url);
+    // Calculate pathname relative to plugin app base path
+    const originalUrl = new URL(ctx.req.url);
+    // Use requestPath for rewriting since it may be overridden (e.g., homepage)
+    const tempUrl = new URL(requestPath, originalUrl.href);
+    const relativePath = tempUrl.pathname.slice(pluginApp.basePath.length) || "/";
 
-      const req = new Request(new URL(pathname + originalUrl.search, ctx.req.url).href, ctx.req.raw);
-      // Use override base if provided (for homepage), otherwise use plugin base path
-      req.headers.set("x-base", overrideBase ?? pluginApp.basePath);
+    const req = createWorkerRequest({
+      base: overrideBase ?? pluginApp.basePath,
+      originalRequest: ctx.req.raw,
+      targetPath: relativePath,
+    });
 
-      return pool.fetch(pluginApp.dir, merged, req);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      console.error(`[Main] Error serving plugin app at ${pluginApp.basePath}:`, error);
-      return ctx.json({ error: `Error: ${error.message}` }, 500);
-    }
+    return pool.fetch(pluginApp.dir, workerConfig, req);
   }
 
   /**
    * Handle workspace app (traditional worker)
    */
   async function runApp(ctx: Context, app: string) {
-    try {
-      const dir = getAppDir(app);
-      if (!dir) return ctx.json({ error: `App not found: ${app}` }, 404);
+    const dir = getAppDir(app);
+    if (!dir) throw new NotFoundError(`App not found: ${app}`, "APP_NOT_FOUND");
 
-      const workerConfig = await loadWorkerConfig(dir);
-      const pathname = ctx.req.path.slice(`/${app}`.length) || "/";
-      const originalUrl = new URL(ctx.req.url);
+    const workerConfig = await loadWorkerConfig(dir);
+    const originalUrl = new URL(ctx.req.url);
+    const relativePath = originalUrl.pathname.slice(`/${app}`.length) || "/";
 
-      const req = new Request(new URL(pathname + originalUrl.search, ctx.req.url).href, ctx.req.raw);
-      req.headers.set("x-base", `/${app}`);
+    const req = createWorkerRequest({
+      base: `/${app}`,
+      originalRequest: ctx.req.raw,
+      targetPath: relativePath,
+    });
 
-      return pool.fetch(dir, workerConfig, req);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      console.error(`[Main] Error serving ${app}:`, error);
-      return ctx.json({ error: `Error: ${error.message}` }, 500);
-    }
+    return pool.fetch(dir, workerConfig, req);
   }
 
   /**
@@ -132,7 +122,7 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
 
       const pluginResponse = await runPluginApp(ctx, fullPath, base);
       if (pluginResponse) return pluginResponse;
-      return ctx.json({ error: `Homepage plugin not found: ${app}` }, 404);
+      throw new NotFoundError(`Homepage plugin not found: ${app}`, "HOMEPAGE_PLUGIN_NOT_FOUND");
     }
 
     // Workspace app name

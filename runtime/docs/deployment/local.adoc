@@ -1,10 +1,16 @@
-== Local Execution
+== Execução Local
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
 
-There are three ways to run Buntime locally:
+Existem três formas de executar o Buntime localmente:
 
 [cols="1,1,2,1"]
 |===
-| Mode | Command | Use Case | Size
+| Modo | Comando | Caso de Uso | Tamanho
 
 | Development
 | `bun dev`
@@ -13,16 +19,16 @@ There are three ways to run Buntime locally:
 
 | Bundle
 | `bun run index.ts`
-| Production-like, needs Bun
+| Semelhante a produção, requer Bun
 | ~1.5MB
 
 | Compiled
 | `./buntime`
-| Standalone binary, no dependencies
+| Binary standalone, sem dependências
 | ~130MB
 |===
 
-=== Development Mode
+=== Modo Development
 
 [source,bash]
 ----
@@ -30,15 +36,15 @@ cd runtime
 bun dev
 ----
 
-Features:
+Recursos:
 
-* Hot reload on file changes
-* Source maps for debugging
-* Slower startup (plugins loaded from node_modules)
+* Hot reload em alterações de arquivos
+* Source maps para debugging
+* Inicialização mais lenta (plugins carregados de node_modules)
 
-=== Bundle Mode
+=== Modo Bundle
 
-Build and run the bundled JavaScript:
+Compile e execute o JavaScript empacotado:
 
 [source,bash]
 ----
@@ -51,7 +57,7 @@ bun run build
 bun run dist/index.ts
 ----
 
-Output structure:
+Estrutura de saída:
 
 [source]
 ----
@@ -61,9 +67,9 @@ dist/
 └── buntime.jsonc  # Configuration
 ----
 
-=== Compiled Binary
+=== Binary Compilado
 
-Build a standalone executable with all dependencies embedded:
+Compile um executável standalone com todas as dependências embutidas:
 
 [source,bash]
 ----
@@ -76,7 +82,7 @@ bun run build:bin
 ./dist/buntime
 ----
 
-Output:
+Saída:
 
 [source]
 ----
@@ -85,16 +91,16 @@ dist/
 └── buntime.jsonc  # Configuration
 ----
 
-==== Compiled Mode Features
+==== Recursos do Modo Compiled
 
-* No Bun installation required
-* All plugins embedded in binary
-* Single file deployment
-* Works on any Linux x64 system
+* Não requer instalação do Bun
+* Todos os plugins embutidos no binary
+* Deploy de arquivo único
+* Funciona em qualquer sistema Linux x64
 
-==== Configuration in Compiled Mode
+==== Configuração no Modo Compiled
 
-The binary reads `buntime.jsonc` from the current directory:
+O binary lê `buntime.jsonc` do diretório atual:
 
 [source,bash]
 ----
@@ -108,7 +114,7 @@ cd /opt/buntime
 ./buntime
 ----
 
-==== Environment Variables
+==== Variáveis de Ambiente
 
 [source,bash]
 ----
@@ -125,9 +131,9 @@ export LIBSQL_URL=http://localhost:8880
 ./buntime
 ----
 
-==== Systemd Service
+==== Serviço Systemd
 
-Create `/etc/systemd/system/buntime.service`:
+Crie `/etc/systemd/system/buntime.service`:
 
 [source,ini]
 ----
@@ -153,7 +159,7 @@ Environment=LOG_LEVEL=info
 WantedBy=multi-user.target
 ----
 
-Enable and start:
+Habilite e inicie:
 
 [source,bash]
 ----
@@ -165,7 +171,7 @@ sudo systemctl status buntime
 
 === Docker
 
-==== Build Image
+==== Construir Imagem
 
 [source,bash]
 ----
@@ -173,7 +179,7 @@ sudo systemctl status buntime
 docker build -t buntime:latest .
 ----
 
-==== Run Container
+==== Executar Container
 
 [source,bash]
 ----
@@ -218,37 +224,37 @@ volumes:
   libsql-data:
 ----
 
-=== Comparison
+=== Comparação
 
 [cols="1,1,1,1,1"]
 |===
-| Feature | Dev | Bundle | Compiled | Docker
+| Recurso | Dev | Bundle | Compiled | Docker
 
 | Hot Reload
-| Yes
-| No
-| No
-| No
+| Sim
+| Não
+| Não
+| Não
 
-| Bun Required
-| Yes
-| Yes
-| No
-| No
+| Requer Bun
+| Sim
+| Sim
+| Não
+| Não
 
-| Deployment Size
+| Tamanho do Deploy
 | N/A
 | ~1.5MB + Bun
 | ~130MB
 | ~132MB
 
-| Startup Time
-| Slow
-| Fast
-| Fast
-| Fast
+| Tempo de Inicialização
+| Lento
+| Rápido
+| Rápido
+| Rápido
 
-| Plugins from
+| Plugins de
 | node_modules
 | Embedded
 | Embedded

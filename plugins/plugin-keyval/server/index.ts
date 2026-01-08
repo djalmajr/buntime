@@ -1,4 +1,3 @@
-import { errorToResponse } from "@buntime/shared/errors";
 import type { PluginContext } from "@buntime/shared/types";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -761,7 +760,7 @@ export const api = new Hono()
   })
   // Error handler for validation errors
   .onError((err, ctx) => {
-    if (err.name === "HTTPException" && "status" in err) {
+    if (err.constructor.name === "HTTPException" && "status" in err) {
       const status = (err as unknown as { status: number }).status;
       return ctx.json({ error: err.message }, status as 400 | 404 | 500);
     }

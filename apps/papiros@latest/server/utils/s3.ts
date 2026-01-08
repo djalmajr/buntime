@@ -68,9 +68,8 @@ export async function listObjects(prefix: string): Promise<string[]> {
 
   // Remove the S3_PREFIX from paths returned
   return (
-    result.contents?.map((obj) =>
-      S3_PREFIX ? obj.key.replace(`${S3_PREFIX}/`, "") : obj.key,
-    ) ?? []
+    result.contents?.map((obj) => (S3_PREFIX ? obj.key.replace(`${S3_PREFIX}/`, "") : obj.key)) ??
+    []
   );
 }
 
@@ -101,7 +100,9 @@ export async function listDir(prefix: string): Promise<ListEntry[]> {
   for (const p of result.commonPrefixes ?? []) {
     // Extract directory name from prefix
     const relativePath = S3_PREFIX ? p.replace(`${S3_PREFIX}/`, "") : p;
-    const name = relativePath.replace(normalizedPrefix.replace(S3_PREFIX ? `${S3_PREFIX}/` : "", ""), "").replace(/\/$/, "");
+    const name = relativePath
+      .replace(normalizedPrefix.replace(S3_PREFIX ? `${S3_PREFIX}/` : "", ""), "")
+      .replace(/\/$/, "");
     if (name) {
       entries.push({ name, type: "directory" });
     }

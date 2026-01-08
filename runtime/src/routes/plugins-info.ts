@@ -1,35 +1,8 @@
-import type { BuntimePlugin, FragmentType } from "@buntime/shared/types";
 import { Hono } from "hono";
 import type { PluginRegistry } from "@/plugins/registry";
 
 export interface PluginsInfoDeps {
   registry: PluginRegistry;
-}
-
-/**
- * Normalized fragment config returned by API
- */
-export interface NormalizedFragmentConfig {
-  enabled: boolean;
-  type?: FragmentType;
-  origin?: string;
-  preloadStyles?: string;
-}
-
-/**
- * Normalize fragment config to consistent object
- */
-function normalizeFragmentConfig(fragment: BuntimePlugin["fragment"]): NormalizedFragmentConfig {
-  if (!fragment) {
-    return { enabled: false };
-  }
-
-  return {
-    enabled: true,
-    type: fragment.type,
-    origin: fragment.origin,
-    preloadStyles: fragment.preloadStyles,
-  };
 }
 
 /**
@@ -45,7 +18,14 @@ export function createPluginsInfoRoutes({ registry }: PluginsInfoDeps) {
     const plugins = registry.getAll().map((plugin) => ({
       base: plugin.base,
       dependencies: plugin.dependencies ?? [],
-      fragment: normalizeFragmentConfig(plugin.fragment),
+      fragment: plugin.fragment
+        ? {
+            enabled: true,
+            origin: plugin.fragment.origin,
+            preloadStyles: plugin.fragment.preloadStyles,
+            type: plugin.fragment.type,
+          }
+        : { enabled: false },
       menus: plugin.menus ?? [],
       name: plugin.name,
       optionalDependencies: plugin.optionalDependencies ?? [],

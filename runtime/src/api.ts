@@ -4,15 +4,14 @@
  * This module initializes all dependencies and creates the main Hono app.
  * It exports the app and dependencies without starting the server.
  *
- * Use this for:
- * - Production server (server/index.ts imports and runs Bun.serve)
- * - Dev mode with frontend (root index.ts imports and combines with client)
+ * The server is started by src/index.ts which imports from here.
  */
 
 import { createLogger, setLogger } from "@buntime/shared/logger";
 import type { WebSocketHandler } from "bun";
 import { createApp } from "@/app";
-import { getConfig, initConfig, NODE_ENV } from "@/config";
+import { initConfig } from "@/config";
+import { NODE_ENV } from "@/constants";
 import { WorkerPool } from "@/libs/pool/pool";
 import { loadBuntimeConfig, PluginLoader } from "@/plugins/loader";
 import { createPluginsInfoRoutes } from "@/routes/plugins-info";
@@ -65,47 +64,6 @@ const app = createApp({
   workers,
 });
 
-// Check existing apps for conflicts with plugin routes
-async function checkExistingAppsForConflicts() {
-  const { workspaces } = getConfig();
-  const mountedPaths = registry.getMountedPaths();
-
-  for (const workspace of workspaces) {
-    try {
-      const entries = await Array.fromAsync(
-        new Bun.Glob("*").scan({ cwd: workspace, onlyFiles: false }),
-      );
-
-      for (const entry of entries) {
-        // Only check top-level directories (apps)
-        const stat = await Bun.file(`${workspace}/${entry}`).exists();
-        if (stat) continue; // Skip files
-
-        const appPath = `/${entry}`;
-        const conflictingPlugin = registry.checkRouteConflict(appPath);
-        if (conflictingPlugin) {
-          // Find the actual mount path of the conflicting plugin
-          let pluginMountPath = "";
-          for (const [path, name] of mountedPaths) {
-            if (name === conflictingPlugin) {
-              pluginMountPath = path;
-              break;
-            }
-          }
-
-          logger.warn(
-            `Existing app "${entry}" conflicts with plugin "${conflictingPlugin}" (mounted at "${pluginMountPath}"). Plugin routes take priority.`,
-          );
-        }
-      }
-    } catch {
-      // Ignore errors (workspace might not exist yet)
-    }
-  }
-}
-
-await checkExistingAppsForConflicts();
-
 // Get WebSocket handler from plugins (if any)
 const websocket = registry.getWebSocketHandler() as WebSocketHandler<unknown> | undefined;
 
@@ -114,20 +72,4 @@ const pluginRoutes = registry.collectServerRoutes();
 const hasPluginRoutes = Object.keys(pluginRoutes).length > 0;
 
 // Export everything needed to start the server
-export {
-  app,
-  buntimeConfig,
-  hasPluginRoutes,
-  logger,
-  pluginRoutes,
-  pool,
-  registry,
-  runtimeConfig,
-  websocket,
-};
-
-// Re-export types
-export { type AppType, createApp } from "@/app";
-export { type LoadedBuntimeConfig, loadBuntimeConfig, PluginLoader } from "@/plugins/loader";
-export { PluginRegistry } from "@/plugins/registry";
-export type { PluginsInfoRoutesType } from "@/routes/plugins-info";
+export { app, buntimeConfig, hasPluginRoutes, logger, pluginRoutes, pool, registry, websocket };

@@ -72,7 +72,9 @@ export function useProjectReleases(project: string, folder: string, lang: string
   return useQuery({
     enabled: !!project && !!lang,
     queryFn: async () => {
-      const path = folder ? `api/projects/${project}/releases/${folder}` : `api/projects/${project}/releases/`;
+      const path = folder
+        ? `api/projects/${project}/releases/${folder}`
+        : `api/projects/${project}/releases/`;
       const res = await fetch(`${path}?lang=${lang}`);
       return res.json() as Promise<ReleasesResponse>;
     },

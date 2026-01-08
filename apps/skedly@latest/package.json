@@ -56,6 +56,10 @@
   },
   "buntime": {
     "entrypoint": "dist/index.js",
-    "visibility": "protected"
+    "visibility": "protected",
+    "publicRoutes": {
+      "GET": ["/api/health", "/api/auth/**"],
+      "POST": ["/api/auth/**"]
+    }
   }
 }

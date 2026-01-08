@@ -411,7 +411,7 @@ export class PluginLoader {
 
   /**
    * Try to resolve a plugin from the external plugins directory
-   * Looks for: ./plugins/{name}.ts, ./plugins/{name}/index.ts
+   * Looks for: ./plugins/{name}.ts, ./plugins/{name}/plugin.ts, ./plugins/{name}/index.ts
    */
   private async resolveExternalPlugin(name: string): Promise<string | null> {
     const cwd = process.cwd();
@@ -430,10 +430,16 @@ export class PluginLoader {
       return directPath;
     }
 
-    // Try directory: ./plugins/{name}/index.ts
-    const dirPath = join(pluginsDir, shortName, "index.ts");
-    if (existsSync(dirPath)) {
-      return dirPath;
+    // Try directory with plugin.ts: ./plugins/{name}/plugin.ts
+    const pluginPath = join(pluginsDir, shortName, "plugin.ts");
+    if (existsSync(pluginPath)) {
+      return pluginPath;
+    }
+
+    // Try directory with index.ts: ./plugins/{name}/index.ts
+    const indexPath = join(pluginsDir, shortName, "index.ts");
+    if (existsSync(indexPath)) {
+      return indexPath;
     }
 
     return null;

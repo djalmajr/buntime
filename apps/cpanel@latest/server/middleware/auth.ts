@@ -10,13 +10,9 @@ async function isAuthnEnabled(): Promise<boolean> {
   if (authnEnabled !== undefined) return authnEnabled;
 
   try {
-    const res = await fetch(
-      `${Bun.env.BUNTIME_URL || "http://localhost:8000"}/api/plugins`,
-    );
+    const res = await fetch(`${Bun.env.BUNTIME_URL || "http://localhost:8000"}/api/plugins`);
     const plugins = await res.json();
-    authnEnabled = plugins.some(
-      (p: { name: string }) => p.name === "@buntime/plugin-authn",
-    );
+    authnEnabled = plugins.some((p: { name: string }) => p.name === "@buntime/plugin-authn");
   } catch {
     authnEnabled = false;
   }

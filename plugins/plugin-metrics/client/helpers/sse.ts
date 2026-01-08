@@ -62,10 +62,10 @@ export function createMetricsSSE(onMessage: (data: MetricsSSEData) => void): Eve
       // Convert workers object to array
       type WorkerStatus = "active" | "idle" | "ephemeral" | "offline";
       interface RawWorker {
-        age: number;
+        ageMs: number;
         avgResponseTimeMs: number;
         errorCount: number;
-        idle: number;
+        idleMs: number;
         requestCount: number;
         status: WorkerStatus;
         totalResponseTimeMs: number;
@@ -81,12 +81,12 @@ export function createMetricsSSE(onMessage: (data: MetricsSSEData) => void): Eve
         requests: worker.requestCount ?? 0,
         status: (worker.status ?? "active") as WorkerStatus,
         totalResponseTimeMs: worker.totalResponseTimeMs ?? 0,
-        // For ephemeral workers, age is lastResponseTimeMs - keep as ms
-        // For persistent workers, age is uptime in ms - convert to seconds
+        // For ephemeral workers, ageMs is lastResponseTimeMs - keep as ms
+        // For persistent workers, ageMs is uptime in ms - convert to seconds
         uptime:
           worker.status === "ephemeral"
-            ? Math.round(worker.age ?? 0)
-            : Math.floor((worker.age ?? 0) / 1000),
+            ? Math.round(worker.ageMs ?? 0)
+            : Math.floor((worker.ageMs ?? 0) / 1000),
         // Ephemeral-only session metrics
         lastRequestCount: worker.lastRequestCount,
         lastResponseTimeMs: worker.lastResponseTimeMs,

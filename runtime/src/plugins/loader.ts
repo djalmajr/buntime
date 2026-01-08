@@ -8,59 +8,33 @@ import type {
   PluginContext,
   PluginFactory,
   PluginModule,
-  PublicRoutesConfig,
 } from "@buntime/shared/types";
-import { getConfig, IS_COMPILED } from "@/config";
+import { getConfig } from "@/config";
+import { IS_DEV, PLUGINS_DIR } from "@/constants";
+import { getShortName } from "@/utils/plugins";
 import { getBuiltinPlugin } from "./builtin";
 import { createPluginLogger, PluginRegistry } from "./registry";
 
 const logger = getChildLogger("PluginLoader");
 
-const EXTERNAL_PLUGINS_DIR = "./plugins";
-const BUILTIN_PLUGINS_DIR = "./plugins";
-
-const HTTP_METHODS = ["ALL", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"] as const;
-
 /**
- * Merge two PublicRoutesConfig objects
- * Config routes are added to plugin routes (config takes priority for additions)
+ * Validate that a module has a valid plugin structure before using it
+ * Security: Prevents arbitrary code from being treated as a plugin
  */
-function mergePublicRoutes(
-  pluginRoutes: PublicRoutesConfig | undefined,
-  configRoutes: PublicRoutesConfig | undefined,
-): PublicRoutesConfig | undefined {
-  if (!configRoutes) return pluginRoutes;
-  if (!pluginRoutes) return configRoutes;
+function isValidPluginModule(mod: unknown): boolean {
+  if (mod === null || mod === undefined) return false;
+  if (typeof mod === "function") return true; // Factory function
 
-  // Both are arrays - combine them
-  if (Array.isArray(pluginRoutes) && Array.isArray(configRoutes)) {
-    return [...new Set([...pluginRoutes, ...configRoutes])];
+  if (typeof mod === "object") {
+    // Check for default export
+    if ("default" in mod) {
+      return isValidPluginModule((mod as { default: unknown }).default);
+    }
+    // Direct plugin object must have 'name' property
+    return "name" in mod && typeof (mod as { name: unknown }).name === "string";
   }
 
-  // Normalize both to object format
-  const normalizeToObject = (routes: PublicRoutesConfig): Record<string, string[]> => {
-    if (Array.isArray(routes)) {
-      return { ALL: routes };
-    }
-    return routes as Record<string, string[]>;
-  };
-
-  const pluginObj = normalizeToObject(pluginRoutes);
-  const configObj = normalizeToObject(configRoutes);
-
-  // Merge each method's routes
-  const result: Record<string, string[]> = {};
-
-  for (const method of HTTP_METHODS) {
-    const pluginMethodRoutes = pluginObj[method] || [];
-    const configMethodRoutes = configObj[method] || [];
-    const merged = [...new Set([...pluginMethodRoutes, ...configMethodRoutes])];
-    if (merged.length > 0) {
-      result[method] = merged;
-    }
-  }
-
-  return Object.keys(result).length > 0 ? result : undefined;
+  return false;
 }
 
 /**
@@ -70,6 +44,13 @@ function resolvePlugin(
   mod: PluginModule,
   config: Record<string, unknown>,
 ): BuntimePlugin | Promise<BuntimePlugin> {
+  // Security: Validate module structure before processing
+  if (!isValidPluginModule(mod)) {
+    throw new Error(
+      "Invalid plugin module structure: must export a plugin object with 'name' or a factory function",
+    );
+  }
+
   // Handle default export
   if ("default" in mod) {
     return resolvePlugin(mod.default as PluginModule, config);
@@ -110,11 +91,13 @@ interface ParsedPlugin {
 }
 
 /**
- * Resolved plugin module with its directory
+ * Resolved plugin with module and root directory
  */
-interface ResolvedPluginModule {
-  module: PluginModule;
+interface ResolvedPlugin {
+  /** Root directory (contains client/, server/, plugin.ts) */
   dir: string;
+  /** Plugin factory/module (the logic) */
+  module: PluginModule;
 }
 
 /**
@@ -151,7 +134,7 @@ export class PluginLoader {
       const { name, options } = parsePluginConfig(pluginConfig);
 
       // Load plugin module to get dependencies
-      const { module } = await this.resolvePluginModule(name);
+      const { module } = await this.resolvePlugin(name);
       const plugin = await resolvePlugin(module, options);
 
       // Filter optional dependencies to only those that are configured
@@ -233,8 +216,9 @@ export class PluginLoader {
       }
     }
 
-    while (queue.length > 0) {
-      const name = queue.shift()!;
+    let queueIndex = 0;
+    while (queueIndex < queue.length) {
+      const name = queue[queueIndex++]!;
       const plugin = pluginMap.get(name)!;
       result.push(plugin);
 
@@ -250,7 +234,8 @@ export class PluginLoader {
 
     // Check for cycles
     if (result.length !== plugins.length) {
-      const remaining = plugins.filter((p) => !result.find((r) => r.name === p.name));
+      const resultNames = new Set(result.map((p) => p.name));
+      const remaining = plugins.filter((p) => !resultNames.has(p.name));
       throw new Error(
         `Circular dependency detected among plugins: ${remaining.map((p) => p.name).join(", ")}`,
       );
@@ -260,66 +245,61 @@ export class PluginLoader {
   }
 
   /**
-   * Resolve a plugin module by name (without loading)
+   * Resolve a plugin by name
+   *
+   * Returns:
+   * - module: Plugin factory (the logic)
+   * - dir: Root directory (contains client/, server/, plugin.ts)
    *
    * Resolution order:
-   * 1. Built-in plugins (always available, embedded in binary)
+   * 1. Built-in plugins (embedded in binary/bundle)
    * 2. External plugins from ./plugins/ directory
-   * 3. Node modules (dev/bundle mode only)
+   * 3. Node modules (dev mode only)
    *
-   * Returns both the module and its directory for worker spawning
+   * Plugin directory resolution:
+   * - Production (bundle/compiled): ./plugins/{shortName}/ (must be copied manually)
+   * - Dev: node_modules via Bun.resolveSync
    */
-  private async resolvePluginModule(name: string): Promise<ResolvedPluginModule> {
-    // Helper to resolve plugin directory from package name
-    const resolveDir = (packageName: string): string => {
+  private async resolvePlugin(name: string): Promise<ResolvedPlugin> {
+    // Find package directory via Bun resolution (dev mode only)
+    const resolveFromNodeModules = (packageName: string): string | null => {
       try {
-        const resolvedPath = Bun.resolveSync(packageName, process.cwd());
-        return dirname(resolvedPath);
+        return dirname(Bun.resolveSync(packageName, process.cwd()));
       } catch {
-        return "";
+        return null;
       }
     };
 
-    // Helper to resolve built-in plugin directory in compiled mode
-    // Looks for ./plugins/{shortName}/ with index.html (fragment UI)
-    const resolveBuiltinDir = (packageName: string): string => {
-      const shortName = packageName.replace(/^@buntime\/plugin-/, "").replace(/^@buntime\//, "");
-      const pluginDir = join(process.cwd(), BUILTIN_PLUGINS_DIR, shortName);
-      const indexHtml = join(pluginDir, "index.html");
-
-      if (existsSync(indexHtml)) {
-        return pluginDir;
-      }
-      return "";
+    // Find plugin in ./plugins/{shortName}/ (production: bundle/compiled)
+    const resolveFromPluginsDir = (packageName: string): string => {
+      const shortName = getShortName(packageName);
+      const dir = join(process.cwd(), PLUGINS_DIR, shortName);
+      const indexHtml = join(dir, "index.html");
+      return existsSync(indexHtml) ? dir : "";
     };
 
-    // 1. Try built-in plugins first (works in compiled binary)
+    // 1. Built-in plugins (embedded in binary/bundle)
     const builtinFactory = await getBuiltinPlugin(name);
     if (builtinFactory) {
-      // In compiled mode, try to find plugin directory in ./plugins/
-      // In dev mode, use Bun.resolveSync
-      const dir = IS_COMPILED ? resolveBuiltinDir(name) : resolveDir(name);
-      return { module: builtinFactory, dir };
+      const dir = IS_DEV ? resolveFromNodeModules(name) : resolveFromPluginsDir(name);
+      return { dir: dir ?? "", module: builtinFactory };
     }
 
-    // 2. Try external plugins directory
+    // 2. External plugins from ./plugins/ directory
     const externalPath = await this.resolveExternalPlugin(name);
     if (externalPath) {
       const module = await import(externalPath);
-      // External plugins: directory is parent of the resolved file
-      const dir = dirname(externalPath);
-      return { module, dir };
+      return { dir: dirname(externalPath), module };
     }
 
-    // 3. Try node_modules (dev/bundle mode)
+    // 3. Node modules (dev mode only)
     try {
       const module = await import(name);
-      const dir = resolveDir(name);
-      return { module, dir };
+      return { dir: resolveFromNodeModules(name) ?? "", module };
     } catch {
       throw new Error(
         `Could not resolve plugin "${name}". ` +
-          `Not a built-in plugin and not found in ${EXTERNAL_PLUGINS_DIR}/`,
+          `Not a built-in plugin and not found in ${PLUGINS_DIR}/`,
       );
     }
   }
@@ -333,7 +313,7 @@ export class PluginLoader {
       throw new Error(`Plugin "${name}" is already loaded`);
     }
 
-    const { module, dir } = await this.resolvePluginModule(name);
+    const { dir, module } = await this.resolvePlugin(name);
     const plugin = await resolvePlugin(module, options);
 
     // Validate plugin structure
@@ -344,44 +324,56 @@ export class PluginLoader {
       throw new Error(`Plugin "${name}" is missing required field: base`);
     }
 
-    // Validate dependencies are loaded (already sorted topologically, so this should pass)
-    if (plugin.dependencies) {
-      for (const dep of plugin.dependencies) {
-        if (!this.registry.has(dep)) {
-          throw new Error(
-            `Plugin "${name}" requires "${dep}" to be loaded first. ` +
-              `Add "${dep}" to your buntime.jsonc plugins array.`,
-          );
-        }
-      }
+    // Validate base path format (security: prevent route interception)
+    // Must be "/" followed by alphanumeric, underscore, or hyphen
+    const BASE_PATH_PATTERN = /^\/[a-zA-Z0-9_-]+$/;
+    if (plugin.base !== "/" && !BASE_PATH_PATTERN.test(plugin.base)) {
+      throw new Error(
+        `Plugin "${name}" has invalid base path "${plugin.base}". ` +
+          `Must match pattern: /[a-zA-Z0-9_-]+ (e.g., "/metrics", "/my-plugin")`,
+      );
     }
 
-    // Merge publicRoutes from config (config routes are added to plugin routes)
-    if (options.publicRoutes) {
-      plugin.publicRoutes = mergePublicRoutes(
-        plugin.publicRoutes,
-        options.publicRoutes as PublicRoutesConfig,
+    // Security: Block reserved paths used by runtime internals
+    const RESERVED_PATHS = ["/api", "/health", "/.well-known"];
+    if (RESERVED_PATHS.includes(plugin.base)) {
+      throw new Error(
+        `Plugin "${name}" cannot use reserved path "${plugin.base}". ` +
+          `Reserved paths: ${RESERVED_PATHS.join(", ")}`,
       );
     }
 
     // Override base from config if specified
     // Plugins define their own base path (e.g., "/cpanel", "/metrics")
     if (options.base !== undefined) {
-      plugin.base = options.base as string;
+      const baseOverride = options.base as string;
+      if (baseOverride !== "/" && !BASE_PATH_PATTERN.test(baseOverride)) {
+        throw new Error(
+          `Plugin "${name}" config has invalid base path "${baseOverride}". ` +
+            `Must match pattern: /[a-zA-Z0-9_-]+ (e.g., "/metrics", "/my-plugin")`,
+        );
+      }
+      // Security: Also check reserved paths for overrides
+      if (RESERVED_PATHS.includes(baseOverride)) {
+        throw new Error(
+          `Plugin "${name}" config cannot use reserved path "${baseOverride}". ` +
+            `Reserved paths: ${RESERVED_PATHS.join(", ")}`,
+        );
+      }
+      plugin.base = baseOverride;
     }
 
     // Create context for initialization with service access
     // Use resolved config (with env var substitution) for workspaces
     const registry = this.registry;
     const runtimeConfig = getConfig();
-    const globalConfig = {
-      poolSize: runtimeConfig.poolSize,
-      workspaces: runtimeConfig.workspaces,
-    };
 
     const context: PluginContext = {
       config: options,
-      globalConfig,
+      globalConfig: {
+        poolSize: runtimeConfig.poolSize,
+        workspaces: runtimeConfig.workspaces,
+      },
       logger: createPluginLogger(plugin.name),
       pool: this.pool,
       registerService<T>(serviceName: string, service: T): void {
@@ -392,12 +384,24 @@ export class PluginLoader {
       },
     };
 
-    // Initialize plugin
+    // Initialize plugin with timeout to prevent hanging
+    // Security: Misbehaving plugins can't block server startup indefinitely
+    const INIT_TIMEOUT_MS = 30_000;
     if (plugin.onInit) {
-      await plugin.onInit(context);
+      const initPromise = plugin.onInit(context);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(`Plugin "${name}" initialization timed out after ${INIT_TIMEOUT_MS}ms`),
+            ),
+          INIT_TIMEOUT_MS,
+        ),
+      );
+      await Promise.race([initPromise, timeoutPromise]);
     }
 
-    // Register plugin with its directory (for spawning as worker)
+    // Register plugin with its root directory
     this.registry.register(plugin, dir || undefined);
 
     logger.info(`Loaded: ${plugin.name}${dir ? ` (${dir})` : ""}`);
@@ -406,26 +410,19 @@ export class PluginLoader {
   }
 
   /**
-   * Get the plugin registry
-   */
-  getRegistry(): PluginRegistry {
-    return this.registry;
-  }
-
-  /**
    * Try to resolve a plugin from the external plugins directory
    * Looks for: ./plugins/{name}.ts, ./plugins/{name}/index.ts
    */
   private async resolveExternalPlugin(name: string): Promise<string | null> {
     const cwd = process.cwd();
-    const pluginsDir = join(cwd, EXTERNAL_PLUGINS_DIR);
+    const pluginsDir = join(cwd, PLUGINS_DIR);
 
     if (!existsSync(pluginsDir)) {
       return null;
     }
 
     // Extract short name from @buntime/plugin-xxx or @buntime/xxx
-    const shortName = name.replace(/^@buntime\/plugin-/, "").replace(/^@buntime\//, "");
+    const shortName = getShortName(name);
 
     // Try direct file: ./plugins/{name}.ts
     const directPath = join(pluginsDir, `${shortName}.ts`);
@@ -508,29 +505,22 @@ export interface LoadedBuntimeConfig {
 }
 
 /**
- * Load buntime configuration from file
- * Priority: buntime.jsonc (JSONC with comments support)
+ * Load buntime configuration from buntime.jsonc
+ * Bun natively parses JSONC (strips comments and trailing commas)
  */
 export async function loadBuntimeConfig(): Promise<LoadedBuntimeConfig> {
-  // Primary: buntime.jsonc
   try {
     const jsoncPath = Bun.resolveSync("./buntime.jsonc", process.cwd());
-    const file = Bun.file(jsoncPath);
-
-    if (await file.exists()) {
-      // Bun natively parses JSONC (strips comments and trailing commas)
-      const config = await import(jsoncPath);
-      return {
-        baseDir: dirname(jsoncPath),
-        config: validateBuntimeConfig(config.default ?? config, "buntime.jsonc"),
-      };
-    }
+    const config = await import(jsoncPath);
+    return {
+      baseDir: dirname(jsoncPath),
+      config: validateBuntimeConfig(config.default ?? config, "buntime.jsonc"),
+    };
   } catch (err) {
     if (err instanceof Error && !err.message.includes("Cannot find module")) {
       throw new Error(`[buntime.jsonc] Failed to parse: ${err.message}`);
     }
   }
 
-  // No config file found, return empty config with cwd as base
   return { baseDir: process.cwd(), config: {} };
 }

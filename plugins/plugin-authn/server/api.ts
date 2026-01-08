@@ -37,6 +37,14 @@ export const api = new Hono()
     return ctx.json(getProviders());
   })
   // Better-auth handles all auth routes
+  // Note: Exact route must come before wildcard, otherwise it's unreachable
+  .all("/auth", async (ctx) => {
+    const auth = getAuth();
+    if (!auth) {
+      return ctx.json({ error: "Auth not configured" }, 500);
+    }
+    return auth.handler(ctx.req.raw);
+  })
   .all("/auth/*", async (ctx) => {
     const auth = getAuth();
     const logger = getLogger();
@@ -56,13 +64,6 @@ export const api = new Hono()
       logger?.error("Auth handler error", { error: String(err) });
       throw err;
     }
-  })
-  .all("/auth", async (ctx) => {
-    const auth = getAuth();
-    if (!auth) {
-      return ctx.json({ error: "Auth not configured" }, 500);
-    }
-    return auth.handler(ctx.req.raw);
   })
   // Session endpoint
   .get("/session", async (ctx) => {

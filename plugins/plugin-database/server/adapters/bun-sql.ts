@@ -23,8 +23,19 @@ export class BunSqlAdapter implements DatabaseAdapter {
     this.type = config.type;
     this.tenantId = tenantId;
 
-    // Build connection URL for tenant
-    const url = tenantId ? this.buildTenantUrl(config.url, tenantId) : config.url;
+    // Build connection URL
+    let url: string;
+    if (tenantId) {
+      url = this.buildTenantUrl(config.url ?? "", tenantId);
+    } else if (config.url) {
+      url = config.url;
+    } else if (config.type === "sqlite" && config.baseDir) {
+      // Root adapter uses _default.db when no URL is provided
+      url = `sqlite://${config.baseDir}/_default.db`;
+    } else {
+      throw new Error(`URL is required for ${config.type} adapter`);
+    }
+
     this.sql = new SQL(url);
   }
 
@@ -39,8 +50,6 @@ export class BunSqlAdapter implements DatabaseAdapter {
    * Build connection URL for tenant based on database type
    */
   private buildTenantUrl(baseUrl: string, tenantId: string): string {
-    const url = new URL(baseUrl);
-
     switch (this.type) {
       case "postgres": {
         // For postgres, we use schemas, so URL stays the same
@@ -49,12 +58,13 @@ export class BunSqlAdapter implements DatabaseAdapter {
       }
       case "mysql": {
         // For mysql, append database name to URL
+        const url = new URL(baseUrl);
         url.pathname = `/${tenantId}`;
         return url.toString();
       }
       case "sqlite": {
         // For sqlite, use separate file per tenant
-        const baseDir = this.config.baseDir ?? ".";
+        const baseDir = this.config.baseDir ?? "/tmp/buntime";
         return `sqlite://${baseDir}/${tenantId}.db`;
       }
     }
@@ -144,7 +154,7 @@ export class BunSqlAdapter implements DatabaseAdapter {
       case "sqlite": {
         // SQLite files are created automatically on first access
         // Just verify the directory exists
-        const baseDir = this.config.baseDir ?? ".";
+        const baseDir = this.config.baseDir ?? "/tmp/buntime";
         await Bun.write(`${baseDir}/.keep`, "");
         this.config.logger?.info(`SQLite tenant ready: ${safeName}`);
         break;
@@ -167,7 +177,7 @@ export class BunSqlAdapter implements DatabaseAdapter {
         break;
       }
       case "sqlite": {
-        const baseDir = this.config.baseDir ?? ".";
+        const baseDir = this.config.baseDir ?? "/tmp/buntime";
         const filePath = `${baseDir}/${safeName}.db`;
         const file = Bun.file(filePath);
         if (await file.exists()) {
@@ -198,7 +208,7 @@ export class BunSqlAdapter implements DatabaseAdapter {
       }
       case "sqlite": {
         // List .db files in baseDir
-        const baseDir = this.config.baseDir ?? ".";
+        const baseDir = this.config.baseDir ?? "/tmp/buntime";
         const glob = new Bun.Glob("*.db");
         const files: string[] = [];
         for await (const file of glob.scan(baseDir)) {

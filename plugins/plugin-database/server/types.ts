@@ -100,12 +100,16 @@ export interface BunSqlAdapterConfig {
   /** Logger instance */
   logger?: PluginLogger;
   type: "mysql" | "postgres" | "sqlite";
-  /** Database connection URL */
-  url: string;
+  /** Database connection URL (optional for sqlite with baseDir) */
+  url?: string;
 }
 
 /**
  * Configuration for LibSQL adapter
+ *
+ * Multi-tenancy uses subdomain routing with libSQL's --enable-namespaces flag:
+ * - Base URL: https://libsql.home
+ * - Tenant URL: https://{tenant}.libsql.home
  */
 export interface LibSqlAdapterConfig {
   /** Auth token for remote databases */

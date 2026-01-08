@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "bunx browser-sync --port 5000 --no-ui --no-open --single --watch",
+    "lint": "bun run lint:format && bun run lint:types",
     "lint:format": "bun biome check --write",
-    "lint": "bun run lint:format"
+    "lint:types": "bun tsc --noEmit",
+    "start": "bunx browser-sync --port 5000 --no-ui --no-open --single --watch"
   },
   "buntime": {
     "idleTimeout": 30,

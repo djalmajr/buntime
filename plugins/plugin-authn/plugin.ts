@@ -1,7 +1,82 @@
 import type { AdapterType, DatabaseService } from "@buntime/plugin-database";
-import type { BuntimePlugin, PluginContext, PublicRoutesConfig } from "@buntime/shared/types";
+import type {
+  AppInfo,
+  BuntimePlugin,
+  PluginContext,
+  PublicRoutesConfig,
+} from "@buntime/shared/types";
 import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
 import { api } from "./server/api";
+
+/**
+ * Convert glob pattern to regex pattern
+ */
+function globToRegex(pattern: string): string {
+  if (pattern.startsWith("(")) return pattern;
+  let regex = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*/g, "___DOUBLE_STAR___")
+    .replace(/\*/g, "[^/]*")
+    .replace(/___DOUBLE_STAR___/g, ".*")
+    .replace(/\?/g, ".");
+  if (!regex.startsWith("^")) regex = `^${regex}`;
+  if (!regex.endsWith("$")) regex = `${regex}$`;
+  return regex;
+}
+
+/**
+ * Convert array of glob patterns to combined regex
+ */
+function globArrayToRegex(patterns: string[]): RegExp | null {
+  if (!patterns?.length) return null;
+  return new RegExp(`(${patterns.map(globToRegex).join("|")})`);
+}
+
+/**
+ * Get public routes for a specific HTTP method
+ */
+function getPublicRoutesForMethod(
+  publicRoutes: PublicRoutesConfig | undefined,
+  method: string,
+): string[] {
+  if (!publicRoutes) return [];
+  if (Array.isArray(publicRoutes)) return publicRoutes;
+  const normalized = method.toUpperCase() as keyof typeof publicRoutes;
+  const all = publicRoutes.ALL || [];
+  const specific = publicRoutes[normalized] || [];
+  return [...new Set([...all, ...specific])];
+}
+
+/**
+ * Check if a route is public for the given worker
+ */
+function isPublicRoute(
+  pathname: string,
+  method: string,
+  internalPublicRoutes: PublicRoutesConfig,
+  app?: AppInfo,
+): boolean {
+  // 1. Check internal plugin routes (absolute paths)
+  const internalRoutes = getPublicRoutesForMethod(internalPublicRoutes, method);
+  if (internalRoutes.length > 0) {
+    const regex = globArrayToRegex(internalRoutes);
+    if (regex?.test(pathname)) return true;
+  }
+
+  // 2. Check worker's publicRoutes (relative to app basePath)
+  if (app?.config?.publicRoutes && app.name) {
+    const workerRoutes = getPublicRoutesForMethod(app.config.publicRoutes, method);
+    if (workerRoutes.length > 0) {
+      const basePath = `/${app.name}`;
+      const absoluteRoutes = workerRoutes.map((route) => `${basePath}${route}`);
+      const regex = globArrayToRegex(absoluteRoutes);
+      if (regex?.test(pathname)) return true;
+    }
+  }
+
+  return false;
+}
+
 import type {
   Auth0ProviderConfig,
   EmailPasswordProviderConfig,
@@ -100,8 +175,9 @@ export interface AuthnConfig {
   /**
    * Authentication providers
    * Supports multiple providers simultaneously
+   * @default []
    */
-  providers: ProviderConfigInput[];
+  providers?: ProviderConfigInput[];
 
   /**
    * SCIM 2.0 configuration
@@ -229,8 +305,8 @@ export default function authnPlugin(config: AuthnConfig = {} as AuthnConfig): Bu
   // Custom base path (default would be /authn)
   const basePath = "/auth";
 
-  // Public routes that skip onRequest hooks
-  const publicRoutes: PublicRoutesConfig = {
+  // Internal public routes for this plugin (absolute paths)
+  const internalPublicRoutes: PublicRoutesConfig = {
     ALL: [`${basePath}/api`, `${basePath}/api/**`],
     GET: [`${basePath}/login`, `${basePath}/login/**`],
   };
@@ -244,8 +320,6 @@ export default function authnPlugin(config: AuthnConfig = {} as AuthnConfig): Bu
 
     // API routes run on main thread
     routes: api,
-
-    publicRoutes,
 
     async onInit(ctx: PluginContext) {
       // Get database service from plugin-database
@@ -272,13 +346,17 @@ export default function authnPlugin(config: AuthnConfig = {} as AuthnConfig): Bu
       shutdown();
     },
 
-    async onRequest(req) {
+    async onRequest(req, app) {
       const url = new URL(req.url);
 
-      // Skip public routes (handled by registry)
-      // Skip auth routes (handled by proxy/worker)
+      // Skip auth routes (handled by routes/worker)
       if (url.pathname.startsWith(`${basePath}/`)) {
         return;
+      }
+
+      // Check if this route is public (internal plugin routes OR worker's publicRoutes)
+      if (isPublicRoute(url.pathname, req.method, internalPublicRoutes, app)) {
+        return; // Skip authentication for public routes
       }
 
       // 1. Check for API Key (machine-to-machine auth, e.g., CI/CD)

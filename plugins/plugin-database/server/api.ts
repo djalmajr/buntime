@@ -1,15 +1,44 @@
 import type { PluginLogger } from "@buntime/shared/types";
+import type { Server } from "bun";
 import { Hono } from "hono";
+import { HranaServer } from "./hrana/server";
+import { HranaHeaders, type HranaPipelineReqBody } from "./hrana/types";
+import {
+  type HranaWebSocketData,
+  handleHranaWebSocketUpgrade,
+  hranaWebSocketHandler,
+  initHranaWebSocket,
+  isHranaWebSocketRequest,
+  setHranaServer,
+} from "./hrana/websocket";
 import type { DatabaseServiceImpl } from "./service";
 import type { AdapterType } from "./types";
 
 let service: DatabaseServiceImpl | null = null;
 let logger: PluginLogger;
+let hranaServer: HranaServer | null = null;
+let basePath = "/database";
 
-export function setService(svc: DatabaseServiceImpl, log: PluginLogger) {
+export function setService(svc: DatabaseServiceImpl, log: PluginLogger, base = "/database") {
   service = svc;
   logger = log;
+  basePath = base;
+  hranaServer = new HranaServer(svc, log);
+  initHranaWebSocket({ hranaServer, logger: log });
 }
+
+export function setServer(server: Server<HranaWebSocketData>) {
+  setHranaServer(server);
+}
+
+export function handleWebSocketRequest(req: Request): Response | undefined {
+  if (isHranaWebSocketRequest(req, basePath)) {
+    return handleHranaWebSocketUpgrade(req);
+  }
+  return undefined;
+}
+
+export { hranaWebSocketHandler };
 
 export const api = new Hono()
   .basePath("/api")
@@ -287,6 +316,43 @@ export const api = new Hono()
         {
           error: error instanceof Error ? error.message : "Unknown error",
           status: "unhealthy",
+        },
+        500,
+      );
+    }
+  })
+  // HRANA pipeline endpoint for worker access
+  .post("/pipeline", async (ctx) => {
+    if (!hranaServer) {
+      return ctx.json({ error: "HRANA server not initialized" }, 500);
+    }
+
+    try {
+      const body = await ctx.req.json<HranaPipelineReqBody>();
+
+      // Get adapter type and namespace from headers
+      const adapterType = ctx.req.header(HranaHeaders.ADAPTER);
+      const namespace = ctx.req.header(HranaHeaders.NAMESPACE);
+
+      const response = await hranaServer.handlePipeline(body, adapterType, namespace);
+      return ctx.json(response);
+    } catch (error) {
+      logger?.error("HRANA pipeline error", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return ctx.json(
+        {
+          base_url: null,
+          baton: null,
+          results: [
+            {
+              error: {
+                code: "INTERNAL_ERROR",
+                message: error instanceof Error ? error.message : "Unknown error",
+              },
+              type: "error",
+            },
+          ],
         },
         500,
       );

@@ -8,12 +8,9 @@
     "./index.css": "./src/index.css"
   },
   "scripts": {
-    "lint:format": "bun biome check --write",
-    "lint:types": "bun tsc --noEmit",
     "lint": "bun run lint:format && bun run lint:types",
-    "test": "bun test",
-    "test:coverage": "bun test --coverage",
-    "test:watch": "bun test --watch"
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit"
   },
   "dependencies": {
     "@iconify-icon/react": "^2.3.0",

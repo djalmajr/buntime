@@ -1,0 +1,26 @@
+{
+  "name": "@buntime/database",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./libsql": "./src/libsql.ts",
+    "./sqlite": "./src/sqlite.ts",
+    "./mysql": "./src/mysql.ts",
+    "./postgres": "./src/postgres.ts"
+  },
+  "scripts": {
+    "lint": "bun run lint:format && bun run lint:types",
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "test:watch": "bun test --watch"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "devDependencies": {
+    "@libsql/client": "^0.14.0"
+  }
+}

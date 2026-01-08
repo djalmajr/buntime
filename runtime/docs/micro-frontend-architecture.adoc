@@ -1,67 +1,75 @@
-= Micro-Frontend Plugin Architecture
+= Arquitetura Micro-Frontend de Plugins
 :toc: left
 :toclevels: 3
 :sectnums:
+:sectnumlevels: 5
 :icons: font
+:source-highlighter: highlightjs
 
-== Overview
+== Visão Geral
 
-This document describes the micro-frontend architecture for Buntime plugins, inspired by Cloudflare's Fragment architecture strategy:
+Este documento descreve a arquitetura micro-frontend para plugins do Buntime, inspirada na estratégia de arquitetura Fragment da Cloudflare:
 
 - https://blog.cloudflare.com/fragment-piercing/
 
-=== Goals
+=== Objetivos
 
-- **Modularity**: Each plugin can provide its own UI as a separate worker
-- **Independence**: Plugin UIs are developed, built, and deployed independently
-- **Framework-agnostic**: Plugins can use React, Solid, Qwik, Vue, etc.
-- **SSR First**: Server-side rendering for fast initial load
-- **Seamless Integration**: Fragments integrate into the main dashboard shell
+- **Modularidade**: Cada plugin pode fornecer sua própria UI como um worker separado
+- **Independência**: UIs de plugins são desenvolvidas, construídas e implantadas de forma independente
+- **Agnóstico de Framework**: Plugins podem usar React, Solid, Qwik, Vue, etc.
+- **SSR First**: Server-side rendering para carregamento inicial rápido
+- **Integração Transparente**: Fragments se integram ao shell principal do dashboard
 
-=== Architecture Diagram
+=== Diagrama da Arquitetura
 
-[source]
+[mermaid]
 ----
-┌─────────────────────────────────────────────────────────────┐
-│                    Buntime Runner (Port 8000)               │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │              FragmentGateway (Hono Middleware)        │  │
-│  │                                                       │  │
-│  │  • Intercepts HTML requests                           │  │
-│  │  • Routes /fragment/:id to plugin workers             │  │
-│  │  • Routes /_fragment/:id/* to plugin assets           │  │
-│  │  • Combines fragment streams with shell HTML          │  │
-│  └───────────────────────────────────────────────────────┘  │
-│                             │                               │
-│         ┌───────────────────┼───────────────────┐           │
-│         ▼                   ▼                   ▼           │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
-│  │  Dashboard  │    │ Deployments │    │   Metrics   │     │
-│  │   (Shell)   │    │  (Fragment) │    │  (Fragment) │     │
-│  │             │    │             │    │             │     │
-│  │ - Layout    │    │ - File Mgmt │    │ - Charts    │     │
-│  │ - Nav       │    │ - Upload    │    │ - Stats     │     │
-│  │ - Outlets   │    │ - Deploy    │    │ - SSE       │     │
-│  └─────────────┘    └─────────────┘    └─────────────┘     │
-│         │                   │                   │           │
-│         └───────────────────┼───────────────────┘           │
-│                             ▼                               │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │                 MessageBus (Shared State)             │  │
-│  │                                                       │  │
-│  │  • dispatch('auth', { user: '...' })                  │  │
-│  │  • listen('theme', (value) => ...)                    │  │
-│  │  • SSR state hydration                                │  │
-│  └───────────────────────────────────────────────────────┘  │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+flowchart TB
+    subgraph Runner["Buntime Runner (Port 8000)"]
+        subgraph Gateway["FragmentGateway (Hono Middleware)"]
+            G1["Intercepts HTML requests"]
+            G2["Routes /fragment/:id to plugin workers"]
+            G3["Routes /_fragment/:id/* to plugin assets"]
+            G4["Combines fragment streams with shell HTML"]
+        end
+
+        Gateway --> Dashboard
+        Gateway --> Deployments
+        Gateway --> MetricsFrag
+
+        subgraph Dashboard["Dashboard (Shell)"]
+            D1["Layout"]
+            D2["Nav"]
+            D3["Outlets"]
+        end
+
+        subgraph Deployments["Deployments (Fragment)"]
+            DF1["File Mgmt"]
+            DF2["Upload"]
+            DF3["Deploy"]
+        end
+
+        subgraph MetricsFrag["Metrics (Fragment)"]
+            MF1["Charts"]
+            MF2["Stats"]
+            MF3["SSE"]
+        end
+
+        Dashboard --> MessageBus
+        Deployments --> MessageBus
+        MetricsFrag --> MessageBus
+
+        subgraph MessageBus["MessageBus (Shared State)"]
+            MB1["dispatch('auth', { user: '...' })"]
+            MB2["listen('theme', (value) => ...)"]
+            MB3["SSR state hydration"]
+        end
+    end
 ----
 
-== Plugin UI Registration
+== Registro de UI de Plugin
 
-=== Plugin Interface Extension
+=== Extensão da Interface de Plugin
 
 [source,typescript]
 ----
@@ -97,7 +105,7 @@ interface BuntimePlugin {
 }
 ----
 
-=== Example Plugin with Fragment
+=== Exemplo de Plugin com Fragment
 
 [source,typescript]
 ----
@@ -126,11 +134,11 @@ export default definePlugin({
 });
 ----
 
-== Core Components
+== Componentes Principais
 
-=== FragmentGateway for Bun
+=== FragmentGateway para Bun
 
-Adapted from Cloudflare's implementation for Bun's runtime.
+Adaptado da implementação da Cloudflare para o runtime do Bun.
 
 [source,typescript]
 ----
@@ -175,7 +183,7 @@ export class FragmentGateway {
 }
 ----
 
-=== Fragment Host Web Component
+=== Web Component Fragment Host
 
 [source,typescript]
 ----
@@ -201,7 +209,7 @@ export class FragmentHost extends HTMLElement {
 }
 ----
 
-=== Fragment Outlet Web Component
+=== Web Component Fragment Outlet
 
 [source,typescript]
 ----
@@ -236,7 +244,7 @@ export class FragmentOutlet extends HTMLElement {
 }
 ----
 
-=== MessageBus for Cross-Fragment Communication
+=== MessageBus para Comunicação Entre Fragments
 
 [source,typescript]
 ----
@@ -262,9 +270,9 @@ bus.dispatch("navigate", { path: "/deployments" });
 
 == Plugin Dashboard (Shell)
 
-The dashboard plugin provides the shell that orchestrates all fragment plugins.
+O plugin dashboard fornece o shell que orquestra todos os plugins fragment.
 
-=== Structure
+=== Estrutura
 
 [source]
 ----
@@ -284,7 +292,7 @@ plugins/plugin-dashboard/
 └── dist/
 ----
 
-=== Shell Layout with Outlets
+=== Layout do Shell com Outlets
 
 [source,tsx]
 ----
@@ -315,7 +323,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 }
 ----
 
-=== Dynamic Fragment Routes
+=== Rotas Dinâmicas de Fragment
 
 [source,tsx]
 ----
@@ -330,9 +338,9 @@ export function DeploymentsPage() {
 }
 ----
 
-== Integration with Buntime Runner
+== Integração com o Buntime Runner
 
-=== Registry Fragment Collection
+=== Coleta de Fragments no Registry
 
 [source,typescript]
 ----
@@ -375,7 +383,7 @@ export class PluginRegistry {
 }
 ----
 
-=== App Integration
+=== Integração com App
 
 [source,typescript]
 ----
@@ -421,56 +429,56 @@ export function createApp(deps: AppDeps) {
 }
 ----
 
-== New Plugin Candidates
+== Candidatos a Novos Plugins
 
-Based on current runner functionality, these can become fragment plugins:
+Com base na funcionalidade atual do runner, estes podem se tornar plugins fragment:
 
 === plugin-deployments
 
-Current: `runtime/client/routes/deployments/`
+Atual: `runtime/client/routes/deployments/`
 
-Features:
-- File browser
+Funcionalidades:
+- Navegador de arquivos
 - Upload/download
-- Folder management
-- Worker deployment
+- Gerenciamento de pastas
+- Implantação de workers
 
-=== plugin-metrics (UI extension)
+=== plugin-metrics (extensão de UI)
 
-Current: Already a plugin, but UI is in runner
+Atual: Já é um plugin, mas a UI está no runner
 
-Add fragment to existing plugin:
-- Pool stats dashboard
-- Worker metrics charts
-- Prometheus metrics view
+Adicionar fragment ao plugin existente:
+- Dashboard de estatísticas do pool
+- Gráficos de métricas de workers
+- Visualização de métricas Prometheus
 
 === plugin-logs
 
-New plugin for centralized logging:
-- Real-time log streaming (SSE)
-- Log filtering/search
-- Log retention/export
+Novo plugin para logging centralizado:
+- Streaming de logs em tempo real (SSE)
+- Filtragem/busca de logs
+- Retenção/exportação de logs
 
 === plugin-health
 
-New plugin for health monitoring:
-- Health check endpoints
-- Liveness/readiness probes
-- Service status dashboard
+Novo plugin para monitoramento de saúde:
+- Endpoints de health check
+- Probes de liveness/readiness
+- Dashboard de status de serviços
 
-== Migration Path
+== Caminho de Migração
 
-1. **Phase 1**: Create `@buntime/fragment` package with core components
-2. **Phase 2**: Create `plugin-dashboard` as shell orchestrator
-3. **Phase 3**: Extract `plugin-deployments` from runner client
-4. **Phase 4**: Add fragment UI to `plugin-metrics`
-5. **Phase 5**: Create new plugins (logs, health)
+1. **Fase 1**: Criar pacote `@buntime/fragment` com componentes principais
+2. **Fase 2**: Criar `plugin-dashboard` como orquestrador do shell
+3. **Fase 3**: Extrair `plugin-deployments` do cliente do runner
+4. **Fase 4**: Adicionar UI fragment ao `plugin-metrics`
+5. **Fase 5**: Criar novos plugins (logs, health)
 
-== Benefits
+== Benefícios
 
-- **Independent Deployment**: Update plugin UIs without touching runner
-- **Technology Freedom**: Each plugin can use different frameworks
-- **Better DX**: Plugin developers own their full stack
-- **Lazy Loading**: Fragments load on-demand
-- **SSR Performance**: Fast initial render with streaming
-- **Isolation**: Fragment bugs don't crash the shell
+- **Implantação Independente**: Atualizar UIs de plugins sem alterar o runner
+- **Liberdade Tecnológica**: Cada plugin pode usar frameworks diferentes
+- **Melhor DX**: Desenvolvedores de plugins são donos de toda sua stack
+- **Lazy Loading**: Fragments carregam sob demanda
+- **Performance SSR**: Renderização inicial rápida com streaming
+- **Isolamento**: Bugs em fragments não derrubam o shell

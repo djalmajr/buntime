@@ -17,51 +17,19 @@ import {
   registry,
   websocket,
 } from "@/api";
-import { NODE_ENV, PORT } from "@/config";
+import { NODE_ENV, PORT, SHUTDOWN_TIMEOUT_MS } from "@/constants";
 
 const isDev = NODE_ENV === "development";
 
 // Start server with appropriate options based on available features
-function startServer() {
-  const baseOptions = {
-    fetch: app.fetch,
-    idleTimeout: 0, // Disable idle timeout - required for SSE/WebSocket (unidirectional, no incoming data)
-    port: PORT,
-  };
-
-  // Build options based on what's available
-  if (websocket && hasPluginRoutes) {
-    return Bun.serve({
-      ...baseOptions,
-      routes: pluginRoutes,
-      websocket,
-      ...(isDev && { development: { hmr: true } }),
-    });
-  }
-
-  if (websocket) {
-    return Bun.serve({
-      ...baseOptions,
-      websocket,
-      ...(isDev && { development: { hmr: true } }),
-    });
-  }
-
-  if (hasPluginRoutes) {
-    return Bun.serve({
-      ...baseOptions,
-      routes: pluginRoutes,
-      ...(isDev && { development: { hmr: true } }),
-    });
-  }
-
-  return Bun.serve({
-    ...baseOptions,
-    ...(isDev && { development: { hmr: true } }),
-  });
-}
-
-const server = startServer();
+const server = Bun.serve({
+  fetch: app.fetch,
+  idleTimeout: 0, // Disable idle timeout - required for SSE/WebSocket
+  port: PORT,
+  ...(isDev && { development: { hmr: true } }),
+  ...(hasPluginRoutes && { routes: pluginRoutes }),
+  ...(websocket && { websocket }),
+} as Parameters<typeof Bun.serve>[0]);
 
 // Notify plugins that server has started
 registry.runOnServerStart(server);
@@ -72,22 +40,20 @@ logger.info(`Runner started at ${server.url}`);
 process.on("SIGINT", async () => {
   logger.info("Shutting down...");
 
-  const SHUTDOWN_TIMEOUT = 30000; // 30 seconds
-
   // Force exit after timeout to prevent hung plugins from blocking shutdown
   const forceExitTimer = setTimeout(() => {
-    console.error("[Buntime] Shutdown timeout exceeded, forcing exit");
+    logger.error("Shutdown timeout exceeded, forcing exit");
     process.exit(1);
-  }, SHUTDOWN_TIMEOUT);
+  }, SHUTDOWN_TIMEOUT_MS);
 
   try {
-    await registry.shutdown();
+    await registry.runOnShutdown();
     pool.shutdown();
     await logger.flush();
     clearTimeout(forceExitTimer);
     process.exit(0);
   } catch (err) {
-    console.error("[Buntime] Error during shutdown:", err);
+    logger.error("Error during shutdown", { error: err });
     clearTimeout(forceExitTimer);
     process.exit(1);
   }
@@ -95,12 +61,3 @@ process.on("SIGINT", async () => {
 
 // Export for programmatic use
 export { app, config, pool, registry };
-export { type AppType, createApp } from "@/app";
-export { type LoadedBuntimeConfig, loadBuntimeConfig, PluginLoader } from "@/plugins/loader";
-export { PluginRegistry } from "@/plugins/registry";
-
-// Export route types for RPC clients
-export type { PluginsInfoRoutesType } from "@/routes/plugins-info";
-
-// Default export disabled - conflicts with Bun auto-serve when running directly
-// export default app;

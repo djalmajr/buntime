@@ -1,11 +1,58 @@
 import QuickLRU from "quick-lru";
+import { WorkerState } from "@/constants";
 import { getEntrypoint } from "@/utils/get-entrypoint";
 import type { WorkerConfig } from "./config";
 import { WorkerInstance } from "./instance";
 import { type HistoricalStats, type PoolMetrics, WorkerMetrics, type WorkerStats } from "./metrics";
+import { computeAvgResponseTime, roundTwoDecimals } from "./stats";
 
 export interface PoolConfig {
   maxSize: number;
+}
+
+/**
+ * Parse app directory path to extract name and version for cache key
+ *
+ * Supports two folder structures:
+ * - Flat: /workspaces/app-name@1.0.0 → name: "app-name", version: "1.0.0"
+ * - Nested: /workspaces/app-name/1.0.0 → name: "app-name", version: "1.0.0"
+ *
+ * Falls back to package.json version if available.
+ */
+async function parseAppKey(appDir: string): Promise<string> {
+  const [, parent = "", folder = ""] = appDir.match(/([^/]+)\/([^/]+)\/?$/) || [];
+
+  // Determine structure: nested (folder is semver) or flat (folder has @version)
+  const isNestedStructure = /^\d+\.\d+\.\d+/.test(folder);
+  const name = isNestedStructure ? parent : (folder.split("@")[0] ?? folder);
+  let version = isNestedStructure ? folder : (folder.split("@")[1] ?? "latest");
+
+  // Try to get version from package.json (overrides folder version)
+  try {
+    const pkg = await Bun.file(`${appDir}/package.json`).json();
+    if (pkg.version) version = pkg.version;
+  } catch {
+    // No package.json, use folder version
+  }
+
+  return `${name}@${version}`;
+}
+
+/**
+ * Merge current worker stats with historical stats
+ * Combines request counts, response times, and errors
+ */
+function mergeWithHistorical(current: WorkerStats, hist: HistoricalStats): WorkerStats {
+  const totalRequestCount = hist.requestCount + current.requestCount;
+  const totalResponseTimeMs = hist.totalResponseTimeMs + current.totalResponseTimeMs;
+
+  return {
+    ...current,
+    avgResponseTimeMs: computeAvgResponseTime(totalResponseTimeMs, totalRequestCount),
+    errorCount: hist.errorCount + current.errorCount,
+    requestCount: totalRequestCount,
+    totalResponseTimeMs: roundTwoDecimals(totalResponseTimeMs),
+  };
 }
 
 export class WorkerPool {
@@ -35,21 +82,7 @@ export class WorkerPool {
     config: WorkerConfig,
   ): Promise<{ instance: WorkerInstance; key: string }> {
     const startTime = performance.now();
-    const [, parent = "", folder = ""] = appDir.match(/([^/]+)\/([^/]+)\/?$/) || [];
-
-    // Build key as name@version
-    const isVersionFolder = /^\d+\.\d+\.\d+/.test(folder);
-    const name = isVersionFolder ? parent : (folder.split("@")[0] ?? folder);
-    let version = isVersionFolder ? folder : (folder.split("@")[1] ?? "latest");
-
-    try {
-      const pkg = await Bun.file(`${appDir}/package.json`).json();
-      if (pkg.version) version = pkg.version;
-    } catch {
-      // No package.json, use folder version
-    }
-
-    const key = `${name}@${version}`;
+    const key = await parseAppKey(appDir);
 
     // Check for collision: same key from different appDir
     const existingAppDir = this.appDirs.get(key);
@@ -108,11 +141,20 @@ export class WorkerPool {
   /**
    * Fetch a request through a worker (creates worker if needed)
    * Measures total duration including request processing
+   * @param appDir - Application directory
+   * @param config - Worker configuration
+   * @param req - Request object
+   * @param preReadBody - Optional pre-read body to avoid double-reading in the pipeline
    */
-  async fetch(appDir: string, config: WorkerConfig, req: Request): Promise<Response> {
+  async fetch(
+    appDir: string,
+    config: WorkerConfig,
+    req: Request,
+    preReadBody?: ArrayBuffer | null,
+  ): Promise<Response> {
     const startTime = performance.now();
     const { instance, key } = await this.getOrCreate(appDir, config);
-    const response = await instance.fetch(req);
+    const response = await instance.fetch(req, preReadBody);
     const duration = performance.now() - startTime;
 
     // Record response time for persistent workers
@@ -142,12 +184,12 @@ export class WorkerPool {
     // These are workers that were retired and not recreated yet
     for (const [key, hist] of Object.entries(historical)) {
       stats[key] = {
-        age: 0,
+        ageMs: 0,
         avgResponseTimeMs: hist.avgResponseTimeMs,
         errorCount: hist.errorCount,
-        idle: 0,
+        idleMs: 0,
         requestCount: hist.requestCount,
-        status: "offline",
+        status: WorkerState.OFFLINE,
         totalResponseTimeMs: hist.totalResponseTimeMs,
       };
     }
@@ -156,42 +198,14 @@ export class WorkerPool {
     const ephemeral = this.metrics.getEphemeralWorkers();
     for (const [key, workerStats] of Object.entries(ephemeral)) {
       const hist = historical[key];
-      if (hist) {
-        const totalRequestCount = hist.requestCount + workerStats.requestCount;
-        const totalResponseTimeMs = hist.totalResponseTimeMs + workerStats.totalResponseTimeMs;
-        const avgResponseTimeMs =
-          totalRequestCount > 0 ? totalResponseTimeMs / totalRequestCount : 0;
-        stats[key] = {
-          ...workerStats,
-          avgResponseTimeMs: Math.round(avgResponseTimeMs * 100) / 100,
-          errorCount: hist.errorCount + workerStats.errorCount,
-          requestCount: totalRequestCount,
-          totalResponseTimeMs: Math.round(totalResponseTimeMs * 100) / 100,
-        };
-      } else {
-        stats[key] = workerStats;
-      }
+      stats[key] = hist ? mergeWithHistorical(workerStats, hist) : workerStats;
     }
 
     // 3. Active workers: merge with historical data (overwrites offline/ephemeral)
     for (const [key, worker] of this.cache) {
       const current = worker.getStats();
       const hist = historical[key];
-      if (hist) {
-        const totalRequestCount = hist.requestCount + current.requestCount;
-        const totalResponseTimeMs = hist.totalResponseTimeMs + current.totalResponseTimeMs;
-        const avgResponseTimeMs =
-          totalRequestCount > 0 ? totalResponseTimeMs / totalRequestCount : 0;
-        stats[key] = {
-          ...current,
-          avgResponseTimeMs: Math.round(avgResponseTimeMs * 100) / 100,
-          errorCount: hist.errorCount + current.errorCount,
-          requestCount: totalRequestCount,
-          totalResponseTimeMs: Math.round(totalResponseTimeMs * 100) / 100,
-        };
-      } else {
-        stats[key] = current;
-      }
+      stats[key] = hist ? mergeWithHistorical(current, hist) : current;
     }
 
     return stats;

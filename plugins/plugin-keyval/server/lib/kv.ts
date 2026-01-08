@@ -35,14 +35,17 @@ import { whereToSql } from "./where-to-sql";
  * Options for Kv constructor
  */
 export interface KvOptions {
+  /** Cleanup interval in ms (default: 60000) */
+  cleanupIntervalMs?: number;
+
   /** Logger instance */
   logger?: PluginLogger;
 
-  /** Enable persistent metrics (stored in database) */
-  persistentMetrics?: boolean;
-
   /** Metrics flush interval in ms */
   metricsFlushInterval?: number;
+
+  /** Enable persistent metrics (stored in database) */
+  persistentMetrics?: boolean;
 
   /** Queue cleanup configuration */
   queueCleanup?: KvQueueCleanupConfig;
@@ -730,6 +733,7 @@ export class Kv {
    * Start periodic cleanup of expired entries
    */
   private startCleanup(): void {
+    const intervalMs = this.kvOptions?.cleanupIntervalMs ?? 60_000;
     this.cleanupInterval = setInterval(async () => {
       try {
         await this.adapter.execute(
@@ -741,7 +745,7 @@ export class Kv {
         });
         this.metrics.recordOperation("cleanup", 0, true);
       }
-    }, 60_000);
+    }, intervalMs);
   }
 
   /**

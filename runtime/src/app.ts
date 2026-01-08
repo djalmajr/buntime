@@ -1,11 +1,25 @@
 import { errorToResponse } from "@buntime/shared/errors";
-import type { AppInfo, HomepageConfig, WorkerConfig as SharedWorkerConfig } from "@buntime/shared/types";
+import { getChildLogger } from "@buntime/shared/logger";
+import type {
+  AppInfo,
+  HomepageConfig,
+  WorkerConfig as SharedWorkerConfig,
+} from "@buntime/shared/types";
 import type { Hono } from "hono";
 import { Hono as HonoApp } from "hono";
+import { APP_NAME_PATTERN, Headers } from "@/constants";
 import type { WorkerConfig } from "@/libs/pool/config";
 import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
 import type { PluginRegistry } from "@/plugins/registry";
+import {
+  BodyTooLargeError,
+  cloneRequestBody,
+  createWorkerRequest,
+  rewriteUrl,
+} from "@/utils/request";
+
+const logger = getChildLogger("App");
 
 export interface AppDeps {
   getAppDir: (appName: string) => string | undefined;
@@ -16,8 +30,8 @@ export interface AppDeps {
    */
   homepage?: string | HomepageConfig;
   pluginsInfo: Hono;
-  pool?: WorkerPool;
-  registry?: PluginRegistry;
+  pool: WorkerPool;
+  registry: PluginRegistry;
   workers: Hono;
 }
 
@@ -38,27 +52,24 @@ interface ResolvedApp {
  */
 async function resolveTargetApp(
   pathname: string,
-  registry: PluginRegistry | undefined,
+  registry: PluginRegistry,
   getAppDir: (appName: string) => string | undefined,
 ): Promise<ResolvedApp | undefined> {
   // 1. Check plugin apps first
-  if (registry) {
-    const pluginApp = registry.resolvePluginApp(pathname);
-    if (pluginApp) {
-      const workerConfig = await loadWorkerConfig(pluginApp.dir);
-      const merged = { ...workerConfig, ...pluginApp.config };
-      return {
-        basePath: pluginApp.basePath,
-        config: merged,
-        dir: pluginApp.dir,
-        name: pluginApp.basePath.replace(/^\//, "") || "root",
-        type: "plugin",
-      };
-    }
+  const pluginApp = registry.resolvePluginApp(pathname);
+  if (pluginApp) {
+    const workerConfig = await loadWorkerConfig(pluginApp.dir);
+    return {
+      basePath: pluginApp.basePath,
+      config: workerConfig,
+      dir: pluginApp.dir,
+      name: pluginApp.basePath.replace(/^\//, "") || "root",
+      type: "plugin",
+    };
   }
 
   // 2. Check regular worker apps (pattern: /:app/*)
-  const match = pathname.match(/^\/([^/]+)/);
+  const match = pathname.match(APP_NAME_PATTERN);
   if (match?.[1]) {
     const appName = match[1];
     const dir = getAppDir(appName);
@@ -78,10 +89,24 @@ async function resolveTargetApp(
 }
 
 /**
+ * Load version from package.json
+ * Returns "0.0.0" if package.json doesn't exist or has no version
+ */
+async function getAppVersion(dir: string): Promise<string> {
+  try {
+    const pkg = await Bun.file(`${dir}/package.json`).json();
+    return pkg.version ?? "0.0.0";
+  } catch (err) {
+    logger.debug(`Could not read version from ${dir}/package.json`, { error: err });
+    return "0.0.0";
+  }
+}
+
+/**
  * Create AppInfo from resolved app for plugin hooks
  * Converts pool's WorkerConfig to shared WorkerConfig format
  */
-function createAppInfo(resolved: ResolvedApp): AppInfo {
+async function createAppInfo(resolved: ResolvedApp): Promise<AppInfo> {
   const poolConfig = resolved.config;
 
   // Convert pool config (ms) to shared config (seconds) format
@@ -100,7 +125,7 @@ function createAppInfo(resolved: ResolvedApp): AppInfo {
     config: sharedConfig,
     dir: resolved.dir,
     name: resolved.name,
-    version: "1.0.0", // TODO: Get from worker config or manifest
+    version: await getAppVersion(resolved.dir),
   };
 }
 
@@ -111,18 +136,21 @@ async function servePluginApp(
   req: Request,
   pool: WorkerPool,
   resolved: ResolvedApp,
+  preReadBody?: ArrayBuffer | null,
 ): Promise<Response> {
   // Calculate pathname relative to plugin app base path
   const url = new URL(req.url);
   const pathname = url.pathname.slice(resolved.basePath.length) || "/";
 
-  const newReq = new Request(new URL(pathname + url.search, req.url).href, req);
-
   // x-base is always the plugin's basePath where assets are served
   // Router basepath is handled client-side via fragment-outlet's base attribute
-  newReq.headers.set("x-base", resolved.basePath);
+  const newReq = createWorkerRequest({
+    base: resolved.basePath,
+    originalRequest: req,
+    targetPath: pathname,
+  });
 
-  return pool.fetch(resolved.dir, resolved.config, newReq);
+  return pool.fetch(resolved.dir, resolved.config, newReq, preReadBody);
 }
 
 /**
@@ -152,7 +180,7 @@ async function resolveShell(
 
   const dir = getAppDir(homepage.app);
   if (!dir) {
-    console.warn(`[Shell] Worker "${homepage.app}" not found in workspaces`);
+    logger.warn(`Shell worker "${homepage.app}" not found in workspaces`);
     return undefined;
   }
 
@@ -184,57 +212,161 @@ function shouldRouteToShell(
   secFetchMode: string | undefined,
   pluginBases: Set<string>,
 ): boolean {
-  // Only intercept top-level navigation requests
-  // Fragment-outlet uses fetch() which has Sec-Fetch-Mode: cors or same-origin
-  if (secFetchMode && secFetchMode !== "navigate") {
-    return false;
-  }
+  // Only intercept top-level navigation (not fetch from fragment-outlet)
+  if (secFetchMode && secFetchMode !== "navigate") return false;
+
+  // Don't intercept API routes
+  if (pathname.includes("/api/")) return false;
 
   // Homepage always goes to shell
-  if (pathname === "/" || pathname === "") {
-    return true;
-  }
+  if (pathname === "/" || pathname === "") return true;
 
-  // Don't intercept API routes - let them go directly to plugins
-  if (pathname.includes("/api/")) {
-    return false;
-  }
+  // Check if pathname matches any plugin base
+  return [...pluginBases].some((base) => pathname === base || pathname.startsWith(`${base}/`));
+}
 
-  // Check if pathname starts with any plugin base
-  for (const base of pluginBases) {
-    if (pathname === base || pathname.startsWith(`${base}/`)) {
-      return true;
-    }
-  }
-
-  return false;
+interface ShellRequestParams {
+  fragmentRoute: string;
+  notFound?: boolean;
+  req: Request;
+  shell: ResolvedShell;
 }
 
 /**
- * Serve the shell app with fragment route injection
+ * Create a request for the shell app with proper headers
+ * Handles URL rewriting and header injection for fragment routing
  */
-async function serveShellApp(
-  req: Request,
-  pool: WorkerPool,
-  shell: ResolvedShell,
-  fragmentRoute: string,
-  notFound: boolean = false,
-): Promise<Response> {
-  const url = new URL(req.url);
-
+function createShellRequest({
+  fragmentRoute,
+  notFound = false,
+  req,
+  shell,
+}: ShellRequestParams): Request {
   // Shell always serves from root, so pathname is "/"
-  const newReq = new Request(new URL("/" + url.search, req.url).href, req);
-
-  // Set headers for shell to know the fragment route
   // x-base must be the shell's actual base path so assets load correctly
   // e.g., shell at /cpanel -> <base href="/cpanel/"> -> /cpanel/index.js
-  newReq.headers.set("x-base", shell.base);
-  newReq.headers.set("x-fragment-route", fragmentRoute);
-  if (notFound) {
-    newReq.headers.set("x-not-found", "true");
+  return createWorkerRequest({
+    base: shell.base,
+    fragmentRoute,
+    notFound,
+    originalRequest: req,
+    targetPath: "/",
+  });
+}
+
+/**
+ * Context shared between routing handlers
+ */
+interface RoutingContext {
+  appInfo?: AppInfo;
+  method: string;
+  pathname: string;
+  pluginRoutes: Map<string, Hono>;
+  pool: WorkerPool;
+  processedReq: Request;
+  registry: PluginRegistry;
+  requestBody: ArrayBuffer | null;
+  /** Correlation ID for request tracing */
+  requestId: string;
+  resolved?: ResolvedApp;
+  shell?: ResolvedShell;
+  /** Pre-sorted plugin paths (longest first) - computed once at startup */
+  sortedPluginPaths: string[];
+  url: string;
+}
+
+/**
+ * Create a new request with processed headers, cloned body, and correlation ID
+ */
+function createProcessedRequest(ctx: RoutingContext, newUrl?: URL): Request {
+  const headers = new globalThis.Headers(ctx.processedReq.headers);
+  headers.set(Headers.REQUEST_ID, ctx.requestId);
+
+  return new Request(newUrl?.href ?? ctx.url, {
+    body: ctx.requestBody,
+    headers,
+    method: ctx.method,
+  });
+}
+
+/**
+ * Handle /api/plugins route
+ */
+async function handlePluginsInfoRoute(
+  ctx: RoutingContext,
+  pluginsInfo: Hono,
+): Promise<Response | null> {
+  if (ctx.pathname !== "/api/plugins" && !ctx.pathname.startsWith("/api/plugins/")) {
+    return null;
   }
 
-  return pool.fetch(shell.dir, shell.config, newReq);
+  const originalUrl = new URL(ctx.url);
+  const newUrl = rewriteUrl(originalUrl, "/api/plugins");
+  const req = createProcessedRequest(ctx, newUrl);
+  return pluginsInfo.fetch(req);
+}
+
+/**
+ * Try plugin server.fetch handlers
+ */
+async function handlePluginServerFetch(ctx: RoutingContext): Promise<Response | null> {
+  for (const plugin of ctx.registry.getPluginsWithServerFetch()) {
+    const response = await plugin.server!.fetch!(ctx.processedReq);
+    if (response.status !== 404) {
+      return response;
+    }
+  }
+  return null;
+}
+
+/**
+ * Try plugin routes (in order of specificity - longest base first)
+ */
+async function handlePluginRoutes(ctx: RoutingContext): Promise<Response | null> {
+  for (const base of ctx.sortedPluginPaths) {
+    if (base === "" || ctx.pathname === base || ctx.pathname.startsWith(`${base}/`)) {
+      const routes = ctx.pluginRoutes.get(base)!;
+      const originalUrl = new URL(ctx.url);
+      const newUrl = rewriteUrl(originalUrl, base);
+      const req = createProcessedRequest(ctx, newUrl);
+      const response = await routes.fetch(req);
+
+      if (response.status !== 404) {
+        return response;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Serve plugin app (fragment) via worker pool
+ */
+async function handlePluginApp(ctx: RoutingContext): Promise<Response | null> {
+  if (ctx.resolved?.type !== "plugin" || !ctx.pool) {
+    return null;
+  }
+
+  const req = createProcessedRequest(ctx);
+  return servePluginApp(req, ctx.pool, ctx.resolved, ctx.requestBody);
+}
+
+/**
+ * Handle 404 with shell (show consistent 404 page)
+ */
+async function handle404WithShell(ctx: RoutingContext, response: Response): Promise<Response> {
+  if (response.status !== 404 || !ctx.shell || !ctx.pool) {
+    return response;
+  }
+
+  const shellReq = createProcessedRequest(ctx);
+  const shellRequest = createShellRequest({
+    fragmentRoute: ctx.pathname,
+    notFound: true,
+    req: shellReq,
+    shell: ctx.shell,
+  });
+  return ctx.pool.fetch(ctx.shell.dir, ctx.shell.config, shellRequest, ctx.requestBody);
 }
 
 /**
@@ -243,217 +375,191 @@ async function serveShellApp(
 export function createApp({ getAppDir, homepage, pluginsInfo, pool, registry, workers }: AppDeps) {
   const app = new HonoApp();
 
-  // Build plugin routes map: base -> { plugin, routes }
-  type PluginType = NonNullable<typeof registry>["getAll"] extends () => (infer T)[] ? T : never;
-  const pluginRoutes = new Map<string, { plugin: PluginType; routes: Hono }>();
+  // Build plugin routes map: base -> routes
+  const pluginRoutes = new Map<string, Hono>();
   const pluginPaths = new Map<string, string>();
 
   // Resolve shell worker early (will be used in routing)
+  // Catch errors to prevent rejected promise from blocking all requests
   let shellPromise: Promise<ResolvedShell | undefined> | undefined;
   if (homepage && pool) {
-    shellPromise = resolveShell(homepage, getAppDir);
+    shellPromise = resolveShell(homepage, getAppDir).catch((err) => {
+      logger.error("Failed to resolve shell worker", { error: err });
+      return undefined; // Graceful degradation
+    });
   }
 
   // Get plugin base paths for shell routing (cached)
-  const pluginBases = registry?.getPluginBasePaths() ?? new Set<string>();
+  const pluginBases = registry.getPluginBasePaths();
 
-  if (registry) {
-    for (const plugin of registry.getAll()) {
-      if (plugin.routes) {
-        const base = plugin.base;
-        // Check plugin-vs-plugin collision
-        if (pluginPaths.has(base)) {
-          const existingPlugin = pluginPaths.get(base);
-          throw new Error(
-            `Route collision: Plugin "${plugin.name}" cannot mount routes at "${base}" - ` +
-              `already used by "${existingPlugin}"`,
-          );
-        }
-
-        pluginPaths.set(base, plugin.name);
-        pluginRoutes.set(base, { plugin, routes: plugin.routes as Hono });
-        console.log(`[Plugin] ${plugin.name} routes registered at ${base || "/"}`);
+  for (const plugin of registry.getAll()) {
+    if (plugin.routes) {
+      const base = plugin.base;
+      if (pluginPaths.has(base)) {
+        const existingPlugin = pluginPaths.get(base);
+        throw new Error(
+          `Route collision: Plugin "${plugin.name}" cannot mount routes at "${base}" - ` +
+            `already used by "${existingPlugin}"`,
+        );
       }
-    }
 
-    registry.setMountedPaths(pluginPaths);
+      pluginPaths.set(base, plugin.name);
+      pluginRoutes.set(base, plugin.routes);
+      logger.info(`Plugin "${plugin.name}" routes registered at ${base || "/"}`);
+    }
   }
 
-  // Mount API routes
-  app.route("/api/plugins", pluginsInfo);
+  registry.setMountedPaths(pluginPaths);
 
-  // Note: Fragment routes (/f/:fragmentId) have been removed
-  // Fragments are now served directly from /{plugin} (unified with plugin routes)
-  // The piercing outlet fetches from /{plugin} and assets are served from the same path
+  // Pre-compute sorted plugin paths (longest first) for route matching
+  // This avoids sorting on every request
+  const sortedPluginPaths = [...pluginRoutes.keys()].sort((a, b) => b.length - a.length);
 
-  // Single catch-all that handles: server.fetch -> onRequest -> plugin routes -> worker routes
-  app.all("*", async (ctx) => {
-    const pathname = ctx.req.path;
-    const method = ctx.req.method;
+  // Main request handler
+  app.all("*", async (honoCtx) => {
+    const pathname = honoCtx.req.path;
+    const method = honoCtx.req.method;
 
-    // Clone the request body early to avoid "Body already used" errors
-    // when multiple handlers need to read the body
-    // We need to clone the body separately because ctx.req.raw.clone() returns
-    // a different Request type that doesn't match Bun's Request type
-    const requestBody = ctx.req.raw.body
-      ? await Bun.readableStreamToArrayBuffer(ctx.req.raw.clone().body!)
-      : null;
+    // Generate or use existing correlation ID for request tracing
+    const requestId = honoCtx.req.header(Headers.REQUEST_ID) ?? crypto.randomUUID();
 
-    // Resolve shell if configured
-    const shell = shellPromise ? await shellPromise : undefined;
+    // Security: CSRF protection for state-changing requests
+    // Validates Origin header matches the request Host
+    const isStateChanging = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+    if (isStateChanging) {
+      const origin = honoCtx.req.header("origin");
+      const host = honoCtx.req.header("host");
 
-    // APP-SHELL MODE: If we have a shell and pathname should go to shell, serve it
-    // This intercepts navigation requests to: "/" (homepage), "/metrics", "/metrics/workers", etc.
-    // But NOT: "/metrics/api/*" (API routes), fetch requests from fragment-outlet, or public routes
-    const secFetchMode = ctx.req.header("sec-fetch-mode");
-    const isPublicRoute = registry?.isPublicRouteForAnyPlugin(pathname, method) ?? false;
-    if (shell && pool && !isPublicRoute && shouldRouteToShell(pathname, secFetchMode, pluginBases)) {
-      // Run onRequest hooks first (for auth)
-      const authResult = registry ? await registry.runOnRequest(ctx.req.raw) : ctx.req.raw;
-      if (authResult instanceof Response) {
-        return authResult; // Auth failed
+      // Security: Require Origin header for state-changing requests from browsers
+      // Missing Origin on state-changing requests is suspicious (potential CSRF)
+      // Exception: Allow internal requests (worker-to-runtime) marked with X-Buntime-Internal
+      const isInternal = honoCtx.req.header(Headers.INTERNAL) === "true";
+      if (!origin && !isInternal) {
+        logger.warn("Missing Origin on state-changing request", { method, pathname, requestId });
+        return new Response("Forbidden - Origin required", { status: 403 });
       }
 
-      // Create request with processed headers
-      const shellReq = new Request(ctx.req.url, {
-        body: requestBody,
-        headers: authResult.headers,
-        method: ctx.req.method,
-      });
-
-      return serveShellApp(shellReq, pool, shell, pathname);
+      // If Origin is present, it must match the Host
+      // Security: Validate origin safely to prevent URL parsing attacks
+      if (origin && host) {
+        try {
+          const url = new URL(origin);
+          // Block malformed URLs with credentials (user:pass@host format)
+          if (url.username || url.password) {
+            logger.warn("CSRF blocked: Origin contains credentials", {
+              method,
+              origin,
+              pathname,
+              requestId,
+            });
+            return new Response("Forbidden", { status: 403 });
+          }
+          // Validate protocol and host match
+          if (!["http:", "https:"].includes(url.protocol) || url.host !== host) {
+            logger.warn("CSRF validation failed", { host, method, origin, pathname, requestId });
+            return new Response("Forbidden", { status: 403 });
+          }
+        } catch {
+          logger.warn("CSRF blocked: Invalid Origin URL", { method, origin, pathname, requestId });
+          return new Response("Forbidden", { status: 403 });
+        }
+      }
     }
 
-    // Resolve target app early for use in onResponse
-    let appInfo: AppInfo | undefined;
-    if (registry) {
-      const resolved = await resolveTargetApp(pathname, registry, getAppDir);
-      appInfo = resolved ? createAppInfo(resolved) : undefined;
+    const shell = shellPromise ? await shellPromise : undefined;
+    const resolved = await resolveTargetApp(pathname, registry, getAppDir);
+    const appInfo = resolved ? await createAppInfo(resolved) : undefined;
+
+    // Security: Check body size limit (prevents DoS via large uploads)
+    // Use worker-specific limit if available, otherwise default
+    const maxBodySize = resolved?.config.maxBodySizeBytes;
+    let requestBody: ArrayBuffer | null;
+    try {
+      requestBody = await cloneRequestBody(honoCtx.req.raw, maxBodySize);
+    } catch (err) {
+      if (err instanceof BodyTooLargeError) {
+        return new Response("Payload Too Large", {
+          headers: { [Headers.REQUEST_ID]: requestId },
+          status: 413,
+        });
+      }
+      throw err;
     }
 
-    // Helper to run onResponse hooks
+    // Helper to run onResponse hooks and add correlation ID
     const runOnResponse = async (response: Response): Promise<Response> => {
-      if (!registry || !appInfo) return response;
-      return registry.runOnResponse(response, appInfo);
+      const processed = appInfo ? await registry.runOnResponse(response, appInfo) : response;
+      // Add correlation ID to response headers
+      const headers = new globalThis.Headers(processed.headers);
+      headers.set(Headers.REQUEST_ID, requestId);
+      return new Response(processed.body, {
+        headers,
+        status: processed.status,
+        statusText: processed.statusText,
+      });
     };
 
-    // 1. Try plugin server.fetch handlers (with publicRoutes check)
-    if (registry) {
-      for (const plugin of registry.getPluginsWithServerFetch()) {
-        // Check if route is public for this plugin
-        const isPublic = registry.isPublicRouteForPlugin(plugin, pathname, method);
+    // APP-SHELL MODE: Intercept navigation requests to shell
+    const secFetchMode = honoCtx.req.header(Headers.SEC_FETCH_MODE);
+    if (shell && pool && shouldRouteToShell(pathname, secFetchMode, pluginBases)) {
+      const hookResult = await registry.runOnRequest(honoCtx.req.raw, appInfo);
+      if (hookResult instanceof Response) return hookResult;
 
-        if (!isPublic) {
-          // Protected route: run onRequest hooks first
-          const result = await registry.runOnRequest(ctx.req.raw);
-          if (result instanceof Response) {
-            return result; // Auth failed
-          }
-        }
-
-        // Call plugin's server.fetch
-        try {
-          const response = await plugin.server!.fetch!(ctx.req.raw);
-          if (response.status !== 404) {
-            return runOnResponse(response);
-          }
-        } catch (err) {
-          console.error(`[Plugin:${plugin.name}] server.fetch error:`, err);
-          return ctx.json(
-            { error: `Plugin error: ${err instanceof Error ? err.message : String(err)}` },
-            500,
-          );
-        }
-      }
+      const shellHeaders = new globalThis.Headers(hookResult.headers);
+      shellHeaders.set(Headers.REQUEST_ID, requestId);
+      const shellReq = new Request(honoCtx.req.url, {
+        body: requestBody,
+        headers: shellHeaders,
+        method: honoCtx.req.method,
+      });
+      const shellRequest = createShellRequest({ fragmentRoute: pathname, req: shellReq, shell });
+      const response = await pool.fetch(shell.dir, shell.config, shellRequest, requestBody);
+      return runOnResponse(response);
     }
 
-    // 2. Run plugin onRequest hooks for remaining routes
-    // This may return a modified request (e.g., with X-Identity header from authn)
-    let processedReq = ctx.req.raw;
-    if (registry) {
-      const result = await registry.runOnRequest(ctx.req.raw, appInfo);
-      if (result instanceof Response) {
-        return result;
-      }
-      // Use the modified request with any injected headers (e.g., X-Identity)
-      processedReq = result;
-    }
+    // Run plugin onRequest hooks (auth, etc.)
+    const processedReq = await registry.runOnRequest(honoCtx.req.raw, appInfo);
+    if (processedReq instanceof Response) return processedReq;
 
-    // 3. Try plugin routes FIRST (in order of specificity - longest base first)
-    // This is important for plugins with both routes and fragment - routes should handle
-    // API requests (including SSE) from main thread to avoid worker timeouts
-    const sortedPaths = [...pluginRoutes.keys()].sort((a, b) => b.length - a.length);
+    // Build routing context
+    const ctx: RoutingContext = {
+      appInfo,
+      method: honoCtx.req.method,
+      pathname,
+      pluginRoutes,
+      pool,
+      processedReq,
+      registry,
+      requestBody,
+      requestId,
+      resolved,
+      shell,
+      sortedPluginPaths,
+      url: honoCtx.req.url,
+    };
 
-    for (const base of sortedPaths) {
-      // Check if pathname starts with base (or base is root)
-      if (base === "" || pathname === base || pathname.startsWith(`${base}/`)) {
-        const { routes } = pluginRoutes.get(base)!;
+    // Route through handlers in priority order
+    const pluginsInfoResponse = await handlePluginsInfoRoute(ctx, pluginsInfo);
+    if (pluginsInfoResponse) return runOnResponse(pluginsInfoResponse);
 
-        // Rewrite URL to be relative to base, preserving query string
-        const relativePath = base ? pathname.slice(base.length) || "/" : pathname;
-        const originalUrl = new URL(ctx.req.url);
-        const newUrl = new URL(relativePath + originalUrl.search, ctx.req.url);
+    const serverFetchResponse = await handlePluginServerFetch(ctx);
+    if (serverFetchResponse) return runOnResponse(serverFetchResponse);
 
-        // Create new request with cloned body and processed headers (includes X-Identity)
-        const newReq = new Request(newUrl.href, {
-          body: requestBody,
-          headers: processedReq.headers,
-          method: ctx.req.method,
-        });
-        const response = await routes.fetch(newReq);
+    const pluginRoutesResponse = await handlePluginRoutes(ctx);
+    if (pluginRoutesResponse) return runOnResponse(pluginRoutesResponse);
 
-        // If plugin route matched (not 404), return it
-        if (response.status !== 404) {
-          return runOnResponse(response);
-        }
-      }
-    }
+    const pluginAppResponse = await handlePluginApp(ctx);
+    if (pluginAppResponse) return runOnResponse(pluginAppResponse);
 
-    // 4. Serve plugin app (fragment) if resolved - after routes to allow main thread API handling
-    if (registry) {
-      const resolved = await resolveTargetApp(pathname, registry, getAppDir);
-      if (resolved?.type === "plugin" && pool) {
-        try {
-          // Create request with cloned body and processed headers (includes X-Identity)
-          const freshReq = new Request(ctx.req.url, {
-            body: requestBody,
-            headers: processedReq.headers,
-            method: ctx.req.method,
-          });
-          const response = await servePluginApp(freshReq, pool, resolved);
-          return runOnResponse(response);
-        } catch (err) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          console.error(`[Main] Error serving plugin app at ${resolved.basePath}:`, error);
-          return ctx.json({ error: `Error: ${error.message}` }, 500);
-        }
-      }
-    }
-
-    // 5. Fall back to worker routes
-    // Create request with cloned body and processed headers (includes X-Identity)
-    const workerReq = new Request(ctx.req.url, {
-      body: requestBody,
-      headers: processedReq.headers,
-      method: ctx.req.method,
-    });
+    // Fall back to worker routes
+    const workerReq = createProcessedRequest(ctx);
     const response = await workers.fetch(workerReq);
 
-    // 6. If 404 and we have a shell, serve shell with not-found flag
-    // This allows the shell to display a consistent 404 page with its layout
-    if (response.status === 404 && shell && pool) {
-      const shellReq = new Request(ctx.req.url, {
-        body: requestBody,
-        headers: processedReq.headers,
-        method: ctx.req.method,
-      });
-      return serveShellApp(shellReq, pool, shell, pathname, true);
-    }
-
-    return runOnResponse(response);
+    // Handle 404 with shell if available
+    const finalResponse = await handle404WithShell(ctx, response);
+    return runOnResponse(finalResponse);
   });
 
-  // Error handler
   app.onError(errorToResponse);
 
   return app;

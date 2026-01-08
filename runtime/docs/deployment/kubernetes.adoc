@@ -1,36 +1,42 @@
 == Kubernetes / OKD
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
 
-Buntime provides a Helm chart for deployment on Kubernetes and OpenShift/OKD.
+Buntime fornece um Helm chart para deployment em Kubernetes e OpenShift/OKD.
 
-=== Prerequisites
+=== Pré-requisitos
 
-* Kubernetes 1.19+ or OpenShift/OKD 4.x
+* Kubernetes 1.19+ ou OpenShift/OKD 4.x
 * Helm 3.x
-* `kubectl` or `oc` CLI
+* CLI `kubectl` ou `oc`
 
-=== Quick Start
+=== Início Rápido
 
 [source,bash]
 ----
-# Clone the repository
+# Clone o repositório
 git clone https://github.com/user/buntime.git
 cd buntime
 
-# Install with Helm
+# Instale com Helm
 helm install buntime charts/buntime
 ----
 
-=== Installation Methods
+=== Métodos de Instalação
 
-==== NodePort (Default)
+==== NodePort (Padrão)
 
-Best for local testing and development clusters:
+Ideal para testes locais e clusters de desenvolvimento:
 
 [source,bash]
 ----
 helm install buntime charts/buntime
 
-# Get access URL
+# Obtenha a URL de acesso
 export NODE_PORT=$(kubectl get svc buntime -o jsonpath='{.spec.ports[0].nodePort}')
 export NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[0].address}')
 echo http://$NODE_IP:$NODE_PORT
@@ -38,7 +44,7 @@ echo http://$NODE_IP:$NODE_PORT
 
 ==== Ingress (Kubernetes)
 
-For production with an Ingress controller:
+Para produção com um Ingress controller:
 
 [source,bash]
 ----
@@ -48,7 +54,7 @@ helm install buntime charts/buntime \
   --set ingress.host=buntime.example.com
 ----
 
-With TLS:
+Com TLS:
 
 [source,bash]
 ----
@@ -60,7 +66,7 @@ helm install buntime charts/buntime \
   --set ingress.tls.secretName=buntime-tls
 ----
 
-With path prefix (rewrite enabled automatically):
+Com prefixo de path (rewrite habilitado automaticamente):
 
 [source,bash]
 ----
@@ -71,7 +77,7 @@ helm install buntime charts/buntime \
   --set ingress.path=/b
 ----
 
-With wildcard host and existing TLS secret:
+Com host wildcard e secret TLS existente:
 
 [source,bash]
 ----
@@ -84,11 +90,11 @@ helm install buntime charts/buntime \
   --set ingress.tls.secretName=cert-example
 ----
 
-NOTE: When using `ingress.path` with a value other than `/`, the chart automatically adds nginx rewrite annotations to strip the prefix before forwarding to the backend.
+NOTE: Ao usar `ingress.path` com um valor diferente de `/`, o chart adiciona automaticamente anotações de rewrite do nginx para remover o prefixo antes de encaminhar para o backend.
 
 ==== Route (OpenShift/OKD)
 
-For OpenShift/OKD environments:
+Para ambientes OpenShift/OKD:
 
 [source,bash]
 ----
@@ -97,7 +103,7 @@ helm install buntime charts/buntime \
   --set route.host=buntime.apps.mycluster.com
 ----
 
-=== Configuration
+=== Configuração
 
 ==== values.yaml
 
@@ -119,7 +125,7 @@ ingress:
   enabled: false
   className: ""
   host: ""
-  path: "/"  # Use "/b" for path-based routing (auto-rewrite)
+  path: "/"  # Use "/b" para roteamento baseado em path (auto-rewrite)
   annotations: {}
   tls:
     enabled: false
@@ -133,7 +139,7 @@ route:
     enabled: true
     termination: edge
 
-# Buntime configuration
+# Configuração do Buntime
 buntime:
   port: 8000
   poolSize: 100
@@ -141,7 +147,7 @@ buntime:
   libsqlUrl: ""
   logLevel: "info"
 
-# Plugins (generates buntime.jsonc)
+# Plugins (gera buntime.jsonc)
 plugins:
   metrics:
     enabled: true
@@ -153,15 +159,29 @@ plugins:
     enabled: false
   health:
     enabled: false
+  durable:
+    enabled: false
+  gateway:
+    enabled: false
+  logs:
+    enabled: false
+  proxy:
+    enabled: false
+  authn:
+    enabled: false
+  authz:
+    enabled: false
+  piercing:
+    enabled: false
 
-# External LibSQL
+# LibSQL externo
 libsql:
   externalUrl: ""
 ----
 
-==== Common Configurations
+==== Configurações Comuns
 
-===== Basic Deployment
+===== Deployment Básico
 
 [source,bash]
 ----
@@ -170,7 +190,7 @@ helm install buntime charts/buntime \
   --set buntime.poolSize=200
 ----
 
-===== With Database Plugins
+===== Com Plugins de Database
 
 [source,bash]
 ----
@@ -180,7 +200,7 @@ helm install buntime charts/buntime \
   --set buntime.libsqlUrl=http://libsql:8080
 ----
 
-===== Custom Image
+===== Imagem Personalizada
 
 [source,bash]
 ----
@@ -189,69 +209,69 @@ helm install buntime charts/buntime \
   --set image.tag=v1.2.3
 ----
 
-=== Architecture
+=== Arquitetura
 
-==== Resources Created
+==== Recursos Criados
 
 [cols="1,2"]
 |===
-| Resource | Description
+| Recurso | Descrição
 
 | Deployment
-| Buntime pods with health probes
+| Pods do Buntime com health probes
 
 | Service
-| ClusterIP/NodePort for internal access
+| ClusterIP/NodePort para acesso interno
 
 | ConfigMap (env)
-| Environment variables (PORT, POOL_SIZE, etc)
+| Variáveis de ambiente (PORT, POOL_SIZE, etc)
 
 | ConfigMap (config)
-| buntime.jsonc with plugin configuration
+| buntime.jsonc com configuração dos plugins
 
-| Ingress (optional)
-| External HTTP/HTTPS access
+| Ingress (opcional)
+| Acesso HTTP/HTTPS externo
 
-| Route (optional)
-| OpenShift Route for external access
+| Route (opcional)
+| OpenShift Route para acesso externo
 |===
 
-==== Pod Configuration
+==== Configuração do Pod
 
-The deployment creates pods with:
+O deployment cria pods com:
 
-* **Health Probes**: Liveness and readiness checks on `/api/plugins`
-* **Config Mount**: buntime.jsonc mounted at `/app/buntime.jsonc`
-* **Env Vars**: Loaded from ConfigMap via `envFrom`
+* **Health Probes**: Verificações de liveness e readiness em `/api/plugins`
+* **Config Mount**: buntime.jsonc montado em `/app/buntime.jsonc`
+* **Env Vars**: Carregadas do ConfigMap via `envFrom`
 
-=== Operations
+=== Operações
 
-==== View Logs
+==== Visualizar Logs
 
 [source,bash]
 ----
 kubectl logs -f deployment/buntime
 ----
 
-==== Check Configuration
+==== Verificar Configuração
 
 [source,bash]
 ----
-# View environment ConfigMap
+# Visualizar ConfigMap de ambiente
 kubectl get configmap buntime -o yaml
 
-# View buntime.jsonc ConfigMap
+# Visualizar ConfigMap do buntime.jsonc
 kubectl get configmap buntime-config -o yaml
 ----
 
-==== Scale
+==== Escalar
 
 [source,bash]
 ----
 kubectl scale deployment buntime --replicas=3
 ----
 
-==== Upgrade
+==== Atualizar
 
 [source,bash]
 ----
@@ -259,16 +279,16 @@ helm upgrade buntime charts/buntime \
   --set image.tag=v2.0.0
 ----
 
-==== Uninstall
+==== Desinstalar
 
 [source,bash]
 ----
 helm uninstall buntime
 ----
 
-=== LibSQL Deployment
+=== Deployment do LibSQL
 
-If using database plugins, deploy LibSQL alongside Buntime:
+Se estiver usando plugins de database, faça o deploy do LibSQL junto com o Buntime:
 
 [source,yaml]
 ----
@@ -316,7 +336,7 @@ spec:
       targetPort: 8080
 ----
 
-Then configure Buntime:
+Em seguida, configure o Buntime:
 
 [source,bash]
 ----
@@ -325,35 +345,35 @@ helm install buntime charts/buntime \
   --set buntime.libsqlUrl=http://libsql:8080
 ----
 
-=== Troubleshooting
+=== Resolução de Problemas
 
-==== Pod Not Starting
+==== Pod Não Inicia
 
-Check events:
+Verifique os eventos:
 
 [source,bash]
 ----
 kubectl describe pod -l app=buntime
 ----
 
-Common issues:
+Problemas comuns:
 
-* Image pull error: Check image repository and credentials
-* Probe failures: Check if `/api/plugins` endpoint works
-* Config error: Check ConfigMaps for valid configuration
+* Erro ao baixar imagem: Verifique o repositório da imagem e credenciais
+* Falhas no probe: Verifique se o endpoint `/api/plugins` funciona
+* Erro de configuração: Verifique os ConfigMaps para configuração válida
 
-==== Plugin Load Failures
+==== Falhas ao Carregar Plugins
 
-Check logs for plugin errors:
+Verifique os logs para erros de plugins:
 
 [source,bash]
 ----
 kubectl logs -l app=buntime | grep -i plugin
 ----
 
-==== Connection Refused
+==== Conexão Recusada
 
-Verify service is running:
+Verifique se o service está rodando:
 
 [source,bash]
 ----
@@ -361,11 +381,11 @@ kubectl get svc buntime
 kubectl get endpoints buntime
 ----
 
-=== Production Recommendations
+=== Recomendações para Produção
 
-==== Resource Limits
+==== Limites de Recursos
 
-Add resource limits in production:
+Adicione limites de recursos em produção:
 
 [source,yaml]
 ----
@@ -375,7 +395,7 @@ replicaCount: 3
 buntime:
   poolSize: 500
 
-# Add to deployment manually or extend chart
+# Adicione ao deployment manualmente ou estenda o chart
 resources:
   limits:
     cpu: "2"
@@ -385,7 +405,7 @@ resources:
     memory: 256Mi
 ----
 
-==== High Availability
+==== Alta Disponibilidade
 
 [source,bash]
 ----
@@ -394,9 +414,9 @@ helm install buntime charts/buntime \
   --set buntime.poolSize=200
 ----
 
-==== Monitoring
+==== Monitoramento
 
-Enable metrics plugin and scrape with Prometheus:
+Habilite o plugin de metrics e colete com Prometheus:
 
 [source,bash]
 ----
@@ -404,7 +424,7 @@ helm install buntime charts/buntime \
   --set plugins.metrics.enabled=true
 ----
 
-Prometheus ServiceMonitor (if using Prometheus Operator):
+Prometheus ServiceMonitor (se estiver usando Prometheus Operator):
 
 [source,yaml]
 ----

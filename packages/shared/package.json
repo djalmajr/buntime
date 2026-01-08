@@ -10,13 +10,17 @@
     "./types/virtual-modules": "./src/types/virtual-modules.d.ts",
     "./utils/config-validation": "./src/utils/config-validation.ts",
     "./utils/duration": "./src/utils/duration.ts",
+    "./utils/size": "./src/utils/size.ts",
     "./utils/static-handler": "./src/utils/static-handler.ts",
     "./utils/zod-helpers": "./src/utils/zod-helpers.ts"
   },
   "scripts": {
+    "lint": "bun run lint:format && bun run lint:types",
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
-    "lint": "bun run lint:format && bun run lint:types"
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "test:watch": "bun test --watch"
   },
   "dependencies": {
     "@zomme/bun-plugin-i18next": "^0.1.1",

@@ -8,11 +8,13 @@
   "scripts": {
     "build": "NODE_ENV=production bun scripts/build.ts",
     "dev": "bun scripts/build.ts --watch",
+    "lint": "bun run lint:format && bun run lint:types",
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
-    "lint": "bun run lint:format && bun run lint:types",
     "start": "bun run build && bun --port=5010 dist/index.js",
-    "test": "bun test"
+    "test": "bun test",
+    "test:coverage": "bun test --coverage 2>&1 | grep -vE '\\.\\./(packages|plugins)'",
+    "test:watch": "bun test --watch"
   },
   "dependencies": {
     "@buntime/shadcn-ui": "workspace:*",

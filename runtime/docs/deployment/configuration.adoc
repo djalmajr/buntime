@@ -1,37 +1,43 @@
-== Configuration
+== Configuração
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
 
-=== Overview
+=== Visão Geral
 
-The runtime uses three main configuration files:
+O runtime utiliza três arquivos de configuração principais:
 
 [cols="1,1,2"]
 |===
-| File | Purpose | Format
+| Arquivo | Propósito | Formato
 
 | `buntime.jsonc`
-| Runtime configuration, plugins, pool settings
-| JSONC (comments allowed)
+| Configuração do runtime, plugins, settings do pool
+| JSONC (comentários permitidos)
 
 | `bunfig.toml`
-| Bun build-time plugins (i18next, iconify, TSR, Tailwind)
+| Plugins de build-time do Bun (i18next, iconify, TSR, Tailwind)
 | TOML
 
 | `.env`
-| Environment variables
+| Variáveis de ambiente
 | ENV
 
 | `components.json`
-| Shadcn UI configuration
+| Configuração do Shadcn UI
 | JSON
 |===
 
-Additionally, worker apps can specify configuration via the `buntime` field in their `package.json`.
+Além disso, aplicações worker podem especificar configuração via o campo `buntime` em seu `package.json`.
 
-=== Runtime Configuration (buntime.jsonc)
+=== Configuração do Runtime (buntime.jsonc)
 
-==== File Location
+==== Localização do Arquivo
 
-The runtime looks for `buntime.jsonc` in the current working directory:
+O runtime procura por `buntime.jsonc` no diretório de trabalho atual:
 
 [source,bash]
 ----
@@ -42,9 +48,9 @@ The runtime looks for `buntime.jsonc` in the current working directory:
     └── server/
 ----
 
-==== Configuration Format
+==== Formato de Configuração
 
-The configuration uses Babel-style plugin format, where plugins can be specified as strings or tuples:
+A configuração utiliza formato de plugin estilo Babel, onde plugins podem ser especificados como strings ou tuplas:
 
 [source,jsonc]
 ----
@@ -63,34 +69,36 @@ The configuration uses Babel-style plugin format, where plugins can be specified
     [
       "@buntime/plugin-database",
       {
-        "adapter": {
-          "type": "libsql",
-          "url": "http://localhost:8880"
-        }
+        "adapters": [
+          {
+            "type": "libsql",
+            "urls": ["http://localhost:8880"]
+          }
+        ]
       }
     ]
   ]
 }
 ----
 
-==== Global Settings
+==== Configurações Globais
 
 ===== workspaces
 
-Directories where the runtime will scan for worker applications.
+Diretórios onde o runtime irá escanear por aplicações worker.
 
 [cols="1,2"]
 |===
 | Type | `string[]`
 
-| Default
-| **Required** - No default, must be set in buntime.jsonc or WORKSPACES_DIR env var
+| Padrão
+| **Obrigatório** - Sem padrão, deve ser definido em buntime.jsonc ou na variável de ambiente WORKSPACES_DIR
 
-| Example
+| Exemplo
 | `["../../buntime-apps", "../examples"]`
 |===
 
-The runtime scans these directories for applications with valid `package.json` files and loads them into the worker pool.
+O runtime escaneia esses diretórios por aplicações com arquivos `package.json` válidos e os carrega no worker pool.
 
 [source,jsonc]
 ----
@@ -102,23 +110,23 @@ The runtime scans these directories for applications with valid `package.json` f
 }
 ----
 
-IMPORTANT: Paths are relative to the directory containing `buntime.jsonc`, not the current working directory.
+IMPORTANT: Os caminhos são relativos ao diretório que contém `buntime.jsonc`, não ao diretório de trabalho atual.
 
-TIP: You can also use the WORKSPACES_DIR environment variable with comma-separated paths: `WORKSPACES_DIR=/dir1,/dir2,../dir3`
+TIP: Você também pode usar a variável de ambiente WORKSPACES_DIR com caminhos separados por vírgula: `WORKSPACES_DIR=/dir1,/dir2,../dir3`
 
 ===== poolSize
 
-Maximum number of workers in the pool.
+Número máximo de workers no pool.
 
 [cols="1,2"]
 |===
 | Type | `number`
 
-| Default
+| Padrão
 a|
 [cols="1,1"]
 !===
-! Environment ! Default
+! Ambiente ! Padrão
 
 ! Development
 ! `10`
@@ -132,11 +140,11 @@ a|
 ! Test
 ! `5`
 
-! Other
+! Outros
 ! `100` (fallback)
 !===
 
-| Example
+| Exemplo
 | `100`
 |===
 
@@ -147,20 +155,20 @@ a|
 }
 ----
 
-The pool size determines how many worker instances can run simultaneously. Each worker can handle multiple requests based on its `maxRequests` configuration.
+O tamanho do pool determina quantas instâncias de worker podem executar simultaneamente. Cada worker pode processar múltiplas requisições baseado em sua configuração `maxRequests`.
 
 ===== homepage
 
-Optional application to serve when no route matches. This app typically orchestrates micro-frontends via fragments.
+Aplicação opcional para servir quando nenhuma rota corresponder. Esta aplicação tipicamente orquestra micro-frontends via fragments.
 
 [cols="1,2"]
 |===
 | Type | `string`
 
-| Default
-| None
+| Padrão
+| Nenhum
 
-| Example
+| Exemplo
 | `"cpanel"`
 |===
 
@@ -171,13 +179,62 @@ Optional application to serve when no route matches. This app typically orchestr
 }
 ----
 
-When set, requests that don't match any application route will be forwarded to this application. The homepage app can use fragments to embed other plugins' UIs.
+Quando definido, requisições que não correspondem a nenhuma rota de aplicação serão encaminhadas para esta aplicação. A aplicação homepage pode usar fragments para incorporar UIs de outros plugins.
 
-==== Plugin Configuration
+[[body-size]]
+===== bodySize
 
-===== Plugin Format
+Tamanho máximo do corpo de requisições aceito pelo runtime. Esta é uma configuração global que se aplica a todas as requisições.
 
-Plugins use Babel-style configuration:
+[cols="1,2"]
+|===
+| Type | `number \| string`
+
+| Padrão
+| `10mb` (10485760 bytes)
+
+| Máximo
+| `100mb` (104857600 bytes)
+
+| Exemplo
+| `"50mb"` ou `52428800`
+|===
+
+[source,jsonc]
+----
+// buntime.jsonc (configuração global)
+{
+  "workspaces": ["../../buntime-apps"],
+  "poolSize": 100,
+  "bodySize": "50mb",  // Aceita uploads até 50MB
+  "plugins": [
+    "@buntime/plugin-metrics"
+  ]
+}
+----
+
+Formatos aceitos:
+
+[cols="1,2"]
+|===
+| Formato | Exemplo
+
+| Number (bytes)
+| `10485760`
+
+| String com unidade
+| `"10mb"`, `"1gb"`, `"500kb"`
+|===
+
+Unidades suportadas: `b`, `kb`, `mb`, `gb`.
+
+IMPORTANT: Requisições que excedem o limite recebem resposta `413 Payload Too Large`.
+
+==== Configuração de Plugins
+
+===== Formato de Plugin
+
+Plugins utilizam configuração estilo Babel:
 
 [source,jsonc]
 ----
@@ -197,13 +254,13 @@ Plugins use Babel-style configuration:
 }
 ----
 
-===== Plugin Resolution Order
+===== Ordem de Resolução de Plugins
 
-The runtime resolves plugins in the following order:
+O runtime resolve plugins na seguinte ordem:
 
-1. **Built-in plugins** - Embedded in the binary (always available)
-2. **External plugins** - From `./plugins/` directory
-3. **Node modules** - From `node_modules` (dev mode only)
+1. **Built-in plugins** - Embutidos no binário (sempre disponíveis)
+2. **External plugins** - Do diretório `./plugins/`
+3. **Node modules** - Do `node_modules` (apenas modo dev)
 
 [source]
 ----
@@ -213,9 +270,9 @@ Plugin Resolution:
   3. Node modules: node_modules/@buntime/plugin-xyz
 ----
 
-===== Plugin Dependencies
+===== Dependências de Plugins
 
-Plugins are automatically sorted based on dependencies using topological sort. You don't need to manually order plugins in the configuration.
+Plugins são automaticamente ordenados baseado em dependências usando ordenação topológica. Você não precisa ordenar plugins manualmente na configuração.
 
 [source,jsonc]
 ----
@@ -229,28 +286,11 @@ Plugins are automatically sorted based on dependencies using topological sort. Y
 }
 ----
 
-IMPORTANT: If a plugin declares required dependencies, they must be present in the `plugins` array or the runtime will throw an error.
+IMPORTANT: Se um plugin declara dependências obrigatórias, elas devem estar presentes no array `plugins` ou o runtime lançará um erro.
 
-===== Required Plugins
+===== Configuração Específica de Plugins
 
-Use the `required` field to ensure critical plugins are loaded:
-
-[source,jsonc]
-----
-{
-  "required": ["@buntime/plugin-metrics", "@buntime/plugin-keyval"],
-  "plugins": [
-    "@buntime/plugin-metrics",
-    "@buntime/plugin-keyval"
-  ]
-}
-----
-
-This is useful for validation in production environments.
-
-===== Plugin-Specific Configuration
-
-Each plugin has its own configuration options. See the plugin documentation for details:
+Cada plugin possui suas próprias opções de configuração. Consulte a documentação do plugin para detalhes:
 
 [source,jsonc]
 ----
@@ -260,10 +300,12 @@ Each plugin has its own configuration options. See the plugin documentation for 
     [
       "@buntime/plugin-database",
       {
-        "adapter": {
-          "type": "libsql",
-          "url": "${LIBSQL_URL}"  // Environment variable interpolation
-        }
+        "adapters": [
+          {
+            "type": "libsql",
+            "urls": ["${LIBSQL_URL}"]  // Environment variable interpolation
+          }
+        ]
       }
     ],
 
@@ -333,9 +375,9 @@ Each plugin has its own configuration options. See the plugin documentation for 
 }
 ----
 
-==== Environment Variable Interpolation
+==== Interpolação de Variáveis de Ambiente
 
-The runtime supports environment variable interpolation in configuration values using `${VAR_NAME}` syntax:
+O runtime suporta interpolação de variáveis de ambiente em valores de configuração usando a sintaxe `${VAR_NAME}`:
 
 [source,jsonc]
 ----
@@ -344,28 +386,30 @@ The runtime supports environment variable interpolation in configuration values 
     [
       "@buntime/plugin-database",
       {
-        "adapter": {
-          "type": "libsql",
-          "url": "${LIBSQL_URL}"  // Replaced with process.env.LIBSQL_URL
-        }
+        "adapters": [
+          {
+            "type": "libsql",
+            "urls": ["${LIBSQL_URL}"]  // Replaced with process.env.LIBSQL_URL
+          }
+        ]
       }
     ]
   ]
 }
 ----
 
-TIP: This allows the same configuration file to work across development, staging, and production environments by changing only the `.env` file.
+TIP: Isso permite que o mesmo arquivo de configuração funcione em ambientes de development, staging e production alterando apenas o arquivo `.env`.
 
-=== Worker Configuration
+=== Configuração de Workers
 
-==== Configuration Location
+==== Localização da Configuração
 
-Workers can be configured via the `buntime` field in their `package.json` or in a `buntime.jsonc` file in the app directory.
+Workers podem ser configurados via o campo `buntime` em seu `package.json` ou em um arquivo `buntime.jsonc` no diretório da aplicação.
 
-**Configuration priority:**
+**Prioridade de configuração:**
 
-1. First: `buntime.jsonc` in app directory
-2. Fallback: `buntime` field in `package.json`
+1. Primeiro: `buntime.jsonc` no diretório da aplicação
+2. Fallback: campo `buntime` no `package.json`
 
 [source,json]
 ----
@@ -383,20 +427,20 @@ Workers can be configured via the `buntime` field in their `package.json` or in 
 }
 ----
 
-==== Worker Options
+==== Opções de Worker
 
 ===== entrypoint
 
-Entry file for the worker application.
+Arquivo de entrada para a aplicação worker.
 
 [cols="1,2"]
 |===
 | Type | `string`
 
-| Default
-| `index.ts` or main field from package.json
+| Padrão
+| `index.ts` ou campo main do package.json
 
-| Example
+| Exemplo
 | `"dist/index.js"`
 |===
 
@@ -411,16 +455,16 @@ Entry file for the worker application.
 
 ===== autoInstall
 
-Run `bun install --frozen-lockfile` before starting worker.
+Executa `bun install --frozen-lockfile` antes de iniciar o worker.
 
 [cols="1,2"]
 |===
 | Type | `boolean`
 
-| Default
+| Padrão
 | `false`
 
-| Example
+| Exemplo
 | `true`
 |===
 
@@ -435,16 +479,16 @@ Run `bun install --frozen-lockfile` before starting worker.
 
 ===== env
 
-Additional environment variables to pass to worker.
+Variáveis de ambiente adicionais para passar ao worker.
 
 [cols="1,2"]
 |===
 | Type | `Record<string, string>`
 
-| Default
-| None
+| Padrão
+| Nenhum
 
-| Example
+| Exemplo
 | `{ "API_KEY": "abc123", "DEBUG": "true" }`
 |===
 
@@ -462,17 +506,17 @@ Additional environment variables to pass to worker.
 
 ===== publicRoutes
 
-Define public routes that bypass authentication.
+Define rotas públicas que ignoram autenticação.
 
 [cols="1,2"]
 |===
-| Type | Array or object
+| Type | Array ou object
 
-| Default
-| None
+| Padrão
+| Nenhum
 
-| Example
-| See plugin documentation for format
+| Exemplo
+| Consulte a documentação do plugin para o formato
 |===
 
 [source,json]
@@ -487,20 +531,20 @@ Define public routes that bypass authentication.
 }
 ----
 
-NOTE: The exact format depends on the authentication plugin being used. See plugin documentation for details.
+NOTE: O formato exato depende do plugin de autenticação sendo utilizado. Consulte a documentação do plugin para detalhes.
 
 ===== idleTimeout
 
-Time in seconds before an idle worker is terminated.
+Tempo em segundos antes de um worker ocioso ser terminado.
 
 [cols="1,2"]
 |===
 | Type | `number`
 
-| Default
+| Padrão
 | `60`
 
-| Example
+| Exemplo
 | `60`
 |===
 
@@ -508,23 +552,23 @@ Time in seconds before an idle worker is terminated.
 ----
 {
   "buntime": {
-    "idleTimeout": 60  // Terminate worker after 60 seconds of inactivity
+    "idleTimeout": 60  // Termina worker após 60 segundos de inatividade
   }
 }
 ----
 
 ===== lowMemory
 
-Enable low memory mode (constrains worker memory usage).
+Habilita modo de baixa memória (restringe uso de memória do worker).
 
 [cols="1,2"]
 |===
 | Type | `boolean`
 
-| Default
+| Padrão
 | `false`
 
-| Example
+| Exemplo
 | `false`
 |===
 
@@ -532,23 +576,23 @@ Enable low memory mode (constrains worker memory usage).
 ----
 {
   "buntime": {
-    "lowMemory": false  // Normal memory mode
+    "lowMemory": false  // Modo de memória normal
   }
 }
 ----
 
 ===== maxRequests
 
-Maximum number of requests a worker can handle before being recycled.
+Número máximo de requisições que um worker pode processar antes de ser reciclado.
 
 [cols="1,2"]
 |===
 | Type | `number`
 
-| Default
+| Padrão
 | `1000`
 
-| Example
+| Exemplo
 | `1000`
 |===
 
@@ -556,25 +600,25 @@ Maximum number of requests a worker can handle before being recycled.
 ----
 {
   "buntime": {
-    "maxRequests": 1000  // Recycle worker after 1000 requests
+    "maxRequests": 1000  // Recicla worker após 1000 requisições
   }
 }
 ----
 
-IMPORTANT: Workers are recycled to prevent memory leaks and ensure consistent performance over time.
+IMPORTANT: Workers são reciclados para prevenir memory leaks e garantir performance consistente ao longo do tempo.
 
 ===== timeout
 
-Maximum time in seconds for a single request.
+Tempo máximo em segundos para uma única requisição.
 
 [cols="1,2"]
 |===
 | Type | `number`
 
-| Default
+| Padrão
 | `30`
 
-| Example
+| Exemplo
 | `30`
 |===
 
@@ -582,23 +626,23 @@ Maximum time in seconds for a single request.
 ----
 {
   "buntime": {
-    "timeout": 30  // Kill request after 30 seconds
+    "timeout": 30  // Encerra requisição após 30 segundos
   }
 }
 ----
 
 ===== ttl
 
-Time to live in seconds for the worker instance.
+Tempo de vida em segundos para a instância do worker.
 
 [cols="1,2"]
 |===
 | Type | `number`
 
-| Default
-| `0` (no TTL limit)
+| Padrão
+| `0` (sem limite de TTL)
 
-| Example
+| Exemplo
 | `60`
 |===
 
@@ -606,16 +650,46 @@ Time to live in seconds for the worker instance.
 ----
 {
   "buntime": {
-    "ttl": 60  // Terminate worker after 60 seconds regardless of activity
+    "ttl": 60  // Termina worker após 60 segundos independente de atividade
   }
 }
 ----
 
-NOTE: When set to `0` (default), workers have no TTL limit and will only be terminated based on `idleTimeout` or `maxRequests`.
+NOTE: Quando definido como `0` (padrão), workers não têm limite de TTL e serão terminados apenas baseado em `idleTimeout` ou `maxRequests`.
 
-=== Build-Time Plugins (bunfig.toml)
+===== visibility
 
-The runtime client (React dashboard) uses Bun plugins for build-time transformations:
+Controla a visibilidade da aplicação na UI de deployments.
+
+[cols="1,2"]
+|===
+| Type | `"public" \| "protected" \| "internal"`
+
+| Padrão
+| `"public"`
+
+| Exemplo
+| `"protected"`
+|===
+
+[source,json]
+----
+{
+  "buntime": {
+    "visibility": "protected"
+  }
+}
+----
+
+Valores:
+
+- `public`: Visível e editável (padrão)
+- `protected`: Visível mas somente leitura
+- `internal`: Oculta do browser de deployments
+
+=== Plugins de Build-Time (bunfig.toml)
+
+O cliente do runtime (React dashboard) utiliza plugins do Bun para transformações em build-time:
 
 [source,toml]
 ----
@@ -637,32 +711,32 @@ dirs = ["client"]
 dirs = "client"
 ----
 
-==== Available Plugins
+==== Plugins Disponíveis
 
 [cols="1,2"]
 |===
-| Plugin | Purpose
+| Plugin | Propósito
 
 | `@zomme/bun-plugin-tsr`
-| Generates TanStack Router routes from file structure
+| Gera rotas TanStack Router a partir da estrutura de arquivos
 
 | `@zomme/bun-plugin-iconify`
-| Provides icon collections via Icon component
+| Fornece coleções de ícones via componente Icon
 
 | `@zomme/bun-plugin-i18next`
-| Loads translations from colocated JSON files
+| Carrega traduções de arquivos JSON colocalizados
 
 | `bun-plugin-tailwind`
-| Tailwind CSS processing
+| Processamento de Tailwind CSS
 |===
 
-See the plugin documentation for detailed configuration options.
+Consulte a documentação do plugin para opções de configuração detalhadas.
 
-=== Environment Variables (.env)
+=== Variáveis de Ambiente (.env)
 
-==== File Location
+==== Localização do Arquivo
 
-The runtime loads environment variables from `.env` in the current working directory:
+O runtime carrega variáveis de ambiente do `.env` no diretório de trabalho atual:
 
 [source,bash]
 ----
@@ -673,42 +747,42 @@ The runtime loads environment variables from `.env` in the current working direc
     └── index.ts
 ----
 
-==== Available Variables
+==== Variáveis Disponíveis
 
 [cols="1,2,1"]
 |===
-| Variable | Description | Default
+| Variável | Descrição | Padrão
 
 | `NODE_ENV`
-| Environment (development, production)
+| Ambiente (development, production)
 | `development`
 
 | `PORT`
-| Server port
+| Porta do servidor
 | `8000`
 
 | `WORKSPACES_DIR`
-| Worker apps directory
-| `./apps`
+| Diretório de aplicações worker
+| (obrigatório)
 
 | `POOL_SIZE`
-| Override pool size
-| Environment-dependent
+| Sobrescreve tamanho do pool
+| Dependente do ambiente
 
 | `HOMEPAGE_APP`
-| Override homepage app
-| None
+| Sobrescreve aplicação homepage
+| Nenhum
 
 | `DELAY_MS`
-| Startup delay in ms
+| Delay de inicialização em ms
 | `100`
 
 | `LIBSQL_URL`
-| libSQL server URL (for plugins)
-| None
+| URL do servidor libSQL (para plugins)
+| Nenhum
 |===
 
-==== Example Configuration
+==== Exemplo de Configuração
 
 [source,bash]
 ----
@@ -727,11 +801,11 @@ WORKSPACES_DIR=../../buntime-apps
 LIBSQL_URL=http://localhost:8880
 ----
 
-IMPORTANT: When using `file:` URLs for libSQL, always use absolute paths. Relative paths fail in compiled binaries.
+IMPORTANT: Ao usar URLs `file:` para libSQL, sempre use caminhos absolutos. Caminhos relativos falham em binários compilados.
 
-=== Shadcn UI Configuration (components.json)
+=== Configuração do Shadcn UI (components.json)
 
-The runtime dashboard uses Shadcn UI components. Configuration is in `components.json`:
+O dashboard do runtime utiliza componentes Shadcn UI. A configuração está em `components.json`:
 
 [source,json]
 ----
@@ -757,14 +831,14 @@ The runtime dashboard uses Shadcn UI components. Configuration is in `components
 }
 ----
 
-This configuration is used by the `shadcn` CLI when adding new components:
+Esta configuração é utilizada pela CLI `shadcn` ao adicionar novos componentes:
 
 [source,bash]
 ----
 npx shadcn add button
 ----
 
-=== Complete Example Configuration
+=== Exemplo Completo de Configuração
 
 ==== Development
 
@@ -782,10 +856,12 @@ npx shadcn add button
     [
       "@buntime/plugin-database",
       {
-        "adapter": {
-          "type": "libsql",
-          "url": "http://localhost:8880"
-        }
+        "adapters": [
+          {
+            "type": "libsql",
+            "urls": ["http://localhost:8880"]
+          }
+        ]
       }
     ],
     "@buntime/plugin-keyval"
@@ -810,7 +886,6 @@ LIBSQL_URL=http://localhost:8880
 {
   "workspaces": ["${WORKSPACES_DIR}"],
   "poolSize": 500,
-  "required": ["@buntime/plugin-metrics", "@buntime/plugin-keyval"],
   "plugins": [
     "@buntime/plugin-metrics",
     "@buntime/plugin-deployments",
@@ -819,11 +894,13 @@ LIBSQL_URL=http://localhost:8880
     [
       "@buntime/plugin-database",
       {
-        "adapter": {
-          "type": "libsql",
-          "url": "${LIBSQL_URL}",
-          "authToken": "${LIBSQL_TOKEN}"
-        }
+        "adapters": [
+          {
+            "type": "libsql",
+            "urls": ["${LIBSQL_URL}"],
+            "authToken": "${LIBSQL_TOKEN}"
+          }
+        ]
       }
     ],
     [
@@ -900,9 +977,9 @@ KEYCLOAK_REALM=production
 KEYCLOAK_CLIENT_ID=buntime
 ----
 
-=== Configuration Validation
+=== Validação de Configuração
 
-The runtime validates configuration at startup and provides helpful error messages:
+O runtime valida a configuração na inicialização e fornece mensagens de erro úteis:
 
 [source]
 ----
@@ -917,11 +994,11 @@ Error: Circular dependency detected among plugins: @buntime/plugin-a, @buntime/p
 Error: [buntime.jsonc] Invalid plugin at index 2: expected string or [name, config] tuple
 ----
 
-=== Configuration Best Practices
+=== Boas Práticas de Configuração
 
-==== Use Environment Variables
+==== Use Variáveis de Ambiente
 
-Store sensitive data in `.env`, not in `buntime.jsonc`:
+Armazene dados sensíveis em `.env`, não em `buntime.jsonc`:
 
 [source,jsonc]
 ----
@@ -931,10 +1008,13 @@ Store sensitive data in `.env`, not in `buntime.jsonc`:
     [
       "@buntime/plugin-database",
       {
-        "adapter": {
-          "url": "http://production-db:8080",
-          "authToken": "secret-token-here"  // NEVER do this
-        }
+        "adapters": [
+          {
+            "type": "libsql",
+            "urls": ["http://production-db:8080"],
+            "authToken": "secret-token-here"  // NEVER do this
+          }
+        ]
       }
     ]
   ]
@@ -946,28 +1026,31 @@ Store sensitive data in `.env`, not in `buntime.jsonc`:
     [
       "@buntime/plugin-database",
       {
-        "adapter": {
-          "url": "${LIBSQL_URL}",
-          "authToken": "${LIBSQL_TOKEN}"
-        }
+        "adapters": [
+          {
+            "type": "libsql",
+            "urls": ["${LIBSQL_URL}"],
+            "authToken": "${LIBSQL_TOKEN}"
+          }
+        ]
       }
     ]
   ]
 }
 ----
 
-==== Separate Concerns
+==== Separe Responsabilidades
 
-Use different configuration files for different purposes:
+Use diferentes arquivos de configuração para diferentes propósitos:
 
-- **buntime.jsonc** - Runtime behavior (plugins, pool)
-- **bunfig.toml** - Build-time transforms (Bun plugins)
-- **.env** - Environment-specific values
-- **components.json** - UI framework config
+- **buntime.jsonc** - Comportamento do runtime (plugins, pool)
+- **bunfig.toml** - Transformações de build-time (plugins do Bun)
+- **.env** - Valores específicos do ambiente
+- **components.json** - Configuração do framework de UI
 
-==== Document Custom Plugins
+==== Documente Plugins Customizados
 
-If using custom external plugins, document them in your project README:
+Se estiver usando plugins externos customizados, documente-os no README do seu projeto:
 
 [source,bash]
 ----
@@ -979,25 +1062,25 @@ runtime/
 │   │   └── README.md  # Document your plugin
 ----
 
-==== Version Control
+==== Controle de Versão
 
-Add to `.gitignore`:
+Adicione ao `.gitignore`:
 
 [source]
 ----
-# Environment files (secrets)
+# Arquivos de ambiente (secrets)
 .env
 .env.local
 
-# Keep examples
+# Manter exemplos
 !.env.example
 ----
 
-Commit to version control:
+Commitar no controle de versão:
 
 [source]
 ----
-# Configuration (no secrets)
+# Configuração (sem secrets)
 buntime.jsonc
 bunfig.toml
 components.json

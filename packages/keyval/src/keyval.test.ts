@@ -24,6 +24,62 @@ describe("Kv", () => {
     globalThis.fetch = originalFetch;
   });
 
+  describe("now", () => {
+    it("should create a now placeholder", () => {
+      const now = kv.now();
+      expect(now).toBeDefined();
+    });
+
+    it("should support add() with duration string", () => {
+      const now = kv.now();
+      const future = now.add("1h");
+      expect(future).toBeDefined();
+      expect(future.offset).toBe(3600000); // 1 hour in ms
+    });
+
+    it("should support add() with numeric duration", () => {
+      const now = kv.now();
+      const future = now.add(5000);
+      expect(future).toBeDefined();
+      expect(future.offset).toBe(5000);
+    });
+
+    it("should support sub() with duration string", () => {
+      const now = kv.now();
+      const past = now.sub("30m");
+      expect(past).toBeDefined();
+      expect(past.offset).toBe(-1800000); // -30 minutes in ms
+    });
+
+    it("should support sub() with numeric duration", () => {
+      const now = kv.now();
+      const past = now.sub(10000);
+      expect(past).toBeDefined();
+      expect(past.offset).toBe(-10000);
+    });
+
+    it("should chain add() and sub() operations", () => {
+      const now = kv.now();
+      const result = now.add("1h").sub("30m");
+      expect(result.offset).toBe(1800000); // 1h - 30m = 30m
+    });
+
+    it("should serialize $now placeholder correctly in delete", async () => {
+      let capturedBody = "";
+      mockFetch((_url, init) => {
+        capturedBody = init?.body as string;
+        return new Response(JSON.stringify({ success: true, deletedCount: 1 }));
+      });
+
+      await kv.delete(["sessions"], {
+        where: { expiresAt: { $lt: kv.now().sub("1h") } },
+      });
+
+      const parsed = JSON.parse(capturedBody);
+      expect(parsed.where.expiresAt.$lt).toEqual({ $now: true, offset: -3600000 });
+    });
+  });
+
   describe("get", () => {
     it("should return entry for existing key", async () => {
       mockFetch((url) => {
@@ -960,6 +1016,266 @@ describe("Kv Queue", () => {
         keysIfUndelivered: [["failed", "msg"]],
       });
     });
+
+    it("should parse duration string options", async () => {
+      let capturedBody: unknown = null;
+      mockFetch((_url, init) => {
+        capturedBody = JSON.parse(init?.body as string);
+        return new Response(JSON.stringify({ ok: true, id: "msg-123" }));
+      });
+
+      await kv.enqueue(
+        { data: "test" },
+        {
+          delay: "5s",
+          backoffSchedule: ["1s", "5s", "30s"],
+        },
+      );
+
+      const body = capturedBody as { options: Record<string, unknown> };
+      expect(body.options).toEqual({
+        delay: 5000,
+        backoffSchedule: [1000, 5000, 30000],
+        keysIfUndelivered: undefined,
+      });
+    });
+  });
+
+  describe("listenQueue", () => {
+    it("should return a handle with stop method", () => {
+      mockFetch(() => {
+        return new Response(new ReadableStream(), {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      });
+
+      const handle = kv.listenQueue(() => {});
+
+      expect(handle.stop).toBeDefined();
+      expect(typeof handle.stop).toBe("function");
+
+      handle.stop();
+    });
+
+    it("should support Symbol.dispose for auto cleanup", () => {
+      mockFetch(() => {
+        return new Response(new ReadableStream(), {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      });
+
+      const handle = kv.listenQueue(() => {});
+
+      expect(handle[Symbol.dispose]).toBeDefined();
+      expect(typeof handle[Symbol.dispose]).toBe("function");
+
+      handle[Symbol.dispose]();
+    });
+
+    it("should listen with polling mode", () => {
+      let capturedUrl = "";
+      mockFetch((url) => {
+        capturedUrl = url;
+        return new Response(JSON.stringify({ message: null }));
+      });
+
+      const handle = kv.listenQueue(() => {}, {
+        mode: "polling",
+        pollInterval: 2000,
+      });
+
+      // Give time for first poll
+      setTimeout(() => {
+        expect(capturedUrl).toContain("/queue/poll");
+        handle.stop();
+      }, 50);
+
+      handle.stop();
+    });
+
+    it("should listen with SSE mode (default)", () => {
+      let capturedUrl = "";
+      mockFetch((url) => {
+        capturedUrl = url;
+        return new Response(new ReadableStream(), {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      });
+
+      const handle = kv.listenQueue(() => {});
+
+      // Give time for request
+      setTimeout(() => {
+        expect(capturedUrl).toContain("/queue/listen");
+        handle.stop();
+      }, 50);
+
+      handle.stop();
+    });
+
+    it("should use autoAck true by default", () => {
+      mockFetch(() => {
+        return new Response(new ReadableStream(), {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      });
+
+      // Handler should be called, autoAck is on by default
+      const handle = kv.listenQueue(async () => {});
+      expect(handle).toBeDefined();
+      handle.stop();
+    });
+
+    it("should support autoAck false option", () => {
+      mockFetch(() => {
+        return new Response(new ReadableStream(), {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      });
+
+      const handle = kv.listenQueue(async () => {}, { autoAck: false });
+      expect(handle).toBeDefined();
+      handle.stop();
+    });
+
+    it("should parse pollInterval duration string", () => {
+      mockFetch(() => {
+        return new Response(JSON.stringify({ message: null }));
+      });
+
+      const handle = kv.listenQueue(() => {}, {
+        mode: "polling",
+        pollInterval: "2s",
+      });
+
+      expect(handle).toBeDefined();
+      handle.stop();
+    });
+
+    it("should process message and auto-ack on success", async () => {
+      const messages: unknown[] = [];
+      let ackCalled = false;
+      let streamCount = 0;
+
+      // Create a controlled stream that sends one message then ends
+      const encoder = new TextEncoder();
+
+      mockFetch((url) => {
+        if (url.includes("/queue/listen")) {
+          streamCount++;
+          // Only send message on first stream, return empty on subsequent reconnects
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              if (streamCount === 1) {
+                const eventData =
+                  "event:message\ndata:" +
+                  JSON.stringify({ id: "msg-1", value: { test: true }, attempts: 1 }) +
+                  "\n\n";
+                controller.enqueue(encoder.encode(eventData));
+              }
+              // Close after a short delay
+              setTimeout(() => controller.close(), 50);
+            },
+          });
+          return new Response(stream, {
+            headers: { "Content-Type": "text/event-stream" },
+          });
+        }
+        if (url.includes("/queue/ack")) {
+          ackCalled = true;
+          return new Response("");
+        }
+        return new Response("");
+      });
+
+      const handle = kv.listenQueue((msg) => {
+        messages.push(msg);
+      });
+
+      // Wait for message processing
+      await new Promise((r) => setTimeout(r, 100));
+      handle.stop();
+
+      expect(messages.length).toBe(1);
+      expect(ackCalled).toBe(true);
+    });
+
+    it("should process message and auto-nack on handler error", async () => {
+      let nackCalled = false;
+
+      const encoder = new TextEncoder();
+
+      mockFetch((url) => {
+        if (url.includes("/queue/listen")) {
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              const eventData =
+                "event:message\ndata:" +
+                JSON.stringify({ id: "msg-1", value: { test: true }, attempts: 1 }) +
+                "\n\n";
+              controller.enqueue(encoder.encode(eventData));
+              setTimeout(() => controller.close(), 50);
+            },
+          });
+          return new Response(stream, {
+            headers: { "Content-Type": "text/event-stream" },
+          });
+        }
+        if (url.includes("/queue/nack")) {
+          nackCalled = true;
+          return new Response("");
+        }
+        return new Response("");
+      });
+
+      const handle = kv.listenQueue(() => {
+        throw new Error("Handler failed");
+      });
+
+      // Wait for message processing
+      await new Promise((r) => setTimeout(r, 100));
+      handle.stop();
+
+      expect(nackCalled).toBe(true);
+    });
+
+    it("should process message via polling and call handler", async () => {
+      const messages: unknown[] = [];
+      let pollCount = 0;
+
+      mockFetch((url) => {
+        if (url.includes("/queue/poll")) {
+          pollCount++;
+          if (pollCount === 1) {
+            // First poll returns a message
+            return new Response(
+              JSON.stringify({
+                message: { id: "msg-1", value: { data: "test" }, attempts: 1 },
+              }),
+            );
+          }
+          // Subsequent polls return no message
+          return new Response(JSON.stringify({ message: null }));
+        }
+        if (url.includes("/queue/ack")) {
+          return new Response("");
+        }
+        return new Response("");
+      });
+
+      const handle = kv.listenQueue(
+        (msg) => {
+          messages.push(msg);
+        },
+        { mode: "polling", pollInterval: 10 },
+      );
+
+      // Wait for polling to process
+      await new Promise((r) => setTimeout(r, 100));
+      handle.stop();
+
+      expect(messages.length).toBe(1);
+    });
   });
 
   describe("queueStats", () => {
@@ -1268,6 +1584,556 @@ describe("Kv Watch", () => {
       expect(typeof handle.stop).toBe("function");
 
       handle.stop();
+    });
+
+    it("should have closed property on handle", () => {
+      mockFetch(() => {
+        return new Response(new ReadableStream(), {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      });
+
+      const handle = kv.watch(["test"], () => {});
+
+      expect(handle.closed).toBe(false);
+      handle.stop();
+      expect(handle.closed).toBe(true);
+    });
+
+    it("should support Symbol.dispose for auto cleanup", () => {
+      mockFetch(() => {
+        return new Response(new ReadableStream(), {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      });
+
+      const handle = kv.watch(["test"], () => {});
+
+      expect(handle[Symbol.dispose]).toBeDefined();
+      expect(typeof handle[Symbol.dispose]).toBe("function");
+
+      // Call dispose and verify it stops the watcher
+      handle[Symbol.dispose]();
+      expect(handle.closed).toBe(true);
+    });
+
+    it("should watch exact key with polling mode", () => {
+      let capturedUrl = "";
+      mockFetch((url) => {
+        capturedUrl = url;
+        return new Response(
+          JSON.stringify({
+            entries: [],
+            versionstamps: [],
+          }),
+        );
+      });
+
+      const handle = kv.watch(["users", 123], () => {}, {
+        mode: "polling",
+        exact: true,
+        pollInterval: 1000,
+      });
+
+      // Give time for first poll to happen
+      setTimeout(() => {
+        expect(capturedUrl).toContain("/watch/poll");
+        expect(capturedUrl).toContain("keys=users%2F123");
+        handle.stop();
+      }, 50);
+
+      handle.stop();
+    });
+
+    it("should watch prefix with polling mode", () => {
+      let capturedUrl = "";
+      mockFetch((url) => {
+        capturedUrl = url;
+        return new Response(
+          JSON.stringify({
+            entries: [],
+            versionstamps: "",
+          }),
+        );
+      });
+
+      const handle = kv.watch(["users"], () => {}, {
+        mode: "polling",
+        pollInterval: 1000,
+      });
+
+      // Give time for first poll to happen
+      setTimeout(() => {
+        expect(capturedUrl).toContain("/watch/prefix/poll");
+        expect(capturedUrl).toContain("prefixes=users");
+        handle.stop();
+      }, 50);
+
+      handle.stop();
+    });
+
+    it("should watch with buffer options", () => {
+      mockFetch(() => {
+        return new Response(new ReadableStream(), {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      });
+
+      // Watch with backpressure buffer
+      const handle = kv.watch(["events"], () => {}, {
+        bufferSize: 100,
+        overflowStrategy: "drop-oldest",
+      });
+
+      expect(handle.stop).toBeDefined();
+      handle.stop();
+    });
+
+    it("should watch with drop-newest overflow strategy", () => {
+      mockFetch(() => {
+        return new Response(new ReadableStream(), {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      });
+
+      const handle = kv.watch(["events"], () => {}, {
+        bufferSize: 10,
+        overflowStrategy: "drop-newest",
+      });
+
+      expect(handle.stop).toBeDefined();
+      handle.stop();
+    });
+
+    it("should watch exact keys with emitInitial false", () => {
+      let capturedUrl = "";
+      mockFetch((url) => {
+        capturedUrl = url;
+        return new Response(new ReadableStream(), {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      });
+
+      const handle = kv.watch(["test"], () => {}, {
+        exact: true,
+        emitInitial: false,
+      });
+
+      // Give a moment for fetch to be called
+      setTimeout(() => {
+        expect(capturedUrl).toContain("initial=false");
+        handle.stop();
+      }, 10);
+
+      handle.stop();
+    });
+
+    it("should watch prefix with limit option", () => {
+      let capturedUrl = "";
+      mockFetch((url) => {
+        capturedUrl = url;
+        return new Response(new ReadableStream(), {
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      });
+
+      const handle = kv.watch(["events"], () => {}, {
+        limit: 50,
+      });
+
+      // Give a moment for fetch to be called
+      setTimeout(() => {
+        expect(capturedUrl).toContain("limit=50");
+        handle.stop();
+      }, 10);
+
+      handle.stop();
+    });
+
+    it("should receive changes via SSE for exact keys", async () => {
+      const receivedEntries: unknown[] = [];
+      const encoder = new TextEncoder();
+      let streamCount = 0;
+
+      mockFetch((url) => {
+        if (url.includes("/watch")) {
+          streamCount++;
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              // Only send data on first connection, not on reconnect
+              if (streamCount === 1) {
+                const eventData =
+                  "event:change\ndata:" +
+                  JSON.stringify([
+                    { key: ["users", 123], value: { name: "Alice" }, versionstamp: "0001" },
+                  ]) +
+                  "\n\n";
+                controller.enqueue(encoder.encode(eventData));
+              }
+              setTimeout(() => controller.close(), 50);
+            },
+          });
+          return new Response(stream, {
+            headers: { "Content-Type": "text/event-stream" },
+          });
+        }
+        return new Response("");
+      });
+
+      const handle = kv.watch(
+        ["users", 123],
+        (entries) => {
+          receivedEntries.push(...entries);
+        },
+        { exact: true },
+      );
+
+      // Wait for SSE processing
+      await new Promise((r) => setTimeout(r, 100));
+      handle.stop();
+
+      expect(receivedEntries.length).toBe(1);
+    });
+
+    it("should receive changes via SSE for prefix", async () => {
+      const receivedEntries: unknown[] = [];
+      const encoder = new TextEncoder();
+      let streamCount = 0;
+
+      mockFetch((url) => {
+        if (url.includes("/watch/prefix")) {
+          streamCount++;
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              // Only send data on first connection
+              if (streamCount === 1) {
+                const eventData =
+                  "event:change\ndata:" +
+                  JSON.stringify([
+                    { key: ["users", 1], value: { name: "Alice" }, versionstamp: "0001" },
+                    { key: ["users", 2], value: { name: "Bob" }, versionstamp: "0002" },
+                  ]) +
+                  "\n\n";
+                controller.enqueue(encoder.encode(eventData));
+              }
+              setTimeout(() => controller.close(), 50);
+            },
+          });
+          return new Response(stream, {
+            headers: { "Content-Type": "text/event-stream" },
+          });
+        }
+        return new Response("");
+      });
+
+      const handle = kv.watch(["users"], (entries) => {
+        receivedEntries.push(...entries);
+      });
+
+      // Wait for SSE processing
+      await new Promise((r) => setTimeout(r, 100));
+      handle.stop();
+
+      expect(receivedEntries.length).toBe(2);
+    });
+
+    it("should receive changes via polling for exact keys", async () => {
+      const receivedEntries: unknown[] = [];
+      let pollCount = 0;
+
+      mockFetch((url) => {
+        if (url.includes("/watch/poll")) {
+          pollCount++;
+          if (pollCount === 1) {
+            return new Response(
+              JSON.stringify({
+                entries: [{ key: ["users", 123], value: { name: "Alice" }, versionstamp: "0001" }],
+                versionstamps: ["0001"],
+              }),
+            );
+          }
+          return new Response(JSON.stringify({ entries: [], versionstamps: ["0001"] }));
+        }
+        return new Response("");
+      });
+
+      const handle = kv.watch(
+        ["users", 123],
+        (entries) => {
+          receivedEntries.push(...entries);
+        },
+        { mode: "polling", exact: true, pollInterval: 10 },
+      );
+
+      // Wait for polling
+      await new Promise((r) => setTimeout(r, 100));
+      handle.stop();
+
+      expect(receivedEntries.length).toBe(1);
+    });
+
+    it("should receive changes via polling for prefix", async () => {
+      const receivedEntries: unknown[] = [];
+      let pollCount = 0;
+
+      mockFetch((url) => {
+        if (url.includes("/watch/prefix/poll")) {
+          pollCount++;
+          if (pollCount === 1) {
+            return new Response(
+              JSON.stringify({
+                entries: [
+                  { key: ["users", 1], value: { name: "Alice" }, versionstamp: "0001" },
+                  { key: ["users", 2], value: { name: "Bob" }, versionstamp: "0002" },
+                ],
+                versionstamps: "0002",
+              }),
+            );
+          }
+          return new Response(JSON.stringify({ entries: [], versionstamps: "0002" }));
+        }
+        return new Response("");
+      });
+
+      const handle = kv.watch(
+        ["users"],
+        (entries) => {
+          receivedEntries.push(...entries);
+        },
+        { mode: "polling", pollInterval: 10 },
+      );
+
+      // Wait for polling
+      await new Promise((r) => setTimeout(r, 100));
+      handle.stop();
+
+      expect(receivedEntries.length).toBe(2);
+    });
+
+    it("should use buffer with drop-oldest strategy when full", async () => {
+      const receivedEntries: unknown[] = [];
+      const encoder = new TextEncoder();
+      let streamCount = 0;
+
+      mockFetch((url) => {
+        if (url.includes("/watch/prefix")) {
+          streamCount++;
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              // Only send data on first connection
+              if (streamCount === 1) {
+                // Send multiple changes that exceed buffer size
+                const eventData1 =
+                  "event:change\ndata:" +
+                  JSON.stringify([
+                    { key: ["users", 1], value: { name: "User1" }, versionstamp: "0001" },
+                    { key: ["users", 2], value: { name: "User2" }, versionstamp: "0002" },
+                    { key: ["users", 3], value: { name: "User3" }, versionstamp: "0003" },
+                  ]) +
+                  "\n\n";
+                controller.enqueue(encoder.encode(eventData1));
+              }
+              setTimeout(() => controller.close(), 50);
+            },
+          });
+          return new Response(stream, {
+            headers: { "Content-Type": "text/event-stream" },
+          });
+        }
+        return new Response("");
+      });
+
+      const handle = kv.watch(
+        ["users"],
+        (entries) => {
+          receivedEntries.push(...entries);
+        },
+        { bufferSize: 2, overflowStrategy: "drop-oldest" },
+      );
+
+      // Wait for SSE processing
+      await new Promise((r) => setTimeout(r, 100));
+      handle.stop();
+
+      // With drop-oldest and bufferSize 2, oldest entry is dropped (users/1)
+      // So we get users/2 and users/3
+      expect(receivedEntries.length).toBe(2);
+    });
+
+    it("should use buffer with drop-newest strategy when full", async () => {
+      const receivedEntries: unknown[] = [];
+      const encoder = new TextEncoder();
+      let streamCount = 0;
+
+      mockFetch((url) => {
+        if (url.includes("/watch/prefix")) {
+          streamCount++;
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              // Only send data on first connection
+              if (streamCount === 1) {
+                const eventData =
+                  "event:change\ndata:" +
+                  JSON.stringify([
+                    { key: ["users", 1], value: { name: "User1" }, versionstamp: "0001" },
+                    { key: ["users", 2], value: { name: "User2" }, versionstamp: "0002" },
+                    { key: ["users", 3], value: { name: "User3" }, versionstamp: "0003" },
+                  ]) +
+                  "\n\n";
+                controller.enqueue(encoder.encode(eventData));
+              }
+              setTimeout(() => controller.close(), 50);
+            },
+          });
+          return new Response(stream, {
+            headers: { "Content-Type": "text/event-stream" },
+          });
+        }
+        return new Response("");
+      });
+
+      const handle = kv.watch(
+        ["users"],
+        (entries) => {
+          receivedEntries.push(...entries);
+        },
+        { bufferSize: 2, overflowStrategy: "drop-newest" },
+      );
+
+      // Wait for SSE processing
+      await new Promise((r) => setTimeout(r, 100));
+      handle.stop();
+
+      // With drop-newest and bufferSize 2, newest entry is dropped (users/3)
+      // So we get users/1 and users/2
+      expect(receivedEntries.length).toBe(2);
+    });
+
+    it("should coalesce multiple updates for same key in buffer", async () => {
+      const receivedEntries: unknown[] = [];
+      const encoder = new TextEncoder();
+      let streamCount = 0;
+
+      mockFetch((url) => {
+        if (url.includes("/watch/prefix")) {
+          streamCount++;
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              // Only send data on first connection
+              if (streamCount === 1) {
+                // Send multiple updates for the same key
+                const eventData =
+                  "event:change\ndata:" +
+                  JSON.stringify([
+                    { key: ["users", 1], value: { name: "First" }, versionstamp: "0001" },
+                    { key: ["users", 1], value: { name: "Second" }, versionstamp: "0002" },
+                    { key: ["users", 1], value: { name: "Third" }, versionstamp: "0003" },
+                  ]) +
+                  "\n\n";
+                controller.enqueue(encoder.encode(eventData));
+              }
+              setTimeout(() => controller.close(), 50);
+            },
+          });
+          return new Response(stream, {
+            headers: { "Content-Type": "text/event-stream" },
+          });
+        }
+        return new Response("");
+      });
+
+      const handle = kv.watch(
+        ["users"],
+        (entries) => {
+          receivedEntries.push(...entries);
+        },
+        { bufferSize: 10, overflowStrategy: "drop-oldest" },
+      );
+
+      // Wait for SSE processing
+      await new Promise((r) => setTimeout(r, 100));
+      handle.stop();
+
+      // Buffer coalesces updates for same key, so only the latest should be present
+      expect(receivedEntries.length).toBe(1);
+      expect((receivedEntries[0] as { value: { name: string } }).value.name).toBe("Third");
+    });
+
+    it("should use buffer for exact key polling", async () => {
+      const receivedEntries: unknown[] = [];
+      let pollCount = 0;
+
+      mockFetch((url) => {
+        if (url.includes("/watch/poll")) {
+          pollCount++;
+          if (pollCount === 1) {
+            return new Response(
+              JSON.stringify({
+                entries: [
+                  { key: ["users", 1], value: { name: "First" }, versionstamp: "0001" },
+                  { key: ["users", 1], value: { name: "Updated" }, versionstamp: "0002" },
+                ],
+                versionstamps: ["0002"],
+              }),
+            );
+          }
+          return new Response(JSON.stringify({ entries: [], versionstamps: ["0002"] }));
+        }
+        return new Response("");
+      });
+
+      const handle = kv.watch(
+        ["users", 1],
+        (entries) => {
+          receivedEntries.push(...entries);
+        },
+        { mode: "polling", exact: true, pollInterval: 10, bufferSize: 5 },
+      );
+
+      // Wait for polling
+      await new Promise((r) => setTimeout(r, 100));
+      handle.stop();
+
+      // Buffer coalesces, should get the latest value
+      expect(receivedEntries.length).toBe(1);
+    });
+
+    it("should use buffer for prefix polling", async () => {
+      const receivedEntries: unknown[] = [];
+      let pollCount = 0;
+
+      mockFetch((url) => {
+        if (url.includes("/watch/prefix/poll")) {
+          pollCount++;
+          if (pollCount === 1) {
+            return new Response(
+              JSON.stringify({
+                entries: [
+                  { key: ["data", "a"], value: { count: 1 }, versionstamp: "0001" },
+                  { key: ["data", "b"], value: { count: 2 }, versionstamp: "0002" },
+                ],
+                versionstamps: "0002",
+              }),
+            );
+          }
+          return new Response(JSON.stringify({ entries: [], versionstamps: "0002" }));
+        }
+        return new Response("");
+      });
+
+      const handle = kv.watch(
+        ["data"],
+        (entries) => {
+          receivedEntries.push(...entries);
+        },
+        { mode: "polling", pollInterval: 10, bufferSize: 10 },
+      );
+
+      // Wait for polling
+      await new Promise((r) => setTimeout(r, 100));
+      handle.stop();
+
+      expect(receivedEntries.length).toBe(2);
     });
   });
 });

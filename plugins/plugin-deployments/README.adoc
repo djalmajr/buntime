@@ -1,0 +1,494 @@
+= Plugin Deployments
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+
+== Visão Geral
+
+Plugin para gerenciamento do ciclo de vida de aplicações worker (upload, listagem, download, exclusão, etc.).
+
+== Configuração
+
+[source,jsonc]
+----
+// buntime.jsonc
+{
+  "plugins": [
+    "@buntime/plugin-deployments"
+  ]
+}
+----
+
+== API
+
+Base path: `/deployments/api`
+
+=== GET /deployments/api/list
+
+Lista o conteúdo de um diretório de apps.
+
+Query Parameters:
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `path`
+| string
+| Caminho relativo do diretório (opcional, padrão: raiz)
+|===
+
+Exemplo:
+
+[source,bash]
+----
+GET /deployments/api/list?path=my-app
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true,
+  "data": {
+    "entries": [
+      {
+        "name": "1.0.0",
+        "type": "directory",
+        "size": 4096,
+        "mtime": 1702500000000
+      },
+      {
+        "name": "index.ts",
+        "type": "file",
+        "size": 2048,
+        "mtime": 1702500000000
+      }
+    ],
+    "path": "my-app"
+  }
+}
+----
+
+=== POST /deployments/api/mkdir
+
+Cria um novo diretório.
+
+Request Body:
+
+[source,json]
+----
+{
+  "path": "my-app/1.0.0"
+}
+----
+
+Validações:
+
+- Verifica conflitos com rotas de plugins (top-level apenas)
+- Não permite nomes que conflitem com `/api/*` ou rotas registradas por plugins
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+Erros:
+
+[source,json]
+----
+{
+  "error": "App name \"api\" conflicts with plugin \"@buntime/plugin-metrics\". Choose a different name.",
+  "code": "APP_NAME_CONFLICT"
+}
+----
+
+=== DELETE /deployments/api/delete
+
+Remove um arquivo ou diretório.
+
+Request Body:
+
+[source,json]
+----
+{
+  "path": "my-app/1.0.0"
+}
+----
+
+Validações:
+
+- Não permite deletar raiz (`""` ou `"/"`)
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+=== POST /deployments/api/rename
+
+Renomeia um arquivo ou diretório.
+
+Request Body:
+
+[source,json]
+----
+{
+  "path": "my-app/1.0.0",
+  "newName": "1.0.1"
+}
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+=== POST /deployments/api/move
+
+Move um arquivo ou diretório para outro local.
+
+Request Body:
+
+[source,json]
+----
+{
+  "path": "my-app/1.0.0",
+  "destPath": "archived/my-app/1.0.0"
+}
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+=== POST /deployments/api/upload
+
+Faz upload de arquivos para um diretório específico. Suporta arquivos ZIP (extraídos automaticamente) e arquivos individuais.
+
+Content-Type: `multipart/form-data`
+
+Form Data:
+
+[cols="1,1,3"]
+|===
+| Campo | Tipo | Descrição
+
+| `path`
+| string
+| Diretório de destino (opcional, padrão: raiz)
+
+| `files`
+| File[]
+| Array de arquivos para upload
+
+| `paths`
+| string[]
+| Caminhos relativos correspondentes a cada arquivo (opcional)
+|===
+
+Validações:
+
+- Verifica conflitos com rotas de plugins (top-level apenas)
+- Extrai automaticamente arquivos `.zip`
+
+Exemplo (cURL):
+
+[source,bash]
+----
+curl -X POST http://localhost:8000/deployments/api/upload \
+  -F "path=my-app/1.0.0" \
+  -F "files=@index.html" \
+  -F "files=@index.ts" \
+  -F "paths=index.html" \
+  -F "paths=index.ts"
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+=== GET /deployments/api/refresh
+
+Invalida o cache `.dirinfo` de um diretório, forçando recarregamento.
+
+Query Parameters:
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `path`
+| string
+| Caminho do diretório (opcional, padrão: raiz)
+|===
+
+Exemplo:
+
+[source,bash]
+----
+GET /deployments/api/refresh?path=my-app
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+=== POST /deployments/api/refresh
+
+Versão POST da rota refresh (aceita JSON).
+
+Request Body:
+
+[source,json]
+----
+{
+  "path": "my-app"
+}
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+=== GET /deployments/api/download
+
+Baixa um arquivo ou diretório (diretórios são compactados como ZIP).
+
+Query Parameters:
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `path`
+| string
+| Caminho do arquivo ou diretório (obrigatório)
+|===
+
+Exemplo:
+
+[source,bash]
+----
+GET /deployments/api/download?path=my-app/1.0.0
+----
+
+Resposta:
+
+- Arquivo: Stream do arquivo com `Content-Disposition: attachment`
+- Diretório: ZIP stream (exclui `.dirinfo`)
+
+Headers:
+
+[source,http]
+----
+Content-Disposition: attachment; filename="1.0.0.zip"
+Content-Type: application/zip
+----
+
+=== POST /deployments/api/delete-batch
+
+Remove múltiplos arquivos ou diretórios em uma única operação.
+
+Request Body:
+
+[source,json]
+----
+{
+  "paths": [
+    "my-app/1.0.0",
+    "my-app/1.0.1",
+    "old-app"
+  ]
+}
+----
+
+Comportamento:
+
+- Ignora raiz (`""` ou `"/"`) silenciosamente
+- Continua processando mesmo se houver erros
+- Retorna lista de erros (se houver)
+
+Resposta (sucesso completo):
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+Resposta (com erros):
+
+[source,json]
+----
+{
+  "success": true,
+  "errors": [
+    "my-app/2.0.0: Path not found"
+  ]
+}
+----
+
+=== POST /deployments/api/move-batch
+
+Move múltiplos arquivos ou diretórios para um destino comum.
+
+Request Body:
+
+[source,json]
+----
+{
+  "paths": [
+    "my-app/1.0.0",
+    "my-app/1.0.1"
+  ],
+  "destPath": "archived"
+}
+----
+
+Comportamento:
+
+- Continua processando mesmo se houver erros
+- Retorna lista de erros (se houver)
+
+Resposta (sucesso completo):
+
+[source,json]
+----
+{
+  "success": true
+}
+----
+
+Resposta (com erros):
+
+[source,json]
+----
+{
+  "success": true,
+  "errors": [
+    "my-app/2.0.0: Path not found"
+  ]
+}
+----
+
+=== GET /deployments/api/download-batch
+
+Baixa múltiplos arquivos ou diretórios como um único arquivo ZIP.
+
+Query Parameters:
+
+[cols="1,1,3"]
+|===
+| Parâmetro | Tipo | Descrição
+
+| `paths`
+| string
+| Lista de caminhos separados por vírgula
+|===
+
+Exemplo:
+
+[source,bash]
+----
+GET /deployments/api/download-batch?paths=my-app/1.0.0,other-app/2.0.0
+----
+
+Comportamento:
+
+- Cria diretório temporário (`/tmp/buntime-download-*`)
+- Copia todos os itens para o temporário
+- Compacta como ZIP (exclui `.dirinfo`)
+- Remove temporário após streaming
+
+Resposta:
+
+Headers:
+
+[source,http]
+----
+Content-Disposition: attachment; filename="download-1702500000000.zip"
+Content-Type: application/zip
+----
+
+== Códigos de Erro
+
+[cols="1,2,1"]
+|===
+| Código | Descrição | Status HTTP
+
+| `APP_NAME_CONFLICT`
+| Nome de app conflita com plugin
+| 400
+
+| `APP_NAME_RESERVED`
+| Nome de app reservado por plugin
+| 400
+
+| `PATH_REQUIRED`
+| Path obrigatório ausente
+| 400
+
+| `PATHS_REQUIRED`
+| Paths obrigatórios ausentes
+| 400
+
+| `PATH_AND_NAME_REQUIRED`
+| Path e newName obrigatórios
+| 400
+
+| `DEST_PATH_REQUIRED`
+| Destination path obrigatório
+| 400
+
+| `CANNOT_DELETE_ROOT`
+| Tentativa de deletar raiz
+| 400
+
+| `NO_FILES_PROVIDED`
+| Upload sem arquivos
+| 400
+
+| `DOWNLOAD_FAILED`
+| Falha ao criar download
+| 400
+
+| `FILE_NOT_FOUND`
+| Arquivo não encontrado
+| 404
+|===

@@ -16,171 +16,172 @@ endif::[]
 
 toc::[]
 
-== Visao Geral
+== Visão Geral
 
-Worker pool runner para aplicacoes Bun, projetado como engine para uma plataforma serverless.
-Inclui admin dashboard (React) integrado.
+Worker pool runner para aplicações Bun, projetado como engine para uma plataforma serverless.
 
 === Features
 
-* **Worker Pool Management** - Spawning dinamico, pool size configuravel, lifecycle automatico
-* **Semantic Versioning** - Suporte a `app@1.0.0`, `app@1`, `app`
-* **Plugin System** - Config JSONC, lifecycle hooks, ordenacao por prioridade
-* **Admin Dashboard** - Interface React para monitoramento e gerenciamento
+* **Worker Pool Management** - Spawning dinâmico, pool size configurável, lifecycle automático
+* **Semantic Versioning** - Suporte a `app@1.0.0`, `app@1`, `app@latest`
+* **Plugin System** - Config JSONC, lifecycle hooks, ordenação topológica por dependências
 * **Base Path Injection** - Suporte a SPAs sob subpaths via `<base href>`
-* **Auth** - Keycloak/OIDC/JWT (AuthN) + politicas XACML (AuthZ)
-* **Monitoring** - SSE, Prometheus, stats por worker
+
+=== Plugins Disponíveis
+
+O runtime carrega plugins conforme configurado em `buntime.jsonc`. Plugins disponíveis:
+
+[cols="1,2"]
+|===
+| Plugin | Descrição
+
+| `@buntime/plugin-authn`
+| Autenticação (Keycloak/OIDC/JWT, email-password)
+
+| `@buntime/plugin-authz`
+| Autorização com políticas XACML
+
+| `@buntime/plugin-database`
+| Adaptadores de banco (libsql, sqlite)
+
+| `@buntime/plugin-deployments`
+| Gerenciamento de apps (upload, download, exclusão)
+
+| `@buntime/plugin-durable`
+| Durable Objects (Cloudflare-like)
+
+| `@buntime/plugin-gateway`
+| Cache e rate limiting
+
+| `@buntime/plugin-health`
+| Health checks e probes Kubernetes
+
+| `@buntime/plugin-keyval`
+| Key-value store (Deno KV-like)
+
+| `@buntime/plugin-logs`
+| Logs em memória com SSE streaming
+
+| `@buntime/plugin-metrics`
+| Métricas Prometheus e SSE
+
+| `@buntime/plugin-piercing`
+| Fragment piercing (micro-frontends)
+
+| `@buntime/plugin-proxy`
+| Proxy reverso com regras dinâmicas
+|===
+
+NOTE: Plugins devem ser habilitados em `buntime.jsonc` para estarem disponíveis.
 
 === Tech Stack
 
-**Server:** Bun, Hono, Zod, quick-lru, semver
-
-**Client:** React 19, TanStack (Router, Query, Table), Tailwind v4, Radix UI, shadcn/ui, i18next, Recharts
+Bun, Hono, Zod, quick-lru, semver
 
 == Estrutura do Projeto
 
 [source]
 ----
 runtime/
-├── index.ts              # Entry point unificado
-├── buntime.jsonc         # Configuracao do runtime
-├── bunfig.toml           # Configuracao Bun (plugins)
-├── components.json       # shadcn/ui config
-├── client/               # Admin Dashboard (React)
-│   ├── index.html        # HTML com <base href>
-│   ├── index.tsx         # React entry point
-│   ├── index.css         # Tailwind styles
-│   ├── components/       # UI components
-│   │   ├── icon.tsx
-│   │   ├── navigation/
-│   │   └── ui/           # shadcn/ui
-│   ├── helpers/          # API client, i18n, query
-│   ├── hooks/            # Custom hooks
-│   ├── routes/           # TanStack Router (file-based)
-│   │   ├── __root.tsx
-│   │   ├── index.tsx
-│   │   ├── deployments/
-│   │   ├── redirects/
-│   │   ├── keyval/
-│   │   ├── metrics/
-│   │   └── ...
-│   └── routeTree.gen.ts  # Generated routes
-└── server/               # Worker Pool Server (Hono)
-    ├── index.ts          # Bun.serve entry
-    ├── api.ts            # Hono app (routes aggregator)
-    ├── app.ts            # Request resolution logic
-    ├── config.ts         # Runtime configuration
-    ├── constants.ts      # Environment variables
-    ├── libs/
-    │   ├── dir-info.ts   # Directory operations
-    │   └── pool/         # Worker pool management
-    │       ├── pool.ts       # WorkerPool class & singleton
-    │       ├── instance.ts   # WorkerInstance lifecycle
-    │       ├── wrapper.ts    # Worker thread code
-    │       ├── config.ts     # Worker configuration
-    │       ├── metrics.ts    # Pool metrics
-    │       └── types.ts      # Message types
-    ├── plugins/
-    │   ├── builtin.ts    # Built-in plugin resolvers
-    │   ├── loader.ts     # Plugin loader
-    │   └── registry.ts   # Plugin registry
-    ├── routes/
-    │   ├── deployments.ts  # /api/deployments/* routes
-    │   ├── plugins-info.ts # /api/plugins route
-    │   └── worker.ts       # App routes
-    └── utils/
-        ├── get-app-dir.ts
-        ├── get-entrypoint.ts
-        ├── get-public-routes.ts
-        ├── glob-to-regex.ts
-        └── serve-static.ts
+├── src/
+│   ├── index.ts          # Entry point (Bun.serve)
+│   ├── api.ts            # Hono app (agregador de rotas)
+│   ├── app.ts            # Lógica de resolução de requests
+│   ├── config.ts         # Configuração do runtime
+│   ├── constants.ts      # Constantes e variáveis de ambiente
+│   ├── libs/
+│   │   └── pool/         # Gerenciamento do worker pool
+│   │       ├── pool.ts       # Classe WorkerPool, LRU cache
+│   │       ├── instance.ts   # Lifecycle do WorkerInstance
+│   │       ├── wrapper.ts    # Código executado no worker thread
+│   │       ├── config.ts     # Configuração de workers
+│   │       ├── metrics.ts    # Métricas do pool
+│   │       ├── stats.ts      # Utilitários estatísticos
+│   │       └── types.ts      # Tipos de mensagens
+│   ├── plugins/
+│   │   ├── builtin.ts    # Resolvers de plugins builtin
+│   │   ├── loader.ts     # Carregamento de plugins
+│   │   └── registry.ts   # Registry e lifecycle de plugins
+│   ├── routes/
+│   │   ├── plugins-info.ts   # GET /api/plugins
+│   │   └── worker.ts         # Rotas de apps
+│   └── utils/
+│       ├── get-app-dir.ts     # Resolução de versão de apps
+│       ├── get-entrypoint.ts  # Detecção de entrypoint
+│       ├── plugins.ts         # Utilitários de plugins
+│       ├── request.ts         # Clonagem de body, rewrite de URL
+│       └── serve-static.ts    # Serving de arquivos estáticos
+├── buntime.jsonc         # Configuração do runtime
+├── buntime.example.jsonc # Exemplo de configuração
+└── package.json
 ----
 
-== Configuracao
+== Configuração
 
-=== buntime.jsonc
+=== buntime.jsonc (Runtime)
 
 [source,jsonc]
 ----
 {
-  "workspaces": ["./apps"],      // Diretorios das aplicacoes
+  "workspaces": ["./apps"],      // Diretórios das aplicações
   "poolSize": 100,               // Tamanho do pool
+  "homepage": "my-app",          // App padrão para raiz (opcional)
+  "bodySize": {                  // Limites de body (opcional)
+    "default": "10mb",
+    "max": "100mb"
+  },
   "plugins": [
     "@buntime/plugin-metrics",
-    ["@buntime/plugin-proxy", {
-      "rules": [
-        {
-          "name": "My App",
-          "pattern": "^/myapp(/.*)?$",
-          "target": "http://localhost:3000",
-          "rewrite": "$1",
-          "base": "/myapp"        // Injeta <base href="/myapp/">
-        }
-      ]
+    ["@buntime/plugin-deployments", {
+      "excludes": [".cache"]
     }]
   ]
 }
 ----
 
-=== Base Path para SPAs
+[cols="1,1,1,2"]
+|===
+| Opção | Tipo | Default | Descrição
 
-Quando uma SPA precisa rodar sob um subpath (ex: `/cpanel`), o runner injeta automaticamente a tag `<base href>` em respostas HTML.
+| `workspaces`
+| string[]
+| (obrigatório)
+| Diretórios de apps (suporta `${ENV_VAR}`)
 
-==== Como Funciona
+| `poolSize`
+| number
+| 500 (prod), 10 (dev)
+| Tamanho máximo do pool
 
-O header `x-base` e adicionado as requests para workers. O worker wrapper (`wrapper.ts`) injeta a tag base no HTML:
+| `homepage`
+| string \| object
+| -
+| App para servir na raiz
 
-[source,typescript]
-----
-// wrapper.ts - injeta base em respostas HTML
-const base = req.headers["x-base"];
-const isHtml = headers["content-type"]?.includes("text/html");
+| `bodySize.default`
+| string \| number
+| 10mb
+| Limite padrão de body
 
-if (isHtml && base) {
-  const html = text.replace("<head>", `<head><base href="${base}/" />`);
-  // ...
-}
-----
+| `bodySize.max`
+| string \| number
+| 100mb
+| Limite máximo de body
 
-==== Configuracao no Proxy
+| `plugins`
+| array
+| []
+| Plugins a carregar
+|===
 
-[source,jsonc]
-----
-{
-  "rules": [
-    {
-      "name": "CPanel App",
-      "pattern": "^/cpanel(/.*)?$",
-      "target": "http://localhost:4000",
-      "rewrite": "$1",
-      "base": "/cpanel"      // Injeta <base href="/cpanel/">
-    }
-  ]
-}
-----
+=== buntime.jsonc (Por App)
 
-==== No Cliente (TanStack Router)
-
-O cliente React le a tag `<base>` e configura o router:
-
-[source,typescript]
-----
-// client/index.tsx
-const base = document.querySelector("base");
-const url = new URL(base?.href || "http://a.b");
-
-const router = createRouter({
-  basepath: url.pathname,  // Ex: "/cpanel/"
-  routeTree,
-});
-----
-
-=== buntime.jsonc (por app)
+Cada app pode ter seu próprio `buntime.jsonc` na raiz:
 
 [source,jsonc]
 ----
 {
-  "entrypoint": "public/index.html",
+  "entrypoint": "server.ts",
   "timeout": 30,
   "ttl": 60,
   "maxRequests": 1000,
@@ -192,7 +193,7 @@ const router = createRouter({
 
 [cols="1,1,1,2"]
 |===
-| Opcao | Tipo | Default | Descricao
+| Opção | Tipo | Default | Descrição
 
 | `autoInstall`
 | boolean
@@ -202,69 +203,145 @@ const router = createRouter({
 | `entrypoint`
 | string
 | auto
-| Entrypoint da aplicacao
+| Entrypoint da aplicação
 
 | `idleTimeout`
-| number
+| number \| string
 | 60
-| Threshold de idle (segundos)
+| Tempo de idle antes de terminar (segundos ou "1m")
 
 | `lowMemory`
 | boolean
 | false
 | Ativa modo low-memory
 
+| `maxBodySize`
+| number \| string
+| (do runtime)
+| Limite de body por app ("10mb", 1048576)
+
 | `maxRequests`
 | number
 | 1000
-| Maximo de requests antes de reciclar
+| Máximo de requests antes de reciclar
+
+| `publicRoutes`
+| string[] \| object
+| -
+| Rotas públicas (sem autenticação)
 
 | `timeout`
-| number
+| number \| string
 | 30
-| Timeout de request (segundos)
+| Timeout de request (segundos ou "30s")
 
 | `ttl`
-| number
+| number \| string
 | 0
 | TTL do worker (0 = sem limite)
 |===
 
+=== Base Path para SPAs
+
+Quando uma SPA precisa rodar sob um subpath (ex: `/cpanel`), o runtime injeta automaticamente a tag `<base href>` em respostas HTML.
+
+==== Como Funciona
+
+O header `x-base` é adicionado às requests para workers. O worker wrapper (`wrapper.ts`) injeta a tag base no HTML:
+
+[source,typescript]
+----
+// wrapper.ts - injeta base em respostas HTML
+const base = req.headers.get("x-base");
+const isHtml = contentType?.includes("text/html");
+
+if (isHtml && base) {
+  const html = text.replace("<head>", `<head><base href="${base}/" />`);
+  // ...
+}
+----
+
+==== Configuração no Proxy
+
+[source,jsonc]
+----
+// buntime.jsonc com plugin-proxy
+{
+  "plugins": [
+    ["@buntime/plugin-proxy", {
+      "rules": [
+        {
+          "name": "CPanel App",
+          "pattern": "^/cpanel(/.*)?$",
+          "target": "http://localhost:4000",
+          "rewrite": "$1",
+          "base": "/cpanel"
+        }
+      ]
+    }]
+  ]
+}
+----
+
 == Rotas
 
-=== API Routes
+=== API Routes (Runtime)
 
-* `GET /api/deployments/*` - Gerenciamento de deployments
-* `GET /api/plugins` - Lista plugins carregados
+* `GET /api/plugins` - Lista plugins carregados com menus e configurações
 
-=== Plugin (`/api/{name}/*`)
+=== Plugin Routes
 
-* `/api/metrics/prometheus` - Metricas Prometheus
-* `/api/authn/*` - Endpoints de autenticacao
-* `/api/authz/*` - Endpoints de autorizacao
-* `/api/keyval/*` - API KeyVal
-* `/api/gateway/*` - Cache e rate limit
+Plugins registram suas rotas sob `/{base}/*`:
 
-=== Worker (`/`)
+* `/authn/*` - Autenticação (plugin-authn)
+* `/authz/*` - Autorização (plugin-authz)
+* `/deployments/*` - Gerenciamento de apps (plugin-deployments)
+* `/durable/*` - Durable Objects (plugin-durable)
+* `/gateway/*` - Cache e rate limiting (plugin-gateway)
+* `/health/*` - Health checks (plugin-health)
+* `/keyval/*` - KeyVal API (plugin-keyval)
+* `/logs/*` - Logs (plugin-logs)
+* `/metrics/*` - Métricas (plugin-metrics)
+* `/piercing/*` - Fragment piercing (plugin-piercing)
+* `/proxy/*` - Proxy reverso (plugin-proxy)
+
+=== Worker Routes
 
 * `ALL /:app` - Roteia para worker da app
 * `ALL /:app/*` - Roteia paths aninhados
 
-**Resolucao de Versao:**
+**Resolução de Versão:**
 
-* `/hello-api` -> Versao mais alta
-* `/hello-api@1.0.0` -> Versao exata
-* `/hello-api@1` -> Maior versao 1.x.x
+[cols="1,2"]
+|===
+| Request | Resolve para
+
+| `/hello-api`
+| Versão mais alta (ou `latest` se existir)
+
+| `/hello-api@latest`
+| Diretório `hello-api@latest`
+
+| `/hello-api@1.0.0`
+| Versão exata
+
+| `/hello-api@1`
+| Maior versão 1.x.x
+
+| `/hello-api@^1.0.0`
+| Range semver
+|===
 
 == Scripts
 
 [source,bash]
 ----
-bun dev              # Watch mode
+bun dev              # Watch mode com hot reload
 bun lint             # Format + type check
 bun test             # Run tests
-bun build            # Build runner
+bun build            # Build runtime
 bun build:bin        # Compile to binary
+bun build:types      # Build TypeScript types
 ----
 
 == Arquitetura
@@ -274,17 +351,24 @@ bun build:bin        # Compile to binary
 [source]
 ----
 Request -> Hono Router -> Resolve?
-  |-- /api/{plugin}/* -> Plugin API Routes
-  |-- /app/* (plugin app) -> Plugin App Handler
+  |-- CSRF Protection
+  |-- App-Shell Mode (se configurado)
+  |-- Plugin onRequest Hooks
+  |-- /api/plugins -> Plugin Info API
+  |-- Plugin server.fetch handlers
+  |-- Plugin Routes (Hono)
+  |-- Plugin Apps (fragments)
   +-- /:app/* -> Worker Pool -> Worker Thread
+  +-- 404 com Shell (se configurado)
 ----
 
-=== Principios de Design
+=== Princípios de Design
 
-. Main thread orquestra, nunca executa logica de app
-. Workers proveem isolamento (crash nao afeta main)
+. Main thread orquestra, nunca executa lógica de app
+. Workers proveem isolamento (crash não afeta main)
 . Pipeline de plugins intercepta requests/responses
 . Base path injection permite SPAs sob subpaths
+. Ordenação topológica garante dependências entre plugins
 
 === Worker Lifecycle
 
@@ -299,90 +383,33 @@ Creating -> Ready -> Active <-> Idle -> Terminated
 |===
 | Componente | Responsabilidade
 
-| `server/api.ts`
+| `src/index.ts`
+| Entry point, Bun.serve, graceful shutdown
+
+| `src/api.ts`
 | Hono app, agregador de rotas
 
-| `server/app.ts`
-| Resolucao de requests, plugin apps
+| `src/app.ts`
+| Resolução de requests, plugin apps
 
-| `server/libs/pool/pool.ts`
+| `src/config.ts`
+| Configuração do runtime (env + buntime.jsonc)
+
+| `src/libs/pool/pool.ts`
 | Classe WorkerPool, LRU cache
 
-| `server/libs/pool/instance.ts`
+| `src/libs/pool/instance.ts`
 | Lifecycle do WorkerInstance
 
-| `server/libs/pool/wrapper.ts`
+| `src/libs/pool/wrapper.ts`
 | Request handling no worker, base injection
 
-| `server/plugins/loader.ts`
+| `src/plugins/loader.ts`
 | Carrega plugins do config
 
-| `server/plugins/registry.ts`
-| Lifecycle dos plugins
-
-| `client/`
-| Admin dashboard React
+| `src/plugins/registry.ts`
+| Lifecycle e hooks dos plugins
 |===
-
-== Client (Admin Dashboard)
-
-=== Path Aliases
-
-`~/` -> `./client/`
-
-[source,typescript]
-----
-import { Button } from "~/components/ui/button";
-import { api } from "~/helpers/api-client";
-----
-
-=== Rotas do Dashboard
-
-[cols="1,2"]
-|===
-| Rota | Descricao
-
-| `/` | Dashboard (metricas, workers)
-| `/deployments` | File browser
-| `/redirects` | Proxy rules CRUD
-| `/keyval/*` | KeyVal explorer
-| `/metrics/*` | Metricas detalhadas
-| `/authz/*` | Policies XACML
-| `/gateway/*` | Cache management
-| `/durable/*` | Durable actors
-|===
-
-=== Patterns
-
-==== Icon Component
-
-[source,tsx]
-----
-import { Icon } from "~/components/icon";
-
-<Icon icon="lucide:search" className="size-4" />
-----
-
-==== API Client
-
-[source,typescript]
-----
-import { api } from "~/helpers/api-client";
-
-const res = await api._.deployments.list.$get({ query: { path } });
-----
-
-==== React Query
-
-[source,typescript]
-----
-// Sufixo $ para evitar conflitos
-const templates$ = useTemplates({ page: 1 });
-const create$ = useCreateCampaign();
-
-{templates$.isLoading && <Spinner />}
-{templates$.data?.data.map(...)}
-----
 
 == Fundamentals
 
@@ -392,7 +419,7 @@ include::docs/fundamentals/plugin-system.adoc[leveloffset=+1]
 
 include::docs/fundamentals/server-core.adoc[leveloffset=+1]
 
-include::docs/fundamentals/client-architecture.adoc[leveloffset=+1]
+include::docs/fundamentals/request-handling.adoc[leveloffset=+1]
 
 == API Reference
 
@@ -409,3 +436,13 @@ include::docs/deployment/configuration.adoc[leveloffset=+1]
 == Operations
 
 include::docs/logging.adoc[leveloffset=+1]
+
+== Architecture
+
+include::docs/micro-frontend-architecture.adoc[leveloffset=+1]
+
+== Extras
+
+Conceitos avançados usados internamente pelo runtime:
+
+include::docs/extras/topological-sort.adoc[leveloffset=+1]

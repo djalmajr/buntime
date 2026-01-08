@@ -95,9 +95,17 @@ describe("getAppDir", () => {
       expect(result).toBe(join(TEST_DIR, "hello-api/2.0.0"));
     });
 
-    it("should filter out directories that don't follow semantic versioning", () => {
-      createVersions("hello-api", ["2.1.0", "latest", "stable", "2.0.0"]);
+    it("should prefer 'latest' tag over semver when no version specified", () => {
+      createVersions("hello-api", ["2.1.0", "latest", "2.0.0"]);
 
+      const result = getAppDir("hello-api");
+      expect(result).toBe(join(TEST_DIR, "hello-api/latest"));
+    });
+
+    it("should return highest semver when 'latest' tag doesn't exist", () => {
+      createVersions("hello-api", ["2.1.0", "stable", "2.0.0"]);
+
+      // "stable" is not a valid semver, so only 2.1.0 and 2.0.0 are considered
       const result = getAppDir("hello-api");
       expect(result).toBe(join(TEST_DIR, "hello-api/2.1.0"));
     });
@@ -128,6 +136,49 @@ describe("getAppDir", () => {
 
       const result = getAppDir("empty-app");
       expect(result).toBe("");
+    });
+
+    it("should return empty string for empty app name", () => {
+      const result = getAppDir("");
+      expect(result).toBe("");
+    });
+
+    it("should return empty string when explicit latest tag not found", () => {
+      // Create versions but no "latest" tag
+      createVersions("no-latest-app", ["1.0.0", "2.0.0"]);
+
+      const result = getAppDir("no-latest-app@latest");
+      expect(result).toBe("");
+    });
+  });
+
+  describe("latest tag handling", () => {
+    it("should return explicit latest tag when requested", () => {
+      createVersions("explicit-latest", ["1.0.0", "latest"]);
+
+      const result = getAppDir("explicit-latest@latest");
+      expect(result).toBe(join(TEST_DIR, "explicit-latest/latest"));
+    });
+
+    it("should prefer latest over higher semver when no version specified", () => {
+      createVersions("prefer-latest", ["3.0.0", "latest", "2.0.0"]);
+
+      const result = getAppDir("prefer-latest");
+      expect(result).toBe(join(TEST_DIR, "prefer-latest/latest"));
+    });
+
+    it("should return empty when only latest exists and semver range requested", () => {
+      createVersions("only-latest", ["latest"]);
+
+      const result = getAppDir("only-latest@^1.0.0");
+      expect(result).toBe("");
+    });
+
+    it("should handle flat format with latest tag", () => {
+      createFlatVersions("flat-latest", ["1.0.0", "latest"]);
+
+      const result = getAppDir("flat-latest@latest");
+      expect(result).toBe(join(TEST_DIR, "flat-latest@latest"));
     });
   });
 
@@ -197,14 +248,14 @@ describe("getAppDir", () => {
       expect(result).toBe(join(TEST_DIR, "hello-api@1.0.0"));
     });
 
-    it("should prefer flat format for highest version", () => {
+    it("should return highest version regardless of format", () => {
       createFlatVersions("hello-api", ["2.0.0"]);
       createNestedVersions("hello-api", ["3.0.0"]);
 
       // Flat has 2.0.0, nested has 3.0.0
-      // Should return flat's 2.0.0 because flat is checked first
+      // Should return nested's 3.0.0 because it's the highest version
       const result = getAppDir("hello-api");
-      expect(result).toBe(join(TEST_DIR, "hello-api@2.0.0"));
+      expect(result).toBe(join(TEST_DIR, "hello-api/3.0.0"));
     });
 
     it("should fallback to nested when flat has no matching version", () => {

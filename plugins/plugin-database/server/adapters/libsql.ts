@@ -4,9 +4,9 @@ import type { DatabaseAdapter, LibSqlAdapterConfig, Statement, TransactionAdapte
 /**
  * LibSQL database adapter
  *
- * Multi-tenancy: Uses namespaces via Admin API
- * - Each tenant gets its own isolated namespace
- * - Namespace selection via URL path: /v1/dev/{namespace}
+ * Multi-tenancy: Uses namespaces with subdomain routing (--enable-namespaces)
+ * - Base URL: https://libsql.home
+ * - Tenant URL: https://{tenant}.libsql.home
  *
  * Replication: Supports multiple read replicas for load balancing
  * - urls[0] = Primary (writes + reads)
@@ -101,19 +101,22 @@ export class LibSqlAdapter implements DatabaseAdapter {
   }
 
   /**
-   * Build URL for tenant namespace
-   * Transforms: http://localhost:8080 -> http://localhost:8080/v1/dev/{tenant}
+   * Build URL for tenant namespace using subdomain routing
+   *
+   * @example
+   * - https://libsql.home -> https://{tenant}.libsql.home
+   * - file:data.db -> file:data_{tenant}.db
    */
   private buildTenantUrl(baseUrl: string, tenantId: string): string {
     const url = new URL(baseUrl);
 
-    // For HTTP URLs, append namespace path
+    // For HTTP/HTTPS URLs: use subdomain routing
     if (url.protocol === "http:" || url.protocol === "https:") {
-      url.pathname = `/v1/dev/${tenantId}`;
+      url.hostname = `${tenantId}.${url.hostname}`;
       return url.toString();
     }
 
-    // For file URLs, append tenant to filename
+    // For file URLs: append tenant to filename
     if (url.protocol === "file:") {
       const basePath = url.pathname.replace(/\.db$/, "");
       return `file:${basePath}_${tenantId}.db`;

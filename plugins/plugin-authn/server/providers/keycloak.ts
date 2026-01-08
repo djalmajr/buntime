@@ -4,7 +4,7 @@ import type { AuthProvider, KeycloakProviderConfig, ProviderInfo } from "./types
 /**
  * Keycloak token structure for roles
  */
-interface KeycloakRoles {
+export interface KeycloakRoles {
   realm_access?: {
     roles?: string[];
   };
@@ -15,7 +15,7 @@ interface KeycloakRoles {
  * Extract roles from Keycloak token
  * Combines realm roles and client-specific roles
  */
-function extractKeycloakRoles(profile: KeycloakRoles, clientId?: string): string[] {
+export function extractKeycloakRoles(profile: KeycloakRoles, clientId?: string): string[] {
   const roles: string[] = [];
 
   // Realm-level roles
@@ -29,6 +29,30 @@ function extractKeycloakRoles(profile: KeycloakRoles, clientId?: string): string
   }
 
   return [...new Set(roles)]; // Remove duplicates
+}
+
+/**
+ * Map Keycloak profile to user object
+ * Used as mapProfileToUser callback for better-auth
+ */
+export function mapKeycloakProfileToUser(
+  profile: Record<string, unknown>,
+  clientId: string,
+): {
+  email: string;
+  emailVerified: boolean;
+  image: string | undefined;
+  name: string;
+  roles: string;
+} {
+  const roles = extractKeycloakRoles(profile as KeycloakRoles, clientId);
+  return {
+    email: profile.email as string,
+    emailVerified: profile.email_verified as boolean,
+    image: profile.picture as string | undefined,
+    name: profile.name as string,
+    roles: JSON.stringify(roles),
+  };
 }
 
 export class KeycloakProvider implements AuthProvider {
@@ -91,17 +115,7 @@ export class KeycloakProvider implements AuthProvider {
               // Update user info on every login (sync roles from Keycloak)
               overrideUserInfo: true,
               // Map Keycloak profile to user, extracting roles
-              mapProfileToUser: (profile: Record<string, unknown>) => {
-                const roles = extractKeycloakRoles(profile as KeycloakRoles, clientId);
-                return {
-                  email: profile.email as string,
-                  emailVerified: profile.email_verified as boolean,
-                  image: profile.picture as string | undefined,
-                  name: profile.name as string,
-                  // Store roles as JSON string in a custom field
-                  roles: JSON.stringify(roles),
-                };
-              },
+              mapProfileToUser: (profile) => mapKeycloakProfileToUser(profile, clientId),
             },
           ],
         }),

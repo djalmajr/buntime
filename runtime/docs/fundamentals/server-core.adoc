@@ -1,4 +1,10 @@
 == Server Core
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
 
 O núcleo do servidor Buntime é composto por três módulos principais que trabalham em conjunto para inicializar o runtime, carregar plugins e rotear requisições.
 
@@ -9,13 +15,16 @@ O núcleo do servidor Buntime é composto por três módulos principais que trab
 runtime/src/
 ├── index.ts              # Bun.serve entry point
 ├── api.ts                # Dependency initialization
-├── app.ts                # Request resolution
+├── app.ts                # Request resolution, CSRF, shell mode
 ├── config.ts             # Runtime configuration
 ├── constants.ts          # Environment variables
-└── routes/
-    ├── deployments.ts    # /api/deployments
-    ├── plugins-info.ts   # /api/plugins
-    └── worker.ts         # /:app/* routes
+├── routes/
+│   ├── plugins-info.ts   # /api/plugins
+│   └── worker.ts         # /:app/* routes
+└── utils/
+    ├── request.ts        # Body cloning, size limits, URL rewriting
+    ├── serve-static.ts   # Static file serving
+    └── ...
 ----
 
 === Fluxo de Inicialização
@@ -33,7 +42,7 @@ runtime/src/
 │             │ 3. Inicializa config (workspaces, poolSize)
 │             │ 4. Cria WorkerPool
 │             │ 5. Carrega plugins (PluginLoader)
-│             │ 6. Cria rotas (deployments, plugins-info, workers)
+│             │ 6. Cria rotas (plugins-info, workers)
 │             │ 7. Cria app (createApp)
 └──────┬──────┘
        │
@@ -69,19 +78,49 @@ export const VERSION = version;  // from package.json
 
 | `NODE_ENV`
 | development
-| Ambiente de execução
+| Ambiente de execução (development, production, staging, test)
 
 | `DELAY_MS`
 | 100
-| Delay entre requisições (rate limit)
+| Delay em ms antes de terminar worker (graceful shutdown)
+|===
+
+As seguintes constantes são derivadas no código (não são variáveis de ambiente):
+
+[cols="1,1,2"]
+|===
+| Constante | Valor | Descrição
 
 | `IS_COMPILED`
 | false
-| Se o runtime foi compilado para binário
+| Se o runtime foi compilado para binário (detectado via `typeof BUNTIME_COMPILED`)
 
 | `VERSION`
 | package.json
-| Versão do runtime
+| Versão do runtime (lido do package.json)
+
+| `SHUTDOWN_TIMEOUT_MS`
+| 30000
+| Timeout de graceful shutdown (30s)
+|===
+
+Além das variáveis de ambiente, o módulo exporta constantes para uso interno:
+
+[cols="1,2"]
+|===
+| Constante | Descrição
+
+| `Headers`
+| Headers HTTP customizados (x-base, x-fragment-route, x-not-found, x-request-id, sec-fetch-dest, sec-fetch-mode)
+
+| `MessageTypes`
+| Tipos de mensagem IPC (READY, REQUEST, RESPONSE, ERROR, IDLE, TERMINATE)
+
+| `BodySizeLimits`
+| Limites de tamanho de body (DEFAULT: 10MB, MAX: 100MB)
+
+| `WorkerState`
+| Estados do worker (active, idle, ephemeral, offline)
 |===
 
 ==== config.ts
@@ -91,8 +130,12 @@ Combina variáveis de ambiente com configurações do `buntime.jsonc`:
 [source,typescript]
 ----
 interface RuntimeConfig {
+  bodySize: {
+    default: number;       // Limite padrão de body (10MB)
+    max: number;           // Limite máximo de body (100MB)
+  };
   delayMs: number;         // Rate limit delay
-  homepage?: string;       // App a servir quando nenhum worker match
+  homepage?: string | HomepageConfig;  // App ou config de homepage
   isCompiled: boolean;     // Se é binário compilado
   isDev: boolean;          // Se está em modo dev
   nodeEnv: string;         // development|production|staging|test
@@ -142,9 +185,28 @@ Para cada campo, a prioridade é:
 | 10 (dev), 500 (prod), 50 (staging), 5 (test)
 
 | `homepage`
-| `homepage: "cpanel"`
+| `homepage: "cpanel"` ou `homepage: { app: "cpanel", shell: true }`
 | `HOMEPAGE_APP=cpanel`
 | undefined
+|===
+
+Além das variáveis acima, `config.ts` também parseia estas variáveis de ambiente:
+
+[cols="1,1,2"]
+|===
+| Variável | Padrão | Descrição
+
+| `POOL_SIZE`
+| Por ambiente (dev: 10, prod: 500, staging: 50, test: 5)
+| Tamanho do pool de workers
+
+| `HOMEPAGE_APP`
+| undefined
+| App para servir na raiz (formato string apenas via env var)
+
+| `WORKSPACES_DIR`
+| ERRO (obrigatório)
+| Diretórios de apps (suporta valores separados por vírgula)
 |===
 
 ===== Resolução de Caminhos
@@ -204,36 +266,18 @@ const loader = new PluginLoader(buntimeConfig, pool);
 const registry = await loader.load();
 
 // 7. Cria rotas
-const deployments = createDeploymentRoutes({ workspaces, registry });
 const pluginsInfo = createPluginsInfoRoutes({ registry });
 const workers = createWorkerRoutes({ config, getAppDir, pool, registry });
 
 // 8. Cria app
-const app = createApp({ deployments, pluginsInfo, workers, ... });
+const app = createApp({ pluginsInfo, workers, ... });
 
-// 9. Verifica conflitos de rotas
-await checkExistingAppsForConflicts();
-
-// 10. Coleta recursos de plugins
+// 9. Coleta recursos de plugins
 const websocket = registry.getWebSocketHandler();
 const pluginRoutes = registry.collectServerRoutes();
 ----
 
-===== Verificação de Conflitos
-
-Antes de iniciar, o runtime verifica se apps existentes conflitam com rotas de plugins:
-
-[source,typescript]
-----
-// Cenário: plugin-keyval montado em /api/keyval
-// App chamado "api" em apps/api/
-
-checkExistingAppsForConflicts();
-// Output: "Existing app 'api' conflicts with plugin '@buntime/plugin-keyval'
-//          (mounted at '/api/keyval'). Plugin routes take priority."
-----
-
-NOTE: Plugins sempre têm prioridade sobre apps regulares.
+NOTE: Plugins sempre têm prioridade sobre apps regulares quando há conflito de rotas.
 
 ===== Exports
 
@@ -247,8 +291,14 @@ NOTE: Plugins sempre têm prioridade sobre apps regulares.
 | `buntimeConfig`
 | Configuração do buntime.jsonc
 
-| `runtimeConfig`
-| Configuração combinada (env + jsonc)
+| `hasPluginRoutes`
+| Se há rotas de plugins para Bun.serve
+
+| `logger`
+| Logger global instance
+
+| `pluginRoutes`
+| Rotas de `server.routes` dos plugins
 
 | `pool`
 | WorkerPool instance
@@ -256,71 +306,209 @@ NOTE: Plugins sempre têm prioridade sobre apps regulares.
 | `registry`
 | PluginRegistry instance
 
-| `logger`
-| Logger global instance
-
 | `websocket`
 | WebSocket handler de plugins (se houver)
-
-| `pluginRoutes`
-| Rotas de `server.routes` dos plugins
-
-| `hasPluginRoutes`
-| Se há rotas de plugins para Bun.serve
 |===
+
+NOTE: `runtimeConfig` não é exportado diretamente. Use `buntimeConfig` para acessar a configuração do buntime.jsonc.
 
 ==== app.ts
 
-Cria o app Hono principal e implementa a lógica de resolução de rotas.
+Cria o app Hono principal e implementa a lógica de resolução de rotas, proteção CSRF e roteamento app-shell.
 
-===== Request Resolution Flow
+===== Segurança
+
+====== CSRF Protection
+
+O runtime valida requests que modificam estado (POST, PUT, PATCH, DELETE) para prevenir Cross-Site Request Forgery:
+
+[mermaid]
+----
+flowchart TD
+    A[Request state-changing] --> B{Origin header presente?}
+    B -->|Não| C{X-Requested-With: XMLHttpRequest?}
+    B -->|Sim| D{Origin == Host?}
+    C -->|Sim| E[OK]
+    C -->|Não| F[403]
+    D -->|Sim| G[OK]
+    D -->|Não| H[403]
+----
+
+Validações realizadas:
+
+1. **Origin obrigatório**: Requests sem Origin recebem 403, exceto se possuírem `X-Requested-With: XMLHttpRequest` (AJAX same-origin)
+2. **Origin válido**: URL parsing seguro, rejeita credenciais embutidas (`user:pass@host`)
+3. **Protocolo válido**: Apenas `http:` e `https:` aceitos
+4. **Host match**: `Origin.host` deve ser igual ao header `Host`
+
+[source,typescript]
+----
+// Exemplo de request bloqueado
+// Origin: https://evil.com
+// Host: localhost:8000
+// Result: 403 Forbidden
+
+// Exemplo de request permitido (AJAX)
+// Origin: (ausente)
+// X-Requested-With: XMLHttpRequest
+// Result: Prossegue
+----
+
+====== Request Correlation
+
+Toda request recebe um ID único para rastreamento:
+
+[source,typescript]
+----
+// Geração do ID
+const requestId = req.headers.get("x-request-id") ?? crypto.randomUUID();
+
+// Incluído em todas as responses
+response.headers.set("x-request-id", requestId);
+----
+
+O ID aparece em logs para correlacionar eventos:
 
 [source]
 ----
-                    ┌─────────────────┐
-                    │ Request arrives │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │ /api/deployments│──▶ Deployment routes
-                    │ /api/plugins    │──▶ Plugins info routes
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │ /fragment/:id   │──▶ Fragment HTML for
-                    │                 │    fragment-outlet
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-         ┌──────────│ Catch-all "*"   │──────────┐
-         │          └─────────────────┘          │
-         │                                        │
-    ┌────▼─────┐                          ┌──────▼──────┐
-    │ 1. Plugin│                          │ 5. Worker   │
-    │ server.  │──▶ 404?                  │ Routes      │
-    │ fetch    │                          │ (/:app/*)   │
-    └────┬─────┘                          └─────────────┘
-         │ Yes                                   ▲
-    ┌────▼─────┐                                 │
-    │ 2. Run   │──▶ Auth failed? ──▶ 401         │
-    │ onRequest│    (exceto public)              │
-    │ hooks    │                                 │
-    └────┬─────┘                                 │
-         │ Pass                                  │
-    ┌────▼─────┐                                 │
-    │ 3. Plugin│──▶ Resolved? ──▶ Serve plugin   │
-    │ app      │                  app via pool   │
-    │ routing  │                                 │
-    └────┬─────┘                                 │
-         │ Not resolved                          │
-    ┌────▼─────┐                                 │
-    │ 4. Plugin│──▶ 404? ────────────────────────┘
-    │ routes   │
-    │ (Hono)   │
-    └──────────┘
+INFO [app] Request received { requestId: "550e8400-e29b-41d4-a716-446655440000" }
+WARN [csrf] Validation failed { requestId: "550e8400-e29b-41d4-a716-446655440000" }
 ----
 
-NOTE: As rotas públicas (configuradas em `publicRoutes`) são verificadas antes dos hooks `onRequest`, permitindo acesso sem autenticação.
+====== Body Size Limits
+
+Requests com body grande são rejeitados para prevenir DoS:
+
+[source,typescript]
+----
+try {
+  requestBody = await cloneRequestBody(req, maxBodySize);
+} catch (err) {
+  if (err instanceof BodyTooLargeError) {
+    return new Response("Payload Too Large", { status: 413 });
+  }
+}
+----
+
+Limites configuráveis por worker (veja <<../deployment/configuration.adoc#body-size>>).
+
+===== App-Shell Mode
+
+O runtime suporta arquitetura micro-frontend onde um "shell" envolve múltiplos fragmentos.
+
+====== Configuração
+
+[source,jsonc]
+----
+// buntime.jsonc
+{
+  "homepage": {
+    "app": "cpanel",   // App que serve como shell
+    "shell": true      // Ativa modo app-shell
+  }
+}
+----
+
+====== Fluxo
+
+[mermaid]
+----
+sequenceDiagram
+    participant B as Browser
+    participant R as Runtime
+    participant S as Shell Worker
+    participant F as Fragment Worker
+
+    B->>R: GET /metrics (navigate)
+    Note over R: Sec-Fetch-Mode: navigate
+    R->>S: Request com x-fragment-route: /metrics
+    S->>B: HTML com fragment-outlet
+
+    B->>R: GET /fragment/metrics/
+    R->>F: Request para plugin-metrics
+    F->>B: Fragment HTML
+----
+
+====== Decisão de Roteamento
+
+A função `shouldRouteToShell` determina se uma request vai para o shell:
+
+[cols="2,1,2"]
+|===
+| Condição | Shell? | Motivo
+
+| `Sec-Fetch-Mode: navigate` + path `/`
+| Sim
+| Homepage sempre via shell
+
+| `Sec-Fetch-Mode: navigate` + path `/metrics`
+| Sim
+| Plugin base match
+
+| Path contém `/api/`
+| Não
+| APIs não passam pelo shell
+
+| `Sec-Fetch-Mode: cors` (fetch interno)
+| Não
+| Fragment outlet carrega diretamente
+|===
+
+====== Headers Injetados
+
+O shell recebe headers especiais para renderizar o fragment correto:
+
+[cols="1,2"]
+|===
+| Header | Descrição
+
+| `x-fragment-route`
+| Path original (ex: `/metrics/workers`)
+
+| `x-not-found`
+| `true` se nenhum app foi resolvido (shell decide como exibir 404)
+
+| `x-base`
+| Base path do shell para assets
+|===
+
+===== Request Resolution Flow
+
+O fluxo de resolução de requests ocorre em etapas ordenadas por prioridade:
+
+[mermaid]
+----
+flowchart TD
+    A[Request arrives] --> B{CSRF check<br/>POST/PUT/PATCH/DELETE}
+    B -->|Fail| C[403 Forbidden]
+    B -->|Pass| D{App-shell mode?<br/>Sec-Fetch-Mode: navigate}
+    D -->|Sim| E[Serve via shell]
+    D -->|Não| F["Run onRequest hooks<br/>(auth, metrics, etc.)"]
+    F -->|Auth failed| G[401/403]
+    F -->|Pass| H{"/api/plugins?"}
+    H -->|Sim| I[Plugins info routes]
+    H -->|Não| J["Plugin server.fetch"]
+    J -->|404?| K["Plugin routes (Hono)"]
+    K -->|404?| L["Plugin apps (pool)"]
+    L -->|404?| M["Worker routes /:app/*"]
+    M -->|404?| N{Shell disponível?}
+    N -->|Sim| O[Shell com x-not-found: true]
+    N -->|Não| P[404 Not Found]
+----
+
+Ordem de execução dentro do handler `app.all("*")`:
+
+1. **CSRF Protection**: Valida requests state-changing (POST, PUT, PATCH, DELETE)
+2. **Shell mode**: Se navegação (`Sec-Fetch-Mode: navigate`) e path é plugin base, roteia para shell
+3. **onRequest hooks**: Plugins executam autenticação, métricas, rate limiting
+4. **Plugins Info**: Rota `/api/plugins` para metadados de plugins
+5. **Plugin server.fetch**: Handlers customizados de plugins
+6. **Plugin routes (Hono)**: Rotas Hono montadas por plugins
+7. **Plugin apps**: Apps de plugins via worker pool
+8. **Worker routes**: Apps regulares em workspaces (`/:app/*`)
+9. **404 handling**: Shell exibe página de erro ou retorna 404
+
+NOTE: As rotas públicas (configuradas em `publicRoutes`) são verificadas dentro dos hooks `onRequest`, permitindo acesso sem autenticação a endpoints específicos.
 
 ===== Resolução de Target App
 
@@ -360,20 +548,115 @@ interface ResolvedApp {
 
 ===== Semantic Versioning
 
-O runtime suporta versionamento de apps no formato `app@version`:
+O runtime suporta versionamento semântico completo de apps através do `createAppResolver`.
+
+====== Formatos de Diretório
+
+O resolver suporta dois formatos de organização:
+
+*Flat (recomendado para deploy)*:
+
+[source]
+----
+workspace/
+├── todos@1.0.0/
+├── todos@1.1.0/
+├── todos@latest/
+└── api@2.0.0/
+----
+
+*Nested (recomendado para desenvolvimento)*:
+
+[source]
+----
+workspace/
+├── todos/
+│   ├── 1.0.0/
+│   ├── 1.1.0/
+│   └── latest/
+└── api/
+    └── 2.0.0/
+----
+
+O formato flat é verificado primeiro, permitindo deploy atômico via symlinks ou renames.
+
+====== Resolução de Versão
+
+[cols="2,3"]
+|===
+| Formato | Comportamento
+
+| `app-name`
+| Prefere `@latest` se existir, senão maior versão semver
+
+| `app-name@latest`
+| Versão especial "latest" (não-semver)
+
+| `app-name@1`
+| Maior versão compatível com 1.x.x
+
+| `app-name@1.4`
+| Maior versão compatível com 1.4.x
+
+| `app-name@1.4.2`
+| Versão exata
+
+| `app-name@^1.0.0`
+| Range semver (compatible)
+
+| `app-name@~1.4.0`
+| Range semver (patch updates)
+
+| `app-name@>=2.0.0`
+| Range semver (minimum)
+|===
+
+====== Pre-release Versions
+
+Pre-releases são incluídos na resolução:
+
+[source]
+----
+workspace/
+├── api@2.0.0-rc.1/
+├── api@2.0.0-beta.2/
+└── api@2.0.0/
+
+getAppDir("api@^2.0.0-rc")  → api@2.0.0-rc.1
+getAppDir("api@2")          → api@2.0.0
+----
+
+====== Tag "latest"
+
+O tag `@latest` tem prioridade especial sobre versões semver:
+
+[mermaid]
+----
+flowchart TD
+    A[getAppDir] --> B{version especificada?}
+    B -->|"@latest"| C[Retorna diretório @latest]
+    B -->|"@1.x"| D[maxSatisfying semver]
+    B -->|nenhuma| E{"@latest existe?"}
+    E -->|sim| C
+    E -->|não| F[Maior versão semver]
+----
+
+====== Exemplo de Uso
 
 [source,typescript]
 ----
-// Futuro: app info incluirá versão
-interface AppInfo {
-  name: string;
-  version: string;  // ex: "1.0.0"
-  dir: string;
-  config: WorkerConfig;
-}
+const getAppDir = createAppResolver(["/apps", "/external"]);
+
+// Busca em todos os workspaces
+getAppDir("todos");           // /apps/todos@latest ou maior semver
+getAppDir("todos@1.4");       // /apps/todos@1.4.2 (maior 1.4.x)
+getAppDir("api@^2.0.0");      // /external/api@2.1.0
+
+// Retorna string vazia se não encontrar
+getAppDir("nonexistent");     // ""
 ----
 
-NOTE: Atualmente a versão é hardcoded como "1.0.0". Futuramente virá de `buntime.jsonc` ou `package.json`.
+NOTE: Workspaces são pesquisados em ordem. O primeiro match prevalece, permitindo overlays de versão.
 
 ===== Base Path Injection
 
@@ -415,33 +698,35 @@ const router = createRouter({ basepath: base, ... });
 
 ===== Fragments
 
-Rotas especiais para micro-frontends usando `fragment-outlet`:
+Micro-frontends são servidos através do mecanismo de app-shell. Quando uma navegação ocorre para um path de plugin (ex: `/metrics`), o runtime:
 
-[source]
-----
-GET /fragment/:fragmentId/*
-----
-
-O runtime:
-
-1. Identifica o plugin pelo `fragmentId` (ex: `logs` → `@buntime/plugin-logs`)
-2. Verifica se plugin tem `fragment: true`
-3. Serve o plugin via pool com `x-base` header
-4. Retorna HTML para ser injetado no outlet
+1. Detecta `Sec-Fetch-Mode: navigate` indicando navegação do browser
+2. Roteia para o shell worker com headers especiais
+3. O shell renderiza o layout com `fragment-outlet`
+4. O `fragment-outlet` faz fetch para o path do fragment diretamente
 
 Exemplo:
 
 [source,html]
 ----
-<!-- Admin dashboard -->
-<fragment-outlet fragment-id="logs" />
+<!-- Shell recebe navegação para /metrics -->
+<!-- Headers injetados: x-fragment-route: /metrics, x-base: /cpanel -->
 
-<!-- Runtime busca -->
-GET /fragment/logs/
+<!-- Shell HTML -->
+<fragment-outlet fragment-path="/metrics" />
 
-<!-- Plugin @buntime/plugin-logs responde com HTML -->
-<div>Log viewer UI</div>
+<!-- Fragment outlet faz fetch interno -->
+GET /metrics/ (Sec-Fetch-Mode: cors)
+
+<!-- Plugin @buntime/plugin-metrics responde com HTML -->
+<div>Metrics dashboard UI</div>
 ----
+
+O fragment-outlet é um web component que:
+
+1. Lê o atributo `fragment-path` ou `window.__FRAGMENT_ROUTE__`
+2. Faz fetch do conteúdo com `Sec-Fetch-Mode: cors` (evita loop de shell)
+3. Injeta o HTML retornado no DOM
 
 ===== Plugin Routes Priority
 
@@ -460,7 +745,7 @@ const sortedPaths = ["/api/keyval", "/api/metrics", "/"].sort(
 );
 
 // Request: /api/keyval/get
-// Match: /api/keyval ✓
+// Match: /api/keyval (corresponde)
 ----
 
 IMPORTANT: Se dois plugins tentarem montar no mesmo path, ocorre erro na inicialização.
@@ -475,33 +760,32 @@ O servidor é configurado dinamicamente baseado nos recursos disponíveis:
 
 [source,typescript]
 ----
-function startServer() {
-  const baseOptions = { fetch: app.fetch, port: PORT };
-
-  // WebSocket + Plugin routes
-  if (websocket && hasPluginRoutes) {
-    return Bun.serve({
-      ...baseOptions,
-      routes: pluginRoutes,
-      websocket,
-      development: { hmr: true },  // se isDev
-    });
-  }
-
-  // Apenas WebSocket
-  if (websocket) {
-    return Bun.serve({ ...baseOptions, websocket, ... });
-  }
-
-  // Apenas Plugin routes
-  if (hasPluginRoutes) {
-    return Bun.serve({ ...baseOptions, routes: pluginRoutes, ... });
-  }
-
-  // Fallback: apenas fetch
-  return Bun.serve(baseOptions);
-}
+const server = Bun.serve({
+  fetch: app.fetch,
+  idleTimeout: 0,  // Desabilita timeout - necessário para SSE/WebSocket
+  port: PORT,
+  ...(isDev && { development: { hmr: true } }),
+  ...(hasPluginRoutes && { routes: pluginRoutes }),
+  ...(websocket && { websocket }),
+});
 ----
+
+[cols="1,2"]
+|===
+| Opção | Descrição
+
+| `idleTimeout: 0`
+| Desabilita timeout de conexões idle. Necessário para SSE (Server-Sent Events) e WebSocket que mantêm conexões de longa duração.
+
+| `development.hmr`
+| Ativa Hot Module Replacement em modo development.
+
+| `routes`
+| Rotas nativas do Bun.serve (plugin `server.routes`).
+
+| `websocket`
+| Handler WebSocket de plugins.
+|===
 
 ===== Plugin Routes vs Hono Routes
 
@@ -543,22 +827,37 @@ NOTE: `server.routes` tem performance superior para WebSocket e static files, ma
 const server = startServer();
 registry.runOnServerStart(server);
 
-// Graceful shutdown
+// Graceful shutdown com timeout
 process.on("SIGINT", async () => {
   logger.info("Shutting down...");
 
-  // 1. Notifica plugins
-  await registry.shutdown();
+  // Force exit após timeout (30s) para plugins mal comportados
+  const forceExitTimer = setTimeout(() => {
+    logger.error("Shutdown timeout exceeded, forcing exit");
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
 
-  // 2. Encerra workers
-  pool.shutdown();
+  try {
+    // 1. Notifica plugins
+    await registry.runOnShutdown();
 
-  // 3. Flush de logs
-  await logger.flush();
+    // 2. Encerra workers
+    pool.shutdown();
 
-  process.exit(0);
+    // 3. Flush de logs
+    await logger.flush();
+
+    clearTimeout(forceExitTimer);
+    process.exit(0);
+  } catch (err) {
+    logger.error("Error during shutdown", { error: err });
+    clearTimeout(forceExitTimer);
+    process.exit(1);
+  }
 });
 ----
+
+O timeout de shutdown (30 segundos) previne que plugins mal comportados bloqueiem o encerramento indefinidamente.
 
 ===== Hot Module Replacement
 
@@ -583,7 +882,8 @@ O runtime pode ser usado como biblioteca:
 
 [source,typescript]
 ----
-import { createApp, loadBuntimeConfig, PluginLoader } from "@buntime/runtime";
+import { createApp } from "@buntime/runtime/app";
+import { loadBuntimeConfig, PluginLoader } from "@buntime/runtime/plugins/loader";
 
 // 1. Carrega config
 const { config, baseDir } = await loadBuntimeConfig();
@@ -625,11 +925,11 @@ Bun.serve({ fetch: app.fetch, port: 3000 });
 
 [source,typescript]
 ----
-// ❌ Ruim
+// ERRADO
 const config = initConfig(buntimeConfig, baseDir);
 config.poolSize = 200;  // Não tem efeito
 
-// ✓ Bom
+// CORRETO
 const config = initConfig(
   { ...buntimeConfig, poolSize: 200 },
   baseDir

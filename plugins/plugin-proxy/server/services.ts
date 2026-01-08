@@ -12,7 +12,6 @@ export interface ProxyFragmentConfig {
    * - "none": No isolation (internal plugins only)
    * - "patch": Intercepts History API (lightweight)
    * - "iframe": Full isolation via iframe (untrusted apps)
-   * - "service-worker": SW intercepts requests (shared styles)
    * @default "patch"
    */
   sandbox?: SandboxStrategy;
@@ -460,6 +459,7 @@ export function initializeProxyService(ctx: PluginContext, staticRulesConfig: Pr
 export function shutdownProxyService(): void {
   staticRules = [];
   dynamicRules = [];
+  bunServer = null;
   kv = null;
 }
 

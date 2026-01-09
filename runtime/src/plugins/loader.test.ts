@@ -57,10 +57,14 @@ describe("PluginLoader", () => {
 
     beforeEach(() => {
       mkdirSync(join(PLUGINS_TEST_DIR, "plugins"), { recursive: true });
+      // Reinitialize config with the test directory as baseDir
+      initConfig({ workspaces: [PLUGINS_TEST_DIR] }, PLUGINS_TEST_DIR);
     });
 
     afterEach(() => {
       rmSync(PLUGINS_TEST_DIR, { recursive: true, force: true });
+      // Restore original config
+      initConfig({ workspaces: [TEST_DIR] }, TEST_DIR);
     });
 
     it("should throw for plugin missing name field", async () => {
@@ -70,15 +74,9 @@ describe("PluginLoader", () => {
         `export default { base: "/test", name: "" };`, // Empty name still fails validation
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(PLUGINS_TEST_DIR);
-        const loader = new PluginLoader({ plugins: ["no-name"] });
-        // This throws because empty name fails the validation
-        await expect(loader.load()).rejects.toThrow();
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({ plugins: ["no-name"] });
+      // Empty name is not scanned, so it's not found
+      await expect(loader.load()).rejects.toThrow(/Could not resolve plugin/);
     });
 
     it("should throw for plugin missing base field", async () => {
@@ -87,14 +85,8 @@ describe("PluginLoader", () => {
         `export default { name: "no-base" };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(PLUGINS_TEST_DIR);
-        const loader = new PluginLoader({ plugins: ["no-base"] });
-        await expect(loader.load()).rejects.toThrow(/missing required field: base/);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({ plugins: ["no-base"] });
+      await expect(loader.load()).rejects.toThrow(/missing required field: base/);
     });
 
     it("should throw for invalid base path format", async () => {
@@ -103,14 +95,8 @@ describe("PluginLoader", () => {
         `export default { name: "invalid-base", base: "/invalid base path" };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(PLUGINS_TEST_DIR);
-        const loader = new PluginLoader({ plugins: ["invalid-base"] });
-        await expect(loader.load()).rejects.toThrow(/invalid base path/);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({ plugins: ["invalid-base"] });
+      await expect(loader.load()).rejects.toThrow(/invalid base path/);
     });
 
     it("should throw for reserved path /api", async () => {
@@ -119,14 +105,8 @@ describe("PluginLoader", () => {
         `export default { name: "reserved-api", base: "/api" };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(PLUGINS_TEST_DIR);
-        const loader = new PluginLoader({ plugins: ["reserved-api"] });
-        await expect(loader.load()).rejects.toThrow(/cannot use reserved path/);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({ plugins: ["reserved-api"] });
+      await expect(loader.load()).rejects.toThrow(/cannot use reserved path/);
     });
 
     it("should throw for reserved path /health", async () => {
@@ -135,14 +115,8 @@ describe("PluginLoader", () => {
         `export default { name: "reserved-health", base: "/health" };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(PLUGINS_TEST_DIR);
-        const loader = new PluginLoader({ plugins: ["reserved-health"] });
-        await expect(loader.load()).rejects.toThrow(/cannot use reserved path/);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({ plugins: ["reserved-health"] });
+      await expect(loader.load()).rejects.toThrow(/cannot use reserved path/);
     });
 
     it("should allow base override from config", async () => {
@@ -151,18 +125,12 @@ describe("PluginLoader", () => {
         `export default { name: "base-override", base: "/original" };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(PLUGINS_TEST_DIR);
-        const loader = new PluginLoader({
-          plugins: [["base-override", { base: "/custom" }]],
-        });
-        const registry = await loader.load();
-        const plugin = registry.getAll().find((p) => p.name === "base-override");
-        expect(plugin?.base).toBe("/custom");
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({
+        plugins: [["base-override", { base: "/custom" }]],
+      });
+      const registry = await loader.load();
+      const plugin = registry.getAll().find((p) => p.name === "base-override");
+      expect(plugin?.base).toBe("/custom");
     });
 
     it("should throw for invalid base override format", async () => {
@@ -171,16 +139,10 @@ describe("PluginLoader", () => {
         `export default { name: "invalid-override", base: "/original" };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(PLUGINS_TEST_DIR);
-        const loader = new PluginLoader({
-          plugins: [["invalid-override", { base: "/invalid override" }]],
-        });
-        await expect(loader.load()).rejects.toThrow(/invalid base path/);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({
+        plugins: [["invalid-override", { base: "/invalid override" }]],
+      });
+      await expect(loader.load()).rejects.toThrow(/invalid base path/);
     });
 
     it("should throw for reserved path in base override", async () => {
@@ -189,16 +151,10 @@ describe("PluginLoader", () => {
         `export default { name: "reserved-override", base: "/original" };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(PLUGINS_TEST_DIR);
-        const loader = new PluginLoader({
-          plugins: [["reserved-override", { base: "/api" }]],
-        });
-        await expect(loader.load()).rejects.toThrow(/cannot use reserved path/);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({
+        plugins: [["reserved-override", { base: "/api" }]],
+      });
+      await expect(loader.load()).rejects.toThrow(/cannot use reserved path/);
     });
 
     it("should throw for already loaded plugin", async () => {
@@ -207,16 +163,10 @@ describe("PluginLoader", () => {
         `export default { name: "duplicate", base: "/dup" };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(PLUGINS_TEST_DIR);
-        const loader = new PluginLoader({ plugins: ["duplicate"] });
-        const _registry = await loader.load();
-        // Try to load the same plugin again
-        await expect(loader.loadPlugin("duplicate")).rejects.toThrow(/already loaded/);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({ plugins: ["duplicate"] });
+      const _registry = await loader.load();
+      // Try to load the same plugin again
+      await expect(loader.loadPlugin("duplicate")).rejects.toThrow(/already loaded/);
     });
 
     it("should support factory function plugins", async () => {
@@ -228,31 +178,23 @@ describe("PluginLoader", () => {
         });`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(PLUGINS_TEST_DIR);
-        const loader = new PluginLoader({
-          plugins: [["factory", { base: "/custom-factory" }]],
-        });
-        const registry = await loader.load();
-        const plugin = registry.getAll().find((p) => p.name === "factory-plugin");
-        expect(plugin?.base).toBe("/custom-factory");
-      } finally {
-        process.chdir(originalCwd);
-      }
+      // Factory functions are scanned by calling them with {} to extract the name
+      const loader = new PluginLoader({
+        plugins: [["factory-plugin", { base: "/custom-factory" }]],
+      });
+      const registry = await loader.load();
+      const plugin = registry.get("factory-plugin");
+
+      expect(plugin).toBeDefined();
+      expect(plugin?.base).toBe("/custom-factory");
     });
 
     it("should throw for invalid plugin module structure", async () => {
       writeFileSync(join(PLUGINS_TEST_DIR, "plugins", "invalid-module.ts"), `export default 123;`);
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(PLUGINS_TEST_DIR);
-        const loader = new PluginLoader({ plugins: ["invalid-module"] });
-        await expect(loader.load()).rejects.toThrow(/Invalid plugin module structure/);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      // Invalid modules are silently ignored during scan, so plugin won't be found
+      const loader = new PluginLoader({ plugins: ["invalid-module"] });
+      await expect(loader.load()).rejects.toThrow(/Could not resolve plugin/);
     });
 
     it("should call onInit hook with timeout protection", async () => {
@@ -268,44 +210,36 @@ describe("PluginLoader", () => {
         };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(PLUGINS_TEST_DIR);
-        const loader = new PluginLoader({ plugins: ["with-init"] });
-        const registry = await loader.load();
-        expect(registry.has("with-init")).toBe(true);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({ plugins: ["with-init"] });
+      const registry = await loader.load();
+      expect(registry.has("with-init")).toBe(true);
     });
   });
 
-  describe("resolveExternalPlugin", () => {
+  describe("scanPluginDirs", () => {
     const EXT_TEST_DIR = join(TEST_DIR, "external-plugins");
 
     beforeEach(() => {
       mkdirSync(join(EXT_TEST_DIR, "plugins"), { recursive: true });
+      // Reinitialize config with the test directory as baseDir
+      initConfig({ workspaces: [EXT_TEST_DIR] }, EXT_TEST_DIR);
     });
 
     afterEach(() => {
       rmSync(EXT_TEST_DIR, { recursive: true, force: true });
+      // Restore original config
+      initConfig({ workspaces: [TEST_DIR] }, TEST_DIR);
     });
 
-    it("should resolve plugin from ./plugins/name.ts", async () => {
+    it("should resolve plugin from ./plugins/name.ts by internal name", async () => {
       writeFileSync(
         join(EXT_TEST_DIR, "plugins", "my-plugin.ts"),
         `export default { name: "my-plugin", base: "/my-plugin" };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(EXT_TEST_DIR);
-        const loader = new PluginLoader({ plugins: ["my-plugin"] });
-        const registry = await loader.load();
-        expect(registry.has("my-plugin")).toBe(true);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({ plugins: ["my-plugin"] });
+      const registry = await loader.load();
+      expect(registry.has("my-plugin")).toBe(true);
     });
 
     it("should resolve plugin from ./plugins/name/index.ts", async () => {
@@ -316,33 +250,46 @@ describe("PluginLoader", () => {
         `export default { name: "nested-plugin", base: "/nested" };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(EXT_TEST_DIR);
-        const loader = new PluginLoader({ plugins: ["nested-plugin"] });
-        const registry = await loader.load();
-        expect(registry.has("nested-plugin")).toBe(true);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({ plugins: ["nested-plugin"] });
+      const registry = await loader.load();
+      expect(registry.has("nested-plugin")).toBe(true);
     });
 
-    it("should extract short name from @buntime/plugin-xxx", async () => {
-      // Create plugin with buntime naming convention
+    it("should resolve plugin from ./plugins/name/plugin.ts", async () => {
+      const pluginDir = join(EXT_TEST_DIR, "plugins", "some-dir");
+      mkdirSync(pluginDir, { recursive: true });
       writeFileSync(
-        join(EXT_TEST_DIR, "plugins", "plugin-metrics.ts"),
+        join(pluginDir, "plugin.ts"),
+        `export default { name: "plugin-with-plugin-entry", base: "/plugin-entry" };`,
+      );
+
+      const loader = new PluginLoader({ plugins: ["plugin-with-plugin-entry"] });
+      const registry = await loader.load();
+      expect(registry.has("plugin-with-plugin-entry")).toBe(true);
+    });
+
+    it("should resolve scoped plugin names like @buntime/plugin-xxx", async () => {
+      // Create plugin with buntime naming convention - file name doesn't matter
+      writeFileSync(
+        join(EXT_TEST_DIR, "plugins", "any-filename.ts"),
         `export default { name: "@buntime/plugin-metrics", base: "/metrics" };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(EXT_TEST_DIR);
-        const loader = new PluginLoader({ plugins: ["@buntime/plugin-metrics"] });
-        const registry = await loader.load();
-        expect(registry.has("@buntime/plugin-metrics")).toBe(true);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({ plugins: ["@buntime/plugin-metrics"] });
+      const registry = await loader.load();
+      expect(registry.has("@buntime/plugin-metrics")).toBe(true);
+    });
+
+    it("should resolve plugin by internal name regardless of filename", async () => {
+      // File name is "whatever.ts" but internal name is "my-awesome-plugin"
+      writeFileSync(
+        join(EXT_TEST_DIR, "plugins", "whatever.ts"),
+        `export default { name: "my-awesome-plugin", base: "/awesome" };`,
+      );
+
+      const loader = new PluginLoader({ plugins: ["my-awesome-plugin"] });
+      const registry = await loader.load();
+      expect(registry.has("my-awesome-plugin")).toBe(true);
     });
   });
 
@@ -351,10 +298,14 @@ describe("PluginLoader", () => {
 
     beforeEach(() => {
       mkdirSync(join(DEP_TEST_DIR, "plugins"), { recursive: true });
+      // Reinitialize config with the test directory as baseDir
+      initConfig({ workspaces: [DEP_TEST_DIR] }, DEP_TEST_DIR);
     });
 
     afterEach(() => {
       rmSync(DEP_TEST_DIR, { recursive: true, force: true });
+      // Restore original config
+      initConfig({ workspaces: [TEST_DIR] }, TEST_DIR);
     });
 
     it("should load plugins in dependency order", async () => {
@@ -368,19 +319,13 @@ describe("PluginLoader", () => {
         `export default { name: "plugin-b", base: "/b", dependencies: ["plugin-a"] };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(DEP_TEST_DIR);
-        const loader = new PluginLoader({
-          plugins: ["plugin-b", "plugin-a"],
-        });
-        const registry = await loader.load();
-        // Both should be loaded
-        expect(registry.has("plugin-a")).toBe(true);
-        expect(registry.has("plugin-b")).toBe(true);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({
+        plugins: ["plugin-b", "plugin-a"],
+      });
+      const registry = await loader.load();
+      // Both should be loaded
+      expect(registry.has("plugin-a")).toBe(true);
+      expect(registry.has("plugin-b")).toBe(true);
     });
 
     it("should throw for missing required dependency", async () => {
@@ -389,14 +334,8 @@ describe("PluginLoader", () => {
         `export default { name: "needs-dep", base: "/needs", dependencies: ["missing-dep"] };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(DEP_TEST_DIR);
-        const loader = new PluginLoader({ plugins: ["needs-dep"] });
-        await expect(loader.load()).rejects.toThrow(/requires.*missing-dep.*not configured/);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({ plugins: ["needs-dep"] });
+      await expect(loader.load()).rejects.toThrow(/requires.*missing-dep.*not configured/);
     });
 
     it("should detect circular dependencies", async () => {
@@ -409,16 +348,10 @@ describe("PluginLoader", () => {
         `export default { name: "cycle-b", base: "/cycle-b", dependencies: ["cycle-a"] };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(DEP_TEST_DIR);
-        const loader = new PluginLoader({
-          plugins: ["cycle-a", "cycle-b"],
-        });
-        await expect(loader.load()).rejects.toThrow(/Circular dependency/);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({
+        plugins: ["cycle-a", "cycle-b"],
+      });
+      await expect(loader.load()).rejects.toThrow(/Circular dependency/);
     });
 
     it("should filter optional dependencies to configured only", async () => {
@@ -435,20 +368,14 @@ describe("PluginLoader", () => {
         };`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(DEP_TEST_DIR);
-        // Only load with-optional and optional-base, not-configured is not in the list
-        const loader = new PluginLoader({
-          plugins: ["with-optional", "optional-base"],
-        });
-        const registry = await loader.load();
-        // Both should be loaded, with-optional should load after optional-base
-        expect(registry.has("with-optional")).toBe(true);
-        expect(registry.has("optional-base")).toBe(true);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      // Only load with-optional and optional-base, not-configured is not in the list
+      const loader = new PluginLoader({
+        plugins: ["with-optional", "optional-base"],
+      });
+      const registry = await loader.load();
+      // Both should be loaded, with-optional should load after optional-base
+      expect(registry.has("with-optional")).toBe(true);
+      expect(registry.has("optional-base")).toBe(true);
     });
   });
 
@@ -457,10 +384,14 @@ describe("PluginLoader", () => {
 
     beforeEach(() => {
       mkdirSync(join(DEFAULT_TEST_DIR, "plugins"), { recursive: true });
+      // Reinitialize config with the test directory as baseDir
+      initConfig({ workspaces: [DEFAULT_TEST_DIR] }, DEFAULT_TEST_DIR);
     });
 
     afterEach(() => {
       rmSync(DEFAULT_TEST_DIR, { recursive: true, force: true });
+      // Restore original config
+      initConfig({ workspaces: [TEST_DIR] }, TEST_DIR);
     });
 
     it("should resolve plugin with default export", async () => {
@@ -470,15 +401,9 @@ describe("PluginLoader", () => {
          export default plugin;`,
       );
 
-      const originalCwd = process.cwd();
-      try {
-        process.chdir(DEFAULT_TEST_DIR);
-        const loader = new PluginLoader({ plugins: ["with-default"] });
-        const registry = await loader.load();
-        expect(registry.has("with-default")).toBe(true);
-      } finally {
-        process.chdir(originalCwd);
-      }
+      const loader = new PluginLoader({ plugins: ["with-default"] });
+      const registry = await loader.load();
+      expect(registry.has("with-default")).toBe(true);
     });
   });
 });

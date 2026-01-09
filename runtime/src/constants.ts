@@ -46,9 +46,6 @@ export const VERSION = version;
 /** Pattern to extract app name from pathname (e.g., "/my-app/page" → "my-app") */
 export const APP_NAME_PATTERN = /^\/([^/]+)/;
 
-/** Directory for external plugins (relative to cwd) */
-export const PLUGINS_DIR = "./plugins";
-
 /**
  * HTTP headers used by Buntime for request routing and fragment rendering
  */

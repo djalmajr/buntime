@@ -2,12 +2,11 @@
   "name": "@buntime/plugin-deployments",
   "version": "1.0.0",
   "type": "module",
-  "buntime": {
-    "entrypoint": "dist/index.js",
-    "idleTimeout": 60
-  },
   "exports": {
-    ".": "./plugin.ts"
+    ".": {
+      "bun": "./plugin.ts",
+      "default": "./dist/plugin.js"
+    }
   },
   "scripts": {
     "build": "NODE_ENV=production bun scripts/build.ts",
@@ -45,5 +44,9 @@
     "@zomme/bun-plugin-iconify": "^0.1.2",
     "bun-plugin-tailwind": "^0.1.2",
     "tailwindcss": "^4.1.17"
+  },
+  "buntime": {
+    "entrypoint": "dist/index.js",
+    "idleTimeout": 60
   }
 }

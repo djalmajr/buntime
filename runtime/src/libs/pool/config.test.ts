@@ -64,6 +64,7 @@ describe("loadWorkerConfig", () => {
       isCompiled: false,
       isDev: true,
       nodeEnv: "test",
+      pluginDirs: ["./plugins"],
       poolSize: 10,
       port: 8000,
       version: "1.0.0",

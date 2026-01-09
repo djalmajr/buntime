@@ -182,6 +182,14 @@ export interface BuntimeConfig {
   homepage?: string | HomepageConfig;
 
   /**
+   * Directories to scan for plugins
+   * Supports ${ENV_VAR} syntax
+   * @default ["./plugins"]
+   * @example ["./plugins", "${EXTERNAL_PLUGINS_DIR}"]
+   */
+  pluginDirs?: string[];
+
+  /**
    * Plugins to load (Babel-style array, order matters!)
    * @example
    * [

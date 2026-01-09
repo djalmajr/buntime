@@ -4,9 +4,14 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./plugin.ts"
+    ".": {
+      "bun": "./plugin.ts",
+      "default": "./dist/plugin.js"
+    }
   },
   "scripts": {
+    "build": "NODE_ENV=production bun scripts/build.ts",
+    "dev": "bun scripts/build.ts --watch",
     "lint": "bun run lint:format && bun run lint:types",
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",

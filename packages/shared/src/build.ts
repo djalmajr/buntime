@@ -71,20 +71,42 @@ export function createPluginBuilder(config: PluginBuildConfig): PluginBuilder {
 
     console.log(`Building ${config.name}...`);
 
-    // Build server
-    const serverResult = await Bun.build({
-      entrypoints: ["./index.ts"],
-      external,
-      minify: !isWatch,
-      outdir: "./dist",
-      splitting: true,
-      target: "bun",
-    });
+    // Build plugin definition (plugin.ts → dist/plugin.js)
+    const hasPluginTs = existsSync(join(cwd, "plugin.ts"));
+    if (hasPluginTs) {
+      const pluginResult = await Bun.build({
+        entrypoints: ["./plugin.ts"],
+        external,
+        minify: !isWatch,
+        outdir: "./dist",
+        splitting: true,
+        target: "bun",
+      });
 
-    if (!serverResult.success) {
-      console.error("Server build failed:", serverResult.logs);
-      if (!isWatch) process.exit(1);
-      return false;
+      if (!pluginResult.success) {
+        console.error("Plugin build failed:", pluginResult.logs);
+        if (!isWatch) process.exit(1);
+        return false;
+      }
+    }
+
+    // Build worker entrypoint (index.ts → dist/index.js)
+    const hasIndexTs = existsSync(join(cwd, "index.ts"));
+    if (hasIndexTs) {
+      const serverResult = await Bun.build({
+        entrypoints: ["./index.ts"],
+        external,
+        minify: !isWatch,
+        outdir: "./dist",
+        splitting: true,
+        target: "bun",
+      });
+
+      if (!serverResult.success) {
+        console.error("Worker build failed:", serverResult.logs);
+        if (!isWatch) process.exit(1);
+        return false;
+      }
     }
 
     // Build client if configured

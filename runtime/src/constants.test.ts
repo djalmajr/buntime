@@ -7,7 +7,6 @@ import {
   IS_DEV,
   MessageTypes,
   NODE_ENV,
-  PLUGINS_DIR,
   SHUTDOWN_TIMEOUT_MS,
   VERSION,
   WorkerState,
@@ -85,10 +84,6 @@ describe("constants", () => {
   });
 
   describe("static values", () => {
-    it("should have PLUGINS_DIR defined", () => {
-      expect(PLUGINS_DIR).toBe("./plugins");
-    });
-
     it("should have SHUTDOWN_TIMEOUT_MS defined", () => {
       expect(SHUTDOWN_TIMEOUT_MS).toBe(30_000);
     });

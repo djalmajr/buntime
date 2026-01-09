@@ -32,6 +32,7 @@ interface RuntimeConfig {
   isCompiled: boolean;
   isDev: boolean;
   nodeEnv: string;
+  pluginDirs: string[];
   poolSize: number;
   port: number;
   version: string;
@@ -39,7 +40,10 @@ interface RuntimeConfig {
 }
 
 // Default values
-const defaults: Omit<RuntimeConfig, "workspaces"> & { workspaces?: string[] } = {
+const defaults: Omit<RuntimeConfig, "pluginDirs" | "workspaces"> & {
+  pluginDirs?: string[];
+  workspaces?: string[];
+} = {
   bodySize: {
     default: BodySizeLimits.DEFAULT,
     max: BodySizeLimits.MAX,
@@ -49,6 +53,7 @@ const defaults: Omit<RuntimeConfig, "workspaces"> & { workspaces?: string[] } = 
   isCompiled: IS_COMPILED,
   isDev: IS_DEV,
   nodeEnv: NODE_ENV,
+  pluginDirs: undefined,
   poolSize: 100,
   port: PORT,
   version: VERSION,
@@ -80,10 +85,10 @@ function parsePoolSize(envValue: string | undefined, fallback: number): number {
 }
 
 /**
- * Expand workspace paths from config
- * Handles comma-separated values from env vars: "${WORKSPACES_DIR}" where WORKSPACES_DIR="/app,/data"
+ * Expand directory paths from config
+ * Handles comma-separated values from env vars: "${VAR}" where VAR="/path1,/path2"
  */
-function expandWorkspaces(dirs: string[], baseDir: string): string[] {
+function expandDirs(dirs: string[], baseDir: string): string[] {
   return dirs.flatMap((dir) => {
     const expanded = substituteEnvVars(dir);
     // Split by comma if env var contains multiple paths
@@ -104,7 +109,7 @@ export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): Runti
   // Supports comma-separated values in env vars: WORKSPACES_DIR="/app,/data"
   const workspaceDirs =
     buntimeConfig.workspaces ?? (Bun.env.WORKSPACES_DIR ? [Bun.env.WORKSPACES_DIR] : []);
-  const workspaces = expandWorkspaces(workspaceDirs, baseDir);
+  const workspaces = expandDirs(workspaceDirs, baseDir);
 
   if (workspaces.length === 0) {
     throw new Error("workspaces is required: set in buntime.jsonc or WORKSPACES_DIR env var");
@@ -116,6 +121,11 @@ export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): Runti
       logger.warn(`Workspace path does not exist: ${ws}`);
     }
   }
+
+  // Get pluginDirs: buntime.jsonc (array) > env var > default ["./plugins"]
+  const pluginDirConfig =
+    buntimeConfig.pluginDirs ?? (Bun.env.PLUGIN_DIRS ? [Bun.env.PLUGIN_DIRS] : ["./plugins"]);
+  const pluginDirs = expandDirs(pluginDirConfig, baseDir);
 
   // Get poolSize: buntime.jsonc > env var > default by env
   const envFallback = poolDefaults[NODE_ENV] ?? 100;
@@ -152,6 +162,7 @@ export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): Runti
       max: bodySizeMax,
     },
     homepage,
+    pluginDirs,
     poolSize,
     workspaces,
   };

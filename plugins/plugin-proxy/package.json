@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "type": "module",
   "exports": {
-    ".": "./plugin.ts"
-  },
-  "buntime": {
-    "entrypoint": "index.ts"
+    ".": {
+      "bun": "./plugin.ts",
+      "default": "./dist/plugin.js"
+    }
   },
   "scripts": {
     "build": "bun scripts/build.ts",
@@ -39,5 +39,8 @@
     "@types/react-dom": "^19.2.3",
     "bun-plugin-tailwind": "^0.1.2",
     "tailwindcss": "^4.1.17"
+  },
+  "buntime": {
+    "entrypoint": "index.ts"
   }
 }

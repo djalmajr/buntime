@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getChildLogger } from "@buntime/shared/logger";
 import type {
@@ -10,9 +10,6 @@ import type {
   PluginModule,
 } from "@buntime/shared/types";
 import { getConfig } from "@/config";
-import { IS_DEV, PLUGINS_DIR } from "@/constants";
-import { getShortName } from "@/utils/plugins";
-import { getBuiltinPlugin } from "./builtin";
 import { createPluginLogger, PluginRegistry } from "./registry";
 
 const logger = getChildLogger("PluginLoader");
@@ -101,12 +98,26 @@ interface ResolvedPlugin {
 }
 
 /**
+ * Scanned plugin entry from plugin directories
+ */
+interface ScannedPlugin {
+  /** Root directory containing the plugin file */
+  dir: string;
+  /** Full path to the plugin entry file */
+  path: string;
+  /** Plugin module (imported) */
+  module: PluginModule;
+}
+
+/**
  * Load plugins from configuration
  */
 export class PluginLoader {
   private registry = new PluginRegistry();
   private config: BuntimeConfig;
   private pool?: unknown;
+  /** Map of plugin name -> scanned plugin info (populated by scanPluginDirs) */
+  private scannedPlugins = new Map<string, ScannedPlugin>();
 
   constructor(config: BuntimeConfig = {}, pool?: unknown) {
     this.config = config;
@@ -118,6 +129,10 @@ export class PluginLoader {
    * Plugins are sorted topologically based on dependencies
    */
   async load(): Promise<PluginRegistry> {
+    // Scan plugin directories first
+    const runtimeConfig = getConfig();
+    await this.scanPluginDirs(runtimeConfig.pluginDirs);
+
     const pluginConfigs = this.config.plugins || [];
     const configuredNames = new Set<string>();
 
@@ -252,16 +267,11 @@ export class PluginLoader {
    * - dir: Root directory (contains client/, server/, plugin.ts)
    *
    * Resolution order:
-   * 1. Built-in plugins (embedded in binary/bundle)
-   * 2. External plugins from ./plugins/ directory
-   * 3. Node modules (dev mode only)
-   *
-   * Plugin directory resolution:
-   * - Production (bundle/compiled): ./plugins/{shortName}/ (must be copied manually)
-   * - Dev: node_modules via Bun.resolveSync
+   * 1. Scanned plugins from pluginDirs (matched by internal name)
+   * 2. Node modules
    */
   private async resolvePlugin(name: string): Promise<ResolvedPlugin> {
-    // Find package directory via Bun resolution (dev mode only)
+    // Find package directory via Bun resolution
     const resolveFromNodeModules = (packageName: string): string | null => {
       try {
         return dirname(Bun.resolveSync(packageName, process.cwd()));
@@ -270,36 +280,21 @@ export class PluginLoader {
       }
     };
 
-    // Find plugin in ./plugins/{shortName}/ (production: bundle/compiled)
-    const resolveFromPluginsDir = (packageName: string): string => {
-      const shortName = getShortName(packageName);
-      const dir = join(process.cwd(), PLUGINS_DIR, shortName);
-      const indexHtml = join(dir, "index.html");
-      return existsSync(indexHtml) ? dir : "";
-    };
-
-    // 1. Built-in plugins (embedded in binary/bundle)
-    const builtinFactory = await getBuiltinPlugin(name);
-    if (builtinFactory) {
-      const dir = IS_DEV ? resolveFromNodeModules(name) : resolveFromPluginsDir(name);
-      return { dir: dir ?? "", module: builtinFactory };
+    // 1. Check scanned plugins (by internal name)
+    const scanned = this.scannedPlugins.get(name);
+    if (scanned) {
+      return { dir: scanned.dir, module: scanned.module };
     }
 
-    // 2. External plugins from ./plugins/ directory
-    const externalPath = await this.resolveExternalPlugin(name);
-    if (externalPath) {
-      const module = await import(externalPath);
-      return { dir: dirname(externalPath), module };
-    }
-
-    // 3. Node modules (dev mode only)
+    // 2. Node modules
     try {
       const module = await import(name);
       return { dir: resolveFromNodeModules(name) ?? "", module };
     } catch {
+      const pluginDirs = getConfig().pluginDirs;
       throw new Error(
         `Could not resolve plugin "${name}". ` +
-          `Not a built-in plugin and not found in ${PLUGINS_DIR}/`,
+          `Not found in pluginDirs (${pluginDirs.join(", ")}) or node_modules`,
       );
     }
   }
@@ -410,36 +405,125 @@ export class PluginLoader {
   }
 
   /**
-   * Try to resolve a plugin from the external plugins directory
-   * Looks for: ./plugins/{name}.ts, ./plugins/{name}/plugin.ts, ./plugins/{name}/index.ts
+   * Scan plugin directories and build a map of plugin name -> module
+   *
+   * Scan order for each pluginDir:
+   * 1. {dir}/*.ts, {dir}/*.js (direct files)
+   * 2. {dir}/[asterisk]/plugin.ts, {dir}/[asterisk]/plugin.js (subdirectories with plugin entry)
+   * 3. {dir}/[asterisk]/index.ts, {dir}/[asterisk]/index.js (subdirectories with index entry)
+   *
+   * Files that don't export a valid BuntimePlugin (with name and base) are ignored.
    */
-  private async resolveExternalPlugin(name: string): Promise<string | null> {
-    const cwd = process.cwd();
-    const pluginsDir = join(cwd, PLUGINS_DIR);
+  private async scanPluginDirs(pluginDirs: string[]): Promise<void> {
+    const extensions = [".ts", ".js"];
 
-    if (!existsSync(pluginsDir)) {
+    for (const pluginDir of pluginDirs) {
+      if (!existsSync(pluginDir)) {
+        continue;
+      }
+
+      const entries = readdirSync(pluginDir);
+
+      for (const entry of entries) {
+        const entryPath = join(pluginDir, entry);
+        const stat = statSync(entryPath);
+
+        if (stat.isFile()) {
+          // Direct file: {dir}/*.ts or {dir}/*.js
+          const ext = entry.slice(entry.lastIndexOf("."));
+          if (extensions.includes(ext)) {
+            await this.tryRegisterPlugin(entryPath, pluginDir);
+          }
+        } else if (stat.isDirectory()) {
+          // Subdirectory: try plugin.{ts,js} then index.{ts,js}
+          for (const filename of ["plugin", "index"]) {
+            let found = false;
+            for (const ext of extensions) {
+              const filePath = join(entryPath, `${filename}${ext}`);
+              if (existsSync(filePath)) {
+                await this.tryRegisterPlugin(filePath, entryPath);
+                found = true;
+                break;
+              }
+            }
+            if (found) break;
+          }
+        }
+      }
+    }
+
+    if (this.scannedPlugins.size > 0) {
+      logger.debug(`Scanned ${this.scannedPlugins.size} plugins from pluginDirs`);
+    }
+  }
+
+  /**
+   * Try to import and register a plugin file
+   * Ignores files that don't export a valid BuntimePlugin
+   */
+  private async tryRegisterPlugin(filePath: string, dir: string): Promise<void> {
+    try {
+      const module = await import(filePath);
+
+      // Extract the plugin name from the module
+      const pluginName = this.extractPluginName(module);
+      if (!pluginName) {
+        // Not a valid plugin, silently ignore
+        return;
+      }
+
+      // Check for duplicates
+      if (this.scannedPlugins.has(pluginName)) {
+        const existing = this.scannedPlugins.get(pluginName)!;
+        logger.warn(
+          `Duplicate plugin "${pluginName}" found at ${filePath}, ` +
+            `keeping existing from ${existing.path}`,
+        );
+        return;
+      }
+
+      this.scannedPlugins.set(pluginName, { dir, module, path: filePath });
+      logger.debug(`Scanned plugin: ${pluginName} (${filePath})`);
+    } catch (error) {
+      // Import failed, silently ignore (might not be a valid module)
+      logger.debug(`Failed to import ${filePath}: ${error}`);
+    }
+  }
+
+  /**
+   * Extract plugin name from a module export
+   * Returns null if the module doesn't export a valid BuntimePlugin
+   */
+  private extractPluginName(mod: unknown): string | null {
+    if (mod === null || mod === undefined) return null;
+
+    // Handle default export
+    if (typeof mod === "object" && "default" in mod) {
+      return this.extractPluginName((mod as { default: unknown }).default);
+    }
+
+    // Factory function - call with empty config to get the plugin object
+    if (typeof mod === "function") {
+      try {
+        const plugin = (mod as PluginFactory)({});
+        if (plugin && typeof plugin === "object" && "name" in plugin) {
+          const name = (plugin as { name: unknown }).name;
+          if (typeof name === "string" && name.length > 0) {
+            return name;
+          }
+        }
+      } catch {
+        // Factory failed, ignore
+      }
       return null;
     }
 
-    // Extract short name from @buntime/plugin-xxx or @buntime/xxx
-    const shortName = getShortName(name);
-
-    // Try direct file: ./plugins/{name}.ts
-    const directPath = join(pluginsDir, `${shortName}.ts`);
-    if (existsSync(directPath)) {
-      return directPath;
-    }
-
-    // Try directory with plugin.ts: ./plugins/{name}/plugin.ts
-    const pluginPath = join(pluginsDir, shortName, "plugin.ts");
-    if (existsSync(pluginPath)) {
-      return pluginPath;
-    }
-
-    // Try directory with index.ts: ./plugins/{name}/index.ts
-    const indexPath = join(pluginsDir, shortName, "index.ts");
-    if (existsSync(indexPath)) {
-      return indexPath;
+    // Direct plugin object must have 'name' property
+    if (typeof mod === "object" && "name" in mod) {
+      const name = (mod as { name: unknown }).name;
+      if (typeof name === "string" && name.length > 0) {
+        return name;
+      }
     }
 
     return null;

@@ -3,16 +3,16 @@ import { errorToResponse, NotFoundError, ValidationError } from "@buntime/shared
 import { Hono } from "hono";
 import { DirInfo } from "./libs/dir-info";
 
-// Multiple workspace directories support
-let workspaces: string[] = ["./apps"];
+// Multiple worker directories support (set via BUNTIME_WORKER_DIRS env var)
+let workerDirs: string[] = [];
 let dirNameMap: Map<string, string> = new Map(); // dirName -> fullPath
 
 // Global excludes (folders to hide from listing)
 const DEFAULT_EXCLUDES = [".git", "node_modules"];
 let globalExcludes: string[] = [...DEFAULT_EXCLUDES];
 
-export function setWorkspaces(dirs: string[]): void {
-  workspaces = dirs;
+export function setWorkerDirs(dirs: string[]): void {
+  workerDirs = dirs;
   // Build name -> path map, handling duplicates with index suffix
   dirNameMap = new Map();
   const nameCounts: Record<string, number> = {};
@@ -39,11 +39,11 @@ export function getExcludes(): string[] {
 
 // Initialize from env vars (set by runtime for plugin workers)
 // This runs when the module is first imported in the worker process
-if (Bun.env.BUNTIME_WORKSPACES) {
+if (Bun.env.BUNTIME_WORKER_DIRS) {
   try {
-    const dirs = JSON.parse(Bun.env.BUNTIME_WORKSPACES) as string[];
+    const dirs = JSON.parse(Bun.env.BUNTIME_WORKER_DIRS) as string[];
     if (Array.isArray(dirs) && dirs.length > 0) {
-      setWorkspaces(dirs);
+      setWorkerDirs(dirs);
     }
   } catch {
     // Ignore parse errors, use default
@@ -64,8 +64,8 @@ if (Bun.env.BUNTIME_EXCLUDES) {
   DirInfo.globalExcludes = globalExcludes;
 }
 
-export function getWorkspaces(): string[] {
-  return workspaces;
+export function getWorkerDirs(): string[] {
+  return workerDirs;
 }
 
 export function getDirNames(): string[] {
@@ -78,7 +78,7 @@ export function getDirNames(): string[] {
  */
 function resolvePath(path: string): { baseDir: string; relativePath: string; rootName: string } {
   if (!path || path === "/") {
-    // Root listing - will show all appsDirs as folders
+    // Root listing - will show all workerDirs as folders
     return { baseDir: "", relativePath: "", rootName: "" };
   }
 
@@ -102,7 +102,7 @@ export const api = new Hono()
     const path = ctx.req.query("path") || "";
     const { baseDir, relativePath, rootName } = resolvePath(path);
 
-    // Root listing - show all appsDirs as folders
+    // Root listing - show all workerDirs as folders
     if (!baseDir) {
       const entries = [];
       for (const [name, fullPath] of dirNameMap) {
@@ -129,7 +129,7 @@ export const api = new Hono()
       return ctx.json({ success: true, data: { entries, path: "" } });
     }
 
-    // Regular listing within an appsDir
+    // Regular listing within a workerDir
     const dir = new DirInfo(baseDir, relativePath);
     const rawEntries = await dir.list();
     // Filter out internal apps
@@ -205,13 +205,13 @@ export const api = new Hono()
     }
 
     const source = resolvePath(path);
-    const dest = resolvePath(destPath || source.rootName); // If destPath is empty, move to root of same appsDir
+    const dest = resolvePath(destPath || source.rootName); // If destPath is empty, move to root of same workerDirs
 
     if (!source.baseDir || !source.relativePath) {
       throw new ValidationError("Cannot move apps directory", "CANNOT_MOVE_ROOT");
     }
 
-    // For now, only allow moves within the same appsDir
+    // For now, only allow moves within the same workerDirs
     if (source.baseDir !== dest.baseDir) {
       throw new ValidationError(
         "Cannot move between different apps directories",
@@ -263,8 +263,8 @@ export const api = new Hono()
     const { baseDir, relativePath } = resolvePath(path);
 
     if (!baseDir) {
-      // Refresh all workspaces
-      for (const dir of workspaces) {
+      // Refresh all workerDirs
+      for (const dir of workerDirs) {
         const dirInfo = new DirInfo(dir, "");
         await dirInfo.refresh();
       }
@@ -279,7 +279,7 @@ export const api = new Hono()
     const { baseDir, relativePath } = resolvePath(path || "");
 
     if (!baseDir) {
-      for (const dir of workspaces) {
+      for (const dir of workerDirs) {
         const dirInfo = new DirInfo(dir, "");
         await dirInfo.refresh();
       }

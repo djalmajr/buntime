@@ -1,15 +1,16 @@
-import type {
-  BasePluginConfig,
-  BuntimePlugin,
-  MenuItem,
-  PluginContext,
-} from "@buntime/shared/types";
-import { api, getDirNames, getExcludes, setExcludes, setWorkspaces } from "./server/api";
+import type { BasePluginConfig, MenuItem, PluginContext, PluginImpl } from "@buntime/shared/types";
+import { api, getDirNames, getExcludes, setExcludes, setWorkerDirs } from "./server/api";
 
 export interface DeploymentsConfig extends BasePluginConfig {
   /**
+   * Directories containing deployable apps
+   * @default Uses globalConfig.workerDirs
+   */
+  workerDirs?: string[];
+
+  /**
    * Global folder patterns to exclude from listing.
-   * These are merged with defaults and hidden across all workspaces.
+   * These are merged with defaults and hidden across all app directories.
    *
    * Per-app excludes can also be set in package.json:
    * ```json
@@ -22,10 +23,10 @@ export interface DeploymentsConfig extends BasePluginConfig {
   excludes?: string[];
 
   /**
-   * Workspace directories containing deployable apps
-   * @default Uses globalConfig.workspaces
+   * Menu items from manifest (passed by loader)
+   * @internal
    */
-  workspaces?: string[];
+  menus?: MenuItem[];
 }
 
 /**
@@ -35,35 +36,18 @@ export interface DeploymentsConfig extends BasePluginConfig {
  * - Fragment UI for deployments management
  * - API endpoints for file operations (list, upload, download, etc.)
  */
-export default function deploymentsPlugin(_pluginConfig: DeploymentsConfig = {}): BuntimePlugin {
-  // Menu items will be populated dynamically in onInit
-  const menus: MenuItem[] = [
-    {
-      icon: "lucide:rocket",
-      path: "/deployments",
-      priority: 10,
-      title: "Deployments",
-    },
-  ];
+export default function deploymentsPlugin(pluginConfig: DeploymentsConfig = {}): PluginImpl {
+  // Menu items from manifest (passed by loader, modified dynamically in onInit)
+  const menus = pluginConfig.menus ?? [];
 
   return {
-    name: "@buntime/plugin-deployments",
-    base: "/deployments",
     routes: api,
-
-    // Fragment with patch sandbox (internal plugin)
-    fragment: {
-      type: "patch",
-    },
-
-    // Menu items for shell navigation (populated in onInit)
-    menus,
 
     onInit(ctx: PluginContext) {
       const config = ctx.config as DeploymentsConfig;
-      // Use plugin-specific workspaces if provided, otherwise use global config
-      const workspaces = config.workspaces ?? ctx.globalConfig.workspaces ?? ["./apps"];
-      setWorkspaces(workspaces);
+      // Use plugin-specific workerDirs if provided, otherwise use global config
+      const workerDirs = config.workerDirs ?? ctx.globalConfig.workerDirs ?? ["./apps"];
+      setWorkerDirs(workerDirs);
 
       // Set global excludes (defaults applied in api.ts)
       if (config.excludes) {
@@ -83,7 +67,7 @@ export default function deploymentsPlugin(_pluginConfig: DeploymentsConfig = {})
         }));
       }
 
-      ctx.logger.info(`Deployments plugin initialized (workspaces: ${workspaces.join(", ")})`);
+      ctx.logger.info(`Deployments plugin initialized (workerDirs: ${workerDirs.join(", ")})`);
     },
   };
 }

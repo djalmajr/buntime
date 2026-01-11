@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import type { PluginContext, PluginLogger } from "@buntime/shared/types";
+import type { MenuItem, PluginContext, PluginLogger } from "@buntime/shared/types";
 import deploymentsPlugin from "./plugin";
-import { getDirNames, getExcludes, getWorkspaces, setExcludes, setWorkspaces } from "./server/api";
+import { getDirNames, getExcludes, getWorkerDirs, setExcludes, setWorkerDirs } from "./server/api";
 
 /**
  * Create a mock PluginContext for testing onInit
@@ -17,8 +17,8 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
   return {
     config: {},
     globalConfig: {
+      workerDirs: ["./apps"],
       poolSize: 100,
-      workspaces: ["./apps"],
     },
     logger: mockLogger,
     pool: undefined,
@@ -30,32 +30,10 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
 
 describe("deploymentsPlugin", () => {
   describe("plugin structure", () => {
-    it("should return a valid plugin object", () => {
+    it("should return a valid plugin object with implementation properties", () => {
       const plugin = deploymentsPlugin();
 
-      expect(plugin.name).toBe("@buntime/plugin-deployments");
-      expect(plugin.base).toBe("/deployments");
       expect(plugin.routes).toBeDefined();
-      expect(plugin.fragment).toEqual({ type: "patch" });
-      expect(plugin.menus).toBeDefined();
-      expect(Array.isArray(plugin.menus)).toBe(true);
-    });
-
-    it("should have correct menu structure", () => {
-      const plugin = deploymentsPlugin();
-
-      expect(plugin.menus).toHaveLength(1);
-      expect(plugin.menus?.[0]).toEqual({
-        icon: "lucide:rocket",
-        path: "/deployments",
-        priority: 10,
-        title: "Deployments",
-      });
-    });
-
-    it("should have onInit function", () => {
-      const plugin = deploymentsPlugin();
-
       expect(typeof plugin.onInit).toBe("function");
     });
   });
@@ -73,16 +51,16 @@ describe("deploymentsPlugin", () => {
       expect(plugin).toBeDefined();
     });
 
-    it("should accept config with workspaces", () => {
-      const plugin = deploymentsPlugin({ workspaces: ["./custom-apps"] });
+    it("should accept config with workerDirs", () => {
+      const plugin = deploymentsPlugin({ workerDirs: ["./custom-apps"] });
 
       expect(plugin).toBeDefined();
     });
 
-    it("should accept config with both excludes and workspaces", () => {
+    it("should accept config with both excludes and workerDirs", () => {
       const plugin = deploymentsPlugin({
+        workerDirs: ["./apps", "./packages"],
         excludes: ["dist"],
-        workspaces: ["./apps", "./packages"],
       });
 
       expect(plugin).toBeDefined();
@@ -90,58 +68,58 @@ describe("deploymentsPlugin", () => {
   });
 
   describe("onInit", () => {
-    const originalWorkspaces = getWorkspaces();
+    const originalWorkerDirs = getWorkerDirs();
     const originalExcludes = getExcludes();
 
     beforeEach(() => {
       // Reset state before each test
-      setWorkspaces(["./apps"]);
+      setWorkerDirs(["./apps"]);
       setExcludes([".git", "node_modules"], true);
     });
 
     afterEach(() => {
       // Restore original state
-      setWorkspaces(originalWorkspaces);
+      setWorkerDirs(originalWorkerDirs);
       setExcludes(originalExcludes, true);
     });
 
-    it("should use global config workspaces when plugin config has no workspaces", () => {
+    it("should use global config workerDirs when plugin config has no workerDirs", () => {
       const plugin = deploymentsPlugin();
       const ctx = createMockContext({
         globalConfig: {
+          workerDirs: ["./global-apps", "./global-packages"],
           poolSize: 100,
-          workspaces: ["./global-apps", "./global-packages"],
         },
       });
 
       plugin.onInit!(ctx);
 
-      expect(getWorkspaces()).toEqual(["./global-apps", "./global-packages"]);
+      expect(getWorkerDirs()).toEqual(["./global-apps", "./global-packages"]);
     });
 
-    it("should use plugin config workspaces when provided", () => {
-      const plugin = deploymentsPlugin({ workspaces: ["./plugin-apps"] });
+    it("should use plugin config workerDirs when provided", () => {
+      const plugin = deploymentsPlugin({ workerDirs: ["./plugin-apps"] });
       const ctx = createMockContext({
-        config: { workspaces: ["./plugin-apps"] },
+        config: { workerDirs: ["./plugin-apps"] },
       });
 
       plugin.onInit!(ctx);
 
-      expect(getWorkspaces()).toEqual(["./plugin-apps"]);
+      expect(getWorkerDirs()).toEqual(["./plugin-apps"]);
     });
 
-    it("should fallback to default workspaces when both global and plugin config are undefined", () => {
+    it("should fallback to default workerDirs when both global and plugin config are undefined", () => {
       const plugin = deploymentsPlugin();
       const ctx = createMockContext({
         globalConfig: {
+          workerDirs: undefined as unknown as string[],
           poolSize: 100,
-          workspaces: undefined as unknown as string[],
         },
       });
 
       plugin.onInit!(ctx);
 
-      expect(getWorkspaces()).toEqual(["./apps"]);
+      expect(getWorkerDirs()).toEqual(["./apps"]);
     });
 
     it("should set excludes from plugin config", () => {
@@ -200,93 +178,88 @@ describe("deploymentsPlugin", () => {
       expect(infoSpy).toHaveBeenCalled();
     });
 
-    it("should not add submenu items when only one directory", () => {
-      const plugin = deploymentsPlugin({ workspaces: ["./apps"] });
+    it("should generate submenu items for multiple workerDirs when menus provided", () => {
+      const menus: MenuItem[] = [
+        { icon: "lucide:rocket", path: "/deployments", priority: 10, title: "Deployments" },
+      ];
+      const plugin = deploymentsPlugin({ menus });
       const ctx = createMockContext({
-        config: { workspaces: ["./apps"] },
+        globalConfig: {
+          workerDirs: ["./apps", "./packages", "./examples"],
+          poolSize: 100,
+        },
       });
 
       plugin.onInit!(ctx);
 
-      expect(plugin.menus?.[0]?.items).toBeUndefined();
+      // The menus array passed to the factory should be modified
+      expect(menus[0]!.items).toBeDefined();
+      expect(menus[0]!.items).toHaveLength(3);
+      expect(menus[0]!.items![0]!.path).toBe("/deployments/apps");
+      expect(menus[0]!.items![1]!.path).toBe("/deployments/packages");
+      expect(menus[0]!.items![2]!.path).toBe("/deployments/examples");
     });
 
-    it("should add submenu items when multiple directories", () => {
-      const plugin = deploymentsPlugin({ workspaces: ["./apps", "./packages"] });
+    it("should not add submenu items for single workerDir", () => {
+      const menus: MenuItem[] = [
+        { icon: "lucide:rocket", path: "/deployments", priority: 10, title: "Deployments" },
+      ];
+      const plugin = deploymentsPlugin({ menus });
       const ctx = createMockContext({
-        config: { workspaces: ["./apps", "./packages"] },
+        globalConfig: {
+          workerDirs: ["./apps"],
+          poolSize: 100,
+        },
       });
 
       plugin.onInit!(ctx);
 
-      expect(plugin.menus?.[0]?.items).toHaveLength(2);
-      expect(plugin.menus?.[0]?.items?.[0]).toEqual({
-        icon: "lucide:folder",
-        path: "/deployments/apps",
-        title: "apps",
-      });
-      expect(plugin.menus?.[0]?.items?.[1]).toEqual({
-        icon: "lucide:folder",
-        path: "/deployments/packages",
-        title: "packages",
-      });
+      // Single directory should not have submenu items
+      expect(menus[0]!.items).toBeUndefined();
     });
 
-    it("should handle duplicate directory names in submenu", () => {
-      const plugin = deploymentsPlugin({ workspaces: ["./a/apps", "./b/apps", "./c/apps"] });
-      const ctx = createMockContext({
-        config: { workspaces: ["./a/apps", "./b/apps", "./c/apps"] },
-      });
-
-      plugin.onInit!(ctx);
-
-      expect(plugin.menus?.[0]?.items).toHaveLength(3);
-      expect(plugin.menus?.[0]?.items?.[0]?.title).toBe("apps");
-      expect(plugin.menus?.[0]?.items?.[1]?.title).toBe("apps-2");
-      expect(plugin.menus?.[0]?.items?.[2]?.title).toBe("apps-3");
-    });
   });
 });
 
 describe("api exports", () => {
-  const originalWorkspaces = getWorkspaces();
+  const originalWorkerDirs = getWorkerDirs();
   const originalExcludes = getExcludes();
 
   beforeEach(() => {
     // Reset to defaults before each test
-    setWorkspaces(["./apps"]);
+    setWorkerDirs(["./apps"]);
     setExcludes([".git", "node_modules"], true);
   });
 
   afterEach(() => {
     // Restore original state
-    setWorkspaces(originalWorkspaces);
+    setWorkerDirs(originalWorkerDirs);
     setExcludes(originalExcludes, true);
   });
 
-  describe("setWorkspaces / getWorkspaces", () => {
-    it("should set and get workspaces", () => {
-      setWorkspaces(["./apps", "./packages"]);
+  describe("setWorkerDirs / getWorkerDirs", () => {
+    it("should set and get workerDirs", () => {
+      setWorkerDirs(["./apps", "./packages"]);
 
-      expect(getWorkspaces()).toEqual(["./apps", "./packages"]);
+      expect(getWorkerDirs()).toEqual(["./apps", "./packages"]);
     });
 
-    it("should handle single workspace", () => {
-      setWorkspaces(["./my-apps"]);
+    it("should handle single workerDir", () => {
+      setWorkerDirs(["./my-apps"]);
 
-      expect(getWorkspaces()).toEqual(["./my-apps"]);
+      expect(getWorkerDirs()).toEqual(["./my-apps"]);
     });
 
     it("should handle empty array", () => {
-      setWorkspaces([]);
+      setWorkerDirs([]);
 
-      expect(getWorkspaces()).toEqual([]);
+      expect(getWorkerDirs()).toEqual([]);
     });
   });
 
   describe("getDirNames", () => {
-    it("should return directory names from workspaces", () => {
-      setWorkspaces(["./apps", "./packages"]);
+    it("should return directory names from workerDirs", () => {
+      setWorkerDirs(["./apps", "./packages"]);
 
       const dirNames = getDirNames();
 
@@ -295,7 +268,7 @@ describe("api exports", () => {
     });
 
     it("should handle duplicate directory names with suffix", () => {
-      setWorkspaces(["./folder/apps", "./other/apps"]);
+      setWorkerDirs(["./folder/apps", "./other/apps"]);
 
       const dirNames = getDirNames();
 
@@ -304,7 +277,7 @@ describe("api exports", () => {
     });
 
     it("should handle multiple duplicates", () => {
-      setWorkspaces(["./a/test", "./b/test", "./c/test"]);
+      setWorkerDirs(["./a/test", "./b/test", "./c/test"]);
 
       const dirNames = getDirNames();
 

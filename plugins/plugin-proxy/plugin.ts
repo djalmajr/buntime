@@ -1,4 +1,4 @@
-import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
+import type { PluginContext, PluginImpl } from "@buntime/shared/types";
 import type { Server } from "bun";
 import { api } from "./server/api";
 import {
@@ -12,32 +12,16 @@ import {
   type WebSocketData,
 } from "./server/services";
 
-export interface ProxyConfig extends BasePluginConfig {
+export interface ProxyConfig {
   /**
-   * Static proxy rules (from buntime.jsonc, readonly)
+   * Static proxy rules (from manifest.jsonc, readonly)
    */
   rules?: ProxyRule[];
 }
 
-export default function proxyPlugin(config: ProxyConfig = {}): BuntimePlugin {
+export default function proxyPlugin(config: ProxyConfig = {}): PluginImpl {
   return {
-    name: "@buntime/plugin-proxy",
-    optionalDependencies: ["@buntime/plugin-keyval"],
-    base: config.base ?? "/proxy",
     routes: api,
-
-    fragment: {
-      type: "patch",
-    },
-
-    menus: [
-      {
-        icon: "lucide:network",
-        path: "/redirects",
-        priority: 20,
-        title: "Redirects",
-      },
-    ],
 
     async onInit(ctx: PluginContext) {
       initializeProxyService(ctx, config.rules || []);
@@ -54,7 +38,7 @@ export default function proxyPlugin(config: ProxyConfig = {}): BuntimePlugin {
       logger?.debug("Proxy server configured for WebSocket upgrades");
     },
 
-    websocket: proxyWebSocketHandler as BuntimePlugin["websocket"],
+    websocket: proxyWebSocketHandler as PluginImpl["websocket"],
 
     async onRequest(req) {
       const result = await handleProxyRequest(req);

@@ -1,0 +1,7 @@
+{
+  "name": "@buntime/plugin-piercing",
+  "base": "/piercing",
+  "enabled": true
+  // Enable/disable pre-piercing for micro-frontends
+  // No additional configuration - piercing is automatic when enabled
+}

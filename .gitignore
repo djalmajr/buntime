@@ -13,4 +13,4 @@ node_modules
 tmp
 
 # Local runtime config
-runtime/buntime.jsonc
+runtime/data

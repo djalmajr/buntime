@@ -13,10 +13,13 @@ import { createApp } from "@/app";
 import { initConfig } from "@/config";
 import { NODE_ENV } from "@/constants";
 import { WorkerPool } from "@/libs/pool/pool";
-import { loadBuntimeConfig, PluginLoader } from "@/plugins/loader";
+import { PluginLoader } from "@/plugins/loader";
+import { createAppsCoreRoutes } from "@/routes/apps-core";
+import { createConfigCoreRoutes } from "@/routes/config-core";
+import { createPluginsCoreRoutes } from "@/routes/plugins-core";
 import { createPluginsInfoRoutes } from "@/routes/plugins-info";
 import { createWorkerRoutes } from "@/routes/worker";
-import { createAppResolver } from "@/utils/get-app-dir";
+import { createWorkerResolver } from "@/utils/get-worker-dir";
 
 // Initialize logger first (before anything else)
 const logger = createLogger({
@@ -26,38 +29,43 @@ const logger = createLogger({
 // Set as global logger so shared modules can access it
 setLogger(logger);
 
-// Load configuration
-const { baseDir, config: buntimeConfig } = await loadBuntimeConfig();
-const runtimeConfig = initConfig(buntimeConfig, baseDir);
+// Load configuration from environment variables
+const runtimeConfig = initConfig();
 
-// Set workspaces as env var so plugin workers can access it
+// Set workerDirs as env var so plugin workers can access it
 // Workers inherit Bun.env at spawn time
-Bun.env.BUNTIME_WORKSPACES = JSON.stringify(runtimeConfig.workspaces);
+Bun.env.BUNTIME_WORKER_DIRS = JSON.stringify(runtimeConfig.workerDirs);
 
 // Create pool with config
 const pool = new WorkerPool({ maxSize: runtimeConfig.poolSize });
 
-// Create app resolver
-const getAppDir = createAppResolver(runtimeConfig.workspaces);
+// Create worker resolver
+const getWorkerDir = createWorkerResolver(runtimeConfig.workerDirs);
 
 // Load plugins
-const loader = new PluginLoader(buntimeConfig, pool);
+const loader = new PluginLoader({ pool });
 const registry = await loader.load();
 
 // Create routes with dependencies
 const pluginsInfo = createPluginsInfoRoutes({ registry });
+const pluginsCore = createPluginsCoreRoutes({ loader });
+const configCore = createConfigCoreRoutes({ loader });
+const appsCore = createAppsCoreRoutes();
 
 const workers = createWorkerRoutes({
   config: runtimeConfig,
-  getAppDir,
+  getWorkerDir,
   pool,
   registry,
 });
 
 // Create app with routes and plugins
 const app = createApp({
-  getAppDir,
+  appsCore,
+  configCore,
+  getWorkerDir,
   homepage: runtimeConfig.homepage,
+  pluginsCore,
   pluginsInfo,
   pool,
   registry,
@@ -72,4 +80,4 @@ const pluginRoutes = registry.collectServerRoutes();
 const hasPluginRoutes = Object.keys(pluginRoutes).length > 0;
 
 // Export everything needed to start the server
-export { app, buntimeConfig, hasPluginRoutes, logger, pluginRoutes, pool, registry, websocket };
+export { app, hasPluginRoutes, logger, pluginRoutes, pool, registry, runtimeConfig, websocket };

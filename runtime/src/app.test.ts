@@ -16,7 +16,7 @@ const TEST_DIR = join(import.meta.dir, ".test-app");
 // Initialize config once before all tests
 beforeAll(() => {
   mkdirSync(TEST_DIR, { recursive: true });
-  initConfig({ workspaces: [TEST_DIR] }, TEST_DIR);
+  initConfig({ workerDirs: [TEST_DIR] }, TEST_DIR);
 });
 
 // Clean up after tests
@@ -77,17 +77,26 @@ describe("createApp", () => {
   let registry: PluginRegistry;
   let pool: WorkerPool & { fetchMock: ReturnType<typeof mock> };
   let pluginsInfo: Hono;
+  let pluginsCore: Hono;
+  let configCore: Hono;
+  let appsCore: Hono;
   let workers: Hono;
 
   beforeEach(() => {
     registry = new PluginRegistry();
     pool = createMockPool();
     pluginsInfo = new HonoApp().get("/", (c) => c.json({ plugins: [] }));
+    pluginsCore = new HonoApp().get("/", (c) => c.json([]));
+    configCore = new HonoApp().get("/plugins", (c) => c.json({ configs: {}, versions: [] }));
+    appsCore = new HonoApp().get("/", (c) => c.json([]));
     workers = new HonoApp().all("*", () => new Response("worker fallback"));
   });
 
   const createDeps = (overrides: Partial<AppDeps> = {}): AppDeps => ({
-    getAppDir: () => "/mock/app/dir",
+    appsCore,
+    configCore,
+    getWorkerDir: () => "/mock/app/dir",
+    pluginsCore,
     pluginsInfo,
     pool: pool as unknown as WorkerPool,
     registry,
@@ -445,11 +454,11 @@ describe("createApp", () => {
   describe("app-shell mode", () => {
     it("should route navigation requests to shell", async () => {
       const shellDir = "/mock/shell/dir";
-      const getAppDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
+      const getWorkerDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
 
       const app = createApp(
         createDeps({
-          getAppDir: getAppDirMock,
+          getWorkerDir: getWorkerDirMock,
           homepage: { app: "cpanel", shell: true },
         }),
       );
@@ -538,10 +547,10 @@ describe("createApp", () => {
   describe("resolveShell edge cases", () => {
     it("should warn when shell app not found", async () => {
       // Homepage points to non-existent app
-      const getAppDirMock = () => undefined;
+      const getWorkerDirMock = () => undefined;
       const app = createApp(
         createDeps({
-          getAppDir: getAppDirMock,
+          getWorkerDir: getWorkerDirMock,
           homepage: { app: "nonexistent", shell: true },
         }),
       );
@@ -583,11 +592,11 @@ describe("createApp", () => {
       registry.register(plugin, "/mock/metrics/dir");
 
       const shellDir = "/mock/shell/dir";
-      const getAppDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
+      const getWorkerDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
 
       const app = createApp(
         createDeps({
-          getAppDir: getAppDirMock,
+          getWorkerDir: getWorkerDirMock,
           homepage: { app: "cpanel", shell: true },
         }),
       );
@@ -611,11 +620,11 @@ describe("createApp", () => {
       registry.register(plugin, "/mock/dashboard/dir");
 
       const shellDir = "/mock/shell/dir";
-      const getAppDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
+      const getWorkerDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
 
       const app = createApp(
         createDeps({
-          getAppDir: getAppDirMock,
+          getWorkerDir: getWorkerDirMock,
           homepage: { app: "cpanel", shell: true },
         }),
       );
@@ -659,11 +668,11 @@ describe("createApp", () => {
     it("should not intercept non-404 responses", async () => {
       const workersMock = new HonoApp().all("*", () => new Response("ok", { status: 200 }));
       const shellDir = "/mock/shell/dir";
-      const getAppDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
+      const getWorkerDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
 
       const app = createApp(
         createDeps({
-          getAppDir: getAppDirMock,
+          getWorkerDir: getWorkerDirMock,
           homepage: { app: "cpanel", shell: true },
           workers: workersMock,
         }),
@@ -693,14 +702,14 @@ describe("createApp", () => {
         }),
       });
       const shellDir = "/mock/shell/dir";
-      const getAppDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
+      const getWorkerDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
 
       // Note: When homepage with shell is configured, the app should intercept 404s
       // and render them through the shell. This test verifies the 404 response
       // is returned when shell mode is configured.
       const app = createApp(
         createDeps({
-          getAppDir: getAppDirMock,
+          getWorkerDir: getWorkerDirMock,
           homepage: { app: "cpanel", shell: true },
           pool: pool404 as unknown as WorkerPool,
         }),
@@ -735,11 +744,11 @@ describe("createApp", () => {
 
   describe("resolveTargetApp", () => {
     it("should return undefined when app directory not found", async () => {
-      const getAppDirMock = () => undefined;
+      const getWorkerDirMock = () => undefined;
       const workersMock = new HonoApp().all("*", () => new Response("fallback"));
       const app = createApp(
         createDeps({
-          getAppDir: getAppDirMock,
+          getWorkerDir: getWorkerDirMock,
           workers: workersMock,
         }),
       );
@@ -773,14 +782,14 @@ describe("createApp", () => {
       });
 
       const shellDir = "/mock/shell/dir";
-      const getAppDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
+      const getWorkerDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
 
       // Worker routes that return 404
       const workersMock = new HonoApp().all("*", () => new Response("not found", { status: 404 }));
 
       const app = createApp(
         createDeps({
-          getAppDir: getAppDirMock,
+          getWorkerDir: getWorkerDirMock,
           homepage: { app: "cpanel", shell: true },
           pool: mockPool as unknown as WorkerPool,
           workers: workersMock,
@@ -802,14 +811,14 @@ describe("createApp", () => {
 
     it("should not render through shell when response is not 404", async () => {
       const shellDir = "/mock/shell/dir";
-      const getAppDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
+      const getWorkerDirMock = (name: string) => (name === "cpanel" ? shellDir : undefined);
 
       // Worker routes that return 200
       const workersMock = new HonoApp().all("*", () => new Response("success", { status: 200 }));
 
       const app = createApp(
         createDeps({
-          getAppDir: getAppDirMock,
+          getWorkerDir: getWorkerDirMock,
           homepage: { app: "cpanel", shell: true },
           workers: workersMock,
         }),
@@ -852,8 +861,8 @@ describe("createApp", () => {
 
   describe("resolveShell error handling", () => {
     it("should gracefully handle shell resolution errors", async () => {
-      // Create a mock getAppDir that throws
-      const getAppDirMock = (name: string) => {
+      // Create a mock getWorkerDir that throws
+      const getWorkerDirMock = (name: string) => {
         if (name === "cpanel") {
           throw new Error("Failed to resolve shell directory");
         }
@@ -864,7 +873,7 @@ describe("createApp", () => {
 
       const app = createApp(
         createDeps({
-          getAppDir: getAppDirMock,
+          getWorkerDir: getWorkerDirMock,
           homepage: { app: "cpanel", shell: true },
           workers: workersMock,
         }),

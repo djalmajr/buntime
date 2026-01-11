@@ -6,19 +6,22 @@ O plugin implementa SCIM 2.0 (System for Cross-domain Identity Management) confo
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", { ... }],
-    ["@buntime/plugin-authn", {
-      "providers": [...],
-      "scim": {
-        "enabled": true,
-        "maxResults": 100,
-        "bulkEnabled": true,
-        "maxBulkOperations": 1000
-      }
-    }]
-  ]
+  "enabled": true
+  // ... adapter config
+}
+
+// plugins/plugin-authn/manifest.jsonc
+{
+  "enabled": true,
+  "providers": [...],
+  "scim": {
+    "enabled": true,
+    "maxResults": 100,
+    "bulkEnabled": true,
+    "maxBulkOperations": 1000
+  }
 }
 ----
 

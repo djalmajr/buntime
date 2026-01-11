@@ -26,7 +26,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                @buntime/plugin-keyval                       │
 │                   (Plugin Server)                           │
-│   Rotas: /api/keyval/*                                      │
+│   Rotas: /keyval/api/*                                      │
 └─────────────────────┬───────────────────────────────────────┘
                       │ libSQL Protocol
                       ▼

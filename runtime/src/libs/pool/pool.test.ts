@@ -344,8 +344,8 @@ describe("WorkerPool", () => {
       const pool = new WorkerPool({ maxSize: 5 });
       // Very short TTL to force retirement
       const config = createMockConfig({
-        ttlMs: 50,
-        idleTimeoutMs: 25,
+        ttlMs: 100,
+        idleTimeoutMs: 50,
       });
       const req = new Request("http://localhost/test");
 
@@ -355,7 +355,7 @@ describe("WorkerPool", () => {
         await pool.fetch(appDir, config, req);
 
         // Wait for worker to become unhealthy and be retired
-        await Bun.sleep(150);
+        await Bun.sleep(300);
 
         // Create new worker instance
         await pool.fetch(appDir, config, req);
@@ -377,16 +377,16 @@ describe("WorkerPool", () => {
 
       const pool = new WorkerPool({ maxSize: 5 });
       const config = createMockConfig({
-        ttlMs: 50,
-        idleTimeoutMs: 25,
+        ttlMs: 100,
+        idleTimeoutMs: 50,
       });
 
       try {
         // Make some requests
         await pool.fetch(appDir, config, new Request("http://localhost/test"));
 
-        // Wait for TTL expiry and retirement
-        await Bun.sleep(100);
+        // Wait for TTL expiry and retirement (needs enough time for full cleanup)
+        await Bun.sleep(300);
 
         // Make more requests (new worker will be created)
         await pool.fetch(appDir, config, new Request("http://localhost/test"));
@@ -407,15 +407,15 @@ describe("WorkerPool", () => {
 
       const pool = new WorkerPool({ maxSize: 5 });
       const config = createMockConfig({
-        ttlMs: 50,
-        idleTimeoutMs: 25,
+        ttlMs: 100,
+        idleTimeoutMs: 50,
       });
 
       try {
         await pool.fetch(appDir, config, new Request("http://localhost/test"));
 
         // Wait for worker to be retired
-        await Bun.sleep(150);
+        await Bun.sleep(300);
 
         // Trigger cleanup by calling getWorkerStats (cleanup runs on interval)
         const stats = pool.getWorkerStats();

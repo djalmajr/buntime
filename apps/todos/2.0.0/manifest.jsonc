@@ -1,0 +1,9 @@
+{
+  "entrypoint": "dist/index.js",
+  "idleTimeout": 30,
+  "lowMemory": false,
+  "maxRequests": 100,
+  "timeout": 30,
+  "ttl": 60,
+  "visibility": "protected"
+}

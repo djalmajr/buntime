@@ -39,38 +39,12 @@ function createMockContext() {
 
 describe("authzPlugin", () => {
   describe("plugin structure", () => {
-    it("should return a valid BuntimePlugin object", () => {
+    it("should return a valid PluginImpl with lifecycle hooks", () => {
       const plugin = authzPlugin();
 
-      expect(plugin.name).toBe("@buntime/plugin-authz");
-      expect(plugin.base).toBe("/authz");
-      expect(plugin.dependencies).toEqual(["@buntime/plugin-authn"]);
-      expect(plugin.fragment).toEqual({ type: "patch" });
+      // Plugin implementation has lifecycle hooks
       expect(typeof plugin.onInit).toBe("function");
       expect(typeof plugin.onRequest).toBe("function");
-    });
-
-    it("should define menus for admin dashboard", () => {
-      const plugin = authzPlugin();
-
-      expect(plugin.menus).toBeDefined();
-      expect(plugin.menus).toHaveLength(1);
-
-      const menu = plugin.menus![0];
-      expect(menu.icon).toBe("lucide:shield-check");
-      expect(menu.path).toBe("/authz");
-      expect(menu.title).toBe("Authorization");
-      expect(menu.items).toHaveLength(2);
-      expect(menu.items![0]).toEqual({
-        icon: "lucide:file-text",
-        path: "/authz/policies",
-        title: "Policies",
-      });
-      expect(menu.items![1]).toEqual({
-        icon: "lucide:scale",
-        path: "/authz/evaluate",
-        title: "Evaluate",
-      });
     });
   });
 

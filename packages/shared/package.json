@@ -8,6 +8,7 @@
     "./logger": "./src/logger/index.ts",
     "./types": "./src/types/plugin.ts",
     "./types/virtual-modules": "./src/types/virtual-modules.d.ts",
+    "./utils/buntime-config": "./src/utils/buntime-config.ts",
     "./utils/config-validation": "./src/utils/config-validation.ts",
     "./utils/duration": "./src/utils/duration.ts",
     "./utils/size": "./src/utils/size.ts",

@@ -17,86 +17,11 @@ describe("plugin-keyval", () => {
       expect(typeof plugin).toBe("object");
     });
 
-    it("should have correct plugin name", () => {
-      const plugin = keyvalExtension();
-      expect(plugin.name).toBe("@buntime/plugin-keyval");
-    });
-
-    it("should have default base path /keyval", () => {
-      const plugin = keyvalExtension();
-      expect(plugin.base).toBe("/keyval");
-    });
-
-    it("should accept custom base path", () => {
-      const plugin = keyvalExtension({ base: "/custom-kv" });
-      expect(plugin.base).toBe("/custom-kv");
-    });
-
-    it("should declare plugin-database as dependency", () => {
-      const plugin = keyvalExtension();
-      expect(plugin.dependencies).toContain("@buntime/plugin-database");
-    });
-
-    it("should have routes defined", () => {
+    it("should have implementation properties", () => {
       const plugin = keyvalExtension();
       expect(plugin.routes).toBeDefined();
-    });
-
-    it("should have fragment with patch type", () => {
-      const plugin = keyvalExtension();
-      expect(plugin.fragment).toEqual({ type: "patch" });
-    });
-
-    it("should have menu configuration", () => {
-      const plugin = keyvalExtension();
-      expect(plugin.menus).toBeDefined();
-      expect(Array.isArray(plugin.menus)).toBe(true);
-      expect(plugin.menus?.length).toBeGreaterThan(0);
-    });
-
-    it("should have main menu with correct structure", () => {
-      const plugin = keyvalExtension();
-      const mainMenu = plugin.menus?.[0];
-
-      expect(mainMenu).toBeDefined();
-      expect(mainMenu?.icon).toBe("lucide:database");
-      expect(mainMenu?.path).toBe("/keyval");
-      expect(mainMenu?.title).toBe("KeyVal");
-      expect(mainMenu?.priority).toBe(80);
-    });
-
-    it("should have submenu items", () => {
-      const plugin = keyvalExtension();
-      const mainMenu = plugin.menus?.[0];
-      const items = mainMenu?.items;
-
-      expect(items).toBeDefined();
-      expect(Array.isArray(items)).toBe(true);
-      expect(items?.length).toBeGreaterThan(0);
-    });
-
-    it("should have expected submenu paths", () => {
-      const plugin = keyvalExtension();
-      const items = plugin.menus?.[0]?.items ?? [];
-      const paths = items.map((item) => item.path);
-
-      expect(paths).toContain("/keyval");
-      expect(paths).toContain("/keyval/entries");
-      expect(paths).toContain("/keyval/queue");
-      expect(paths).toContain("/keyval/search");
-      expect(paths).toContain("/keyval/watch");
-      expect(paths).toContain("/keyval/atomic");
-      expect(paths).toContain("/keyval/metrics");
-    });
-
-    it("should have onInit lifecycle hook", () => {
-      const plugin = keyvalExtension();
       expect(plugin.onInit).toBeDefined();
       expect(typeof plugin.onInit).toBe("function");
-    });
-
-    it("should have onShutdown lifecycle hook", () => {
-      const plugin = keyvalExtension();
       expect(plugin.onShutdown).toBeDefined();
       expect(typeof plugin.onShutdown).toBe("function");
     });
@@ -147,13 +72,12 @@ describe("plugin-keyval", () => {
           lockDuration: 15000,
         },
       });
-      expect(plugin.base).toBe("/kv");
+      expect(plugin.routes).toBeDefined();
     });
 
     it("should work with empty config", () => {
       const plugin = keyvalExtension({});
-      expect(plugin.name).toBe("@buntime/plugin-keyval");
-      expect(plugin.base).toBe("/keyval");
+      expect(plugin.routes).toBeDefined();
     });
   });
 

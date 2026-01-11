@@ -12,14 +12,12 @@ O plugin suporta múltiplos adapters para diferentes bancos de dados. Cada tipo 
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [
-        { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
-        { "type": "sqlite", "url": "file:./auth.db" }
-      ]
-    }]
+  "enabled": true,
+  "adapters": [
+    { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
+    { "type": "sqlite", "url": "file:./auth.db" }
   ]
 }
 ----

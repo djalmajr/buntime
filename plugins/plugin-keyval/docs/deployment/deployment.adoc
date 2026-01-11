@@ -36,20 +36,22 @@ docker compose up -d libsql
 docker compose logs -f libsql
 ----
 
-Configure o plugin no `buntime.jsonc`:
+Configure o plugin no `manifest.jsonc`:
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapter": {
-        "type": "libsql",
-        "urls": ["http://localhost:8880"]
-      }
-    }],
-    "@buntime/plugin-keyval"
-  ]
+  "enabled": true,
+  "adapter": {
+    "type": "libsql",
+    "urls": ["http://localhost:8880"]
+  }
+}
+
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "enabled": true
 }
 ----
 
@@ -60,15 +62,15 @@ Verifique se o plugin está funcionando:
 [source,bash]
 ----
 # Health check
-curl http://localhost:4000/api/keyval/health
+curl http://localhost:8000/keyval/api/health
 
 # Set value
-curl -X POST http://localhost:4000/api/keyval/set \
+curl -X POST http://localhost:8000/keyval/api/set \
   -H "Content-Type: application/json" \
   -d '{"key": "test", "value": "hello"}'
 
 # Get value
-curl http://localhost:4000/api/keyval/get/test
+curl http://localhost:8000/keyval/api/get/test
 ----
 
 === Produção com libSQL Self-Hosted
@@ -81,7 +83,7 @@ Em produção, o libSQL não deve ser exposto diretamente. O plugin-keyval atua 
 ----
 ┌─────────────────┐      ┌──────────────────────┐      ┌─────────────────┐
 │   Clients       │─────▶│  plugin-keyval       │─────▶│  libSQL (sqld)  │
-│                 │ HTTP │  (/api/keyval)  │ HTTP │  (rede interna) │
+│                 │ HTTP │  (/keyval/api)  │ HTTP │  (rede interna) │
 └─────────────────┘      └──────────────────────┘      └─────────────────┘
 ----
 
@@ -150,17 +152,19 @@ Configure o plugin com o token:
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapter": {
-        "type": "libsql",
-        "urls": ["http://libsql:8080"],
-        "authToken": "${LIBSQL_TOKEN}"
-      }
-    }],
-    "@buntime/plugin-keyval"
-  ]
+  "enabled": true,
+  "adapter": {
+    "type": "libsql",
+    "urls": ["http://libsql:8080"],
+    "authToken": "${LIBSQL_TOKEN}"
+  }
+}
+
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "enabled": true
 }
 ----
 
@@ -246,7 +250,7 @@ cp /backups/data-20250115.db /var/lib/sqld/data.db
 docker compose start libsql
 
 # 4. Valide os dados
-curl http://localhost:4000/api/keyval/keys/count
+curl http://localhost:8000/keyval/api/keys/count
 ----
 
 WARNING: Restauração sobrescreve dados atuais. Sempre valide em ambiente separado antes.
@@ -264,7 +268,7 @@ scrape_configs:
   - job_name: 'buntime-keyval'
     scrape_interval: 15s
     static_configs:
-      - targets: ['localhost:4000']
+      - targets: ['localhost:8000']
     metrics_path: '/api/metrics/prometheus'
 ----
 
@@ -293,7 +297,7 @@ Configure health checks no load balancer:
 [source,bash]
 ----
 # Health check básico
-curl http://localhost:4000/api/keyval/health
+curl http://localhost:8000/keyval/api/health
 
 # Resposta OK:
 {"status":"ok","timestamp":"2025-01-15T10:30:00Z"}
@@ -308,14 +312,14 @@ Configure no Kubernetes:
 ----
 livenessProbe:
   httpGet:
-    path: /api/keyval/health
+    path: /keyval/api/health
     port: 4000
   initialDelaySeconds: 10
   periodSeconds: 30
 
 readinessProbe:
   httpGet:
-    path: /api/keyval/health
+    path: /keyval/api/health
     port: 4000
   initialDelaySeconds: 5
   periodSeconds: 10
@@ -403,44 +407,39 @@ rate(keyval_queue_items_processed_total[5m])
 
 === Opções de Configuração
 
-==== Todas as Opções do buntime.jsonc
+==== Todas as Opções do manifest.jsonc
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    [
-      "@buntime/plugin-database",
-      {
-        "adapter": {
-          "type": "libsql",
-          "authToken": "${LIBSQL_TOKEN}"
-        }
-      }
-    ],
-    [
-      "@buntime/plugin-keyval",
-      {
-        // === Queue ===
-        "queue": {
-          // Intervalo de limpeza de locks expirados (ms)
-          "cleanupInterval": 60000,      // Padrão: 1 minuto
+  "enabled": true,
+  "adapter": {
+    "type": "libsql",
+    "authToken": "${LIBSQL_TOKEN}"
+  }
+}
 
-          // Duração do lock de processamento (ms)
-          "lockDuration": 30000          // Padrão: 30 segundos
-        },
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "enabled": true,
+  // === Queue ===
+  "queue": {
+    // Intervalo de limpeza de locks expirados (ms)
+    "cleanupInterval": 60000,      // Padrão: 1 minuto
 
-        // === Métricas ===
-        "metrics": {
-          // Persistir métricas no database
-          "persistent": true,            // Padrão: false
+    // Duração do lock de processamento (ms)
+    "lockDuration": 30000          // Padrão: 30 segundos
+  },
 
-          // Intervalo de flush das métricas (ms)
-          "flushInterval": 10000         // Padrão: 10 segundos
-        }
-      }
-    ]
-  ]
+  // === Métricas ===
+  "metrics": {
+    // Persistir métricas no database
+    "persistent": true,            // Padrão: false
+
+    // Intervalo de flush das métricas (ms)
+    "flushInterval": 10000         // Padrão: 10 segundos
+  }
 }
 ----
 
@@ -549,18 +548,13 @@ Trade-offs:
 
 [source,jsonc]
 ----
+// plugins/plugin-keyval/manifest.jsonc
 {
-  "plugins": [
-    [
-      "@buntime/plugin-keyval",
-      {
-        "metrics": {
-          "persistent": true,
-          "flushInterval": 30000  // Flush a cada 30s (balanceado)
-        }
-      }
-    ]
-  ]
+  "enabled": true,
+  "metrics": {
+    "persistent": true,
+    "flushInterval": 30000  // Flush a cada 30s (balanceado)
+  }
 }
 ----
 
@@ -570,36 +564,34 @@ TIP: Para produção, use `flushInterval: 30000` (30 segundos) como compromisso 
 
 [source,jsonc]
 ----
+// plugins/plugin-metrics/manifest.jsonc
 {
-  "required": ["@buntime/plugin-metrics", "@buntime/plugin-database", "@buntime/plugin-keyval"],
-  "plugins": [
-    "@buntime/plugin-metrics",
-    [
-      "@buntime/plugin-database",
-      {
-        "adapter": {
-          "type": "libsql",
-          "authToken": "${LIBSQL_TOKEN}"
-        }
-      }
-    ],
-    [
-      "@buntime/plugin-keyval",
-      {
-        // Queue otimizada para produção
-        "queue": {
-          "cleanupInterval": 300000,     // 5 minutos
-          "lockDuration": 60000          // 1 minuto (tarefas médias)
-        },
+  "enabled": true
+}
 
-        // Métricas persistentes
-        "metrics": {
-          "persistent": true,
-          "flushInterval": 30000         // 30 segundos
-        }
-      }
-    ]
-  ]
+// plugins/plugin-database/manifest.jsonc
+{
+  "enabled": true,
+  "adapter": {
+    "type": "libsql",
+    "authToken": "${LIBSQL_TOKEN}"
+  }
+}
+
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "enabled": true,
+  // Queue otimizada para produção
+  "queue": {
+    "cleanupInterval": 300000,     // 5 minutos
+    "lockDuration": 60000          // 1 minuto (tarefas médias)
+  },
+
+  // Métricas persistentes
+  "metrics": {
+    "persistent": true,
+    "flushInterval": 30000         // 30 segundos
+  }
 }
 ----
 

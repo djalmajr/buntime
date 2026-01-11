@@ -1,8 +1,8 @@
 import type { AdapterType, DatabaseService } from "@buntime/plugin-database";
-import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
+import type { PluginContext, PluginImpl } from "@buntime/shared/types";
 import { initialize, shutdown } from "./server/services";
 
-export interface DurableObjectsConfig extends BasePluginConfig {
+export interface DurableObjectsConfig {
   /**
    * Database adapter type to use (uses default if not specified)
    * @example "libsql", "sqlite", "postgres"
@@ -35,42 +35,29 @@ export interface DurableObjectsConfig extends BasePluginConfig {
  *
  * @example
  * ```jsonc
- * // buntime.jsonc
+ * // plugins/plugin-database/manifest.jsonc
  * {
- *   "plugins": [
- *     ["@buntime/plugin-database", {
- *       "adapters": [
- *         { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] }
- *       ]
- *     }],
- *     ["@buntime/plugin-durable", {
- *       "database": "libsql",
- *       "hibernateAfter": 60000,
- *       "maxObjects": 1000
- *     }]
+ *   "name": "@buntime/plugin-database",
+ *   "enabled": true,
+ *   "adapters": [
+ *     { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] }
  *   ]
  * }
  * ```
+ *
+ * ```jsonc
+ * // plugins/plugin-durable/manifest.jsonc
+ * {
+ *   "name": "@buntime/plugin-durable",
+ *   "enabled": true,
+ *   "database": "libsql",
+ *   "hibernateAfter": 60000,
+ *   "maxObjects": 1000
+ * }
+ * ```
  */
-export default function durableObjectsExtension(config: DurableObjectsConfig = {}): BuntimePlugin {
+export default function durableObjectsExtension(config: DurableObjectsConfig = {}): PluginImpl {
   return {
-    name: "@buntime/plugin-durable",
-    base: config.base ?? "/durable",
-    dependencies: ["@buntime/plugin-database"],
-
-    fragment: {
-      type: "patch",
-    },
-
-    menus: [
-      {
-        icon: "lucide:box",
-        path: "/durable",
-        priority: 60,
-        title: "Durable Objects",
-      },
-    ],
-
     async onInit(ctx: PluginContext) {
       const databaseService = ctx.getService<DatabaseService>("database");
       if (!databaseService) {

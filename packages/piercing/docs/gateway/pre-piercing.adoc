@@ -27,14 +27,13 @@ Com pre-piercing:
 
 === Habilitando Pre-Piercing
 
-Pre-piercing é habilitado através do plugin `@buntime/plugin-piercing`. Para usar, adicione o plugin ao arquivo `buntime.jsonc`:
+Pre-piercing é habilitado através do plugin `@buntime/plugin-piercing`. Para usar, adicione o plugin ao arquivo `manifest.jsonc`:
 
 [source,jsonc]
 ----
+// plugins/plugin-piercing/manifest.jsonc
 {
-  "plugins": [
-    "@buntime/plugin-piercing"
-  ]
+  "enabled": true
 }
 ----
 
@@ -46,10 +45,9 @@ O plugin pode ser configurado para habilitar/desabilitar o pre-piercing:
 
 [source,jsonc]
 ----
+// plugins/plugin-piercing/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-piercing", { "enabled": true }]
-  ]
+  "enabled": true
 }
 ----
 
@@ -174,19 +172,21 @@ Se o HTML não contém `</body>`, os fragmentos são concatenados ao final do do
 
 === Exemplo Completo
 
-==== buntime.jsonc
+==== manifest.jsonc
 
 [source,jsonc]
 ----
+// plugins/plugin-proxy/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-proxy", {
-      "rules": [
-        { "path": "/cpanel/*", "target": "cpanel@latest" }
-      ]
-    }],
-    "@buntime/plugin-piercing"
+  "enabled": true,
+  "rules": [
+    { "path": "/cpanel/*", "target": "cpanel@latest" }
   ]
+}
+
+// plugins/plugin-piercing/manifest.jsonc
+{
+  "enabled": true
 }
 ----
 

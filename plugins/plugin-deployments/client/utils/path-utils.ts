@@ -4,7 +4,7 @@ import { valid } from "semver";
  * Information about a deployment path
  *
  * Path structure with virtual root folders:
- * - "" -> root (shows all appsDirs)
+ * - "" -> root (shows all workerDirs)
  * - "rootName" -> inside virtual root folder
  * - "rootName/app@version" -> flat format, inside version
  * - "rootName/app" -> nested format, inside app folder

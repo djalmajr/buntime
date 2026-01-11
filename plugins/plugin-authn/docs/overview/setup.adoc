@@ -7,22 +7,28 @@
 
 === Configuração Básica
 
+IMPORTANT: Cada plugin tem seu próprio `manifest.jsonc` no diretório do plugin. Os plugins são descobertos automaticamente pelo runtime.
+
 ==== Email/Password (Desenvolvimento)
 
 A configuração mais simples para desenvolvimento local:
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [{ "type": "libsql", "default": true }]
-    }],
-    ["@buntime/plugin-authn", {
-      "providers": [
-        { "type": "email-password", "allowSignUp": true }
-      ]
-    }]
+  "enabled": true,
+  "adapters": [{ "type": "libsql", "default": true }]
+}
+----
+
+[source,jsonc]
+----
+// plugins/plugin-authn/manifest.jsonc
+{
+  "enabled": true,
+  "providers": [
+    { "type": "email-password", "allowSignUp": true }
   ]
 }
 ----
@@ -33,24 +39,19 @@ Para integração com Keycloak:
 
 [source,jsonc]
 ----
+// plugins/plugin-authn/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [{ "type": "libsql", "default": true }]
-    }],
-    ["@buntime/plugin-authn", {
-      "providers": [
-        {
-          "type": "keycloak",
-          "issuer": "${KEYCLOAK_URL}",
-          "realm": "${KEYCLOAK_REALM}",
-          "clientId": "${KEYCLOAK_CLIENT_ID}",
-          "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
-        }
-      ],
-      "trustedOrigins": ["http://localhost:8000"]
-    }]
-  ]
+  "enabled": true,
+  "providers": [
+    {
+      "type": "keycloak",
+      "issuer": "${KEYCLOAK_URL}",
+      "realm": "${KEYCLOAK_REALM}",
+      "clientId": "${KEYCLOAK_CLIENT_ID}",
+      "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
+    }
+  ],
+  "trustedOrigins": ["http://localhost:8000"]
 }
 ----
 
@@ -60,21 +61,16 @@ NOTE: O campo `issuer` deve ser a URL base do Keycloak (ex: `http://localhost:81
 
 [source,jsonc]
 ----
+// plugins/plugin-authn/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [{ "type": "libsql", "default": true }]
-    }],
-    ["@buntime/plugin-authn", {
-      "providers": [
-        {
-          "type": "auth0",
-          "domain": "${AUTH0_DOMAIN}",
-          "clientId": "${AUTH0_CLIENT_ID}",
-          "clientSecret": "${AUTH0_CLIENT_SECRET}"
-        }
-      ]
-    }]
+  "enabled": true,
+  "providers": [
+    {
+      "type": "auth0",
+      "domain": "${AUTH0_DOMAIN}",
+      "clientId": "${AUTH0_CLIENT_ID}",
+      "clientSecret": "${AUTH0_CLIENT_SECRET}"
+    }
   ]
 }
 ----
@@ -83,21 +79,16 @@ NOTE: O campo `issuer` deve ser a URL base do Keycloak (ex: `http://localhost:81
 
 [source,jsonc]
 ----
+// plugins/plugin-authn/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [{ "type": "libsql", "default": true }]
-    }],
-    ["@buntime/plugin-authn", {
-      "providers": [
-        {
-          "type": "okta",
-          "domain": "${OKTA_DOMAIN}",
-          "clientId": "${OKTA_CLIENT_ID}",
-          "clientSecret": "${OKTA_CLIENT_SECRET}"
-        }
-      ]
-    }]
+  "enabled": true,
+  "providers": [
+    {
+      "type": "okta",
+      "domain": "${OKTA_DOMAIN}",
+      "clientId": "${OKTA_CLIENT_ID}",
+      "clientSecret": "${OKTA_CLIENT_SECRET}"
+    }
   ]
 }
 ----
@@ -108,22 +99,17 @@ Para qualquer provedor OIDC compatível:
 
 [source,jsonc]
 ----
+// plugins/plugin-authn/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [{ "type": "libsql", "default": true }]
-    }],
-    ["@buntime/plugin-authn", {
-      "providers": [
-        {
-          "type": "generic-oidc",
-          "issuer": "${OIDC_ISSUER}",
-          "clientId": "${OIDC_CLIENT_ID}",
-          "clientSecret": "${OIDC_CLIENT_SECRET}",
-          "displayName": "My OIDC Provider"
-        }
-      ]
-    }]
+  "enabled": true,
+  "providers": [
+    {
+      "type": "generic-oidc",
+      "issuer": "${OIDC_ISSUER}",
+      "clientId": "${OIDC_CLIENT_ID}",
+      "clientSecret": "${OIDC_CLIENT_SECRET}",
+      "displayName": "My OIDC Provider"
+    }
   ]
 }
 ----
@@ -134,23 +120,18 @@ Combine múltiplos provedores na mesma aplicação:
 
 [source,jsonc]
 ----
+// plugins/plugin-authn/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [{ "type": "libsql", "default": true }]
-    }],
-    ["@buntime/plugin-authn", {
-      "providers": [
-        { "type": "email-password", "allowSignUp": true },
-        {
-          "type": "keycloak",
-          "issuer": "${KEYCLOAK_URL}",
-          "realm": "${KEYCLOAK_REALM}",
-          "clientId": "${KEYCLOAK_CLIENT_ID}",
-          "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
-        }
-      ]
-    }]
+  "enabled": true,
+  "providers": [
+    { "type": "email-password", "allowSignUp": true },
+    {
+      "type": "keycloak",
+      "issuer": "${KEYCLOAK_URL}",
+      "realm": "${KEYCLOAK_REALM}",
+      "clientId": "${KEYCLOAK_CLIENT_ID}",
+      "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
+    }
   ]
 }
 ----

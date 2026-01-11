@@ -27,8 +27,9 @@ export const client = hc<AppType>(basePath || "/", {
 const authClient = createAuthClient({ baseURL: `${window.location.origin}${basePath}/api` });
 
 // Session check for route guards (caches result for the request lifecycle)
-let sessionPromise: Promise<Awaited<ReturnType<typeof client.api.auth.session.$get>> | null> | null =
-  null;
+let sessionPromise: Promise<Awaited<
+  ReturnType<typeof client.api.auth.session.$get>
+> | null> | null = null;
 
 export async function getSession() {
   if (!sessionPromise) {

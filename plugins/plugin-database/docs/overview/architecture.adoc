@@ -19,7 +19,7 @@
 == Fluxo de Dados
 
 1. **Requisição**: Chega uma requisição HTTP.
-2. **Identificação do Tenant**: O plugin identifica o tenant (ex: via header `X-Tenant-ID`).
+2. **Identificação do Tenant**: O plugin identifica o tenant (ex: via header `x-tenant-id`).
 3. **Resolução do Adapter**: O `DatabaseService` retorna o adapter correto para aquele tenant.
    - Para libSQL: Um namespace específico.
    - Para Postgres: Um schema específico.

@@ -1,10 +1,10 @@
 /**
  * Virtual Hosts Plugin for Buntime
  *
- * Enables serving workspace apps via custom domains directly at root path.
+ * Enables serving apps via custom domains directly at root path.
  * Supports wildcard subdomains for multi-tenancy.
  */
-import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
+import type { PluginContext, PluginImpl } from "@buntime/shared/types";
 import { matchVirtualHost, type VHostConfig } from "./server/matcher";
 
 /** Header name for tenant extracted from wildcard subdomain */
@@ -13,7 +13,7 @@ const VHOST_TENANT_HEADER = "x-vhost-tenant";
 /** Header name for base path (used by runtime's wrapper.ts) */
 const BASE_HEADER = "x-base";
 
-export interface VHostsPluginConfig extends BasePluginConfig {
+export interface VHostsPluginConfig {
   /**
    * Virtual host configurations keyed by hostname pattern
    *
@@ -38,7 +38,7 @@ interface PoolLike {
 }
 
 // Type for the app resolver function
-type GetAppDir = (appName: string) => string;
+type GetWorkerDir = (workerName: string) => string;
 
 // Type for worker config loader
 type LoadWorkerConfig = (appDir: string) => Promise<WorkerConfigLike>;
@@ -46,37 +46,34 @@ type LoadWorkerConfig = (appDir: string) => Promise<WorkerConfigLike>;
 /**
  * Virtual Hosts plugin for Buntime
  *
- * Allows serving workspace apps via custom domains:
+ * Allows serving apps via custom domains:
  * - `sked.ly` → serves `skedly@latest` at root `/`
  * - `*.sked.ly` → captures subdomain as tenant header
  */
-export default function vhostsPlugin(pluginConfig: VHostsPluginConfig): BuntimePlugin {
+export default function vhostsPlugin(pluginConfig: VHostsPluginConfig): PluginImpl {
   // These will be set during onInit
   let pool: PoolLike;
-  let getAppDir: GetAppDir;
+  let getWorkerDir: GetWorkerDir;
   let loadWorkerConfig: LoadWorkerConfig;
 
   return {
-    name: "@buntime/plugin-vhosts",
-    base: "", // No routes of its own
-
     async onInit(ctx: PluginContext) {
       // Get pool from context
       pool = ctx.pool as PoolLike;
 
       // Import runtime utilities dynamically (builtin plugin can access runtime internals)
       // Using string variable to prevent TypeScript from following the import
-      const getAppDirPath = "../../runtime/src/utils/get-app-dir";
+      const getWorkerDirPath = "../../runtime/src/utils/get-worker-dir";
       const poolConfigPath = "../../runtime/src/libs/pool/config";
 
-      const appDirModule = (await import(getAppDirPath)) as {
-        createAppResolver: (workspaces: string[]) => GetAppDir;
+      const workerDirModule = (await import(getWorkerDirPath)) as {
+        createWorkerResolver: (workerDirs: string[]) => GetWorkerDir;
       };
       const poolConfigModule = (await import(poolConfigPath)) as {
         loadWorkerConfig: LoadWorkerConfig;
       };
 
-      getAppDir = appDirModule.createAppResolver(ctx.globalConfig.workspaces);
+      getWorkerDir = workerDirModule.createWorkerResolver(ctx.globalConfig.workerDirs);
       loadWorkerConfig = poolConfigModule.loadWorkerConfig;
 
       ctx.logger.info(`Virtual hosts configured: ${Object.keys(pluginConfig.hosts).join(", ")}`);
@@ -100,8 +97,8 @@ export default function vhostsPlugin(pluginConfig: VHostsPluginConfig): BuntimeP
           return new Response(null, { status: 404 });
         }
 
-        // Resolve app directory
-        const appDir = getAppDir(match.app);
+        // Resolve worker directory
+        const appDir = getWorkerDir(match.app);
         if (!appDir) {
           return new Response(`Virtual host app not found: ${match.app}`, {
             status: 502,

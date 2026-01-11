@@ -1,6 +1,8 @@
 /**
  * Shared build utilities for Buntime plugins and apps
  *
+ * ## Plugin Builder
+ *
  * Usage in plugin scripts/build.ts:
  *
  * ```ts
@@ -17,6 +19,23 @@
  * }).run();
  * ```
  *
+ * ### Conditional Build
+ *
+ * Plugin builds are conditional based on `manifest.jsonc` in the plugin directory.
+ * If `enabled: false`, the build is skipped:
+ *
+ * ```jsonc
+ * // plugins/plugin-metrics/manifest.jsonc
+ * {
+ *   "enabled": false,  // Build will be skipped
+ *   "entrypoint": "dist/client/index.html"
+ * }
+ * ```
+ *
+ * This allows having plugins in the directory without building them.
+ *
+ * ## App Builder
+ *
  * Usage in app scripts/build.ts:
  *
  * ```ts
@@ -31,10 +50,19 @@
  *   external: ["asciidoctor"],
  * }).run();
  * ```
+ *
+ * ## Watch Mode
+ *
+ * Both builders support watch mode with `--watch` flag:
+ *
+ * ```bash
+ * bun scripts/build.ts --watch
+ * ```
  */
 import { existsSync, rmSync, watch } from "node:fs";
 import { basename, join } from "node:path";
 import type { BunPlugin } from "bun";
+import { isEnabledSync } from "./utils/buntime-config";
 
 export interface PluginBuildConfig {
   /** Plugin name for logging (e.g., "plugin-health") */
@@ -178,6 +206,12 @@ export function createPluginBuilder(config: PluginBuildConfig): PluginBuilder {
   }
 
   async function run(): Promise<void> {
+    // Check if plugin is enabled
+    if (!isEnabledSync(cwd)) {
+      console.log(`Skipping ${config.name} (disabled in manifest.jsonc)`);
+      return;
+    }
+
     // Initial build
     await build();
 

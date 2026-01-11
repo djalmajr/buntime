@@ -49,19 +49,5 @@
     "@zomme/bun-plugin-tsr": "^0.1.1",
     "bun-plugin-tailwind": "^0.1.2",
     "tailwindcss": "^4.1.18"
-  },
-  "buntime": {
-    "entrypoint": "dist/index.js",
-    "visibility": "protected",
-    "publicRoutes": {
-      "GET": [
-        "/*.js",
-        "/*.css",
-        "/*.woff2",
-        "/*.png",
-        "/*.svg",
-        "/*.ico"
-      ]
-    }
   }
 }

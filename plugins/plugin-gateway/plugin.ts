@@ -1,4 +1,4 @@
-import type { BuntimePlugin, PluginContext } from "@buntime/shared/types";
+import type { PluginContext, PluginImpl } from "@buntime/shared/types";
 import { createGatewayApi } from "./server/api";
 import { ResponseCache } from "./server/cache";
 import { addCorsHeaders, handlePreflight } from "./server/cors";
@@ -56,30 +56,29 @@ function isExcluded(pathname: string, patterns: RegExp[]): boolean {
  * - CORS handling
  *
  * @example
- * ```typescript
- * // buntime.config.ts
- * export default {
- *   plugins: [
- *     ["@buntime/plugin-gateway", {
- *       rateLimit: {
- *         requests: 100,
- *         window: "1m",
- *         keyBy: "ip",
- *       },
- *       cache: {
- *         ttl: 300,
- *         methods: ["GET"],
- *       },
- *       cors: {
- *         origin: "*",
- *         credentials: false,
- *       },
- *     }],
- *   ],
+ * ```jsonc
+ * // plugins/plugin-gateway/manifest.jsonc
+ * {
+ *   "name": "@buntime/plugin-gateway",
+ *   "base": "/gateway",
+ *   "enabled": true,
+ *   "rateLimit": {
+ *     "requests": 100,
+ *     "window": "1m",
+ *     "keyBy": "ip"
+ *   },
+ *   "cache": {
+ *     "ttl": 300,
+ *     "methods": ["GET"]
+ *   },
+ *   "cors": {
+ *     "origin": "*",
+ *     "credentials": false
+ *   }
  * }
  * ```
  */
-export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): BuntimePlugin {
+export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginImpl {
   config = pluginConfig;
 
   const routes = createGatewayApi(
@@ -89,23 +88,6 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): Buntime
   );
 
   return {
-    name: "@buntime/plugin-gateway",
-    base: pluginConfig.base ?? "/gateway",
-    optionalDependencies: ["@buntime/plugin-authn"], // Run after authn if present
-
-    fragment: {
-      type: "patch",
-    },
-
-    menus: [
-      {
-        icon: "lucide:shield",
-        path: "/gateway",
-        priority: 50,
-        title: "Gateway",
-      },
-    ],
-
     onInit(ctx: PluginContext) {
       logger = ctx.logger;
 

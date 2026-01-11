@@ -1,4 +1,4 @@
-import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
+import type { BasePluginConfig, PluginContext, PluginImpl } from "@buntime/shared/types";
 import { api } from "./server/api";
 import { addLog, clearLogs, configure, getLogs, getStats, setLogger } from "./server/services";
 
@@ -25,31 +25,14 @@ export interface LogsConfig extends BasePluginConfig {
  * - API endpoints for fetching and managing logs
  * - SSE for real-time log streaming
  */
-export default function logsPlugin(pluginConfig: LogsConfig = {}): BuntimePlugin {
+export default function logsPlugin(pluginConfig: LogsConfig = {}): PluginImpl {
   configure({
     maxEntries: pluginConfig.maxEntries,
     sseInterval: pluginConfig.sseInterval,
   });
 
   return {
-    name: "@buntime/plugin-logs",
-    base: "/logs",
     routes: api, // SSE requires main thread (streaming doesn't work in workers)
-
-    // Fragment with patch sandbox (internal plugin)
-    fragment: {
-      type: "patch",
-    },
-
-    // Menu items for C-Panel sidebar
-    menus: [
-      {
-        icon: "lucide:scroll-text",
-        path: "/logs",
-        priority: 40,
-        title: "Logs",
-      },
-    ],
 
     onInit(ctx: PluginContext) {
       setLogger(ctx.logger);

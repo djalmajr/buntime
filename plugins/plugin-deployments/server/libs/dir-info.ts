@@ -29,45 +29,33 @@ function isValidVersion(version: string): boolean {
 }
 
 /**
- * Read buntime config from buntime.jsonc or package.json#buntime
+ * Read manifest config from manifest.jsonc or manifest.json
  */
-async function readBuntimeConfig(dirPath: string): Promise<BuntimeConfig | undefined> {
-  // Try buntime.jsonc first
-  try {
-    const jsoncPath = join(dirPath, "buntime.jsonc");
-    const jsoncFile = Bun.file(jsoncPath);
-    if (await jsoncFile.exists()) {
-      // Bun natively parses JSONC (strips comments and trailing commas)
-      const mod = await import(jsoncPath);
-      const config = mod.default ?? mod;
-      if (config) return config as BuntimeConfig;
-    }
-  } catch {
-    // Ignore parse errors
-  }
-
-  // Fallback to package.json#buntime
-  try {
-    const pkgPath = join(dirPath, "package.json");
-    const pkgFile = Bun.file(pkgPath);
-    if (await pkgFile.exists()) {
-      const pkg = (await pkgFile.json()) as { buntime?: BuntimeConfig };
-      if (pkg.buntime) {
-        return pkg.buntime;
+async function readManifestConfig(dirPath: string): Promise<BuntimeConfig | undefined> {
+  // Try manifest.jsonc first, then manifest.json
+  for (const filename of ["manifest.jsonc", "manifest.json"]) {
+    try {
+      const manifestPath = join(dirPath, filename);
+      const manifestFile = Bun.file(manifestPath);
+      if (await manifestFile.exists()) {
+        // Bun natively parses JSONC (strips comments and trailing commas)
+        const mod = await import(manifestPath);
+        const config = mod.default ?? mod;
+        if (config) return config as BuntimeConfig;
       }
+    } catch {
+      // Ignore parse errors
     }
-  } catch {
-    // Ignore parse errors
   }
 
   return undefined;
 }
 
 /**
- * Read visibility from buntime config
+ * Read visibility from manifest config
  */
 async function readVisibility(dirPath: string): Promise<Visibility | undefined> {
-  const config = await readBuntimeConfig(dirPath);
+  const config = await readManifestConfig(dirPath);
   return config?.visibility;
 }
 
@@ -210,7 +198,7 @@ export class DirInfo {
             (pathInfo.format === "nested" && pathInfo.depth === 2 && isValidVersion(name));
 
           if (isVersionFolder) {
-            const config = await readBuntimeConfig(entryPath);
+            const config = await readManifestConfig(entryPath);
             if (config) {
               configValidation = validateWorkerConfig(config);
             }
@@ -375,7 +363,7 @@ export class DirInfo {
 
         // Read excludes from version folder
         const versionDir = join(this.basePath, versionFolderPath);
-        const config = await readBuntimeConfig(versionDir);
+        const config = await readManifestConfig(versionDir);
         if (config?.excludes) {
           for (const pattern of config.excludes) {
             excludes.add(pattern);

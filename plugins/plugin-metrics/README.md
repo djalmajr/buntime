@@ -27,14 +27,11 @@ Pool metrics extension for Buntime runner.
 
 ## Usage
 
-```typescript
-// buntime.config.ts
-export default {
-  plugins: [
-    ["@buntime/metrics", {
-      sseInterval: 2000,
-    }],
-  ],
+```jsonc
+// plugins/plugin-metrics/manifest.jsonc
+{
+  "enabled": true,
+  "sseInterval": 2000
 }
 ```
 

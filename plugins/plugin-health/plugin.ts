@@ -1,4 +1,4 @@
-import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
+import type { PluginContext, PluginImpl } from "@buntime/shared/types";
 import {
   configure,
   registerHealthCheck,
@@ -8,7 +8,7 @@ import {
   unregisterHealthCheck,
 } from "./server/services";
 
-export interface HealthConfig extends BasePluginConfig {
+export interface HealthConfig {
   /**
    * Health check timeout in milliseconds
    * @default 5000
@@ -25,28 +25,10 @@ export interface HealthConfig extends BasePluginConfig {
  * - React UI for viewing health status (fragment)
  * - Kubernetes-compatible probes (/live, /ready)
  */
-export default function healthPlugin(pluginConfig: HealthConfig = {}): BuntimePlugin {
+export default function healthPlugin(pluginConfig: HealthConfig = {}): PluginImpl {
   configure({ timeout: pluginConfig.timeout });
 
   return {
-    name: "@buntime/plugin-health",
-    base: "/health",
-
-    // Fragment with patch sandbox (internal plugin)
-    fragment: {
-      type: "patch",
-    },
-
-    // Menu items for C-Panel sidebar
-    menus: [
-      {
-        icon: "lucide:heart-pulse",
-        path: "/health",
-        priority: 30,
-        title: "Health",
-      },
-    ],
-
     onInit(ctx: PluginContext) {
       setLogger(ctx.logger);
       if (ctx.pool) {

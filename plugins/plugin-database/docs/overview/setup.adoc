@@ -15,26 +15,57 @@ bun add @buntime/plugin-database
 
 == Configuração
 
-A configuração é feita através do arquivo `buntime.jsonc`.
+A configuração é feita através do arquivo `manifest.jsonc` no diretório do plugin. O plugin é descoberto automaticamente pelo runtime quando habilitado.
 
-=== Múltiplos Adapters
-
-Permite que diferentes plugins usem diferentes bancos de dados:
+=== manifest.jsonc (por plugin)
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [
-        { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
-        { "type": "sqlite", "url": "file:./auth.db" }
-      ]
-    }],
-    ["@buntime/plugin-keyval", { "database": "libsql" }],
-    ["@buntime/plugin-authn", { "database": "sqlite" }],
-    "@buntime/plugin-durable"
+  "enabled": true,                        // Habilita o plugin
+  "entrypoint": "dist/client/index.html", // UI do plugin
+  "adapters": [
+    {
+      "type": "libsql",
+      "default": true,
+      "urls": ["http://localhost:8880"]
+    }
   ]
+}
+----
+
+=== Múltiplos Adapters
+
+Permite que diferentes plugins usem diferentes bancos de dados. Configure cada adapter no `manifest.jsonc` do plugin-database, e em cada plugin dependente especifique qual adapter usar:
+
+[source,jsonc]
+----
+// plugins/plugin-database/manifest.jsonc
+{
+  "enabled": true,
+  "adapters": [
+    { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
+    { "type": "sqlite", "url": "file:./auth.db" }
+  ]
+}
+----
+
+[source,jsonc]
+----
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "enabled": true,
+  "database": "libsql"  // Usa o adapter libsql
+}
+----
+
+[source,jsonc]
+----
+// plugins/plugin-authn/manifest.jsonc
+{
+  "enabled": true,
+  "database": "sqlite"  // Usa o adapter sqlite
 }
 ----
 
@@ -46,23 +77,22 @@ Permite que diferentes plugins usem diferentes bancos de dados:
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [
-        {
-          "type": "libsql",
-          "default": true,
-          "urls": ["${LIBSQL_URL_0}"],
-          "authToken": "${LIBSQL_TOKEN}"
-        }
-      ],
-      "tenancy": {
-        "autoCreate": true,
-        "maxTenants": 1000
-      }
-    }]
-  ]
+  "enabled": true,
+  "adapters": [
+    {
+      "type": "libsql",
+      "default": true,
+      "urls": ["${LIBSQL_URL_0}"],
+      "authToken": "${LIBSQL_TOKEN}"
+    }
+  ],
+  "tenancy": {
+    "enabled": true,
+    "autoCreate": true,
+    "maxTenants": 1000
+  }
 }
 ----
 
@@ -71,7 +101,7 @@ Permite que diferentes plugins usem diferentes bancos de dados:
 - `autoCreate`: Cria tenants automaticamente no primeiro acesso (padrão: `false`)
 - `defaultTenant`: ID do tenant padrão quando nenhum header de tenant é fornecido (opcional)
 - `enabled`: Habilita suporte a multi-tenancy (padrão: `false`)
-- `header`: Nome do header HTTP usado para identificação do tenant (padrão: `"X-Tenant-ID"`)
+- `header`: Nome do header HTTP usado para identificação do tenant (padrão: `"x-tenant-id"`)
 - `maxTenants`: Número máximo de adapters de tenant cacheados por tipo (padrão: `1000`)
   - Usa `QuickLRU` para eviction automática do menos recentemente usado
   - Adapters evictados são fechados automaticamente
@@ -95,21 +125,19 @@ O plugin detecta automaticamente e distribui leituras entre as réplicas.
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [
-        {
-          "type": "libsql",
-          "default": true,
-          "urls": [
-            "http://primary:8080",
-            "http://replica1:8080",
-            "http://replica2:8080"
-          ]
-        }
+  "enabled": true,
+  "adapters": [
+    {
+      "type": "libsql",
+      "default": true,
+      "urls": [
+        "http://primary:8080",
+        "http://replica1:8080",
+        "http://replica2:8080"
       ]
-    }]
+    }
   ]
 }
 ----

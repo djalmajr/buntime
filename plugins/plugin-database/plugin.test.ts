@@ -54,55 +54,11 @@ describe("databasePlugin", () => {
   });
 
   describe("plugin factory", () => {
-    it("should return a valid BuntimePlugin object", () => {
-      const plugin = databasePlugin();
-
-      expect(plugin).toMatchObject({
-        name: "@buntime/plugin-database",
-        base: "/database",
-      });
-    });
-
-    it("should use custom base path from config", () => {
-      const plugin = databasePlugin({ base: "/custom-db" });
-
-      expect(plugin.base).toBe("/custom-db");
-    });
-
-    it("should have routes property", () => {
+    it("should return a valid plugin object with implementation properties", () => {
       const plugin = databasePlugin();
 
       expect(plugin.routes).toBeDefined();
-    });
-
-    it("should have fragment with patch type", () => {
-      const plugin = databasePlugin();
-
-      expect(plugin.fragment).toEqual({ type: "patch" });
-    });
-
-    it("should have menu items for C-Panel sidebar", () => {
-      const plugin = databasePlugin();
-
-      expect(plugin.menus).toHaveLength(1);
-      expect(plugin.menus?.[0]).toMatchObject({
-        icon: "lucide:database",
-        path: "/database",
-        priority: 70,
-        title: "Database",
-      });
-      expect(plugin.menus?.[0]?.items).toHaveLength(2);
-    });
-
-    it("should have onInit lifecycle hook", () => {
-      const plugin = databasePlugin();
-
       expect(typeof plugin.onInit).toBe("function");
-    });
-
-    it("should have onShutdown lifecycle hook", () => {
-      const plugin = databasePlugin();
-
       expect(typeof plugin.onShutdown).toBe("function");
     });
   });
@@ -131,7 +87,7 @@ describe("databasePlugin", () => {
 
       // We can't directly test the internal function, but we can verify
       // the plugin creates successfully with env var config
-      expect(plugin.name).toBe("@buntime/plugin-database");
+      expect(plugin.routes).toBeDefined();
     });
 
     it("should substitute environment variables in url", async () => {
@@ -147,7 +103,7 @@ describe("databasePlugin", () => {
         ],
       });
 
-      expect(plugin.name).toBe("@buntime/plugin-database");
+      expect(plugin.routes).toBeDefined();
     });
   });
 
@@ -190,7 +146,7 @@ describe("databasePlugin", () => {
         ],
       });
 
-      expect(plugin.name).toBe("@buntime/plugin-database");
+      expect(plugin.routes).toBeDefined();
     });
 
     it("should detect multiple LIBSQL_URL_* from environment", () => {
@@ -208,7 +164,7 @@ describe("databasePlugin", () => {
         ],
       });
 
-      expect(plugin.name).toBe("@buntime/plugin-database");
+      expect(plugin.routes).toBeDefined();
     });
 
     it("should stop at first missing index", () => {
@@ -227,7 +183,7 @@ describe("databasePlugin", () => {
       });
 
       // Only LIBSQL_URL_0 should be detected (URL_2 is ignored due to gap)
-      expect(plugin.name).toBe("@buntime/plugin-database");
+      expect(plugin.routes).toBeDefined();
     });
   });
 
@@ -246,7 +202,7 @@ describe("databasePlugin", () => {
     it("should handle empty config", () => {
       const plugin = databasePlugin();
 
-      expect(plugin.name).toBe("@buntime/plugin-database");
+      expect(plugin.routes).toBeDefined();
     });
 
     it("should handle config with adapters array", () => {
@@ -254,7 +210,7 @@ describe("databasePlugin", () => {
         adapters: [{ type: "libsql", urls: ["http://localhost:8080"], default: true }],
       });
 
-      expect(plugin.name).toBe("@buntime/plugin-database");
+      expect(plugin.routes).toBeDefined();
     });
 
     it("should handle config with tenancy settings", () => {
@@ -268,7 +224,7 @@ describe("databasePlugin", () => {
         },
       });
 
-      expect(plugin.name).toBe("@buntime/plugin-database");
+      expect(plugin.routes).toBeDefined();
     });
 
     it("should merge config urls with env urls (deduplication)", () => {
@@ -284,35 +240,7 @@ describe("databasePlugin", () => {
         ],
       });
 
-      expect(plugin.name).toBe("@buntime/plugin-database");
-    });
-  });
-
-  describe("menu configuration", () => {
-    it("should have Overview menu item", () => {
-      const plugin = databasePlugin();
-
-      const dbMenu = plugin.menus?.[0];
-      const overviewItem = dbMenu?.items?.find((item) => item.title === "Overview");
-
-      expect(overviewItem).toMatchObject({
-        icon: "lucide:home",
-        path: "/database",
-        title: "Overview",
-      });
-    });
-
-    it("should have Studio menu item", () => {
-      const plugin = databasePlugin();
-
-      const dbMenu = plugin.menus?.[0];
-      const studioItem = dbMenu?.items?.find((item) => item.title === "Studio");
-
-      expect(studioItem).toMatchObject({
-        icon: "lucide:table-2",
-        path: "/database/studio",
-        title: "Studio",
-      });
+      expect(plugin.routes).toBeDefined();
     });
   });
 
@@ -459,7 +387,7 @@ describe("databasePlugin", () => {
         });
 
         // Plugin creation should work
-        expect(plugin.name).toBe("@buntime/plugin-database");
+        expect(plugin.routes).toBeDefined();
       });
 
       it("should handle missing env vars by replacing with empty string", async () => {

@@ -30,7 +30,7 @@ RUN NODE_ENV=production bun scripts/build.ts --compile
 WORKDIR /build/apps/cpanel@latest
 RUN NODE_ENV=production bun run build
 
-# Build all builtin plugins (they are only enabled via buntime.jsonc)
+# Build all builtin plugins (they are only enabled via manifest.jsonc)
 WORKDIR /build/plugins/plugin-authn
 RUN NODE_ENV=production bun run build
 

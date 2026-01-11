@@ -14,8 +14,8 @@ export interface PoolConfig {
  * Parse app directory path to extract name and version for cache key
  *
  * Supports two folder structures:
- * - Flat: /workspaces/app-name@1.0.0 → name: "app-name", version: "1.0.0"
- * - Nested: /workspaces/app-name/1.0.0 → name: "app-name", version: "1.0.0"
+ * - Flat: /workerDirs/app-name@1.0.0 → name: "app-name", version: "1.0.0"
+ * - Nested: /workerDirs/app-name/1.0.0 → name: "app-name", version: "1.0.0"
  *
  * Falls back to package.json version if available.
  */
@@ -56,7 +56,7 @@ function mergeWithHistorical(current: WorkerStats, hist: HistoricalStats): Worke
 }
 
 export class WorkerPool {
-  private appDirs = new Map<string, string>(); // key → appDir (collision detection)
+  private workerDirs = new Map<string, string>(); // key → appDir (collision detection)
   private cache: QuickLRU<string, WorkerInstance>;
   private cleanupTimers = new Map<string, Timer>();
   private config: PoolConfig;
@@ -72,7 +72,7 @@ export class WorkerPool {
         this.metrics.accumulateWorkerStats(key, this.extractHistoricalStats(instance));
         instance.terminate();
         this.cleanupTimer(key);
-        this.appDirs.delete(key);
+        this.workerDirs.delete(key);
       },
     });
   }
@@ -85,7 +85,7 @@ export class WorkerPool {
     const key = await parseAppKey(appDir);
 
     // Check for collision: same key from different appDir
-    const existingAppDir = this.appDirs.get(key);
+    const existingAppDir = this.workerDirs.get(key);
     if (existingAppDir && existingAppDir !== appDir) {
       throw new Error(
         `Worker collision: "${key}" already registered from "${existingAppDir}", cannot register from "${appDir}"`,
@@ -110,7 +110,7 @@ export class WorkerPool {
       if (existing) {
         this.cache.delete(key);
         this.cleanupTimer(key);
-        this.appDirs.delete(key);
+        this.workerDirs.delete(key);
       }
     }
 
@@ -127,7 +127,7 @@ export class WorkerPool {
 
       if (config.ttlMs > 0) {
         this.cache.set(key, instance);
-        this.appDirs.set(key, appDir);
+        this.workerDirs.set(key, appDir);
         this.scheduleCleanup(key, instance, config);
       }
 
@@ -241,7 +241,7 @@ export class WorkerPool {
       this.metrics.accumulateWorkerStats(key, this.extractHistoricalStats(worker));
       worker.terminate();
       this.cache.delete(key);
-      this.appDirs.delete(key);
+      this.workerDirs.delete(key);
     }
     this.cleanupTimer(key);
   }

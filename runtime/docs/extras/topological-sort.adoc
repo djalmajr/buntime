@@ -1,4 +1,4 @@
-== Algoritmo de Kahn: Ordenação Topológica
+= Algoritmo de Kahn: Ordenação Topológica
 :toc: left
 :toclevels: 3
 :sectnums:
@@ -12,7 +12,7 @@ Este é exatamente o problema que a ordenação topológica resolve: dado um con
 
 O Algoritmo de Kahn é uma das soluções mais elegantes e eficientes para este problema, e é usado pelo Buntime para ordenar plugins por dependências.
 
-=== História e Origem
+== História e Origem
 
 O algoritmo foi publicado em 1962 por Arthur B. Kahn no artigo _"Topological sorting of large networks"_ na revista Communications of the ACM.
 
@@ -25,9 +25,9 @@ A contribuição de Kahn foi propor um algoritmo que:
 * É intuitivo e fácil de implementar
 * Funciona bem com grafos esparsos e densos
 
-=== Fundamentos Teóricos
+== Fundamentos Teóricos
 
-==== Grafos Direcionados Acíclicos (DAG)
+=== Grafos Direcionados Acíclicos (DAG)
 
 A ordenação topológica só é possível em DAGs (Directed Acyclic Graphs):
 
@@ -41,7 +41,7 @@ graph LR
     A --> C --> D
 ----
 
-==== Grau de Entrada (In-Degree)
+=== Grau de Entrada (In-Degree)
 
 O conceito central do algoritmo é o grau de entrada de cada vértice: quantas arestas apontam para ele.
 
@@ -57,9 +57,9 @@ graph LR
 
 Vértices com grau de entrada zero não têm dependências e podem ser processados imediatamente.
 
-=== O Algoritmo
+== O Algoritmo
 
-==== Ideia Central
+=== Ideia Central
 
 A intuição é simples:
 
@@ -69,7 +69,7 @@ A intuição é simples:
 4. Repita até processar todos os vértices
 5. Se sobrarem vértices não processados, existe um ciclo
 
-==== Implementação
+=== Implementação
 
 [source,python]
 ----
@@ -102,7 +102,7 @@ def kahn(graph: dict[str, list[str]]) -> list[str]:
     return result
 ----
 
-==== Execução Passo a Passo
+=== Execução Passo a Passo
 
 Considere um pipeline de CI/CD:
 
@@ -128,13 +128,13 @@ lint e test entram na fila (in-degree 0).
 
 Todos processados na ordem: checkout -> install -> lint -> test -> build
 
-==== Detecção de Ciclos
+=== Detecção de Ciclos
 
 Se ao final do algoritmo `len(result) < len(graph)`, significa que alguns vértices nunca tiveram in-degree 0. Isso só acontece quando há um ciclo.
 
-=== Complexidade
+== Complexidade
 
-==== Tempo: O(V + E)
+=== Tempo: O(V + E)
 
 O algoritmo é linear - visita cada vértice e cada aresta exatamente uma vez:
 
@@ -142,28 +142,43 @@ O algoritmo é linear - visita cada vértice e cada aresta exatamente uma vez:
 * Inicializar fila: O(V) - verifica todos os vértices
 * Loop principal: O(V + E) - cada vértice e aresta processados uma vez
 
-==== Espaço: O(V)
+=== Espaço: O(V)
 
 * Dicionário de in-degrees: O(V)
 * Fila: O(V) no pior caso
 * Lista resultado: O(V)
 
-=== Uso no Buntime
+== Uso no Buntime
 
-O sistema de plugins do Buntime usa ordenação topológica para garantir que plugins sejam carregados na ordem correta:
+O sistema de plugins do Buntime usa ordenação topológica para garantir que plugins sejam carregados na ordem correta.
+
+Dependências são declaradas em `manifest.jsonc`:
 
 [source,jsonc]
 ----
+// plugins/plugin-keyval/manifest.jsonc
 {
-  "plugins": [
-    "@buntime/plugin-keyval",     // depende de database
-    "@buntime/plugin-authn",      // sem dependências
-    "@buntime/plugin-database"    // sem dependências
-  ]
+  "name": "@buntime/plugin-keyval",
+  "base": "/keyval",
+  "dependencies": ["@buntime/plugin-database"]
+}
+
+// plugins/plugin-authn/manifest.jsonc
+{
+  "name": "@buntime/plugin-authn",
+  "base": "/authn",
+  "dependencies": ["@buntime/plugin-database"]
+}
+
+// plugins/plugin-database/manifest.jsonc
+{
+  "name": "@buntime/plugin-database",
+  "base": "/database"
+  // sem dependências
 }
 ----
 
-A ordem no arquivo de configuração não importa. O runtime reordena automaticamente:
+A ordem de descoberta nos diretórios não importa. O runtime reordena automaticamente:
 
 [source]
 ----
@@ -173,33 +188,33 @@ Ordem de carregamento (após sort):
 3. @buntime/plugin-authn
 ----
 
-=== Casos de Uso
+== Casos de Uso
 
-==== Gerenciadores de Pacotes
+=== Gerenciadores de Pacotes
 
 npm, yarn, pip, cargo - todos usam ordenação topológica para instalar dependências na ordem correta.
 
-==== Sistemas de Build
+=== Sistemas de Build
 
 Make, Webpack, Gradle, Bazel - compilam módulos na ordem correta baseada em dependências.
 
-==== Agendamento de Tarefas
+=== Agendamento de Tarefas
 
 Sistemas de workflow como Apache Airflow, Prefect, Dagster usam DAGs para definir pipelines de dados.
 
-==== Compiladores
+=== Compiladores
 
 Compiladores ordenam passes de otimização e análise semântica respeitando dependências entre fases.
 
-==== Spreadsheets
+=== Spreadsheets
 
 Excel e Google Sheets recalculam células na ordem correta quando há fórmulas interdependentes.
 
-==== Migrações de Banco de Dados
+=== Migrações de Banco de Dados
 
 Ferramentas como Flyway, Liquibase, Prisma aplicam migrações em ordem.
 
-=== Algoritmo Alternativo: DFS
+== Algoritmo Alternativo: DFS
 
 Existe outra abordagem usando busca em profundidade (DFS):
 
@@ -230,7 +245,7 @@ def topological_sort_dfs(graph: dict[str, list[str]]) -> list[str]:
     return result[::-1]  # inverte o resultado
 ----
 
-==== Kahn vs DFS
+=== Kahn vs DFS
 
 [cols="1,1,1"]
 |===
@@ -261,7 +276,7 @@ def topological_sort_dfs(graph: dict[str, list[str]]) -> list[str]:
 | O(V) para pilha de chamadas
 |===
 
-==== Quando usar cada um?
+=== Quando usar cada um?
 
 *Use Kahn quando:*
 
@@ -279,21 +294,21 @@ def topological_sort_dfs(graph: dict[str, list[str]]) -> list[str]:
 
 Na prática, Kahn é preferido para sistemas de build, CI/CD e task runners porque permite paralelização natural. DFS é comum em compiladores e análise de dependências onde já se usa travessia de grafos.
 
-=== Extensões e Variações
+== Extensões e Variações
 
-==== Ordenação Topológica Lexicográfica
+=== Ordenação Topológica Lexicográfica
 
 Quando múltiplas ordens são válidas, escolher a lexicograficamente menor.
 
 Solução: usar priority queue (min-heap) ao invés de fila simples.
 
-==== Todas as Ordenações Topológicas
+=== Todas as Ordenações Topológicas
 
 Encontrar todas as ordens válidas possíveis (útil para testes).
 
 Solução: backtracking com todos os vértices de in-degree 0 em cada passo.
 
-==== Ordenação Topológica em Grafos Dinâmicos
+=== Ordenação Topológica em Grafos Dinâmicos
 
 Quando arestas são adicionadas/removidas frequentemente, recalcular do zero é ineficiente.
 
@@ -302,7 +317,7 @@ Soluções:
 * Algoritmos incrementais (atualizam apenas a parte afetada)
 * Estruturas de dados especializadas (link-cut trees)
 
-==== Paralelização
+=== Paralelização
 
 Vértices na fila de Kahn são independentes e podem ser processados em paralelo:
 
@@ -337,7 +352,7 @@ async def kahn_parallel(graph, process):
     return result
 ----
 
-=== Referências
+== Referências
 
 * Kahn, A. B. (1962). "Topological sorting of large networks". Communications of the ACM. 5 (11): 558-562.
 * Cormen, T. H., et al. "Introduction to Algorithms" (CLRS), Chapter 22: Elementary Graph Algorithms.

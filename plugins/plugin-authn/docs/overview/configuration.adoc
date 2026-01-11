@@ -267,30 +267,31 @@ NOTE: O ID do provedor é gerado automaticamente a partir do hostname do issuer.
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [{ "type": "libsql", "default": true }]
-    }],
-    ["@buntime/plugin-authn", {
-      "providers": [
-        { "type": "email-password", "allowSignUp": true },
-        {
-          "type": "keycloak",
-          "issuer": "${KEYCLOAK_URL}",
-          "realm": "${KEYCLOAK_REALM}",
-          "clientId": "${KEYCLOAK_CLIENT_ID}",
-          "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
-        }
-      ],
-      "trustedOrigins": ["http://localhost:8000", "https://myapp.com"],
-      "loginPath": "/auth/login",
-      "scim": {
-        "enabled": true,
-        "maxResults": 100
-      }
-    }]
-  ]
+  "enabled": true,
+  "adapters": [{ "type": "libsql", "default": true }]
+}
+
+// plugins/plugin-authn/manifest.jsonc
+{
+  "enabled": true,
+  "providers": [
+    { "type": "email-password", "allowSignUp": true },
+    {
+      "type": "keycloak",
+      "issuer": "${KEYCLOAK_URL}",
+      "realm": "${KEYCLOAK_REALM}",
+      "clientId": "${KEYCLOAK_CLIENT_ID}",
+      "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
+    }
+  ],
+  "trustedOrigins": ["http://localhost:8000", "https://myapp.com"],
+  "loginPath": "/auth/login",
+  "scim": {
+    "enabled": true,
+    "maxResults": 100
+  }
 }
 ----
 

@@ -64,6 +64,19 @@ export class PluginRegistry {
   }
 
   /**
+   * Clear all registered plugins and services
+   * Used when rescanning plugins
+   */
+  clear(): void {
+    this.plugins.clear();
+    this.pluginDirs.clear();
+    this.order = [];
+    this.services.clear();
+    this.mountedPaths.clear();
+    this.logger.debug("Registry cleared");
+  }
+
+  /**
    * Get a plugin by name
    */
   get(name: string): BuntimePlugin | undefined {

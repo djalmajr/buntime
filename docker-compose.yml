@@ -8,9 +8,12 @@ services:
     volumes:
       - ./tmp:/app/apps
     environment:
-      PORT: 8000
-      LIBSQL_URL: http://libsql:8080
-      WORKSPACES_DIR: /app/apps
+      CONFIG_DIR: /app/data
+      LOG_LEVEL: debug
+      PLUGIN_DIRS: /app/plugins
+      POOL_SIZE: "100"
+      PORT: "8000"
+      WORKER_DIRS: /app/apps
     depends_on:
       libsql:
         condition: service_healthy

@@ -640,44 +640,10 @@ describe("DirInfo", () => {
       expect(visibility).toBeUndefined();
     });
 
-    it("should read visibility from package.json buntime config", async () => {
+    it("should read visibility from manifest.jsonc", async () => {
       await writeFile(
-        join(visibilityTestPath, "package.json"),
-        JSON.stringify({
-          name: "test-app",
-          buntime: { visibility: "protected" },
-        }),
-      );
-      const dir = new DirInfo(TEST_BASE_PATH, "visibility-test");
-
-      const visibility = await dir.getVisibility();
-
-      expect(visibility).toBe("protected");
-    });
-
-    it("should read visibility from buntime.jsonc", async () => {
-      await writeFile(
-        join(visibilityTestPath, "buntime.jsonc"),
+        join(visibilityTestPath, "manifest.jsonc"),
         JSON.stringify({ visibility: "internal" }),
-      );
-      const dir = new DirInfo(TEST_BASE_PATH, "visibility-test");
-
-      const visibility = await dir.getVisibility();
-
-      expect(visibility).toBe("internal");
-    });
-
-    it("should prefer buntime.jsonc over package.json", async () => {
-      await writeFile(
-        join(visibilityTestPath, "buntime.jsonc"),
-        JSON.stringify({ visibility: "internal" }),
-      );
-      await writeFile(
-        join(visibilityTestPath, "package.json"),
-        JSON.stringify({
-          name: "test-app",
-          buntime: { visibility: "protected" },
-        }),
       );
       const dir = new DirInfo(TEST_BASE_PATH, "visibility-test");
 
@@ -788,11 +754,11 @@ describe("DirInfo", () => {
       await rm(excludesTestPath, { force: true, recursive: true });
     });
 
-    it("should apply per-app excludes from buntime.jsonc", async () => {
+    it("should apply per-app excludes from manifest.jsonc", async () => {
       // Create app with version folder and config
       await mkdir(join(excludesTestPath, "my-app/1.0.0/dist"), { recursive: true });
       await writeFile(
-        join(excludesTestPath, "my-app/1.0.0/buntime.jsonc"),
+        join(excludesTestPath, "my-app/1.0.0/manifest.jsonc"),
         JSON.stringify({ excludes: ["dist"] }),
       );
       await writeFile(join(excludesTestPath, "my-app/1.0.0/index.js"), "content");
@@ -811,7 +777,7 @@ describe("DirInfo", () => {
       await mkdir(join(excludesTestPath, "my-app/1.0.0/dist"), { recursive: true });
       await mkdir(join(excludesTestPath, "my-app/1.0.0/node_modules"), { recursive: true });
       await writeFile(
-        join(excludesTestPath, "my-app/1.0.0/buntime.jsonc"),
+        join(excludesTestPath, "my-app/1.0.0/manifest.jsonc"),
         JSON.stringify({ excludes: ["dist"] }),
       );
       await writeFile(join(excludesTestPath, "my-app/1.0.0/index.js"), "content");

@@ -61,7 +61,7 @@ Use a opção `expiresIn` ao criar um dado:
 ----
 import { Kv } from "@buntime/keyval";
 
-const kv = new Kv("http://localhost:8000/api/keyval");
+const kv = new Kv("http://localhost:8000/keyval/api");
 
 // Formato numérico (milissegundos)
 await kv.set(["temp", "data"], { value: 123 }, { expiresIn: 3600000 }); // 1 hora

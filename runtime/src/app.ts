@@ -22,13 +22,19 @@ import {
 const logger = getChildLogger("App");
 
 export interface AppDeps {
-  getAppDir: (appName: string) => string | undefined;
+  /** Apps core routes for /api/core/apps */
+  appsCore: Hono;
+  /** Config core routes for /api/core/config */
+  configCore: Hono;
+  getWorkerDir: (appName: string) => string | undefined;
   /**
-   * Homepage configuration from buntime.jsonc
+   * Homepage configuration from HOMEPAGE_APP env var
    * String: redirect to path (e.g., "/my-app")
    * Object: app-shell mode (e.g., { app: "cpanel", shell: true })
    */
   homepage?: string | HomepageConfig;
+  /** Plugins core routes for /api/core/plugins */
+  pluginsCore: Hono;
   pluginsInfo: Hono;
   pool: WorkerPool;
   registry: PluginRegistry;
@@ -53,7 +59,7 @@ interface ResolvedApp {
 async function resolveTargetApp(
   pathname: string,
   registry: PluginRegistry,
-  getAppDir: (appName: string) => string | undefined,
+  getWorkerDir: (appName: string) => string | undefined,
 ): Promise<ResolvedApp | undefined> {
   // 1. Check plugin apps first
   const pluginApp = registry.resolvePluginApp(pathname);
@@ -72,7 +78,7 @@ async function resolveTargetApp(
   const match = pathname.match(APP_NAME_PATTERN);
   if (match?.[1]) {
     const appName = match[1];
-    const dir = getAppDir(appName);
+    const dir = getWorkerDir(appName);
     if (dir) {
       const workerConfig = await loadWorkerConfig(dir);
       return {
@@ -168,7 +174,7 @@ interface ResolvedShell {
  */
 async function resolveShell(
   homepage: string | HomepageConfig | undefined,
-  getAppDir: (appName: string) => string | undefined,
+  getWorkerDir: (appName: string) => string | undefined,
 ): Promise<ResolvedShell | undefined> {
   if (!homepage) return undefined;
 
@@ -178,9 +184,9 @@ async function resolveShell(
   // Object format with shell: true enables app-shell mode
   if (!homepage.shell) return undefined;
 
-  const dir = getAppDir(homepage.app);
+  const dir = getWorkerDir(homepage.app);
   if (!dir) {
-    logger.warn(`Shell worker "${homepage.app}" not found in workspaces`);
+    logger.warn(`Shell worker "${homepage.app}" not found in workerDirs`);
     return undefined;
   }
 
@@ -259,9 +265,11 @@ function createShellRequest({
  */
 interface RoutingContext {
   appInfo?: AppInfo;
+  appsCore: Hono;
+  configCore: Hono;
   method: string;
   pathname: string;
-  pluginRoutes: Map<string, Hono>;
+  pluginsCore: Hono;
   pool: WorkerPool;
   processedReq: Request;
   registry: PluginRegistry;
@@ -270,8 +278,6 @@ interface RoutingContext {
   requestId: string;
   resolved?: ResolvedApp;
   shell?: ResolvedShell;
-  /** Pre-sorted plugin paths (longest first) - computed once at startup */
-  sortedPluginPaths: string[];
   url: string;
 }
 
@@ -287,6 +293,51 @@ function createProcessedRequest(ctx: RoutingContext, newUrl?: URL): Request {
     headers,
     method: ctx.method,
   });
+}
+
+/**
+ * Handle /api/core/plugins route
+ */
+async function handlePluginsCoreRoute(ctx: RoutingContext): Promise<Response | null> {
+  const prefix = "/api/core/plugins";
+  if (ctx.pathname !== prefix && !ctx.pathname.startsWith(`${prefix}/`)) {
+    return null;
+  }
+
+  const originalUrl = new URL(ctx.url);
+  const newUrl = rewriteUrl(originalUrl, prefix);
+  const req = createProcessedRequest(ctx, newUrl);
+  return ctx.pluginsCore.fetch(req);
+}
+
+/**
+ * Handle /api/core/apps route
+ */
+async function handleAppsCoreRoute(ctx: RoutingContext): Promise<Response | null> {
+  const prefix = "/api/core/apps";
+  if (ctx.pathname !== prefix && !ctx.pathname.startsWith(`${prefix}/`)) {
+    return null;
+  }
+
+  const originalUrl = new URL(ctx.url);
+  const newUrl = rewriteUrl(originalUrl, prefix);
+  const req = createProcessedRequest(ctx, newUrl);
+  return ctx.appsCore.fetch(req);
+}
+
+/**
+ * Handle /api/core/config route
+ */
+async function handleConfigCoreRoute(ctx: RoutingContext): Promise<Response | null> {
+  const prefix = "/api/core/config";
+  if (ctx.pathname !== prefix && !ctx.pathname.startsWith(`${prefix}/`)) {
+    return null;
+  }
+
+  const originalUrl = new URL(ctx.url);
+  const newUrl = rewriteUrl(originalUrl, prefix);
+  const req = createProcessedRequest(ctx, newUrl);
+  return ctx.configCore.fetch(req);
 }
 
 /**
@@ -321,15 +372,22 @@ async function handlePluginServerFetch(ctx: RoutingContext): Promise<Response | 
 
 /**
  * Try plugin routes (in order of specificity - longest base first)
+ * Queries registry dynamically to support hot-reload of plugins
  */
 async function handlePluginRoutes(ctx: RoutingContext): Promise<Response | null> {
-  for (const base of ctx.sortedPluginPaths) {
+  // Get plugins with routes, sorted by base path length (longest first)
+  const pluginsWithRoutes = ctx.registry
+    .getAll()
+    .filter((p) => p.routes)
+    .sort((a, b) => b.base.length - a.base.length);
+
+  for (const plugin of pluginsWithRoutes) {
+    const base = plugin.base;
     if (base === "" || ctx.pathname === base || ctx.pathname.startsWith(`${base}/`)) {
-      const routes = ctx.pluginRoutes.get(base)!;
       const originalUrl = new URL(ctx.url);
       const newUrl = rewriteUrl(originalUrl, base);
       const req = createProcessedRequest(ctx, newUrl);
-      const response = await routes.fetch(req);
+      const response = await plugin.routes!.fetch(req);
 
       if (response.status !== 404) {
         return response;
@@ -372,26 +430,31 @@ async function handle404WithShell(ctx: RoutingContext, response: Response): Prom
 /**
  * Create the main Hono app with unified routing
  */
-export function createApp({ getAppDir, homepage, pluginsInfo, pool, registry, workers }: AppDeps) {
+export function createApp({
+  appsCore,
+  configCore,
+  getWorkerDir,
+  homepage,
+  pluginsCore,
+  pluginsInfo,
+  pool,
+  registry,
+  workers,
+}: AppDeps) {
   const app = new HonoApp();
-
-  // Build plugin routes map: base -> routes
-  const pluginRoutes = new Map<string, Hono>();
-  const pluginPaths = new Map<string, string>();
 
   // Resolve shell worker early (will be used in routing)
   // Catch errors to prevent rejected promise from blocking all requests
   let shellPromise: Promise<ResolvedShell | undefined> | undefined;
   if (homepage && pool) {
-    shellPromise = resolveShell(homepage, getAppDir).catch((err) => {
+    shellPromise = resolveShell(homepage, getWorkerDir).catch((err) => {
       logger.error("Failed to resolve shell worker", { error: err });
       return undefined; // Graceful degradation
     });
   }
 
-  // Get plugin base paths for shell routing (cached)
-  const pluginBases = registry.getPluginBasePaths();
-
+  // Register initial plugin routes and check for collisions
+  const pluginPaths = new Map<string, string>();
   for (const plugin of registry.getAll()) {
     if (plugin.routes) {
       const base = plugin.base;
@@ -402,18 +465,11 @@ export function createApp({ getAppDir, homepage, pluginsInfo, pool, registry, wo
             `already used by "${existingPlugin}"`,
         );
       }
-
       pluginPaths.set(base, plugin.name);
-      pluginRoutes.set(base, plugin.routes);
       logger.info(`Plugin "${plugin.name}" routes registered at ${base || "/"}`);
     }
   }
-
   registry.setMountedPaths(pluginPaths);
-
-  // Pre-compute sorted plugin paths (longest first) for route matching
-  // This avoids sorting on every request
-  const sortedPluginPaths = [...pluginRoutes.keys()].sort((a, b) => b.length - a.length);
 
   // Main request handler
   app.all("*", async (honoCtx) => {
@@ -467,7 +523,7 @@ export function createApp({ getAppDir, homepage, pluginsInfo, pool, registry, wo
     }
 
     const shell = shellPromise ? await shellPromise : undefined;
-    const resolved = await resolveTargetApp(pathname, registry, getAppDir);
+    const resolved = await resolveTargetApp(pathname, registry, getWorkerDir);
     const appInfo = resolved ? await createAppInfo(resolved) : undefined;
 
     // Security: Check body size limit (prevents DoS via large uploads)
@@ -500,6 +556,8 @@ export function createApp({ getAppDir, homepage, pluginsInfo, pool, registry, wo
     };
 
     // APP-SHELL MODE: Intercept navigation requests to shell
+    // Get plugin bases dynamically to support hot-reload
+    const pluginBases = registry.getPluginBasePaths();
     const secFetchMode = honoCtx.req.header(Headers.SEC_FETCH_MODE);
     if (shell && pool && shouldRouteToShell(pathname, secFetchMode, pluginBases)) {
       const hookResult = await registry.runOnRequest(honoCtx.req.raw, appInfo);
@@ -524,9 +582,11 @@ export function createApp({ getAppDir, homepage, pluginsInfo, pool, registry, wo
     // Build routing context
     const ctx: RoutingContext = {
       appInfo,
+      appsCore,
+      configCore,
       method: honoCtx.req.method,
       pathname,
-      pluginRoutes,
+      pluginsCore,
       pool,
       processedReq,
       registry,
@@ -534,11 +594,20 @@ export function createApp({ getAppDir, homepage, pluginsInfo, pool, registry, wo
       requestId,
       resolved,
       shell,
-      sortedPluginPaths,
       url: honoCtx.req.url,
     };
 
     // Route through handlers in priority order
+    // Core APIs first (always available, solves bootstrap problem)
+    const pluginsCoreResponse = await handlePluginsCoreRoute(ctx);
+    if (pluginsCoreResponse) return runOnResponse(pluginsCoreResponse);
+
+    const appsCoreResponse = await handleAppsCoreRoute(ctx);
+    if (appsCoreResponse) return runOnResponse(appsCoreResponse);
+
+    const configCoreResponse = await handleConfigCoreRoute(ctx);
+    if (configCoreResponse) return runOnResponse(configCoreResponse);
+
     const pluginsInfoResponse = await handlePluginsInfoRoute(ctx, pluginsInfo);
     if (pluginsInfoResponse) return runOnResponse(pluginsInfoResponse);
 

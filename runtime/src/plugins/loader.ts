@@ -1,21 +1,29 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, join } from "node:path";
 import { getChildLogger } from "@buntime/shared/logger";
 import type {
-  BuntimeConfig,
   BuntimePlugin,
-  PluginConfig,
   PluginContext,
-  PluginFactory,
+  PluginImpl,
+  PluginImplFactory,
+  PluginManifest,
   PluginModule,
 } from "@buntime/shared/types";
+import { omit } from "es-toolkit";
 import { getConfig } from "@/config";
+import { RESERVED_PATHS } from "@/constants";
+import {
+  setPluginVersion as dbSetPluginVersion,
+  getPluginVersion,
+  isPluginEnabled,
+  seedPluginFromManifest,
+} from "@/libs/database";
 import { createPluginLogger, PluginRegistry } from "./registry";
 
 const logger = getChildLogger("PluginLoader");
 
 /**
- * Validate that a module has a valid plugin structure before using it
+ * Validate that a module has a valid plugin implementation structure
  * Security: Prevents arbitrary code from being treated as a plugin
  */
 function isValidPluginModule(mod: unknown): boolean {
@@ -27,54 +35,40 @@ function isValidPluginModule(mod: unknown): boolean {
     if ("default" in mod) {
       return isValidPluginModule((mod as { default: unknown }).default);
     }
-    // Direct plugin object must have 'name' property
-    return "name" in mod && typeof (mod as { name: unknown }).name === "string";
+    // Direct plugin object - no longer requires 'name' (comes from manifest)
+    return true;
   }
 
   return false;
 }
 
 /**
- * Resolve a plugin module to a BuntimePlugin
+ * Resolve a plugin module to a PluginImpl
+ * The manifest provides metadata (name, base, etc.), the module provides implementation
  */
-function resolvePlugin(
+function resolvePluginImpl(
   mod: PluginModule,
   config: Record<string, unknown>,
-): BuntimePlugin | Promise<BuntimePlugin> {
+): PluginImpl | Promise<PluginImpl> {
   // Security: Validate module structure before processing
   if (!isValidPluginModule(mod)) {
     throw new Error(
-      "Invalid plugin module structure: must export a plugin object with 'name' or a factory function",
+      "Invalid plugin module structure: must export a plugin implementation or factory function",
     );
   }
 
   // Handle default export
   if ("default" in mod) {
-    return resolvePlugin(mod.default as PluginModule, config);
+    return resolvePluginImpl(mod.default as PluginModule, config);
   }
 
   // Handle factory function
   if (typeof mod === "function") {
-    return (mod as PluginFactory)(config);
+    return (mod as PluginImplFactory)(config);
   }
 
   // Handle direct plugin object
-  return mod as BuntimePlugin;
-}
-
-/**
- * Parse plugin configuration from Babel-style format
- */
-function parsePluginConfig(config: PluginConfig): {
-  name: string;
-  options: Record<string, unknown>;
-} {
-  if (typeof config === "string") {
-    return { name: config, options: {} };
-  }
-
-  const [name, options = {}] = config;
-  return { name, options };
+  return mod as PluginImpl;
 }
 
 /**
@@ -86,17 +80,6 @@ interface ParsedPlugin {
   dependencies: string[];
   optionalDependencies: string[];
 }
-
-/**
- * Resolved plugin with module and root directory
- */
-interface ResolvedPlugin {
-  /** Root directory (contains client/, server/, plugin.ts) */
-  dir: string;
-  /** Plugin factory/module (the logic) */
-  module: PluginModule;
-}
-
 /**
  * Scanned plugin entry from plugin directories
  */
@@ -107,6 +90,30 @@ interface ScannedPlugin {
   path: string;
   /** Plugin module (imported) */
   module: PluginModule;
+  /** Plugin manifest from manifest.jsonc */
+  manifest: PluginManifest;
+  /** Version of this plugin (from directory name) */
+  version: string;
+}
+
+/**
+ * Version info for a plugin
+ */
+interface PluginVersionInfo {
+  /** Root directory for this version */
+  dir: string;
+  /** Full path to the plugin entry file */
+  path: string;
+}
+
+/**
+ * Options for PluginLoader constructor
+ */
+export interface PluginLoaderOptions {
+  /** Worker pool instance */
+  pool?: unknown;
+  /** Override pluginDirs (for testing) */
+  pluginDirs?: string[];
 }
 
 /**
@@ -114,53 +121,123 @@ interface ScannedPlugin {
  */
 export class PluginLoader {
   private registry = new PluginRegistry();
-  private config: BuntimeConfig;
   private pool?: unknown;
+  private pluginDirsOverride?: string[];
   /** Map of plugin name -> scanned plugin info (populated by scanPluginDirs) */
   private scannedPlugins = new Map<string, ScannedPlugin>();
+  /** Map of plugin name -> available versions (for version management) */
+  private availableVersions = new Map<string, Map<string, PluginVersionInfo>>();
 
-  constructor(config: BuntimeConfig = {}, pool?: unknown) {
-    this.config = config;
-    this.pool = pool;
+  constructor(options: PluginLoaderOptions = {}) {
+    this.pool = options.pool;
+    this.pluginDirsOverride = options.pluginDirs;
   }
 
   /**
-   * Load all plugins from configuration
-   * Plugins are sorted topologically based on dependencies
+   * Get available versions for a plugin
+   */
+  getVersions(name: string): string[] {
+    const versions = this.availableVersions.get(name);
+    if (!versions) return [];
+    return [...versions.keys()].sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  }
+
+  /**
+   * Get the active version for a plugin (from SQLite or "latest")
+   */
+  getActiveVersion(name: string): string {
+    return getPluginVersion(name);
+  }
+
+  /**
+   * Set the active version for a plugin
+   * Takes effect on next rescan
+   */
+  setActiveVersion(name: string, version: string): void {
+    const versions = this.availableVersions.get(name);
+    if (!versions) {
+      throw new Error(`Plugin "${name}" not found`);
+    }
+    if (version !== "latest" && !versions.has(version)) {
+      throw new Error(
+        `Version "${version}" not found for plugin "${name}". ` +
+          `Available versions: ${[...versions.keys()].join(", ")}`,
+      );
+    }
+    dbSetPluginVersion(name, version);
+  }
+
+  /**
+   * List all scanned plugins with their active versions
+   */
+  list(): Array<{ name: string; version: string; versions: string[] }> {
+    const result: Array<{ name: string; version: string; versions: string[] }> = [];
+    for (const [name, scanned] of this.scannedPlugins) {
+      result.push({
+        name,
+        version: scanned.version,
+        versions: this.getVersions(name),
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Rescan plugin directories and reload plugins
+   * Call this after installing/uninstalling plugins
+   */
+  async rescan(): Promise<PluginRegistry> {
+    // Clear current state
+    this.scannedPlugins.clear();
+    this.availableVersions.clear();
+    this.registry.clear();
+
+    // Reload
+    return this.load();
+  }
+
+  /**
+   * Load all plugins from pluginDirs using auto-discovery
+   * Plugins are sorted topologically based on dependencies from manifest
    */
   async load(): Promise<PluginRegistry> {
-    // Scan plugin directories first
-    const runtimeConfig = getConfig();
-    await this.scanPluginDirs(runtimeConfig.pluginDirs);
+    const pluginDirs = this.pluginDirsOverride ?? getConfig().pluginDirs;
+    await this.scanPluginDirs(pluginDirs);
 
-    const pluginConfigs = this.config.plugins || [];
-    const configuredNames = new Set<string>();
-
-    // First pass: collect all configured plugin names
-    for (const pluginConfig of pluginConfigs) {
-      const { name } = parsePluginConfig(pluginConfig);
-      configuredNames.add(name);
-    }
-
-    // Second pass: parse plugins and resolve dependencies
+    const configuredNames = new Set(this.scannedPlugins.keys());
     const parsedPlugins: ParsedPlugin[] = [];
 
-    for (const pluginConfig of pluginConfigs) {
-      const { name, options } = parsePluginConfig(pluginConfig);
+    for (const [name, scanned] of this.scannedPlugins) {
+      const { manifest } = scanned;
 
-      // Load plugin module to get dependencies
-      const { module } = await this.resolvePlugin(name);
-      const plugin = await resolvePlugin(module, options);
+      // Skip plugins not enabled in database
+      // Database is source of truth for enabled state (not manifest.enabled)
+      if (!isPluginEnabled(name)) {
+        logger.debug(`Skipping plugin not enabled in database: ${name}`);
+        continue;
+      }
 
-      // Filter optional dependencies to only those that are configured
-      const optionalDeps = (plugin.optionalDependencies || []).filter((dep) =>
+      // Get plugin-specific options from manifest (excluding metadata fields)
+      // Note: menus is passed to plugin factory so plugins can modify it dynamically
+      const options = omit(manifest, [
+        "name",
+        "enabled",
+        "base",
+        "entrypoint",
+        "dependencies",
+        "optionalDependencies",
+        "fragment",
+      ]);
+
+      // Filter optional dependencies to only those available
+      const optionalDeps = (manifest.optionalDependencies || []).filter((dep) =>
         configuredNames.has(dep),
       );
 
       parsedPlugins.push({
         name,
         options,
-        dependencies: plugin.dependencies || [],
+        dependencies: manifest.dependencies || [],
         optionalDependencies: optionalDeps,
       });
     }
@@ -176,6 +253,10 @@ export class PluginLoader {
         logger.error(`Failed to load plugin "${name}"`, { error: String(error) });
         throw error;
       }
+    }
+
+    if (sorted.length > 0) {
+      logger.info(`Loaded ${sorted.length} plugin(s)`);
     }
 
     return this.registry;
@@ -213,8 +294,8 @@ export class PluginLoader {
       for (const dep of plugin.dependencies) {
         if (!configuredNames.has(dep)) {
           throw new Error(
-            `Plugin "${plugin.name}" requires "${dep}" which is not configured. ` +
-              `Add "${dep}" to your buntime.jsonc plugins array.`,
+            `Plugin "${plugin.name}" requires "${dep}" which is not available. ` +
+              `Ensure "${dep}" is installed in pluginDirs.`,
           );
         }
       }
@@ -260,47 +341,8 @@ export class PluginLoader {
   }
 
   /**
-   * Resolve a plugin by name
-   *
-   * Returns:
-   * - module: Plugin factory (the logic)
-   * - dir: Root directory (contains client/, server/, plugin.ts)
-   *
-   * Resolution order:
-   * 1. Scanned plugins from pluginDirs (matched by internal name)
-   * 2. Node modules
-   */
-  private async resolvePlugin(name: string): Promise<ResolvedPlugin> {
-    // Find package directory via Bun resolution
-    const resolveFromNodeModules = (packageName: string): string | null => {
-      try {
-        return dirname(Bun.resolveSync(packageName, process.cwd()));
-      } catch {
-        return null;
-      }
-    };
-
-    // 1. Check scanned plugins (by internal name)
-    const scanned = this.scannedPlugins.get(name);
-    if (scanned) {
-      return { dir: scanned.dir, module: scanned.module };
-    }
-
-    // 2. Node modules
-    try {
-      const module = await import(name);
-      return { dir: resolveFromNodeModules(name) ?? "", module };
-    } catch {
-      const pluginDirs = getConfig().pluginDirs;
-      throw new Error(
-        `Could not resolve plugin "${name}". ` +
-          `Not found in pluginDirs (${pluginDirs.join(", ")}) or node_modules`,
-      );
-    }
-  }
-
-  /**
    * Load a single plugin by name
+   * Merges manifest (metadata) with implementation (code)
    */
   async loadPlugin(name: string, options: Record<string, unknown> = {}): Promise<BuntimePlugin> {
     // Check if already loaded
@@ -308,66 +350,57 @@ export class PluginLoader {
       throw new Error(`Plugin "${name}" is already loaded`);
     }
 
-    const { dir, module } = await this.resolvePlugin(name);
-    const plugin = await resolvePlugin(module, options);
-
-    // Validate plugin structure
-    if (!plugin.name) {
-      throw new Error(`Plugin "${name}" is missing required field: name`);
+    // Get scanned plugin info (includes manifest)
+    const scanned = this.scannedPlugins.get(name);
+    if (!scanned) {
+      throw new Error(`Plugin "${name}" not found in scanned plugins`);
     }
-    if (!plugin.base) {
-      throw new Error(`Plugin "${name}" is missing required field: base`);
+
+    const { dir, module, manifest } = scanned;
+
+    // Resolve implementation from module
+    const impl = await resolvePluginImpl(module, options);
+
+    // Validate manifest has required fields
+    if (!manifest.name) {
+      throw new Error(`Plugin "${name}" manifest is missing required field: name`);
+    }
+    if (!manifest.base) {
+      throw new Error(`Plugin "${name}" manifest is missing required field: base`);
     }
 
     // Validate base path format (security: prevent route interception)
-    // Must be "/" followed by alphanumeric, underscore, or hyphen
     const BASE_PATH_PATTERN = /^\/[a-zA-Z0-9_-]+$/;
-    if (plugin.base !== "/" && !BASE_PATH_PATTERN.test(plugin.base)) {
+    if (manifest.base !== "/" && !BASE_PATH_PATTERN.test(manifest.base)) {
       throw new Error(
-        `Plugin "${name}" has invalid base path "${plugin.base}". ` +
+        `Plugin "${name}" has invalid base path "${manifest.base}". ` +
           `Must match pattern: /[a-zA-Z0-9_-]+ (e.g., "/metrics", "/my-plugin")`,
       );
     }
 
     // Security: Block reserved paths used by runtime internals
-    const RESERVED_PATHS = ["/api", "/health", "/.well-known"];
-    if (RESERVED_PATHS.includes(plugin.base)) {
+    if (RESERVED_PATHS.includes(manifest.base)) {
       throw new Error(
-        `Plugin "${name}" cannot use reserved path "${plugin.base}". ` +
+        `Plugin "${name}" cannot use reserved path "${manifest.base}". ` +
           `Reserved paths: ${RESERVED_PATHS.join(", ")}`,
       );
     }
 
-    // Override base from config if specified
-    // Plugins define their own base path (e.g., "/cpanel", "/metrics")
-    if (options.base !== undefined) {
-      const baseOverride = options.base as string;
-      if (baseOverride !== "/" && !BASE_PATH_PATTERN.test(baseOverride)) {
-        throw new Error(
-          `Plugin "${name}" config has invalid base path "${baseOverride}". ` +
-            `Must match pattern: /[a-zA-Z0-9_-]+ (e.g., "/metrics", "/my-plugin")`,
-        );
-      }
-      // Security: Also check reserved paths for overrides
-      if (RESERVED_PATHS.includes(baseOverride)) {
-        throw new Error(
-          `Plugin "${name}" config cannot use reserved path "${baseOverride}". ` +
-            `Reserved paths: ${RESERVED_PATHS.join(", ")}`,
-        );
-      }
-      plugin.base = baseOverride;
-    }
+    // Merge manifest (metadata) with implementation (code)
+    const plugin: BuntimePlugin = {
+      ...manifest,
+      ...impl,
+    };
 
     // Create context for initialization with service access
-    // Use resolved config (with env var substitution) for workspaces
     const registry = this.registry;
     const runtimeConfig = getConfig();
 
     const context: PluginContext = {
       config: options,
       globalConfig: {
+        workerDirs: runtimeConfig.workerDirs,
         poolSize: runtimeConfig.poolSize,
-        workspaces: runtimeConfig.workspaces,
       },
       logger: createPluginLogger(plugin.name),
       pool: this.pool,
@@ -380,7 +413,6 @@ export class PluginLoader {
     };
 
     // Initialize plugin with timeout to prevent hanging
-    // Security: Misbehaving plugins can't block server startup indefinitely
     const INIT_TIMEOUT_MS = 30_000;
     if (plugin.onInit) {
       const initPromise = plugin.onInit(context);
@@ -405,14 +437,34 @@ export class PluginLoader {
   }
 
   /**
+   * Load plugin manifest from manifest.jsonc or manifest.json
+   */
+  private async loadManifest(pluginDir: string): Promise<PluginManifest | null> {
+    for (const filename of MANIFEST_FILES) {
+      const manifestPath = join(pluginDir, filename);
+      if (existsSync(manifestPath)) {
+        try {
+          const config = await import(manifestPath);
+          return (config.default ?? config) as PluginManifest;
+        } catch (err) {
+          logger.warn(`Failed to parse ${manifestPath}: ${err}`);
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
    * Scan plugin directories and build a map of plugin name -> module
    *
-   * Scan order for each pluginDir:
-   * 1. {dir}/*.ts, {dir}/*.js (direct files)
-   * 2. {dir}/[asterisk]/plugin.ts, {dir}/[asterisk]/plugin.js (subdirectories with plugin entry)
-   * 3. {dir}/[asterisk]/index.ts, {dir}/[asterisk]/index.js (subdirectories with index entry)
+   * Supports multiple directory structures:
+   * 1. Direct: {pluginDir}/plugin.ts
+   * 2. Subdirectory: {pluginDir}/{name}/plugin.ts
+   * 3. Versioned: {pluginDir}/{name}/{version}/plugin.ts
+   * 4. Scoped versioned: {pluginDir}/@scope/{name}/{version}/plugin.ts
    *
-   * Files that don't export a valid BuntimePlugin (with name and base) are ignored.
+   * For versioned plugins, uses the latest version (highest semver).
+   * Plugin metadata is read from manifest.jsonc (required)
    */
   private async scanPluginDirs(pluginDirs: string[]): Promise<void> {
     const extensions = [".ts", ".js"];
@@ -429,48 +481,149 @@ export class PluginLoader {
         const stat = statSync(entryPath);
 
         if (stat.isFile()) {
-          // Direct file: {dir}/*.ts or {dir}/*.js
+          // Direct file: {pluginDir}/*.ts or {pluginDir}/*.js
           const ext = entry.slice(entry.lastIndexOf("."));
           if (extensions.includes(ext)) {
             await this.tryRegisterPlugin(entryPath, pluginDir);
           }
         } else if (stat.isDirectory()) {
-          // Subdirectory: try plugin.{ts,js} then index.{ts,js}
-          for (const filename of ["plugin", "index"]) {
-            let found = false;
-            for (const ext of extensions) {
-              const filePath = join(entryPath, `${filename}${ext}`);
-              if (existsSync(filePath)) {
-                await this.tryRegisterPlugin(filePath, entryPath);
-                found = true;
-                break;
-              }
+          if (entry.startsWith("@")) {
+            // Scoped package: {pluginDir}/@scope/{name}/{version}/
+            await this.scanScopedPackage(entryPath, extensions);
+          } else {
+            // Could be: {pluginDir}/{name}/plugin.ts OR {pluginDir}/{name}/{version}/
+            const hasPluginFile = this.findPluginFile(entryPath, extensions);
+            if (hasPluginFile) {
+              await this.tryRegisterPlugin(hasPluginFile, entryPath);
+            } else {
+              // Try versioned structure: {pluginDir}/{name}/{version}/
+              await this.scanVersionedPackage(entryPath, extensions);
             }
-            if (found) break;
           }
         }
       }
     }
 
     if (this.scannedPlugins.size > 0) {
-      logger.debug(`Scanned ${this.scannedPlugins.size} plugins from pluginDirs`);
+      logger.debug(`Scanned ${this.scannedPlugins.size} plugin(s) from pluginDirs`);
     }
   }
 
   /**
-   * Try to import and register a plugin file
-   * Ignores files that don't export a valid BuntimePlugin
+   * Scan a scoped package directory (@scope/name/version/)
    */
-  private async tryRegisterPlugin(filePath: string, dir: string): Promise<void> {
-    try {
-      const module = await import(filePath);
+  private async scanScopedPackage(scopeDir: string, extensions: string[]): Promise<void> {
+    if (!existsSync(scopeDir)) return;
 
-      // Extract the plugin name from the module
-      const pluginName = this.extractPluginName(module);
-      if (!pluginName) {
-        // Not a valid plugin, silently ignore
+    const packages = readdirSync(scopeDir);
+    for (const pkg of packages) {
+      const pkgPath = join(scopeDir, pkg);
+      const stat = statSync(pkgPath);
+      if (stat.isDirectory()) {
+        await this.scanVersionedPackage(pkgPath, extensions);
+      }
+    }
+  }
+
+  /**
+   * Scan a versioned package directory (name/version/)
+   * Uses version from SQLite, or latest if not set
+   */
+  private async scanVersionedPackage(packageDir: string, extensions: string[]): Promise<void> {
+    if (!existsSync(packageDir)) return;
+
+    const versions = readdirSync(packageDir)
+      .filter((v) => {
+        const vPath = join(packageDir, v);
+        return statSync(vPath).isDirectory() && !v.startsWith(".");
+      })
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true })); // Latest first
+
+    if (versions.length === 0) return;
+
+    // Pre-scan to get plugin name from manifest (to query SQLite)
+    const firstVersionDir = join(packageDir, versions[0]!);
+    const firstPluginFile = this.findPluginFile(firstVersionDir, extensions);
+    if (!firstPluginFile) return;
+
+    // Get plugin name from manifest
+    const firstManifest = await this.loadManifest(firstVersionDir);
+    if (!firstManifest?.name) return;
+    const pluginName = firstManifest.name;
+
+    // Store all available versions for this plugin
+    const versionMap = new Map<string, PluginVersionInfo>();
+    for (const version of versions) {
+      const versionDir = join(packageDir, version);
+      const pluginFile = this.findPluginFile(versionDir, extensions);
+      if (pluginFile) {
+        versionMap.set(version, { dir: versionDir, path: pluginFile });
+      }
+    }
+    this.availableVersions.set(pluginName, versionMap);
+
+    // Determine which version to use
+    const configuredVersion = getPluginVersion(pluginName);
+    const latestVersion = versions[0]!;
+    const targetVersion =
+      configuredVersion === "latest"
+        ? latestVersion
+        : versionMap.has(configuredVersion)
+          ? configuredVersion
+          : latestVersion;
+
+    // Register the target version
+    const targetInfo = versionMap.get(targetVersion)!;
+    await this.tryRegisterPlugin(targetInfo.path, targetInfo.dir, targetVersion);
+  }
+
+  /**
+   * Find plugin entry file in a directory
+   * Tries: plugin.{ts,js}, index.{ts,js}
+   */
+  private findPluginFile(dir: string, extensions: string[]): string | null {
+    for (const filename of ["plugin", "index"]) {
+      for (const ext of extensions) {
+        const filePath = join(dir, `${filename}${ext}`);
+        if (existsSync(filePath)) {
+          return filePath;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Try to import and register a plugin file
+   * Requires manifest.jsonc with plugin name and metadata
+   * @param version Optional version string (from directory name)
+   */
+  private async tryRegisterPlugin(filePath: string, dir: string, version?: string): Promise<void> {
+    try {
+      // Load manifest first (required)
+      const manifest = await this.loadManifest(dir);
+      if (!manifest) {
+        logger.debug(`No manifest found in ${dir}, skipping`);
         return;
       }
+
+      // Manifest must have name
+      if (!manifest.name || typeof manifest.name !== "string") {
+        logger.warn(`Manifest in ${dir} is missing required field: name`);
+        return;
+      }
+
+      // Manifest must have base
+      if (!manifest.base || typeof manifest.base !== "string") {
+        logger.warn(`Manifest in ${dir} is missing required field: base`);
+        return;
+      }
+
+      const pluginName = manifest.name;
+
+      // Seed manifest to database (creates if not exists, skips if exists)
+      // This ensures every discovered plugin is tracked in the database
+      seedPluginFromManifest(manifest);
 
       // Check for duplicates
       if (this.scannedPlugins.has(pluginName)) {
@@ -482,135 +635,26 @@ export class PluginLoader {
         return;
       }
 
-      this.scannedPlugins.set(pluginName, { dir, module, path: filePath });
-      logger.debug(`Scanned plugin: ${pluginName} (${filePath})`);
+      // Import the module
+      const module = await import(filePath);
+
+      // Determine version from parameter or directory name
+      const pluginVersion = version ?? basename(dir);
+
+      this.scannedPlugins.set(pluginName, {
+        dir,
+        manifest,
+        module,
+        path: filePath,
+        version: pluginVersion,
+      });
+      logger.debug(`Scanned plugin: ${pluginName}@${pluginVersion} (${filePath})`);
     } catch (error) {
       // Import failed, silently ignore (might not be a valid module)
       logger.debug(`Failed to import ${filePath}: ${error}`);
     }
   }
-
-  /**
-   * Extract plugin name from a module export
-   * Returns null if the module doesn't export a valid BuntimePlugin
-   */
-  private extractPluginName(mod: unknown): string | null {
-    if (mod === null || mod === undefined) return null;
-
-    // Handle default export
-    if (typeof mod === "object" && "default" in mod) {
-      return this.extractPluginName((mod as { default: unknown }).default);
-    }
-
-    // Factory function - call with empty config to get the plugin object
-    if (typeof mod === "function") {
-      try {
-        const plugin = (mod as PluginFactory)({});
-        if (plugin && typeof plugin === "object" && "name" in plugin) {
-          const name = (plugin as { name: unknown }).name;
-          if (typeof name === "string" && name.length > 0) {
-            return name;
-          }
-        }
-      } catch {
-        // Factory failed, ignore
-      }
-      return null;
-    }
-
-    // Direct plugin object must have 'name' property
-    if (typeof mod === "object" && "name" in mod) {
-      const name = (mod as { name: unknown }).name;
-      if (typeof name === "string" && name.length > 0) {
-        return name;
-      }
-    }
-
-    return null;
-  }
 }
 
-/**
- * Validate buntime configuration and provide helpful error messages
- */
-function validateBuntimeConfig(config: unknown, configPath: string): BuntimeConfig {
-  if (config === null || config === undefined) {
-    return {};
-  }
-
-  if (typeof config !== "object") {
-    throw new Error(`[${configPath}] Invalid configuration: expected object, got ${typeof config}`);
-  }
-
-  const cfg = config as Record<string, unknown>;
-
-  // Validate plugins section (Babel-style array)
-  if (cfg.plugins !== undefined) {
-    if (!Array.isArray(cfg.plugins)) {
-      throw new Error(`[${configPath}] Invalid "plugins" section: expected array (Babel-style)`);
-    }
-
-    // Validate each plugin entry
-    for (let i = 0; i < cfg.plugins.length; i++) {
-      const entry = cfg.plugins[i];
-
-      // String format: "@buntime/name"
-      if (typeof entry === "string") {
-        continue;
-      }
-
-      // Tuple format: ["@buntime/name", { config }]
-      if (Array.isArray(entry)) {
-        if (entry.length < 1 || entry.length > 2) {
-          throw new Error(
-            `[${configPath}] Invalid plugin at index ${i}: tuple must have 1-2 elements`,
-          );
-        }
-        if (typeof entry[0] !== "string") {
-          throw new Error(
-            `[${configPath}] Invalid plugin at index ${i}: first element must be string`,
-          );
-        }
-        if (entry.length === 2 && (typeof entry[1] !== "object" || entry[1] === null)) {
-          throw new Error(
-            `[${configPath}] Invalid plugin at index ${i}: second element must be object`,
-          );
-        }
-        continue;
-      }
-
-      throw new Error(
-        `[${configPath}] Invalid plugin at index ${i}: expected string or [name, config] tuple`,
-      );
-    }
-  }
-
-  logger.info(`Loaded configuration from ${configPath}`);
-  return cfg as BuntimeConfig;
-}
-
-export interface LoadedBuntimeConfig {
-  baseDir: string;
-  config: BuntimeConfig;
-}
-
-/**
- * Load buntime configuration from buntime.jsonc
- * Bun natively parses JSONC (strips comments and trailing commas)
- */
-export async function loadBuntimeConfig(): Promise<LoadedBuntimeConfig> {
-  try {
-    const jsoncPath = Bun.resolveSync("./buntime.jsonc", process.cwd());
-    const config = await import(jsoncPath);
-    return {
-      baseDir: dirname(jsoncPath),
-      config: validateBuntimeConfig(config.default ?? config, "buntime.jsonc"),
-    };
-  } catch (err) {
-    if (err instanceof Error && !err.message.includes("Cannot find module")) {
-      throw new Error(`[buntime.jsonc] Failed to parse: ${err.message}`);
-    }
-  }
-
-  return { baseDir: process.cwd(), config: {} };
-}
+/** Manifest file names to try in order */
+const MANIFEST_FILES = ["manifest.jsonc", "manifest.json"] as const;

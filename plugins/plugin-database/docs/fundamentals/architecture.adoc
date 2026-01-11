@@ -16,17 +16,25 @@ O plugin suporta configurar múltiplos adapters simultaneamente. Cada plugin con
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [
-        { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
-        { "type": "sqlite", "url": "file:./auth.db" }
-      ]
-    }],
-    ["@buntime/plugin-keyval", { "database": "libsql" }],
-    ["@buntime/plugin-authn", { "database": "sqlite" }]
+  "enabled": true,
+  "adapters": [
+    { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
+    { "type": "sqlite", "url": "file:./auth.db" }
   ]
+}
+
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "enabled": true,
+  "database": "libsql"
+}
+
+// plugins/plugin-authn/manifest.jsonc
+{
+  "enabled": true,
+  "database": "sqlite"
 }
 ----
 

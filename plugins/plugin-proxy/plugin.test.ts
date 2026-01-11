@@ -16,7 +16,7 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
     config: {},
     globalConfig: {
       poolSize: 10,
-      workspaces: ["./apps"],
+      workerDirs: ["./apps"],
     },
     getService: mock(() => undefined),
     logger: {
@@ -36,44 +36,15 @@ describe("proxyPlugin", () => {
   });
 
   describe("plugin factory", () => {
-    it("should return a valid plugin object", () => {
+    it("should return a valid plugin object with implementation properties", () => {
       const plugin = proxyPlugin();
 
-      expect(plugin.name).toBe("@buntime/plugin-proxy");
-      expect(plugin.base).toBe("/proxy");
       expect(plugin.routes).toBeDefined();
       expect(plugin.onInit).toBeDefined();
       expect(plugin.onShutdown).toBeDefined();
       expect(plugin.onRequest).toBeDefined();
       expect(plugin.onServerStart).toBeDefined();
       expect(plugin.websocket).toBeDefined();
-    });
-
-    it("should accept custom base path", () => {
-      const plugin = proxyPlugin({ base: "/custom-proxy" });
-      expect(plugin.base).toBe("/custom-proxy");
-    });
-
-    it("should have optional dependency on plugin-keyval", () => {
-      const plugin = proxyPlugin();
-      expect(plugin.optionalDependencies).toContain("@buntime/plugin-keyval");
-    });
-
-    it("should have fragment configuration", () => {
-      const plugin = proxyPlugin();
-      expect(plugin.fragment).toEqual({ type: "patch" });
-    });
-
-    it("should define menu items", () => {
-      const plugin = proxyPlugin();
-      expect(plugin.menus).toBeDefined();
-      expect(plugin.menus?.length).toBe(1);
-      expect(plugin.menus?.[0]).toEqual({
-        icon: "lucide:network",
-        path: "/redirects",
-        priority: 20,
-        title: "Redirects",
-      });
     });
   });
 
@@ -326,17 +297,7 @@ describe("ProxyConfig", () => {
     };
 
     const plugin = proxyPlugin(config);
-    expect(plugin.name).toBe("@buntime/plugin-proxy");
-  });
-
-  it("should accept base path override", () => {
-    const config: ProxyConfig = {
-      base: "/my-proxy",
-      rules: [],
-    };
-
-    const plugin = proxyPlugin(config);
-    expect(plugin.base).toBe("/my-proxy");
+    expect(plugin.routes).toBeDefined();
   });
 
   it("should accept fragment configuration in rules", () => {
@@ -355,7 +316,7 @@ describe("ProxyConfig", () => {
     };
 
     const plugin = proxyPlugin(config);
-    expect(plugin.name).toBe("@buntime/plugin-proxy");
+    expect(plugin.routes).toBeDefined();
   });
 });
 

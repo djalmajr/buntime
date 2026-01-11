@@ -1,4 +1,4 @@
-== Worker Pool
+= Worker Pool
 :toc: left
 :toclevels: 3
 :sectnums:
@@ -8,11 +8,11 @@
 
 O Worker Pool é o núcleo do runtime Buntime, gerenciando o ciclo de vida de workers Bun que executam aplicações isoladas.
 
-=== Arquitetura
+== Arquitetura
 
 [source]
 ----
-server/libs/pool/
+src/libs/pool/
 ├── pool.ts          # WorkerPool - gerenciamento do cache LRU
 ├── instance.ts      # WorkerInstance - lifecycle e IPC
 ├── wrapper.ts       # Código executado dentro do worker thread
@@ -22,7 +22,7 @@ server/libs/pool/
 └── types.ts         # Tipos de mensagens IPC e apps
 ----
 
-==== Fluxo de Execução
+=== Fluxo de Execução
 
 [mermaid]
 ----
@@ -42,18 +42,18 @@ flowchart TD
     AwaitReady --> StoreCache["Armazena no cache LRU"]
 ----
 
-=== WorkerPool
+== WorkerPool
 
 Classe principal que gerencia o cache de workers.
 
-==== Responsabilidades
+=== Responsabilidades
 
 * Gerenciar cache LRU de `WorkerInstance`
 * Controlar lifecycle (criação, eviction, cleanup)
 * Coletar métricas de pool (hit rate, latência, workers ativos)
 * Aplicar políticas de TTL e max requests
 
-==== Configuração
+=== Configuração
 
 [source,typescript]
 ----
@@ -75,7 +75,7 @@ const response = await pool.fetch(appDir, config, req);
 // que gerencia o cache de workers
 ----
 
-==== Cache Strategy
+=== Cache Strategy
 
 O pool implementa cache LRU com políticas baseadas em tempo:
 
@@ -99,7 +99,7 @@ O pool implementa cache LRU com políticas baseadas em tempo:
 | Worker mais antigo é terminado quando cache está cheio
 |===
 
-==== Lifecycle Management
+=== Lifecycle Management
 
 [source,typescript]
 ----
@@ -126,18 +126,18 @@ cache.onEviction = (key, instance) => {
 pool.shutdown();  // Termina todos os workers
 ----
 
-=== WorkerInstance
+== WorkerInstance
 
 Representa um worker Bun individual executando uma aplicação.
 
-==== Responsabilidades
+=== Responsabilidades
 
 * Spawnar worker thread via `new Worker(wrapper.ts)`
 * Gerenciar comunicação IPC (postMessage/onmessage)
 * Implementar timeout e health checks
 * Serializar Request/Response entre threads
 
-==== Lifecycle
+=== Lifecycle
 
 [mermaid]
 ----
@@ -171,7 +171,7 @@ flowchart TD
     health -->|unhealthy| term
 ----
 
-==== Estados
+=== Estados
 
 [cols="1,2"]
 |===
@@ -190,7 +190,7 @@ flowchart TD
 | Worker indisponível (terminado ou com falha crítica)
 |===
 
-==== IPC Protocol
+=== IPC Protocol
 
 A comunicação entre main thread e worker usa mensagens estruturadas:
 
@@ -209,7 +209,7 @@ type WorkerResponse =
   | { type: "ERROR"; reqId: string; error: string; stack?: string };
 ----
 
-==== Request Flow
+=== Request Flow
 
 [source,typescript]
 ----
@@ -238,7 +238,7 @@ const resBody = await response.arrayBuffer();
 self.postMessage({ type: "RESPONSE", reqId, res: { body: resBody, ... } }, [resBody]);
 ----
 
-==== Timeout Handling
+=== Timeout Handling
 
 Cada request tem timeout configurável:
 
@@ -255,11 +255,11 @@ worker.addEventListener("message", (data) => {
 });
 ----
 
-=== Wrapper
+== Wrapper
 
 Código executado dentro do worker thread. Responsável por carregar a aplicação e processar requests.
 
-==== Responsabilidades
+=== Responsabilidades
 
 * Carregar entrypoint da aplicação (`import(ENTRYPOINT)`)
 * Validar exports (`fetch` ou `routes`)
@@ -267,7 +267,7 @@ Código executado dentro do worker thread. Responsável por carregar a aplicaç�
 * Executar auto-install se configurado
 * Injetar `<base href>` em HTML para SPAs
 
-==== Inicialização
+=== Inicialização
 
 [source,typescript]
 ----
@@ -292,11 +292,11 @@ if (!app || (typeof app.fetch !== "function" && !app.routes)) {
 self.postMessage({ type: "READY" });
 ----
 
-==== Tipos de Aplicação
+=== Tipos de Aplicação
 
 O wrapper suporta três formatos de aplicação:
 
-===== Fetch-based (Hono, Express, etc.)
+==== Fetch-based (Hono, Express, etc.)
 
 [source,typescript]
 ----
@@ -308,7 +308,7 @@ export default {
 };
 ----
 
-===== Routes-based (Declarativo)
+==== Routes-based (Declarativo)
 
 [source,typescript]
 ----
@@ -344,7 +344,7 @@ for (const [path, value] of Object.entries(app.routes)) {
 }
 ----
 
-===== Blob/BunFile
+==== Blob/BunFile
 
 Routes podem também aceitar valores `Blob` (incluindo `BunFile`):
 
@@ -361,11 +361,11 @@ export default {
 };
 ----
 
-===== SPA (HTML entrypoint)
+==== SPA (HTML entrypoint)
 
-[source,typescript]
+[source,jsonc]
 ----
-// buntime.jsonc
+// manifest.jsonc
 {
   "entrypoint": "index.html"
 }
@@ -373,7 +373,7 @@ export default {
 
 HTML files são servidos via `serveStatic` com injeção de `<base href>`.
 
-==== Base Path Injection
+=== Base Path Injection
 
 Para SPAs sob subpaths (ex: `/cpanel`), o wrapper injeta `<base href>`:
 
@@ -403,7 +403,7 @@ const basepath = baseElement?.getAttribute("href")?.slice(0, -1) || "";
 const router = createRouter({ basepath });
 ----
 
-==== Lifecycle Hooks
+=== Lifecycle Hooks
 
 Aplicações podem implementar hooks opcionais:
 
@@ -424,13 +424,13 @@ export default {
 };
 ----
 
-=== Segurança
+== Segurança
 
 O runtime implementa diversas camadas de segurança para proteger contra ataques e vazamento de dados.
 
-==== Filtragem de Variáveis de Ambiente
+=== Filtragem de Variáveis de Ambiente
 
-Variáveis sensíveis são automaticamente bloqueadas ao passar `env` para workers via `buntime.jsonc`. Os patterns filtrados:
+Variáveis sensíveis são automaticamente bloqueadas ao passar `env` para workers via `manifest.jsonc`. Os patterns filtrados:
 
 [cols="1,2"]
 |===
@@ -469,7 +469,7 @@ Variáveis sensíveis são automaticamente bloqueadas ao passar `env` para worke
 
 Quando variáveis sensíveis são bloqueadas, um warning é logado no servidor com a lista de chaves filtradas.
 
-==== Limites de Headers
+=== Limites de Headers
 
 Para prevenir exaustão de memória por headers maliciosos, o wrapper aplica limites:
 
@@ -492,7 +492,7 @@ Para prevenir exaustão de memória por headers maliciosos, o wrapper aplica lim
 
 Headers que excedem esses limites são truncados ou ignorados.
 
-==== Validação de Path do Entrypoint
+=== Validação de Path do Entrypoint
 
 O wrapper valida que o entrypoint não escapa do diretório da aplicação:
 
@@ -506,7 +506,7 @@ if (!resolvedEntry.startsWith(APP_DIR)) {
 
 Isso previne ataques de path traversal como `../../etc/passwd`.
 
-==== Escape de HTML na Injeção de Base
+=== Escape de HTML na Injeção de Base
 
 A injeção de `<base href>` em respostas HTML usa escape para prevenir XSS:
 
@@ -526,7 +526,7 @@ const baseHref = escapeHtml(base === "/" ? "/" : `${base}/`);
 const injection = `<base href="${baseHref}" />`;
 ----
 
-==== Auto-Install Seguro
+=== Auto-Install Seguro
 
 Quando `autoInstall: true` é configurado, o comando usa flags de segurança:
 
@@ -548,11 +548,11 @@ Bun.spawnSync(["bun", "install", "--frozen-lockfile", "--ignore-scripts"], {
 | Não executa scripts postinstall de pacotes (previne execução de código malicioso)
 |===
 
-=== Utilitários de Estatísticas
+== Utilitários de Estatísticas
 
 Funções auxiliares em `stats.ts` para cálculos de métricas:
 
-==== roundTwoDecimals
+=== roundTwoDecimals
 
 Arredonda um número para 2 casas decimais. Usado para exibição de métricas.
 
@@ -566,7 +566,7 @@ roundTwoDecimals(3.14159);  // 3.14
 roundTwoDecimals(10.005);   // 10.01
 ----
 
-==== computeAvgResponseTime
+=== computeAvgResponseTime
 
 Calcula tempo médio de resposta com proteção contra divisão por zero.
 
@@ -581,11 +581,11 @@ computeAvgResponseTime(1500, 10);  // 150
 computeAvgResponseTime(0, 0);      // 0 (sem erro)
 ----
 
-=== Configuração
+== Configuração
 
-Workers são configurados via `buntime.jsonc` ou `package.json#buntime`.
+Workers são configurados via `manifest.jsonc` no diretório da aplicação.
 
-==== Schema
+=== Schema
 
 [source,typescript]
 ----
@@ -622,7 +622,7 @@ interface WorkerConfigFile {
 }
 ----
 
-==== Duration Format
+=== Duration Format
 
 Valores de tempo aceitam número (segundos) ou string:
 
@@ -644,11 +644,11 @@ Valores de tempo aceitam número (segundos) ou string:
 
 Formatos suportados: `ms`, `s`, `m`, `h`, `d`, `w`, `y`
 
-==== Exemplo Completo
+=== Exemplo Completo
 
 [source,jsonc]
 ----
-// apps/todos-kv/v1/buntime.jsonc
+// apps/todos-kv/v1/manifest.jsonc
 {
   "entrypoint": "index.ts",
   "timeout": "30s",
@@ -664,11 +664,11 @@ Formatos suportados: `ms`, `s`, `m`, `h`, `d`, `w`, `y`
 }
 ----
 
-=== Métricas
+== Métricas
 
 O pool coleta métricas em tempo real:
 
-==== Pool Metrics
+=== Pool Metrics
 
 [source,typescript]
 ----
@@ -689,7 +689,7 @@ interface PoolMetrics {
 }
 ----
 
-==== Implementação
+=== Implementação
 
 O `WorkerMetrics` usa circular buffer para latências:
 
@@ -705,7 +705,7 @@ recordRequest(durationMs: number) {
 }
 ----
 
-==== Worker Stats
+=== Worker Stats
 
 Cada `WorkerInstance` expõe estatísticas individuais:
 
@@ -718,16 +718,16 @@ worker.getStats()
 //   errorCount: 2,             // total de erros
 //   idleMs: 5000,              // ms desde última requisição
 //   requestCount: 42,          // requests processados
-//   status: "active",          // "active" | "idle"
+//   status: "active",          // "active" | "idle" | "ephemeral" | "offline"
 //   totalResponseTimeMs: 651,  // tempo total de resposta acumulado
 // }
 ----
 
-=== Spawning dinâmico
+== Spawning dinâmico
 
 O pool cria workers sob demanda:
 
-==== Cache Hit (Worker Reutilizado)
+=== Cache Hit (Worker Reutilizado)
 
 [source,typescript]
 ----
@@ -739,7 +739,7 @@ const response = await pool.fetch("/apps/todos-kv/v1", config, req);
 // - worker.touch() - atualiza lastUsedAt
 ----
 
-==== Cache Miss (Worker Criado)
+=== Cache Miss (Worker Criado)
 
 [source,typescript]
 ----
@@ -753,7 +753,7 @@ const response = await pool.fetch("/apps/todos-kv/v2", config, req);
 // - cache.set(key, instance)
 ----
 
-==== Eviction (Worker Removido)
+=== Eviction (Worker Removido)
 
 [source,typescript]
 ----
@@ -765,11 +765,11 @@ cache.onEviction = (key, instance) => {
 };
 ----
 
-==== Health Checks
+=== Health Checks
 
 O pool executa verificações periódicas de saúde em cada worker. Um worker é considerado saudável quando todas as condições são atendidas:
 
-===== Critérios de Saúde
+==== Critérios de Saúde
 
 [cols="1,2,2"]
 |===
@@ -794,7 +794,7 @@ O pool executa verificações periódicas de saúde em cada worker. Um worker é
 
 Um worker falha no health check (é considerado unhealthy) se qualquer uma dessas condições for falsa.
 
-===== Intervalo de Verificação
+==== Intervalo de Verificação
 
 O intervalo entre verificações é calculado como metade do menor timeout configurado:
 
@@ -822,7 +822,7 @@ Isso garante que workers não saudáveis sejam detectados antes de expirarem com
 | 15.000 (15s)
 |===
 
-===== Implementação
+==== Implementação
 
 [source,typescript]
 ----
@@ -854,7 +854,7 @@ isHealthy(): boolean {
 }
 ----
 
-===== Fluxo de Health Check
+==== Fluxo de Health Check
 
 [mermaid]
 ----
@@ -870,7 +870,7 @@ flowchart TD
     E --> I[cleanupTimer]
 ----
 
-===== Erros Críticos
+==== Erros Críticos
 
 Erros críticos marcam o worker como permanentemente unhealthy, garantindo que seja removido no próximo health check:
 
@@ -878,17 +878,17 @@ Erros críticos marcam o worker como permanentemente unhealthy, garantindo que s
 * Erro de importação do entrypoint (syntax error, module not found)
 * Erro não tratado no worker thread durante requisição
 
-=== Isolamento
+== Isolamento
 
 Cada worker executa em thread isolado com:
 
-==== Memory Isolation
+=== Memory Isolation
 
 * Heap separado por worker
 * Modo `smol` disponível (low-memory)
 * Garbage collection independente
 
-==== Environment Isolation
+=== Environment Isolation
 
 [source,typescript]
 ----
@@ -905,15 +905,15 @@ new Worker(WORKER_PATH, {
 });
 ----
 
-==== Module Isolation
+=== Module Isolation
 
 * Cada worker importa módulos independentemente
 * Cache de módulos por worker
 * Versões diferentes do mesmo app não conflitam
 
-=== Boas Práticas
+== Boas Práticas
 
-==== DO
+=== DO
 
 * Use `ttl > 0` para apps com state (conexões DB, caches)
 * Configure `maxRequests` para evitar memory leaks
@@ -931,7 +931,7 @@ new Worker(WORKER_PATH, {
 }
 ----
 
-==== DON'T
+=== DON'T
 
 * Não use `ttl = 0` para apps com warm-up custoso
 * Não configure `timeout` muito baixo para operações lentas
@@ -959,7 +959,7 @@ export default {
 };
 ----
 
-==== Monitoramento
+=== Monitoramento
 
 Use métricas para tuning:
 

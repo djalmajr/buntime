@@ -50,10 +50,38 @@ bun build:types  # Build TypeScript types
 bun build:bin    # Compile to binary
 ```
 
+## Configuration
+
+Runtime is configured via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WORKER_DIRS` | **Required** | App directories (JSON array or comma-separated) |
+| `PLUGIN_DIRS` | `["./plugins"]` | Plugin directories |
+| `POOL_SIZE` | `100` | Max concurrent workers |
+| `PORT` | `8000` | Server port |
+| `LOG_LEVEL` | `info` | Log level |
+
 ## Config Files
 
-- `buntime.jsonc` - Runner plugins config
+- `plugins/*/manifest.jsonc` - Plugin manifest (metadata + config)
+- `apps/*/manifest.jsonc` - Per-worker config (entrypoint, maxBodySize)
 - `tsconfig.json` - TypeScript config with path aliases
+
+## Plugin Auto-Discovery
+
+Plugins are auto-discovered from `PLUGIN_DIRS`. Each plugin has its own `manifest.jsonc`:
+
+```jsonc
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "name": "@buntime/plugin-keyval",
+  "enabled": true,
+  "base": "/keyval",
+  "entrypoint": "dist/client/index.html",
+  "dependencies": ["@buntime/plugin-database"]
+}
+```
 
 ## Development Services
 

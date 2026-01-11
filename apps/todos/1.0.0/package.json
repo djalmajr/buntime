@@ -8,13 +8,5 @@
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
     "start": "bunx browser-sync --port 5000 --no-ui --no-open --single --watch"
-  },
-  "buntime": {
-    "idleTimeout": 30,
-    "lowMemory": false,
-    "maxRequests": 100,
-    "timeout": 30,
-    "ttl": 60,
-    "visibility": "protected"
   }
 }

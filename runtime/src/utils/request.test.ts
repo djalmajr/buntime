@@ -16,6 +16,7 @@ describe("request utils", () => {
     beforeEach(() => {
       spyOn(configModule, "getConfig").mockReturnValue({
         bodySize: { default: 1024, max: 10240 },
+        configDir: "/tmp/test",
         delayMs: 100,
         isCompiled: false,
         isDev: true,
@@ -24,7 +25,7 @@ describe("request utils", () => {
         poolSize: 10,
         port: 8000,
         version: "1.0.0",
-        workspaces: ["/tmp"],
+        workerDirs: ["/tmp"],
       });
     });
 

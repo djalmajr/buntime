@@ -1,4 +1,4 @@
-import type { BuntimePlugin, PluginContext } from "@buntime/shared/types";
+import type { PluginContext, PluginImpl } from "@buntime/shared/types";
 import { initApi } from "./server/api";
 import { PolicyAdministrationPoint } from "./server/pap";
 import { PolicyDecisionPoint } from "./server/pdp";
@@ -217,53 +217,31 @@ function buildContext(
  * Requires @buntime/authn to be loaded first (for identity extraction).
  *
  * @example
- * ```typescript
- * // buntime.config.ts
- * export default {
- *   plugins: [
- *     ["@buntime/authn", { ... }],
- *     ["@buntime/authz", {
- *       store: "file",
- *       path: "./policies.json",
- *       policies: [
- *         {
- *           id: "admin-all",
- *           effect: "permit",
- *           subjects: [{ role: "admin" }],
- *           resources: [{ path: "*" }],
- *           actions: [{ method: "*" }],
- *         },
- *       ],
- *     }],
- *   ],
+ * ```jsonc
+ * // plugins/plugin-authz/manifest.jsonc
+ * {
+ *   "name": "@buntime/plugin-authz",
+ *   "enabled": true,
+ *   "store": "file",
+ *   "path": "./policies.json",
+ *   "policySeed": {
+ *     "policies": [
+ *       {
+ *         "id": "admin-all",
+ *         "effect": "permit",
+ *         "subjects": [{ "role": "admin" }],
+ *         "resources": [{ "path": "*" }],
+ *         "actions": [{ "method": "*" }]
+ *       }
+ *     ]
+ *   }
  * }
  * ```
  */
-export default function authzPlugin(pluginConfig: AuthzConfig = {}): BuntimePlugin {
+export default function authzPlugin(pluginConfig: AuthzConfig = {}): PluginImpl {
   config = pluginConfig;
 
   return {
-    name: "@buntime/plugin-authz",
-    base: "/authz",
-    dependencies: ["@buntime/plugin-authn"], // Requires authn to be configured
-
-    fragment: {
-      type: "patch",
-    },
-
-    menus: [
-      {
-        icon: "lucide:shield-check",
-        path: "/authz",
-        priority: 70,
-        title: "Authorization",
-        items: [
-          { icon: "lucide:file-text", path: "/authz/policies", title: "Policies" },
-          { icon: "lucide:scale", path: "/authz/evaluate", title: "Evaluate" },
-        ],
-      },
-    ],
-
     async onInit(ctx: PluginContext) {
       logger = ctx.logger;
 

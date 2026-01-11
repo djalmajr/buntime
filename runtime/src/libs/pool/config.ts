@@ -1,6 +1,6 @@
-import { join } from "node:path";
 import { getChildLogger } from "@buntime/shared/logger";
 import type { PublicRoutesConfig } from "@buntime/shared/types";
+import { loadManifestConfig } from "@buntime/shared/utils/buntime-config";
 import { parseDurationToMs } from "@buntime/shared/utils/duration";
 import { parseSizeToBytes } from "@buntime/shared/utils/size";
 import { boolean, number, substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
@@ -82,41 +82,11 @@ export interface WorkerConfig {
 }
 
 /**
- * Load worker configuration from buntime.jsonc or package.json#buntime
+ * Load worker configuration from manifest.jsonc or manifest.json
  */
 export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
-  let config: Partial<WorkerConfigFile> | undefined;
-
-  // Try buntime.jsonc first
-  const jsoncPath = join(appDir, "buntime.jsonc");
-  try {
-    const file = Bun.file(jsoncPath);
-    if (await file.exists()) {
-      // Bun natively parses JSONC (strips comments and trailing commas)
-      const mod = await import(jsoncPath);
-      config = mod.default ?? mod;
-    }
-  } catch (err) {
-    if (err instanceof Error && !err.message.includes("Cannot find module")) {
-      throw new Error(`[buntime.jsonc] Failed to parse ${jsoncPath}: ${err.message}`);
-    }
-  }
-
-  // Fallback to package.json#buntime
-  if (!config) {
-    const pkgPath = join(appDir, "package.json");
-    try {
-      const file = Bun.file(pkgPath);
-      if (await file.exists()) {
-        const pkg = await file.json();
-        if (pkg.buntime) {
-          config = pkg.buntime;
-        }
-      }
-    } catch {
-      // Ignore package.json errors
-    }
-  }
+  // Load config using shared utility
+  const config = await loadManifestConfig(appDir);
 
   // Validate and apply defaults
   const { data, error } = workerConfigSchema.safeParse(config || {});

@@ -68,13 +68,13 @@ export function useFragmentUrl(rootDirs: string[]) {
     };
   }, [rootDirs]);
 
-  // Set initial root when rootDirs loads and redirect to first workspace
+  // Set initial root when rootDirs loads and redirect to first workerDir
   useEffect(() => {
     if (rootDirs.length === 0) return;
 
     const parsed = parseUrlPath(rootDirs);
 
-    // Check if URL needs updating (no workspace in URL but we have workspaces)
+    // Check if URL needs updating (no workerDir in URL but we have workerDirs)
     const currentPath = window.location.pathname;
     const basePath = document.querySelector("base")?.getAttribute("href")?.replace(/\/$/, "") ?? "";
     const deployPath = currentPath.startsWith(basePath)
@@ -84,7 +84,7 @@ export function useFragmentUrl(rootDirs: string[]) {
       deployPath === "/deployments" || deployPath === "/deployments/" || !parsed.selectedRoot;
 
     if (needsRedirect && rootDirs[0]) {
-      // Redirect to first workspace
+      // Redirect to first workerDir
       const newState = { selectedRoot: rootDirs[0], path: "" };
       setState(newState);
       navigateToShell(newState);

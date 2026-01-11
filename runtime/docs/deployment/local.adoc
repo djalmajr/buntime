@@ -1,4 +1,4 @@
-== Execução Local
+= Execução Local
 :toc: left
 :toclevels: 3
 :sectnums:
@@ -28,7 +28,7 @@ Existem três formas de executar o Buntime localmente:
 | ~130MB
 |===
 
-=== Modo Development
+== Modo Development
 
 [source,bash]
 ----
@@ -42,7 +42,7 @@ Recursos:
 * Source maps para debugging
 * Inicialização mais lenta (plugins carregados de node_modules)
 
-=== Modo Bundle
+== Modo Bundle
 
 Compile e execute o JavaScript empacotado:
 
@@ -63,11 +63,10 @@ Estrutura de saída:
 ----
 dist/
 ├── index.ts       # Main bundle (~1.3MB)
-├── wrapper.ts     # Worker thread (~23KB)
-└── buntime.jsonc  # Configuration
+└── wrapper.ts     # Worker thread (~23KB)
 ----
 
-=== Binary Compilado
+== Binary Compilado
 
 Compile um executável standalone com todas as dependências embutidas:
 
@@ -87,43 +86,41 @@ Saída:
 [source]
 ----
 dist/
-├── buntime        # Standalone binary (~130MB)
-└── buntime.jsonc  # Configuration
+└── buntime        # Standalone binary (~130MB)
 ----
 
-==== Recursos do Modo Compiled
+=== Recursos do Modo Compiled
 
 * Não requer instalação do Bun
 * Todos os plugins embutidos no binary
 * Deploy de arquivo único
 * Funciona em qualquer sistema Linux x64
 
-==== Configuração no Modo Compiled
+=== Configuração no Modo Compiled
 
-O binary lê `buntime.jsonc` do diretório atual:
+O binary é configurado via variáveis de ambiente:
 
 [source,bash]
 ----
-# Option 1: Run from dist folder
-cd dist
-./buntime
+# Option 1: Run with env vars
+WORKER_DIRS=/apps PLUGIN_DIRS=/plugins ./dist/buntime
 
-# Option 2: Copy binary and config together
-cp dist/buntime dist/buntime.jsonc /opt/buntime/
+# Option 2: Use .env file
 cd /opt/buntime
+cp .env.example .env  # Configure env vars
 ./buntime
 ----
 
-==== Variáveis de Ambiente
+=== Variáveis de Ambiente
 
 [source,bash]
 ----
 # Required
-export WORKSPACES_DIR=/path/to/apps
+export WORKER_DIRS=/path/to/apps
 
-# Optional
+# Optional (defaults: PORT=8000, POOL_SIZE=500 for prod)
 export PORT=8000
-export POOL_SIZE=100
+export POOL_SIZE=500
 export LOG_LEVEL=info
 export LIBSQL_URL=http://localhost:8880
 
@@ -131,7 +128,7 @@ export LIBSQL_URL=http://localhost:8880
 ./buntime
 ----
 
-==== Serviço Systemd
+=== Serviço Systemd
 
 Crie `/etc/systemd/system/buntime.service`:
 
@@ -151,7 +148,7 @@ Restart=always
 RestartSec=5
 
 Environment=PORT=8000
-Environment=WORKSPACES_DIR=/opt/buntime/apps
+Environment=WORKER_DIRS=/opt/buntime/apps
 Environment=LIBSQL_URL=http://localhost:8880
 Environment=LOG_LEVEL=info
 
@@ -169,9 +166,9 @@ sudo systemctl start buntime
 sudo systemctl status buntime
 ----
 
-=== Docker
+== Docker
 
-==== Construir Imagem
+=== Construir Imagem
 
 [source,bash]
 ----
@@ -179,7 +176,7 @@ sudo systemctl status buntime
 docker build -t buntime:latest .
 ----
 
-==== Executar Container
+=== Executar Container
 
 [source,bash]
 ----
@@ -187,44 +184,81 @@ docker run -d \
   --name buntime \
   -p 8000:8000 \
   -v /path/to/apps:/app/apps \
-  -e WORKSPACES_DIR=/app/apps \
+  -e WORKER_DIRS=/app/apps \
   -e LIBSQL_URL=http://host.docker.internal:8880 \
   buntime:latest
 ----
 
-==== Docker Compose
+=== Docker Compose
 
 [source,yaml]
 ----
 services:
   buntime:
-    image: ghcr.io/user/buntime:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
-      - ./apps:/app/apps
+      - ./tmp:/app/apps
     environment:
       PORT: 8000
-      WORKSPACES_DIR: /app/apps
       LIBSQL_URL: http://libsql:8080
+      WORKER_DIRS: /app/apps
     depends_on:
-      - libsql
+      libsql:
+        condition: service_healthy
+    restart: unless-stopped
 
   libsql:
     image: ghcr.io/tursodatabase/libsql-server:latest
     ports:
-      - "8880:8080"
+      - "8880:8080"  # HTTP API
+      - "8881:5001"  # gRPC API (for replication)
     volumes:
       - libsql-data:/var/lib/sqld
     environment:
       SQLD_NODE: primary
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+      SQLD_GRPC_LISTEN_ADDR: 0.0.0.0:5001
       SQLD_DISABLE_AUTH: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  libsql-replica:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "8882:8080"  # HTTP API (replica)
+    volumes:
+      - libsql-replica-data:/var/lib/sqld
+    environment:
+      SQLD_NODE: replica
+      SQLD_PRIMARY_URL: http://libsql:5001
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+      SQLD_DISABLE_AUTH: "true"
+    depends_on:
+      libsql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
 
 volumes:
   libsql-data:
+  libsql-replica-data:
 ----
 
-=== Comparação
+NOTE: O docker-compose.yml usa `build:` para construir a imagem localmente. Para produção, você pode substituir por `image: ghcr.io/user/buntime:latest`.
+
+== Comparação
 
 [cols="1,1,1,1,1"]
 |===

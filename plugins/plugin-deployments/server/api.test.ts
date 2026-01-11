@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { api, getDirNames, getExcludes, getWorkspaces, setExcludes, setWorkspaces } from "./api";
+import { api, getDirNames, getExcludes, getWorkerDirs, setExcludes, setWorkerDirs } from "./api";
 import { DirInfo } from "./libs/dir-info";
 
 const TEST_APPS_PATH = "/tmp/buntime-api-test/apps";
@@ -40,7 +40,7 @@ async function apiRequest(
 }
 
 describe("api", () => {
-  const originalWorkspaces = getWorkspaces();
+  const originalWorkerDirs = getWorkerDirs();
   const originalExcludes = getExcludes();
 
   beforeAll(async () => {
@@ -54,13 +54,13 @@ describe("api", () => {
     // Cleanup
     await rm(TEST_BASE_PATH, { force: true, recursive: true });
     // Restore original state
-    setWorkspaces(originalWorkspaces);
+    setWorkerDirs(originalWorkerDirs);
     setExcludes(originalExcludes, true);
   });
 
   beforeEach(async () => {
     // Reset state
-    setWorkspaces([TEST_APPS_PATH, TEST_PACKAGES_PATH]);
+    setWorkerDirs([TEST_APPS_PATH, TEST_PACKAGES_PATH]);
     setExcludes([".git", "node_modules"], true);
     DirInfo.globalExcludes = [".git", "node_modules"];
 
@@ -72,7 +72,7 @@ describe("api", () => {
   });
 
   describe("GET /list", () => {
-    it("should list root directories (workspaces)", async () => {
+    it("should list root directories (workerDirs)", async () => {
       const res = await apiRequest("GET", "/list");
       const json = await res.json();
 
@@ -83,7 +83,7 @@ describe("api", () => {
       expect(json.data.entries.map((e: { name: string }) => e.name)).toContain("packages");
     });
 
-    it("should list contents of a workspace", async () => {
+    it("should list contents of a workerDir", async () => {
       await mkdir(join(TEST_APPS_PATH, "my-app"), { recursive: true });
       await writeFile(join(TEST_APPS_PATH, "file.txt"), "content");
 
@@ -109,7 +109,7 @@ describe("api", () => {
       expect(json.data.entries[0].name).toBe("index.js");
     });
 
-    it("should return 404 for non-existent workspace", async () => {
+    it("should return 404 for non-existent workerDir", async () => {
       const res = await apiRequest("GET", "/list?path=non-existent");
       const json = await res.json();
 
@@ -120,7 +120,7 @@ describe("api", () => {
     it("should filter out internal visibility apps", async () => {
       await mkdir(join(TEST_APPS_PATH, "internal-app"), { recursive: true });
       await writeFile(
-        join(TEST_APPS_PATH, "internal-app/buntime.jsonc"),
+        join(TEST_APPS_PATH, "internal-app/manifest.jsonc"),
         JSON.stringify({ visibility: "internal" }),
       );
       await mkdir(join(TEST_APPS_PATH, "public-app"), { recursive: true });
@@ -135,7 +135,7 @@ describe("api", () => {
     it("should include currentVisibility in response", async () => {
       await mkdir(join(TEST_APPS_PATH, "my-app/1.0.0"), { recursive: true });
       await writeFile(
-        join(TEST_APPS_PATH, "my-app/1.0.0/buntime.jsonc"),
+        join(TEST_APPS_PATH, "my-app/1.0.0/manifest.jsonc"),
         JSON.stringify({ visibility: "protected" }),
       );
 
@@ -238,7 +238,7 @@ describe("api", () => {
       expect(json.success).toBe(false);
     });
 
-    it("should return error when trying to delete workspace root", async () => {
+    it("should return error when trying to delete workerDir root", async () => {
       const res = await apiRequest("DELETE", "/delete", { path: "apps" });
       const json = await res.json();
 
@@ -293,7 +293,7 @@ describe("api", () => {
       expect(json.success).toBe(false);
     });
 
-    it("should return error when trying to rename workspace root", async () => {
+    it("should return error when trying to rename workerDir root", async () => {
       const res = await apiRequest("POST", "/rename", { path: "apps", newName: "new-apps" });
       const json = await res.json();
 
@@ -343,7 +343,7 @@ describe("api", () => {
       expect(json.success).toBe(false);
     });
 
-    it("should return error when trying to move workspace root", async () => {
+    it("should return error when trying to move workerDir root", async () => {
       const res = await apiRequest("POST", "/move", {
         path: "apps",
         destPath: "packages",
@@ -354,7 +354,7 @@ describe("api", () => {
       expect(json.success).toBe(false);
     });
 
-    it("should return error when moving between different workspaces", async () => {
+    it("should return error when moving between different workerDirs", async () => {
       const res = await apiRequest("POST", "/move", {
         path: "apps/app1/1.0.0/file.txt",
         destPath: "packages/app1/1.0.0",
@@ -447,7 +447,7 @@ describe("api", () => {
       expect(await cacheFile.exists()).toBe(false);
     });
 
-    it("should refresh all workspaces when no path provided", async () => {
+    it("should refresh all workerDirs when no path provided", async () => {
       await writeFile(join(TEST_APPS_PATH, ".dirinfo"), '{"files":1}');
       await writeFile(join(TEST_PACKAGES_PATH, ".dirinfo"), '{"files":1}');
 
@@ -471,7 +471,7 @@ describe("api", () => {
       expect(json.success).toBe(true);
     });
 
-    it("should refresh all workspaces when no path provided", async () => {
+    it("should refresh all workerDirs when no path provided", async () => {
       const res = await apiRequest("POST", "/refresh", {});
       const json = await res.json();
 
@@ -669,7 +669,7 @@ describe("api", () => {
 });
 
 describe("GET /list - edge cases", () => {
-  const originalWorkspaces = getWorkspaces();
+  const originalWorkerDirs = getWorkerDirs();
   const originalExcludes = getExcludes();
 
   beforeAll(async () => {
@@ -678,7 +678,7 @@ describe("GET /list - edge cases", () => {
 
   afterAll(async () => {
     await rm(TEST_BASE_PATH, { force: true, recursive: true });
-    setWorkspaces(originalWorkspaces);
+    setWorkerDirs(originalWorkerDirs);
     setExcludes(originalExcludes, true);
   });
 
@@ -688,8 +688,8 @@ describe("GET /list - edge cases", () => {
   });
 
   it("should handle root listing when directory stat fails (non-existent dir)", async () => {
-    // Set workspaces to non-existent directories
-    setWorkspaces(["/tmp/non-existent-workspace-abc123"]);
+    // Set workerDirs to non-existent directories
+    setWorkerDirs(["/tmp/non-existent-workerdir-abc123"]);
 
     const res = await apiRequest("GET", "/list");
     const json = await res.json();
@@ -698,13 +698,13 @@ describe("GET /list - edge cases", () => {
     expect(json.success).toBe(true);
     expect(json.data.entries).toHaveLength(1);
     // Should still show the directory entry with current time
-    expect(json.data.entries[0].name).toBe("non-existent-workspace-abc123");
+    expect(json.data.entries[0].name).toBe("non-existent-workerdir-abc123");
     expect(json.data.entries[0].isDirectory).toBe(true);
   });
 });
 
 describe("POST /mkdir - edge cases", () => {
-  const originalWorkspaces = getWorkspaces();
+  const originalWorkerDirs = getWorkerDirs();
   const originalExcludes = getExcludes();
 
   beforeAll(async () => {
@@ -714,12 +714,12 @@ describe("POST /mkdir - edge cases", () => {
 
   afterAll(async () => {
     await rm(TEST_BASE_PATH, { force: true, recursive: true });
-    setWorkspaces(originalWorkspaces);
+    setWorkerDirs(originalWorkerDirs);
     setExcludes(originalExcludes, true);
   });
 
   beforeEach(async () => {
-    setWorkspaces([TEST_APPS_PATH]);
+    setWorkerDirs([TEST_APPS_PATH]);
     setExcludes([".git", "node_modules"], true);
     DirInfo.globalExcludes = [".git", "node_modules"];
     await rm(TEST_APPS_PATH, { force: true, recursive: true });
@@ -737,7 +737,7 @@ describe("POST /mkdir - edge cases", () => {
 });
 
 describe("DELETE /delete - edge cases", () => {
-  const originalWorkspaces = getWorkspaces();
+  const originalWorkerDirs = getWorkerDirs();
   const originalExcludes = getExcludes();
 
   beforeAll(async () => {
@@ -747,12 +747,12 @@ describe("DELETE /delete - edge cases", () => {
 
   afterAll(async () => {
     await rm(TEST_BASE_PATH, { force: true, recursive: true });
-    setWorkspaces(originalWorkspaces);
+    setWorkerDirs(originalWorkerDirs);
     setExcludes(originalExcludes, true);
   });
 
   beforeEach(async () => {
-    setWorkspaces([TEST_APPS_PATH]);
+    setWorkerDirs([TEST_APPS_PATH]);
     setExcludes([".git", "node_modules"], true);
     DirInfo.globalExcludes = [".git", "node_modules"];
     await rm(TEST_APPS_PATH, { force: true, recursive: true });
@@ -770,7 +770,7 @@ describe("DELETE /delete - edge cases", () => {
 });
 
 describe("POST /upload - ZIP extraction", () => {
-  const originalWorkspaces = getWorkspaces();
+  const originalWorkerDirs = getWorkerDirs();
   const originalExcludes = getExcludes();
 
   beforeAll(async () => {
@@ -780,12 +780,12 @@ describe("POST /upload - ZIP extraction", () => {
 
   afterAll(async () => {
     await rm(TEST_BASE_PATH, { force: true, recursive: true });
-    setWorkspaces(originalWorkspaces);
+    setWorkerDirs(originalWorkerDirs);
     setExcludes(originalExcludes, true);
   });
 
   beforeEach(async () => {
-    setWorkspaces([TEST_APPS_PATH]);
+    setWorkerDirs([TEST_APPS_PATH]);
     setExcludes([".git", "node_modules"], true);
     DirInfo.globalExcludes = [".git", "node_modules"];
     await rm(TEST_APPS_PATH, { force: true, recursive: true });
@@ -836,7 +836,7 @@ describe("POST /upload - ZIP extraction", () => {
 });
 
 describe("GET /download - edge cases", () => {
-  const originalWorkspaces = getWorkspaces();
+  const originalWorkerDirs = getWorkerDirs();
   const originalExcludes = getExcludes();
 
   beforeAll(async () => {
@@ -846,19 +846,19 @@ describe("GET /download - edge cases", () => {
 
   afterAll(async () => {
     await rm(TEST_BASE_PATH, { force: true, recursive: true });
-    setWorkspaces(originalWorkspaces);
+    setWorkerDirs(originalWorkerDirs);
     setExcludes(originalExcludes, true);
   });
 
   beforeEach(async () => {
-    setWorkspaces([TEST_APPS_PATH]);
+    setWorkerDirs([TEST_APPS_PATH]);
     setExcludes([".git", "node_modules"], true);
     DirInfo.globalExcludes = [".git", "node_modules"];
     await rm(TEST_APPS_PATH, { force: true, recursive: true });
     await mkdir(TEST_APPS_PATH, { recursive: true });
   });
 
-  it("should download workspace as zip when it has content", async () => {
+  it("should download workerDir as zip when it has content", async () => {
     await mkdir(join(TEST_APPS_PATH, "app1"), { recursive: true });
     await writeFile(join(TEST_APPS_PATH, "app1/file.txt"), "content");
 
@@ -901,7 +901,7 @@ describe("GET /download - edge cases", () => {
 });
 
 describe("POST /delete-batch - edge cases", () => {
-  const originalWorkspaces = getWorkspaces();
+  const originalWorkerDirs = getWorkerDirs();
   const originalExcludes = getExcludes();
 
   beforeAll(async () => {
@@ -911,12 +911,12 @@ describe("POST /delete-batch - edge cases", () => {
 
   afterAll(async () => {
     await rm(TEST_BASE_PATH, { force: true, recursive: true });
-    setWorkspaces(originalWorkspaces);
+    setWorkerDirs(originalWorkerDirs);
     setExcludes(originalExcludes, true);
   });
 
   beforeEach(async () => {
-    setWorkspaces([TEST_APPS_PATH]);
+    setWorkerDirs([TEST_APPS_PATH]);
     setExcludes([".git", "node_modules"], true);
     DirInfo.globalExcludes = [".git", "node_modules"];
     await rm(TEST_APPS_PATH, { force: true, recursive: true });
@@ -936,7 +936,7 @@ describe("POST /delete-batch - edge cases", () => {
 });
 
 describe("POST /move-batch - edge cases", () => {
-  const originalWorkspaces = getWorkspaces();
+  const originalWorkerDirs = getWorkerDirs();
   const originalExcludes = getExcludes();
 
   beforeAll(async () => {
@@ -947,12 +947,12 @@ describe("POST /move-batch - edge cases", () => {
 
   afterAll(async () => {
     await rm(TEST_BASE_PATH, { force: true, recursive: true });
-    setWorkspaces(originalWorkspaces);
+    setWorkerDirs(originalWorkerDirs);
     setExcludes(originalExcludes, true);
   });
 
   beforeEach(async () => {
-    setWorkspaces([TEST_APPS_PATH, TEST_PACKAGES_PATH]);
+    setWorkerDirs([TEST_APPS_PATH, TEST_PACKAGES_PATH]);
     setExcludes([".git", "node_modules"], true);
     DirInfo.globalExcludes = [".git", "node_modules"];
     await rm(TEST_APPS_PATH, { force: true, recursive: true });
@@ -961,7 +961,7 @@ describe("POST /move-batch - edge cases", () => {
     await mkdir(TEST_PACKAGES_PATH, { recursive: true });
   });
 
-  it("should return errors for cross-workspace moves", async () => {
+  it("should return errors for cross-workerDir moves", async () => {
     await mkdir(join(TEST_APPS_PATH, "app1/1.0.0"), { recursive: true });
     await mkdir(join(TEST_PACKAGES_PATH, "pkg1/1.0.0"), { recursive: true });
     await writeFile(join(TEST_APPS_PATH, "app1/1.0.0/file.txt"), "content");
@@ -1000,7 +1000,7 @@ describe("POST /move-batch - edge cases", () => {
 });
 
 describe("GET /download-batch - edge cases", () => {
-  const originalWorkspaces = getWorkspaces();
+  const originalWorkerDirs = getWorkerDirs();
   const originalExcludes = getExcludes();
 
   beforeAll(async () => {
@@ -1010,12 +1010,12 @@ describe("GET /download-batch - edge cases", () => {
 
   afterAll(async () => {
     await rm(TEST_BASE_PATH, { force: true, recursive: true });
-    setWorkspaces(originalWorkspaces);
+    setWorkerDirs(originalWorkerDirs);
     setExcludes(originalExcludes, true);
   });
 
   beforeEach(async () => {
-    setWorkspaces([TEST_APPS_PATH]);
+    setWorkerDirs([TEST_APPS_PATH]);
     setExcludes([".git", "node_modules"], true);
     DirInfo.globalExcludes = [".git", "node_modules"];
     await rm(TEST_APPS_PATH, { force: true, recursive: true });
@@ -1056,25 +1056,25 @@ describe("GET /download-batch - edge cases", () => {
 });
 
 describe("api module functions", () => {
-  const originalWorkspaces = getWorkspaces();
+  const originalWorkerDirs = getWorkerDirs();
   const originalExcludes = getExcludes();
 
   afterEach(() => {
-    setWorkspaces(originalWorkspaces);
+    setWorkerDirs(originalWorkerDirs);
     setExcludes(originalExcludes, true);
   });
 
-  describe("setWorkspaces / getWorkspaces", () => {
-    it("should set and get workspaces", () => {
-      setWorkspaces(["./apps", "./packages"]);
+  describe("setWorkerDirs / getWorkerDirs", () => {
+    it("should set and get workerDirs", () => {
+      setWorkerDirs(["./apps", "./packages"]);
 
-      expect(getWorkspaces()).toEqual(["./apps", "./packages"]);
+      expect(getWorkerDirs()).toEqual(["./apps", "./packages"]);
     });
   });
 
   describe("getDirNames", () => {
-    it("should return directory names from workspaces", () => {
-      setWorkspaces(["./apps", "./packages"]);
+    it("should return directory names from workerDirs", () => {
+      setWorkerDirs(["./apps", "./packages"]);
 
       const dirNames = getDirNames();
 
@@ -1083,7 +1083,7 @@ describe("api module functions", () => {
     });
 
     it("should handle duplicate directory names with suffix", () => {
-      setWorkspaces(["./folder/apps", "./other/apps"]);
+      setWorkerDirs(["./folder/apps", "./other/apps"]);
 
       const dirNames = getDirNames();
 
@@ -1126,7 +1126,7 @@ describe("api module functions", () => {
 });
 
 describe("POST /delete-batch - error handling", () => {
-  const originalWorkspaces = getWorkspaces();
+  const originalWorkerDirs = getWorkerDirs();
   const originalExcludes = getExcludes();
 
   beforeAll(async () => {
@@ -1136,12 +1136,12 @@ describe("POST /delete-batch - error handling", () => {
 
   afterAll(async () => {
     await rm(TEST_BASE_PATH, { force: true, recursive: true });
-    setWorkspaces(originalWorkspaces);
+    setWorkerDirs(originalWorkerDirs);
     setExcludes(originalExcludes, true);
   });
 
   beforeEach(async () => {
-    setWorkspaces([TEST_APPS_PATH]);
+    setWorkerDirs([TEST_APPS_PATH]);
     setExcludes([".git", "node_modules"], true);
     DirInfo.globalExcludes = [".git", "node_modules"];
     await rm(TEST_APPS_PATH, { force: true, recursive: true });
@@ -1179,9 +1179,9 @@ describe("POST /delete-batch - error handling", () => {
   });
 
   it("should capture error when path resolution throws NotFoundError", async () => {
-    // This triggers the catch block when resolvePath throws for invalid workspace
+    // This triggers the catch block when resolvePath throws for invalid workerDir
     const res = await apiRequest("POST", "/delete-batch", {
-      paths: ["invalid-workspace/file.txt"],
+      paths: ["invalid-appdir/file.txt"],
     });
     const json = await res.json();
 
@@ -1194,29 +1194,29 @@ describe("POST /delete-batch - error handling", () => {
 });
 
 describe("Environment variable initialization", () => {
-  it("should handle BUNTIME_WORKSPACES env var parsing via subprocess", async () => {
+  it("should handle BUNTIME_WORKER_DIRS env var parsing via subprocess", async () => {
     // This test uses a subprocess to test the module initialization with env vars
     // The env var parsing happens at module load time
     const testScript = `
-      process.env.BUNTIME_WORKSPACES = JSON.stringify(["/test/apps", "/test/packages"]);
+      process.env.BUNTIME_WORKER_DIRS = JSON.stringify(["/test/apps", "/test/packages"]);
       process.env.BUNTIME_EXCLUDES = JSON.stringify(["dist", ".cache"]);
 
       // Clear module cache to force re-import
       delete require.cache[require.resolve("./api")];
 
-      const { getWorkspaces, getExcludes } = await import("./api");
+      const { getWorkerDirs, getExcludes } = await import("./api");
 
-      const workspaces = getWorkspaces();
+      const workerDirs = getWorkerDirs();
       const excludes = getExcludes();
 
-      console.log(JSON.stringify({ workspaces, excludes }));
+      console.log(JSON.stringify({ workerDirs, excludes }));
     `;
 
     const proc = Bun.spawn(["bun", "-e", testScript], {
       cwd: join(import.meta.dir),
       env: {
         ...process.env,
-        BUNTIME_WORKSPACES: JSON.stringify(["/test/apps", "/test/packages"]),
+        BUNTIME_WORKER_DIRS: JSON.stringify(["/test/apps", "/test/packages"]),
         BUNTIME_EXCLUDES: JSON.stringify(["dist", ".cache"]),
       },
       stdout: "pipe",
@@ -1227,26 +1227,26 @@ describe("Environment variable initialization", () => {
     const output = await new Response(proc.stdout).text();
     const result = JSON.parse(output.trim());
 
-    expect(result.workspaces).toEqual(["/test/apps", "/test/packages"]);
+    expect(result.workerDirs).toEqual(["/test/apps", "/test/packages"]);
     expect(result.excludes).toContain("dist");
     expect(result.excludes).toContain(".cache");
   });
 
-  it("should handle invalid BUNTIME_WORKSPACES JSON gracefully via subprocess", async () => {
+  it("should handle invalid BUNTIME_WORKER_DIRS JSON gracefully via subprocess", async () => {
     const proc = Bun.spawn(
       [
         "bun",
         "-e",
         `
-        const { getWorkspaces } = await import("./api");
-        console.log(JSON.stringify(getWorkspaces()));
+        const { getWorkerDirs } = await import("./api");
+        console.log(JSON.stringify(getWorkerDirs()));
       `,
       ],
       {
         cwd: join(import.meta.dir),
         env: {
           ...process.env,
-          BUNTIME_WORKSPACES: "invalid-json",
+          BUNTIME_WORKER_DIRS: "invalid-json",
           BUNTIME_EXCLUDES: undefined,
         },
         stdout: "pipe",
@@ -1258,8 +1258,8 @@ describe("Environment variable initialization", () => {
     const output = await new Response(proc.stdout).text();
 
     // Should use defaults when JSON parsing fails
-    const workspaces = JSON.parse(output.trim());
-    expect(Array.isArray(workspaces)).toBe(true);
+    const workerDirs = JSON.parse(output.trim());
+    expect(Array.isArray(workerDirs)).toBe(true);
   });
 
   it("should handle invalid BUNTIME_EXCLUDES JSON gracefully via subprocess", async () => {
@@ -1276,7 +1276,7 @@ describe("Environment variable initialization", () => {
         cwd: join(import.meta.dir),
         env: {
           ...process.env,
-          BUNTIME_WORKSPACES: undefined,
+          BUNTIME_WORKER_DIRS: undefined,
           BUNTIME_EXCLUDES: "invalid-json",
         },
         stdout: "pipe",
@@ -1292,21 +1292,21 @@ describe("Environment variable initialization", () => {
     expect(Array.isArray(excludes)).toBe(true);
   });
 
-  it("should handle empty array BUNTIME_WORKSPACES via subprocess", async () => {
+  it("should handle empty array BUNTIME_WORKER_DIRS via subprocess", async () => {
     const proc = Bun.spawn(
       [
         "bun",
         "-e",
         `
-        const { getWorkspaces } = await import("./api");
-        console.log(JSON.stringify(getWorkspaces()));
+        const { getWorkerDirs } = await import("./api");
+        console.log(JSON.stringify(getWorkerDirs()));
       `,
       ],
       {
         cwd: join(import.meta.dir),
         env: {
           ...process.env,
-          BUNTIME_WORKSPACES: "[]",
+          BUNTIME_WORKER_DIRS: "[]",
           BUNTIME_EXCLUDES: undefined,
         },
         stdout: "pipe",
@@ -1317,8 +1317,8 @@ describe("Environment variable initialization", () => {
     await proc.exited;
     const output = await new Response(proc.stdout).text();
 
-    // Empty array should not update workspaces (keep defaults)
-    const workspaces = JSON.parse(output.trim());
-    expect(Array.isArray(workspaces)).toBe(true);
+    // Empty array should not update workerDirs (keep defaults)
+    const workerDirs = JSON.parse(output.trim());
+    expect(Array.isArray(workerDirs)).toBe(true);
   });
 });

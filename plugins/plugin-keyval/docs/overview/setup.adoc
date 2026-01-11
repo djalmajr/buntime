@@ -19,28 +19,30 @@ IMPORTANT: O plugin KeyVal depende do `@buntime/plugin-database` para acesso ao 
 
 === Configuração do Plugin
 
-==== buntime.jsonc
+==== manifest.jsonc (por plugin)
+
+Cada plugin tem seu próprio `manifest.jsonc` no diretório do plugin. O plugin-keyval é descoberto automaticamente pelo runtime.
 
 [source,jsonc]
 ----
+// plugins/plugin-keyval/manifest.jsonc
 {
-  "plugins": [
-    "@buntime/plugin-database",  // Dependência obrigatória
-    ["@buntime/plugin-keyval", {
-      "metrics": {
-        "persistent": false,       // Armazenar métricas no banco de dados
-        "flushInterval": 30000     // Intervalo de flush em ms
-      },
-      "queue": {
-        "cleanupInterval": 60000,  // Intervalo de limpeza (0 para desabilitar)
-        "lockDuration": 30000      // Duração do lock durante processamento (30s)
-      }
-    }]
-  ]
+  "enabled": true,                        // Habilita o plugin
+  "entrypoint": "dist/client/index.html", // UI do plugin
+  "metrics": {
+    "persistent": false,       // Armazenar métricas no banco de dados
+    "flushInterval": 30000     // Intervalo de flush em ms
+  },
+  "queue": {
+    "cleanupInterval": 60000,  // Intervalo de limpeza (0 para desabilitar)
+    "lockDuration": 30000      // Duração do lock durante processamento (30s)
+  }
 }
 ----
 
-NOTE: A configuração do banco de dados (URL do libSQL, réplica, token) é feita no `@buntime/plugin-database`.
+IMPORTANT: O plugin KeyVal depende do `@buntime/plugin-database`. Certifique-se de que `plugin-database` esteja habilitado (`enabled: true`) em seu próprio `manifest.jsonc`.
+
+NOTE: A configuração do banco de dados (URL do libSQL, réplica, token) é feita no `@buntime/plugin-database/manifest.jsonc`.
 
 ==== Variáveis de Ambiente
 

@@ -39,7 +39,7 @@ Se removermos a politica de deny, usuarios sem role admin/viewer nao corresponde
 Alterar a configuracao para usar `first-applicable`:
 
 ```jsonc
-// buntime.jsonc
+// manifest.jsonc
 "@buntime/plugin-authz",
 {
   "combiningAlgorithm": "first-applicable",
@@ -63,8 +63,8 @@ Com `first-applicable`:
 
 ## Tarefas
 
-- [ ] Alterar `defaultEffect` para `"deny"` em buntime.jsonc
-- [ ] Alterar `combiningAlgorithm` para `"first-applicable"` em buntime.jsonc
+- [ ] Alterar `defaultEffect` para `"deny"` em manifest.jsonc
+- [ ] Alterar `combiningAlgorithm` para `"first-applicable"` em manifest.jsonc
 - [ ] Restaurar a politica `cpanel-deny-others` em plugin-cpanel (com mensagem clara)
 - [ ] Documentar os combining algorithms disponiveis no README do plugin-authz
 - [ ] Adicionar testes para validar os diferentes algoritmos

@@ -1,0 +1,495 @@
+= Fluxo de Inicialização
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+Este documento descreve o fluxo completo de inicialização do Buntime em diferentes ambientes (development e production).
+
+== Visão Geral
+
+O Buntime segue um fluxo de inicialização em camadas:
+
+[source]
+----
+┌───────────────────────────────────────────────────────────────────────────┐
+│                         INICIALIZAÇÃO                                     │
+├───────────────────────────────────────────────────────────────────────────┤
+│  1. constants.ts    → Valida variáveis de ambiente (PORT, NODE_ENV)       │
+│  2. config.ts       → Carrega configuração (workerDirs, pluginDirs, etc.) │
+│  3. database.ts     → Inicializa SQLite (buntime.db)                      │
+│  4. loader.ts       → Descobre e carrega plugins (filesystem + database)  │
+│  5. api.ts          → Cria app Hono com rotas                             │
+│  6. index.ts        → Inicia Bun.serve                                    │
+└───────────────────────────────────────────────────────────────────────────┘
+----
+
+== Diferenças por Ambiente
+
+[cols="1,2,2"]
+|===
+| Aspecto | Development | Production
+
+| Pool Size
+| 10 workers
+| 500 workers
+
+| Logger Format
+| `pretty` (colorido)
+| `json` (estruturado)
+
+| Log Level
+| `debug`
+| `info`
+
+| Hot Reload
+| Ativado (HMR)
+| Desativado
+
+| Inicialização
+| Mais lenta (node_modules)
+| Rápida (plugins embutidos)
+|===
+
+== Fluxo Detalhado
+
+== Passo 1: Variáveis de Ambiente (constants.ts)
+
+O primeiro módulo importado valida as variáveis de ambiente obrigatórias usando Zod:
+
+[source,typescript]
+----
+// runtime/src/constants.ts
+export const { DELAY_MS, NODE_ENV, PORT } = envSchema.parse(Bun.env);
+export const IS_DEV = NODE_ENV === "development";
+export const IS_COMPILED = typeof BUNTIME_COMPILED !== "undefined";
+----
+
+[cols="1,1,2"]
+|===
+| Variável | Padrão | Descrição
+
+| `NODE_ENV`
+| development
+| Ambiente de execução (development, production, staging, test)
+
+| `PORT`
+| 8000
+| Porta do servidor HTTP
+
+| `DELAY_MS`
+| 100
+| Delay antes de terminar worker (graceful shutdown)
+|===
+
+== Passo 2: Configuração (config.ts)
+
+O módulo de configuração expande variáveis de ambiente e resolve caminhos:
+
+[source,typescript]
+----
+// runtime/src/config.ts
+export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): RuntimeConfig {
+  // 1. Expande workerDirs (WORKER_DIRS env var)
+  const workerDirs = expandDirs(workerDirConfig, baseDir);
+
+  // 2. Expande pluginDirs (PLUGIN_DIRS ou default "./plugins")
+  const pluginDirs = expandDirs(pluginDirConfig, baseDir);
+
+  // 3. Resolve configDir (CONFIG_DIR ou default "./data")
+  const configDir = resolve(baseDir, configDirExpanded);
+
+  // 4. Define poolSize por ambiente
+  const poolSize = poolDefaults[NODE_ENV];  // dev: 10, prod: 500
+
+  return { workerDirs, pluginDirs, configDir, poolSize, ... };
+}
+----
+
+=== Pool Size por Ambiente
+
+[cols="1,1"]
+|===
+| Ambiente | Pool Size Padrão
+
+| development
+| 10
+
+| staging
+| 50
+
+| production
+| 500
+
+| test
+| 5
+|===
+
+== Passo 3: Database (database.ts)
+
+O banco de dados SQLite é inicializado sob demanda no primeiro acesso:
+
+[source,typescript]
+----
+// runtime/src/libs/database.ts
+function initDatabase(): Database {
+  const config = getConfig();
+  const dbDir = config.configDir;  // ./data por padrão
+
+  // Cria diretório se não existir
+  if (!existsSync(dbDir)) {
+    mkdirSync(dbDir, { recursive: true });
+  }
+
+  // Abre/cria database
+  const database = new Database(`${dbDir}/buntime.db`, { create: true });
+  database.run("PRAGMA journal_mode = WAL");  // Multi-process safe
+
+  // Roda migrations
+  runMigrations(database);
+
+  return database;
+}
+----
+
+=== Estrutura da Tabela
+
+Uma única tabela `plugins` armazena todo o estado. Os campos do manifest se tornam colunas:
+
+[source,sql]
+----
+CREATE TABLE plugins (
+  -- Identidade
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  name                  TEXT UNIQUE NOT NULL,  -- @buntime/plugin-keyval
+
+  -- Estado (mutável via API)
+  enabled               INTEGER DEFAULT 0,     -- 0=disabled, 1=enabled
+  version               TEXT DEFAULT 'latest', -- Versão ativa
+
+  -- Estrutural (do manifest, imutável via API)
+  base                  TEXT NOT NULL DEFAULT '/',
+  entrypoint            TEXT,
+  dependencies          TEXT DEFAULT '[]',     -- JSON array
+  optional_dependencies TEXT DEFAULT '[]',     -- JSON array
+  fragment              TEXT,                  -- JSON object
+  menus                 TEXT DEFAULT '[]',     -- JSON array
+
+  -- Config dinâmica (específica do plugin, mutável via API)
+  config                TEXT DEFAULT '{}',     -- JSON object
+
+  -- Timestamps
+  created_at            INTEGER,
+  updated_at            INTEGER
+);
+----
+
+[cols="1,1,2"]
+|===
+| Campo | Tipo | Propósito
+
+| `id`
+| Identidade
+| ID único auto-incrementado (usado na API)
+
+| `name`
+| Identidade
+| Nome único do plugin (ex: "@buntime/plugin-keyval")
+
+| `enabled`
+| Estado
+| enabled/disabled (0 ou 1)
+
+| `version`
+| Estado
+| Versão ativa ("latest" ou semver)
+
+| `base`
+| Estrutural
+| Base path das rotas (ex: "/keyval")
+
+| `dependencies`
+| Estrutural
+| Plugins requeridos (JSON array)
+
+| `fragment`
+| Estrutural
+| Config do micro-frontend (JSON)
+
+| `menus`
+| Estrutural
+| Itens de menu (JSON array)
+
+| `config`
+| Dinâmica
+| Configurações específicas do plugin (JSON)
+|===
+
+== Passo 4: Plugin Loading (loader.ts)
+
+O loader descobre plugins no filesystem, faz seed no database e verifica estado:
+
+[source]
+----
+┌─────────────────┐
+│  Plugin Loader  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐    ┌────────────────────┐
+│  Scan Dirs      │───▶│ PLUGIN_DIRS        │
+│  (filesystem)   │    │ ./plugins          │
+└────────┬────────┘    │ /external/plugins  │
+         │             └────────────────────┘
+         ▼
+┌─────────────────┐
+│  Load Manifest  │    manifest.jsonc
+│  (cada plugin)  │    { "name": "...", "base": "/api" }
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐    ┌────────────────────┐
+│  Seed Database  │───▶│ buntime.db         │
+│  (insert only)  │    │ INSERT if new      │
+└────────┬────────┘    │ SKIP if exists     │
+         │             └────────────────────┘
+         ▼
+┌─────────────────┐    ┌────────────────────┐
+│  Check Enabled  │───▶│ buntime.db         │
+│  (database)     │    │ SELECT enabled     │
+└────────┬────────┘    │ FROM plugins       │
+         │             └────────────────────┘
+         │
+    ┌────┴────┐
+    │         │
+ enabled?  disabled
+    │         │
+    ▼         ▼
+ LOAD      SKIP
+----
+
+[source,typescript]
+----
+// runtime/src/plugins/loader.ts
+for (const dir of pluginDirs) {
+  // 1. Verifica se tem manifest.jsonc
+  const manifest = await loadManifest(pluginDir);
+
+  // 2. Faz seed do manifest no database
+  // - Se plugin não existe: INSERT com dados do manifest (enabled por padrão)
+  // - Se plugin existe: UPDATE campos estruturais, preserva enabled e merge config
+  seedPluginFromManifest(manifest);
+
+  // 3. Verifica se está habilitado no DATABASE (não no manifest!)
+  if (!isPluginEnabled(manifest.name)) {
+    logger.debug(`Skipping plugin not enabled in database: ${manifest.name}`);
+    continue;
+  }
+
+  // 4. Carrega implementação
+  const plugin = await loadImplementation(pluginDir, manifest);
+  registry.register(plugin);
+}
+----
+
+NOTE: O `manifest.jsonc` só é usado na **primeira vez** que o plugin é descoberto (para seed inicial no database). Após o primeiro seed, o `buntime.db` é a fonte da verdade. Alterações no manifest não atualizam o database - use a API para modificar config, enabled, etc.
+
+== Passo 5: App Hono (api.ts)
+
+Após carregar plugins, o app Hono é montado:
+
+[source,typescript]
+----
+// runtime/src/api.ts
+
+// 1. Logger global (formato depende do ambiente)
+const logger = createLogger({
+  format: NODE_ENV === "production" ? "json" : "pretty",
+  level: NODE_ENV === "production" ? "info" : "debug",
+});
+
+// 2. Inicializa config
+const runtimeConfig = initConfig();
+
+// 3. Cria pool de workers
+const pool = new WorkerPool({ maxSize: runtimeConfig.poolSize });
+
+// 4. Carrega plugins
+const loader = new PluginLoader({ pool });
+const registry = await loader.load();
+
+// 5. Cria rotas
+const pluginsCore = createPluginsCoreRoutes({ loader });
+const appsCore = createAppsCoreRoutes();
+const workers = createWorkerRoutes({ config, getAppDir, pool, registry });
+
+// 6. Monta app
+const app = createApp({ pluginsCore, appsCore, workers, ... });
+----
+
+== Passo 6: Servidor HTTP (index.ts)
+
+Finalmente, o servidor Bun é iniciado:
+
+[source,typescript]
+----
+// runtime/src/index.ts
+const server = Bun.serve({
+  fetch: app.fetch,
+  idleTimeout: 0,  // SSE/WebSocket
+  port: PORT,
+  ...(isDev && { development: { hmr: true } }),
+  ...(websocket && { websocket }),
+});
+
+// Executa hooks onServerStart
+registry.runOnServerStart(server);
+
+// Graceful shutdown
+process.on("SIGINT", async () => {
+  await registry.runOnShutdown();
+  pool.shutdown();
+  closeDatabase();
+  process.exit(0);
+});
+----
+
+== Diagrama Completo
+
+[source]
+----
+                    ┌─────────────┐
+                    │   bun dev   │  ou  ./buntime
+                    └──────┬──────┘
+                           │
+                           ▼
+        ┌──────────────────────────────────────┐
+        │            constants.ts               │
+        │  - Valida PORT, NODE_ENV              │
+        │  - Define IS_DEV, IS_COMPILED         │
+        └──────────────────┬───────────────────┘
+                           │
+                           ▼
+        ┌──────────────────────────────────────┐
+        │              config.ts                │
+        │  - Resolve WORKER_DIRS, PLUGIN_DIRS   │
+        │  - Define CONFIG_DIR (./data)         │
+        │  - Define poolSize por ambiente       │
+        └──────────────────┬───────────────────┘
+                           │
+                           ▼
+        ┌──────────────────────────────────────┐
+        │             database.ts               │
+        │  - Cria ./data/buntime.db             │
+        │  - Roda migrations                    │
+        │  - Tabela: plugins (única)            │
+        └──────────────────┬───────────────────┘
+                           │
+                           ▼
+        ┌──────────────────────────────────────┐
+        │              loader.ts                │
+        │  - Escaneia PLUGIN_DIRS               │
+        │  - Carrega manifest.jsonc             │
+        │  - Verifica enabled no buntime.db     │
+        │  - Carrega plugin.ts                  │
+        └──────────────────┬───────────────────┘
+                           │
+                           ▼
+        ┌──────────────────────────────────────┐
+        │               api.ts                  │
+        │  - Cria logger (pretty/json)          │
+        │  - Cria WorkerPool                    │
+        │  - Monta rotas Hono                   │
+        └──────────────────┬───────────────────┘
+                           │
+                           ▼
+        ┌──────────────────────────────────────┐
+        │              index.ts                 │
+        │  - Bun.serve({ port, hmr? })          │
+        │  - registry.runOnServerStart()        │
+        │  - Configura graceful shutdown        │
+        └──────────────────────────────────────┘
+                           │
+                           ▼
+                 ┌─────────────────┐
+                 │  Server Ready   │
+                 │  localhost:8000 │
+                 └─────────────────┘
+----
+
+== Habilitando Plugins
+
+Plugins não são habilitados automaticamente. Para usar um plugin:
+
+== Via CLI (TUI)
+
+[source,bash]
+----
+buntime-cli
+# Navegue até Plugins > selecione plugin > Enter para toggle
+----
+
+== Via API
+
+[source,bash]
+----
+# Habilitar
+curl -X PUT http://localhost:8000/api/core/plugins/@buntime/plugin-keyval/enable
+
+# Desabilitar
+curl -X PUT http://localhost:8000/api/core/plugins/@buntime/plugin-keyval/disable
+
+# Listar todos
+curl http://localhost:8000/api/core/plugins
+----
+
+== Via Database (direto)
+
+[source,sql]
+----
+-- Habilitar plugin
+INSERT INTO plugins (name, enabled) VALUES ('@buntime/plugin-keyval', 1)
+ON CONFLICT(name) DO UPDATE SET enabled = 1;
+
+-- Desabilitar plugin
+UPDATE plugins SET enabled = 0 WHERE name = '@buntime/plugin-keyval';
+----
+
+== Troubleshooting
+
+== Plugin não carrega
+
+*Sintoma:* Plugin existe em PLUGIN_DIRS mas não aparece nas rotas.
+
+*Causa:* Plugin não está habilitado no database.
+
+*Solução:*
+[source,bash]
+----
+# Via API
+curl -X PUT http://localhost:8000/api/core/plugins/@buntime/plugin-keyval/enable
+
+# Reinicie o servidor para recarregar
+----
+
+== Database não encontrado
+
+*Sintoma:* Erro "Database not initialized".
+
+*Causa:* `getDatabase()` chamado antes de `initConfig()`.
+
+*Solução:* O database é inicializado automaticamente no primeiro acesso após config. Verifique se `initConfig()` foi chamado.
+
+== CONFIG_DIR não existe
+
+*Sintoma:* Warning "Created config directory: ./data".
+
+*Causa:* Diretório não existia (comportamento normal na primeira execução).
+
+*Solução:* O runtime cria automaticamente. Para customizar:
+[source,bash]
+----
+export CONFIG_DIR=/var/lib/buntime
+----

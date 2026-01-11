@@ -12,7 +12,7 @@
 ## Why Port 8000?
 
 The runtime (port 8000):
-- Loads all plugins from `buntime.jsonc`
+- Loads all plugins from `manifest.jsonc`
 - Serves the admin dashboard (React app)
 - Handles proxying/redirects to examples
 - Provides plugin APIs (`/api/keyval/*`, `/api/metrics/*`, etc.)

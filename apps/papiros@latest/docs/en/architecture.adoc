@@ -9,7 +9,7 @@ The Docs App follows the standard buntime architecture: a Hono server that serve
 ----
 graph TB
     Browser[Browser]
-    Buntime[buntime Runtime]
+    Buntime[Runtime]
     Static[Static Files Handler<br/>React Build]
     API[API Routes<br/>/api/*]
     Content[Content Files<br/>AsciiDoc]

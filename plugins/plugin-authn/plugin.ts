@@ -1,11 +1,7 @@
 import type { AdapterType, DatabaseService } from "@buntime/plugin-database";
-import type {
-  AppInfo,
-  BuntimePlugin,
-  PluginContext,
-  PublicRoutesConfig,
-} from "@buntime/shared/types";
+import type { AppInfo, PluginContext, PluginImpl, PublicRoutesConfig } from "@buntime/shared/types";
 import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
+import manifest from "./manifest.jsonc";
 import { api } from "./server/api";
 
 /**
@@ -231,68 +227,69 @@ function processProviderConfig(input: ProviderConfigInput): ProviderConfig {
  * - Request interception for protected routes
  * - SCIM 2.0 support for user provisioning
  *
- * @example
+ * @example Email/Password only (development)
  * ```jsonc
- * // buntime.jsonc - Email/Password only (development)
+ * // plugins/plugin-database/manifest.jsonc
  * {
- *   "plugins": [
- *     ["@buntime/plugin-database", {
- *       "adapters": [{ "type": "libsql", "default": true }]
- *     }],
- *     ["@buntime/plugin-authn", {
- *       "providers": [
- *         { "type": "email-password", "allowSignUp": true }
- *       ]
- *     }]
+ *   "enabled": true,
+ *   "adapters": [{ "type": "libsql", "default": true }]
+ * }
+ * ```
+ *
+ * ```jsonc
+ * // plugins/plugin-authn/manifest.jsonc
+ * {
+ *   "enabled": true,
+ *   "providers": [
+ *     { "type": "email-password", "allowSignUp": true }
  *   ]
  * }
  * ```
  *
- * @example
+ * @example Keycloak with SCIM and multi-tenancy
  * ```jsonc
- * // buntime.jsonc - Keycloak with SCIM
+ * // plugins/plugin-database/manifest.jsonc
  * {
- *   "plugins": [
- *     ["@buntime/plugin-database", {
- *       "adapters": [{ "type": "libsql", "default": true }],
- *       "tenancy": { "enabled": true, "header": "X-Tenant-ID" }
- *     }],
- *     ["@buntime/plugin-authn", {
- *       "providers": [
- *         {
- *           "type": "keycloak",
- *           "issuer": "${KEYCLOAK_URL}",
- *           "realm": "${KEYCLOAK_REALM}",
- *           "clientId": "${KEYCLOAK_CLIENT_ID}",
- *           "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
- *         }
- *       ],
- *       "scim": { "enabled": true }
- *     }]
- *   ]
+ *   "enabled": true,
+ *   "adapters": [{ "type": "libsql", "default": true }],
+ *   "tenancy": { "enabled": true, "header": "x-tenant-id" }
  * }
  * ```
  *
- * @example
  * ```jsonc
- * // buntime.jsonc - With API keys for CI/CD
+ * // plugins/plugin-authn/manifest.jsonc
  * {
- *   "plugins": [
- *     ["@buntime/plugin-authn", {
- *       "providers": [{ "type": "email-password" }],
- *       "apiKeys": [
- *         {
- *           "key": "${GITLAB_DEPLOY_KEY}",
- *           "name": "GitLab CI/CD",
- *           "roles": ["deployer"]
- *         }
- *       ]
- *     }]
+ *   "enabled": true,
+ *   "providers": [
+ *     {
+ *       "type": "keycloak",
+ *       "issuer": "${KEYCLOAK_URL}",
+ *       "realm": "${KEYCLOAK_REALM}",
+ *       "clientId": "${KEYCLOAK_CLIENT_ID}",
+ *       "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
+ *     }
+ *   ],
+ *   "scim": { "enabled": true }
+ * }
+ * ```
+ *
+ * @example With API keys for CI/CD
+ * ```jsonc
+ * // plugins/plugin-authn/manifest.jsonc
+ * {
+ *   "enabled": true,
+ *   "providers": [{ "type": "email-password" }],
+ *   "apiKeys": [
+ *     {
+ *       "key": "${GITLAB_DEPLOY_KEY}",
+ *       "name": "GitLab CI/CD",
+ *       "roles": ["deployer"]
+ *     }
  *   ]
  * }
  * ```
  */
-export default function authnPlugin(config: AuthnConfig = {} as AuthnConfig): BuntimePlugin {
+export default function authnPlugin(config: AuthnConfig = {} as AuthnConfig): PluginImpl {
   // Process provider configs (substitute env vars)
   const providers = (config.providers ?? []).map(processProviderConfig);
 
@@ -302,8 +299,8 @@ export default function authnPlugin(config: AuthnConfig = {} as AuthnConfig): Bu
     key: substituteEnvVars(ak.key),
   }));
 
-  // Custom base path (default would be /authn)
-  const basePath = "/auth";
+  // Base path from manifest
+  const basePath = manifest.base;
 
   // Internal public routes for this plugin (absolute paths)
   const internalPublicRoutes: PublicRoutesConfig = {
@@ -312,12 +309,6 @@ export default function authnPlugin(config: AuthnConfig = {} as AuthnConfig): Bu
   };
 
   return {
-    name: "@buntime/plugin-authn",
-    dependencies: ["@buntime/plugin-database"],
-    optionalDependencies: ["@buntime/plugin-proxy"],
-
-    base: basePath,
-
     // API routes run on main thread
     routes: api,
 
@@ -327,7 +318,7 @@ export default function authnPlugin(config: AuthnConfig = {} as AuthnConfig): Bu
       if (!database) {
         throw new Error(
           "@buntime/plugin-authn requires @buntime/plugin-database. " +
-            "Add it to your buntime.jsonc plugins before plugin-authn.",
+            "Add it to your manifest.jsonc plugins before plugin-authn.",
         );
       }
 

@@ -1,5 +1,6 @@
-import type { BuntimePlugin, PluginContext, PluginLogger } from "@buntime/shared/types";
+import type { PluginContext, PluginImpl, PluginLogger } from "@buntime/shared/types";
 import type { Server } from "bun";
+import manifest from "./manifest.jsonc";
 import {
   api,
   handleWebSocketRequest,
@@ -98,53 +99,38 @@ function processConfig(config: DatabasePluginConfig, log: PluginLogger): Databas
  *
  * Supports multiple adapters - each plugin can choose which to use.
  *
- * @example Multiple adapters
+ * @example Multiple adapters - each plugin has its own manifest.jsonc
  * ```jsonc
+ * // plugins/plugin-database/manifest.jsonc
  * {
- *   "plugins": [
- *     ["@buntime/plugin-database", {
- *       "adapters": [
- *         { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
- *         { "type": "sqlite", "url": "file:./auth.db" }
- *       ]
- *     }],
- *     ["@buntime/plugin-keyval", { "database": "libsql" }],
- *     ["@buntime/plugin-authn", { "database": "sqlite" }]
+ *   "name": "@buntime/plugin-database",
+ *   "enabled": true,
+ *   "adapters": [
+ *     { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
+ *     { "type": "sqlite", "url": "file:./auth.db" }
  *   ]
  * }
  * ```
+ *
+ * ```jsonc
+ * // plugins/plugin-keyval/manifest.jsonc
+ * { "name": "@buntime/plugin-keyval", "enabled": true, "database": "libsql" }
+ * ```
+ *
+ * ```jsonc
+ * // plugins/plugin-authn/manifest.jsonc
+ * { "name": "@buntime/plugin-authn", "enabled": true, "database": "sqlite" }
+ * ```
  */
-export default function databasePlugin(config: DatabasePluginConfig = {}): BuntimePlugin {
-  const base = config.base ?? "/database";
+export default function databasePlugin(config: DatabasePluginConfig = {}): PluginImpl {
+  const base = manifest.base;
 
   return {
-    name: "@buntime/plugin-database",
-    base,
-
     // API routes run on main thread
     routes: api,
 
-    // Fragment with patch sandbox (internal plugin)
-    fragment: {
-      type: "patch",
-    },
-
-    // Menu items for C-Panel sidebar
-    menus: [
-      {
-        icon: "lucide:database",
-        path: "/database",
-        priority: 70,
-        title: "Database",
-        items: [
-          { icon: "lucide:home", path: "/database", title: "Overview" },
-          { icon: "lucide:table-2", path: "/database/studio", title: "Studio" },
-        ],
-      },
-    ],
-
     // WebSocket handler for HRANA protocol
-    websocket: hranaWebSocketHandler as BuntimePlugin["websocket"],
+    websocket: hranaWebSocketHandler as PluginImpl["websocket"],
 
     async onInit(ctx: PluginContext) {
       logger = ctx.logger;

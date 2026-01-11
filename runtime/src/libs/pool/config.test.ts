@@ -60,6 +60,7 @@ describe("loadWorkerConfig", () => {
   beforeEach(() => {
     spyOn(runtimeConfig, "getConfig").mockReturnValue({
       bodySize: { default: 10 * 1024 * 1024, max: 100 * 1024 * 1024 },
+      configDir: "/tmp/test",
       delayMs: 100,
       isCompiled: false,
       isDev: true,
@@ -68,7 +69,7 @@ describe("loadWorkerConfig", () => {
       poolSize: 10,
       port: 8000,
       version: "1.0.0",
-      workspaces: ["/tmp"],
+      workerDirs: ["/tmp"],
     });
   });
 
@@ -89,20 +90,17 @@ describe("loadWorkerConfig", () => {
     });
   });
 
-  describe("package.json buntime section", () => {
-    it("should load config from package.json#buntime", async () => {
-      const uniqueDir = join(baseTestDir, `pkg-${Date.now()}-${Math.random()}`);
+  describe("manifest.jsonc config", () => {
+    it("should load config from manifest.jsonc", async () => {
+      const uniqueDir = join(baseTestDir, `manifest-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test-app",
-          buntime: {
-            timeout: 45,
-            maxRequests: 500,
-            lowMemory: true,
-          },
+          timeout: 45,
+          maxRequests: 500,
+          lowMemory: true,
         }),
       );
 
@@ -113,17 +111,9 @@ describe("loadWorkerConfig", () => {
       expect(config.lowMemory).toBe(true);
     });
 
-    it("should handle package.json without buntime section", async () => {
-      const uniqueDir = join(baseTestDir, `pkg-no-buntime-${Date.now()}-${Math.random()}`);
+    it("should use defaults when no manifest exists", async () => {
+      const uniqueDir = join(baseTestDir, `no-manifest-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
-
-      writeFileSync(
-        join(uniqueDir, "package.json"),
-        JSON.stringify({
-          name: "test-app",
-          version: "1.0.0",
-        }),
-      );
 
       const config = await loadWorkerConfig(uniqueDir);
 
@@ -167,17 +157,14 @@ describe("loadWorkerConfig", () => {
       expect(config.maxBodySizeBytes).toBe(10 * 1024 * 1024);
     });
 
-    it("should parse maxBodySize from package.json", async () => {
-      const uniqueDir = join(baseTestDir, `body-pkg-${Date.now()}-${Math.random()}`);
+    it("should parse maxBodySize from manifest.jsonc", async () => {
+      const uniqueDir = join(baseTestDir, `body-manifest-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            maxBodySize: "5mb",
-          },
+          maxBodySize: "5mb",
         }),
       );
 
@@ -191,12 +178,9 @@ describe("loadWorkerConfig", () => {
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            maxBodySize: "500mb", // Exceeds 100mb max
-          },
+          maxBodySize: "500mb", // Exceeds 100mb max
         }),
       );
 
@@ -213,13 +197,10 @@ describe("loadWorkerConfig", () => {
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            timeout: 45,
-            idleTimeout: 120,
-          },
+          timeout: 45,
+          idleTimeout: 120,
         }),
       );
 
@@ -234,14 +215,11 @@ describe("loadWorkerConfig", () => {
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            timeout: "1m",
-            idleTimeout: "5m",
-            ttl: "1h",
-          },
+          timeout: "1m",
+          idleTimeout: "5m",
+          ttl: "1h",
         }),
       );
 
@@ -259,12 +237,9 @@ describe("loadWorkerConfig", () => {
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            timeout: 0,
-          },
+          timeout: 0,
         }),
       );
 
@@ -276,13 +251,10 @@ describe("loadWorkerConfig", () => {
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            timeout: 30,
-            ttl: -1,
-          },
+          timeout: 30,
+          ttl: -1,
         }),
       );
 
@@ -295,12 +267,9 @@ describe("loadWorkerConfig", () => {
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            idleTimeout: 0,
-          },
+          idleTimeout: 0,
         }),
       );
 
@@ -312,13 +281,10 @@ describe("loadWorkerConfig", () => {
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            timeout: 60,
-            ttl: 30, // Less than timeout
-          },
+          timeout: 60,
+          ttl: 30, // Less than timeout
         }),
       );
 
@@ -330,14 +296,11 @@ describe("loadWorkerConfig", () => {
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            timeout: 60,
-            idleTimeout: 30, // Less than timeout
-            ttl: 120,
-          },
+          timeout: 60,
+          idleTimeout: 30, // Less than timeout
+          ttl: 120,
         }),
       );
 
@@ -349,14 +312,11 @@ describe("loadWorkerConfig", () => {
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            timeout: 30,
-            idleTimeout: 300, // Exceeds ttl
-            ttl: 120,
-          },
+          timeout: 30,
+          idleTimeout: 300, // Exceeds ttl
+          ttl: 120,
         }),
       );
 
@@ -373,12 +333,9 @@ describe("loadWorkerConfig", () => {
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            publicRoutes: ["/health", "/api/public/*"],
-          },
+          publicRoutes: ["/health", "/api/public/*"],
         }),
       );
 
@@ -392,14 +349,11 @@ describe("loadWorkerConfig", () => {
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            publicRoutes: {
-              GET: ["/health"],
-              POST: ["/webhook"],
-            },
+          publicRoutes: {
+            GET: ["/health"],
+            POST: ["/webhook"],
           },
         }),
       );
@@ -419,12 +373,9 @@ describe("loadWorkerConfig", () => {
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            entrypoint: "src/server.ts",
-          },
+          entrypoint: "src/server.ts",
         }),
       );
 
@@ -438,12 +389,9 @@ describe("loadWorkerConfig", () => {
       mkdirSync(uniqueDir, { recursive: true });
 
       writeFileSync(
-        join(uniqueDir, "package.json"),
+        join(uniqueDir, "manifest.jsonc"),
         JSON.stringify({
-          name: "test",
-          buntime: {
-            autoInstall: true,
-          },
+          autoInstall: true,
         }),
       );
 

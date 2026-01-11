@@ -381,7 +381,7 @@ shellPromise = resolveShell(homepage, getAppDir).catch((err) => {
 ```typescript
 if (autoInstall) {
   Bun.spawnSync(["bun", "install", "--frozen-lockfile"], {
-    cwd: APP_DIR,
+    cwd: WORKER_DIR,
     stdio: ["inherit", "inherit", "inherit"],
   });
 }
@@ -617,10 +617,10 @@ Usar AbortController para coordenar cleanup em todos os paths.
 **Arquivo:** `src/libs/pool/pool.ts:23-30, 62-82`
 
 **O que acontece:**
-QuickLRU `onEviction` executa sincronamente durante `getOrCreate()`. Entre `cache.get()` e `cache.set()`, eviction pode remover entry de `appDirs`, causando inconsistência.
+QuickLRU `onEviction` executa sincronamente durante `getOrCreate()`. Entre `cache.get()` e `cache.set()`, eviction pode remover entry de `workerDirs`, causando inconsistência.
 
 **Correção:**
-Atomizar operações de cache + appDirs ou usar lock.
+Atomizar operações de cache + workerDirs ou usar lock.
 
 ---
 
@@ -806,8 +806,8 @@ Logar warning para NODE_ENV desconhecido.
 
 **O que acontece:**
 ```typescript
-throw new Error(`bun install failed in ${APP_DIR}: ${result.stderr}`);
-throw new Error(`Worker collision: "${key}" already registered from "${existingAppDir}"`);
+throw new Error(`bun install failed in ${WORKER_DIR}: ${result.stderr}`);
+throw new Error(`Worker collision: "${key}" already registered from "${existingWorkerDir}"`);
 ```
 
 Paths absolutos do sistema de arquivos expostos em mensagens de erro.
@@ -1052,7 +1052,7 @@ if (!BASE_PATH_REGEX.test(base)) throw new Error("Invalid base");
 | #7 | Request body transferido múltiplas vezes | Dados perdidos ou corrompidos |
 | #12 | Sem circuit breaker | Um plugin quebrado derruba todo o sistema |
 | #28 | Stale closure em worker handler | Requests pendentes eternamente |
-| #30 | Cache eviction race condition | Inconsistência entre cache e appDirs |
+| #30 | Cache eviction race condition | Inconsistência entre cache e workerDirs |
 | #33 | Plugin hooks sem isolamento | Side effects parciais sem rollback |
 | #34 | Worker health check TOCTOU | Worker usado após ficar unhealthy |
 

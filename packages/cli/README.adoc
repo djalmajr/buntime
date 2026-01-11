@@ -1,0 +1,141 @@
+= Buntime CLI
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+ifdef::env-github[]
+:tip-caption: 💡
+:note-caption: ℹ️
+:important-caption: ⚠️
+:caution-caption: 🔥
+:warning-caption: ⚠️
+endif::[]
+
+toc::[]
+
+== Visão Geral
+
+CLI para gerenciamento de plugins e apps no Buntime Runtime. Permite instalar, listar e remover plugins e aplicações de forma interativa via terminal.
+
+=== Features
+
+* **Gerenciamento de Plugins** - Instalar, listar e remover plugins
+* **Gerenciamento de Apps** - Instalar, listar e remover aplicações
+* **Interface React/Ink** - UI rica e interativa no terminal
+* **Binary Compilado** - Executável standalone sem dependências
+* **Autenticação** - Suporte a tokens para operações autenticadas
+
+=== Tech Stack
+
+Bun, Commander.js, React, Ink, Zod
+
+== Instalação
+
+=== Build Local
+
+[source,bash]
+----
+cd packages/cli
+
+# Instalar dependências
+bun install
+
+# Compilar para binário
+bun run build:bin
+
+# O binário estará em ./dist/buntime
+----
+
+=== Uso Direto (Desenvolvimento)
+
+[source,bash]
+----
+# Executar diretamente sem compilar
+bun src/index.tsx --help
+----
+
+== Estrutura do Projeto
+
+[source]
+----
+packages/cli/
+├── src/
+│   ├── index.tsx              # Entry point (Commander + Ink)
+│   ├── commands/
+│   │   ├── app.tsx            # Comando: buntime app (lista apps)
+│   │   ├── app/
+│   │   │   ├── install.tsx    # Comando: buntime app install
+│   │   │   └── remove.tsx     # Comando: buntime app remove
+│   │   ├── plugin.tsx         # Comando: buntime plugin (lista plugins)
+│   │   └── plugin/
+│   │       ├── install.tsx    # Comando: buntime plugin install
+│   │       └── remove.tsx     # Comando: buntime plugin remove
+│   └── components/
+│       └── table.tsx          # Componente Table customizado
+├── dist/
+│   └── buntime                # Binário compilado
+└── package.json
+----
+
+== Comandos
+
+=== Visão Geral
+
+[cols="2,3"]
+|===
+| Comando | Descrição
+
+| `buntime --help`
+| Exibe ajuda geral
+
+| `buntime --version`
+| Exibe versão do CLI
+
+| `buntime plugin`
+| Lista plugins instalados
+
+| `buntime plugin install <file>`
+| Instala plugin de um tarball
+
+| `buntime plugin remove`
+| Remove plugin (interativo)
+
+| `buntime app`
+| Lista apps instalados
+
+| `buntime app install <file>`
+| Instala app de um tarball
+
+| `buntime app remove`
+| Remove app (interativo)
+|===
+
+=== Opções Globais
+
+[cols="1,1,2"]
+|===
+| Opção | Default | Descrição
+
+| `--url <url>`
+| `http://localhost:8000`
+| URL do servidor Buntime
+
+| `--token <token>`
+| -
+| Token de autenticação
+
+| `-k, --insecure`
+| `false`
+| Ignora verificação de certificado TLS (para certificados self-signed)
+|===
+
+TIP: Use `-k` quando conectar a servidores com certificados self-signed como ambientes de desenvolvimento local.
+
+include::docs/commands.adoc[leveloffset=+1]
+
+include::docs/api-endpoints.adoc[leveloffset=+1]
+
+include::docs/development.adoc[leveloffset=+1]

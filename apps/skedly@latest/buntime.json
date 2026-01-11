@@ -1,5 +1,0 @@
-{
-  "env": {
-    "SKEDLY_BA_HASH": "${SKEDLY_BA_HASH}"
-  }
-}

@@ -292,34 +292,14 @@ describe("plugin-authn", () => {
 });
 
 describe("plugin configuration", () => {
-  it("should have correct base path", async () => {
+  it("should have implementation properties", async () => {
     // Import the plugin to verify structure
     const { default: authnPlugin } = await import("./plugin");
     const plugin = authnPlugin({
       providers: [{ type: "email-password" }],
     });
 
-    expect(plugin.name).toBe("@buntime/plugin-authn");
-    expect(plugin.base).toBe("/auth");
-    expect(plugin.dependencies).toContain("@buntime/plugin-database");
-    expect(plugin.optionalDependencies).toContain("@buntime/plugin-proxy");
-  });
-
-  it("should have routes defined", async () => {
-    const { default: authnPlugin } = await import("./plugin");
-    const plugin = authnPlugin({
-      providers: [{ type: "email-password" }],
-    });
-
     expect(plugin.routes).toBeDefined();
-  });
-
-  it("should have lifecycle hooks", async () => {
-    const { default: authnPlugin } = await import("./plugin");
-    const plugin = authnPlugin({
-      providers: [{ type: "email-password" }],
-    });
-
     expect(plugin.onInit).toBeDefined();
     expect(plugin.onShutdown).toBeDefined();
     expect(plugin.onRequest).toBeDefined();
@@ -329,7 +309,7 @@ describe("plugin configuration", () => {
     const { default: authnPlugin } = await import("./plugin");
     const plugin = authnPlugin();
 
-    expect(plugin.name).toBe("@buntime/plugin-authn");
+    expect(plugin.routes).toBeDefined();
   });
 
   it("should process API keys with env substitution", async () => {
@@ -350,7 +330,7 @@ describe("plugin configuration", () => {
 
     // The API keys are processed in the plugin closure, we can't directly access them
     // but we can verify the plugin is created successfully
-    expect(plugin.name).toBe("@buntime/plugin-authn");
+    expect(plugin.routes).toBeDefined();
 
     // Clean up
     delete process.env.TEST_API_KEY;
@@ -376,7 +356,7 @@ describe("plugin configuration", () => {
       ],
     });
 
-    expect(plugin.name).toBe("@buntime/plugin-authn");
+    expect(plugin.routes).toBeDefined();
 
     // Clean up
     delete process.env.TEST_CLIENT_ID;
@@ -402,7 +382,7 @@ describe("plugin configuration", () => {
       ],
     });
 
-    expect(plugin.name).toBe("@buntime/plugin-authn");
+    expect(plugin.routes).toBeDefined();
 
     delete process.env.TEST_DOMAIN;
     delete process.env.TEST_CLIENT_ID;
@@ -866,7 +846,7 @@ describe("processProviderConfig", () => {
       ],
     });
 
-    expect(plugin.name).toBe("@buntime/plugin-authn");
+    expect(plugin.routes).toBeDefined();
   });
 
   it("should process Okta provider config with env substitution", async () => {
@@ -886,7 +866,7 @@ describe("processProviderConfig", () => {
       ],
     });
 
-    expect(plugin.name).toBe("@buntime/plugin-authn");
+    expect(plugin.routes).toBeDefined();
 
     delete process.env.TEST_OKTA_DOMAIN;
     delete process.env.TEST_CLIENT_ID;
@@ -910,7 +890,7 @@ describe("processProviderConfig", () => {
       ],
     });
 
-    expect(plugin.name).toBe("@buntime/plugin-authn");
+    expect(plugin.routes).toBeDefined();
 
     delete process.env.TEST_ISSUER;
     delete process.env.TEST_CLIENT_ID;
@@ -939,7 +919,7 @@ describe("multiple providers", () => {
       ],
     });
 
-    expect(plugin.name).toBe("@buntime/plugin-authn");
+    expect(plugin.routes).toBeDefined();
 
     delete process.env.TEST_CLIENT_ID;
     delete process.env.TEST_CLIENT_SECRET;
@@ -961,7 +941,7 @@ describe("SCIM configuration", () => {
       },
     });
 
-    expect(plugin.name).toBe("@buntime/plugin-authn");
+    expect(plugin.routes).toBeDefined();
   });
 
   it("should accept trustedOrigins configuration", async () => {
@@ -971,7 +951,7 @@ describe("SCIM configuration", () => {
       trustedOrigins: ["http://localhost:3000", "https://example.com"],
     });
 
-    expect(plugin.name).toBe("@buntime/plugin-authn");
+    expect(plugin.routes).toBeDefined();
   });
 });
 
@@ -983,7 +963,7 @@ describe("database configuration", () => {
       providers: [{ type: "email-password" }],
     });
 
-    expect(plugin.name).toBe("@buntime/plugin-authn");
+    expect(plugin.routes).toBeDefined();
   });
 });
 

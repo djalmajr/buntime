@@ -33,16 +33,22 @@ Requires `@buntime/plugin-database` to be configured before this plugin.
 
 ### Server Configuration
 
+Each plugin has its own `manifest.jsonc`:
+
 ```jsonc
-// buntime.jsonc
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", { "adapter": { "type": "libsql" } }],
-    ["@buntime/plugin-durable", {
-      "maxObjects": 500,
-      "hibernateAfter": 30000
-    }]
-  ]
+  "enabled": true,
+  "adapters": [{ "type": "libsql", "default": true }]
+}
+```
+
+```jsonc
+// plugins/plugin-durable/manifest.jsonc
+{
+  "enabled": true,
+  "maxObjects": 500,
+  "hibernateAfter": 30000
 }
 ```
 

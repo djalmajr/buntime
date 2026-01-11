@@ -71,67 +71,82 @@ flowchart TB
 
 === Extensão da Interface de Plugin
 
+*Manifesto (PluginManifest):*
+
 [source,typescript]
 ----
-interface BuntimePlugin {
+interface PluginManifest {
   name: string;
-  version: string;
-  priority?: number;
-  base?: string;
-  routes?: Hono;
+  base: string;
+  dependencies?: string[];
+  optionalDependencies?: string[];
 
-  // NEW: Micro-frontend UI configuration
+  // Micro-frontend UI configuration
   fragment?: {
-    /** Unique fragment ID (derived from plugin name if not provided) */
-    fragmentId?: string;
-    /** Directory containing the fragment's built assets */
-    assetsDir: string;
-    /** SSR entry point that exports fetch handler */
-    ssrEntry: string;
-    /** Framework used (for gateway optimizations) */
-    framework?: "react" | "qwik" | "solid" | "vue";
+    /** Fragment sandbox type */
+    type: "patch" | "iframe";
+    /** Origin for iframe type (required for iframe) */
+    origin?: string;
     /** Styles to apply before loading (for seamless transitions) */
-    preLoadStyles?: string;
-    /** Routes where this fragment should be pre-loaded in HTML */
-    preLoadRoutes?: string[];
-    /** Navigation item to register in dashboard */
-    navigation?: {
-      title: string;
-      icon: string;
-      path: string;
-      priority?: number;
-    };
+    preloadStyles?: string;
   };
+
+  // Navigation items for sidebar
+  menus?: MenuItem[];
+}
+----
+
+*Implementação (PluginImpl):*
+
+[source,typescript]
+----
+interface PluginImpl {
+  routes?: Hono;
+  middleware?: MiddlewareHandler;
+  server?: PluginServer;
+  onInit?: (ctx: PluginContext) => Promise<void> | void;
+  onShutdown?: () => Promise<void> | void;
+  // ... other lifecycle hooks
 }
 ----
 
 === Exemplo de Plugin com Fragment
 
+*manifest.jsonc:*
+
+[source,jsonc]
+----
+// plugins/plugin-deployments/manifest.jsonc
+{
+  "name": "@buntime/plugin-deployments",
+  "base": "/deployments",
+  "entrypoint": "dist/client/index.html",
+  "fragment": { "type": "patch" },
+  "menus": [
+    {
+      "title": "Deployments",
+      "icon": "lucide:cloud-upload",
+      "path": "/deployments",
+      "priority": 10
+    }
+  ]
+}
+----
+
+*plugin.ts:*
+
 [source,typescript]
 ----
-// plugins/plugin-deployments/src/index.ts
-import { definePlugin } from "@buntime/shared";
+// plugins/plugin-deployments/plugin.ts
+export default function createPlugin(config: DeploymentsConfig): PluginImpl {
+  return {
+    routes: createDeploymentRoutes(),
 
-export default definePlugin({
-  name: "@buntime/plugin-deployments",
-  version: "1.0.0",
-
-  fragment: {
-    assetsDir: "./dist/client",
-    ssrEntry: "./dist/server/entry.ssr.js",
-    framework: "react",
-    preLoadRoutes: ["/dashboard/deployments*"],
-    navigation: {
-      title: "Deployments",
-      icon: "lucide:cloud-upload",
-      path: "/dashboard/deployments",
-      priority: 10,
+    async onInit(ctx) {
+      ctx.logger.info("Deployments plugin initialized");
     },
-  },
-
-  // API routes (backend)
-  routes: createDeploymentRoutes(),
-});
+  };
+}
 ----
 
 == Componentes Principais
@@ -142,7 +157,7 @@ Adaptado da implementação da Cloudflare para o runtime do Bun.
 
 [source,typescript]
 ----
-// packages/fragment/src/fragment-gateway.ts
+// packages/piercing/src/gateway/fragment-gateway.ts
 import type { Hono } from "hono";
 import type { MessageBusState } from "./message-bus";
 
@@ -185,61 +200,74 @@ export class FragmentGateway {
 
 === Web Component Fragment Host
 
+Container para conteúdo do fragmento (usado internamente e no pre-piercing).
+
 [source,typescript]
 ----
-// packages/fragment/src/fragment-host.ts
-export class FragmentHost extends HTMLElement {
-  private messageBus: FragmentMessageBus;
+// packages/piercing/src/client/fragment-host.ts
+export class PiercingFragmentHost extends HTMLElement {
+  private messageBus = new FragmentMessageBus();
   fragmentId!: string;
 
-  connectedCallback() {
-    this.fragmentId = this.getAttribute("fragment-id")!;
-    this.messageBus = new FragmentMessageBus(this);
+  connectedCallback(): void {
+    const src = this.getAttribute("src");
+    if (!src) throw new Error("PiercingFragmentHost requires a src attribute");
 
-    if (!this.fragmentIsLoaded) {
-      this.setStylesEmbeddingObserver();
+    // Derive fragmentId from src
+    this.fragmentId = src.split("/").pop() || "fragment";
+
+    // If not pierced yet, observe for styles to embed
+    if (!this.isPierced) {
+      this.setupStylesObserver();
     }
   }
 
-  loadInto(outlet: Element) {
-    // Move this fragment into the outlet element
-    outlet.appendChild(this);
-    this.removeStylesEmbeddingObserver();
+  pierceInto(target: Element | ShadowRoot): void {
+    // Move this fragment into the outlet
+    target.appendChild(this);
+    this.removeStylesObserver();
   }
 }
 ----
 
 === Web Component Fragment Outlet
 
+Placeholder que carrega e renderiza um fragmento. Usa Shadow DOM para isolamento de CSS.
+
 [source,typescript]
 ----
-// packages/fragment/src/fragment-outlet.ts
-export class FragmentOutlet extends HTMLElement {
-  async connectedCallback() {
-    const fragmentId = this.getAttribute("fragment-id")!;
+// packages/piercing/src/client/fragment-host.ts
+export class PiercingFragmentOutlet extends HTMLElement {
+  private shadow: ShadowRoot;
 
-    // Try to find existing pre-loaded fragment
-    let host = document.querySelector(
-      `fragment-host[fragment-id="${fragmentId}"]`
-    );
+  constructor() {
+    super();
+    this.shadow = this.attachShadow({ mode: "open" });
+  }
+
+  async connectedCallback(): Promise<void> {
+    const src = this.getAttribute("src");
+    const history = this.getAttribute("history") as "patch" | "isolate" | null;
+
+    if (!src) throw new Error("PiercingFragmentOutlet requires a src attribute");
+
+    // Check for pre-pierced fragment
+    const host = document.querySelector(`fragment-host[src="${src}"]`);
 
     if (host) {
-      // Fragment was pre-loaded in HTML, move it here
-      host.loadInto(this);
+      host.pierceInto(this.shadow);
     } else {
-      // Fetch fragment on-demand
-      const stream = await this.fetchFragment(fragmentId);
-      await this.streamIntoOutlet(stream);
+      // Fetch and stream fragment
+      const stream = await this.fetchFragment(src);
+      await this.streamFragmentInto(stream);
     }
   }
 
-  private async fetchFragment(id: string): Promise<ReadableStream> {
-    const res = await fetch(`/fragment/${id}`, {
-      headers: {
-        "message-bus-state": JSON.stringify(getBus().state),
-      },
+  private async fetchFragment(url: string): Promise<ReadableStream> {
+    const response = await fetch(url, {
+      headers: { "x-message-bus-state": JSON.stringify(getBus().state) },
     });
-    return res.body!;
+    return response.body!;
   }
 }
 ----
@@ -248,7 +276,7 @@ export class FragmentOutlet extends HTMLElement {
 
 [source,typescript]
 ----
-// packages/fragment/src/message-bus.ts
+// packages/piercing/src/message-bus/message-bus.ts
 export interface MessageBus {
   state: MessageBusState;
   dispatch(event: string, value: JSONValue): void;
@@ -332,7 +360,7 @@ export function DeploymentsPage() {
   return (
     <DashboardLayout>
       {/* Fragment outlet - will load deployments fragment */}
-      <fragment-outlet fragment-id="deployments" />
+      <fragment-outlet src="/deployments" base="/cpanel" />
     </DashboardLayout>
   );
 }
@@ -344,7 +372,7 @@ export function DeploymentsPage() {
 
 [source,typescript]
 ----
-// runtime/server/plugins/registry.ts
+// runtime/src/plugins/registry.ts
 export class PluginRegistry {
   // ... existing methods ...
 
@@ -388,7 +416,7 @@ export class PluginRegistry {
 [source,typescript]
 ----
 // runtime/server/app.ts
-import { FragmentGateway } from "@buntime/fragment";
+import { FragmentGateway } from "@buntime/piercing";
 
 export function createApp(deps: AppDeps) {
   const app = new Hono();
@@ -468,7 +496,7 @@ Novo plugin para monitoramento de saúde:
 
 == Caminho de Migração
 
-1. **Fase 1**: Criar pacote `@buntime/fragment` com componentes principais
+1. **Fase 1**: Criar pacote `@buntime/piercing` com componentes principais
 2. **Fase 2**: Criar `plugin-dashboard` como orquestrador do shell
 3. **Fase 3**: Extrair `plugin-deployments` do cliente do runner
 4. **Fase 4**: Adicionar UI fragment ao `plugin-metrics`

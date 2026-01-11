@@ -1,4 +1,4 @@
-== Logging
+= Logging
 :toc: left
 :toclevels: 3
 :sectnums:
@@ -8,7 +8,7 @@
 
 O sistema de logging do Buntime é centralizado no pacote `@buntime/shared/logger`.
 
-=== Arquitetura
+== Arquitetura
 
 [source]
 ----
@@ -21,9 +21,9 @@ O sistema de logging do Buntime é centralizado no pacote `@buntime/shared/logge
     └── file.ts           # FileTransport (buffer + flush)
 ----
 
-=== API
+== API
 
-==== Funções Principais
+=== Funções Principais
 
 [cols="1,2"]
 |===
@@ -45,22 +45,22 @@ O sistema de logging do Buntime é centralizado no pacote `@buntime/shared/logge
 | Inicializa e define o logger global
 |===
 
-==== Interface Logger
+=== Interface Logger
 
 [source,typescript]
 ----
 interface Logger {
+  child(context: string): Logger;
+  close(): Promise<void>;
   debug(message: string, meta?: Record<string, unknown>): void;
+  error(message: string, meta?: Record<string, unknown>): void;
+  flush(): Promise<void>;
   info(message: string, meta?: Record<string, unknown>): void;
   warn(message: string, meta?: Record<string, unknown>): void;
-  error(message: string, meta?: Record<string, unknown>): void;
-  child(context: string): Logger;
-  flush(): Promise<void>;
-  close(): Promise<void>;
 }
 ----
 
-==== Configuração
+=== Configuração
 
 [source,typescript]
 ----
@@ -73,13 +73,13 @@ interface LoggerConfig {
 }
 ----
 
-=== Uso no Runner
+== Uso no Runner
 
 O runner inicializa o logger global no início do processo:
 
 [source,typescript]
 ----
-// runtime/server/index.ts
+// runtime/src/api.ts
 import { createLogger, setLogger } from "@buntime/shared/logger";
 
 const logger = createLogger({
@@ -91,21 +91,19 @@ setLogger(logger);
 
 IMPORTANT: O logger deve ser inicializado antes de qualquer outro código que use logging.
 
-=== Uso em Plugins
+== Uso em Plugins
 
 Plugins recebem um logger via `ctx.logger` no hook `onInit`:
 
 [source,typescript]
 ----
-// plugins/plugin-example/src/index.ts
-import type { BuntimePlugin, PluginContext } from "@buntime/shared/types";
+// plugins/plugin-example/plugin.ts
+import type { PluginImpl, PluginContext } from "@buntime/shared/types";
 
 let logger: PluginContext["logger"];
 
-export default function createPlugin(config: Config): BuntimePlugin {
+export default function createPlugin(config: Config): PluginImpl {
   return {
-    name: "plugin-example",
-
     onInit(ctx: PluginContext) {
       logger = ctx.logger;
       logger.info("Plugin initialized", { config });
@@ -121,7 +119,7 @@ export default function createPlugin(config: Config): BuntimePlugin {
 
 O `ctx.logger` já vem configurado com o contexto do plugin (ex: `plugin:example`).
 
-==== Fallback
+=== Fallback
 
 Se um plugin precisa de logger antes do `onInit` ou em contexto standalone, pode usar `getChildLogger`:
 
@@ -134,7 +132,7 @@ const logger = getChildLogger("plugin:example");
 
 NOTE: Se o runner ainda não inicializou o logger global, `getChildLogger` cria um logger console default.
 
-=== Níveis de Log
+== Níveis de Log
 
 Os níveis seguem ordem de severidade:
 
@@ -159,7 +157,7 @@ Os níveis seguem ordem de severidade:
 | Erros que precisam atenção
 |===
 
-==== Filtragem por Nível
+=== Filtragem por Nível
 
 O logger só emite logs com prioridade >= nível configurado:
 
@@ -172,7 +170,7 @@ logger.warn("appears");   // aparece
 logger.error("appears");  // aparece
 ----
 
-==== Variáveis de Ambiente
+=== Variáveis de Ambiente
 
 [cols="1,2"]
 |===
@@ -185,9 +183,9 @@ logger.error("appears");  // aparece
 | Ativa nível debug
 |===
 
-=== Transports
+== Transports
 
-==== ConsoleTransport
+=== ConsoleTransport
 
 Output para stdout/stderr com suporte a cores e formatos.
 
@@ -201,21 +199,21 @@ const transport = new ConsoleTransport({
 });
 ----
 
-===== Formato Pretty
+==== Formato Pretty
 
 ----
 12:34:56.789 INF [plugin:keyval] Request processed {"duration":45}
 12:34:56.790 ERR [plugin:keyval] Failed to connect {"error":"timeout"}
 ----
 
-===== Formato JSON
+==== Formato JSON
 
 [source,json]
 ----
 {"level":"info","message":"Request processed","time":"2024-01-15T12:34:56.789Z","context":"plugin:keyval","duration":45}
 ----
 
-==== FileTransport
+=== FileTransport
 
 Escreve logs em arquivo com buffering para performance.
 
@@ -230,7 +228,7 @@ const transport = new FileTransport({
 });
 ----
 
-=== Child Loggers
+== Child Loggers
 
 Child loggers herdam configuração mas adicionam contexto:
 
@@ -244,9 +242,9 @@ childB.info("Hello");
 // Output: ... [moduleA:submodule] Hello
 ----
 
-=== Boas Práticas
+== Boas Práticas
 
-==== DO
+=== DO
 
 * Use `ctx.logger` em plugins
 * Use níveis apropriados (debug para dev, info para prod)
@@ -258,7 +256,7 @@ childB.info("Hello");
 logger.info("User created", { userId: 123, email: "user@example.com" });
 ----
 
-==== DON'T
+=== DON'T
 
 * Não use `console.log` diretamente
 * Não logue dados sensíveis (senhas, tokens)

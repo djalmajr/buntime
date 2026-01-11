@@ -12,7 +12,7 @@ const TEST_DIR = join(import.meta.dir, ".test-worker-routes");
 
 beforeAll(() => {
   mkdirSync(TEST_DIR, { recursive: true });
-  initConfig({ workspaces: [TEST_DIR] }, TEST_DIR);
+  initConfig({ workerDirs: [TEST_DIR] }, TEST_DIR);
 });
 
 afterAll(() => {
@@ -75,7 +75,7 @@ describe("createWorkerRoutes", () => {
 
   const createDeps = (overrides: Partial<WorkerRoutesDeps> = {}): WorkerRoutesDeps => ({
     config,
-    getAppDir: (name: string) => (name === "my-app" ? "/mock/apps/my-app" : ""),
+    getWorkerDir: (name: string) => (name === "my-app" ? "/mock/apps/my-app" : ""),
     pool: pool as unknown as WorkerPool,
     registry,
     ...overrides,
@@ -104,7 +104,7 @@ describe("createWorkerRoutes", () => {
       expect(res.headers.get("location")).toBe("/my-app");
     });
 
-    it("should redirect to app path when homepage is workspace name", async () => {
+    it("should redirect to app path when homepage is app name", async () => {
       const routes = createWorkerRoutes(
         createDeps({
           config: { homepage: "my-app", version: "1.0.0" },
@@ -130,17 +130,17 @@ describe("createWorkerRoutes", () => {
       expect(res.headers.get("location")).toBe("/my-plugin");
     });
 
-    it("should redirect for workspace app name in homepage object", async () => {
+    it("should redirect for app name in homepage object", async () => {
       const routes = createWorkerRoutes(
         createDeps({
-          config: { homepage: { app: "my-workspace-app" }, version: "1.0.0" },
+          config: { homepage: { app: "my-test-app" }, version: "1.0.0" },
         }),
       );
       const req = new Request("http://localhost/");
       const res = await routes.fetch(req);
 
       expect(res.status).toBe(302);
-      expect(res.headers.get("location")).toBe("/my-workspace-app");
+      expect(res.headers.get("location")).toBe("/my-test-app");
     });
 
     it("should serve plugin app inline when homepage object has base", async () => {
@@ -175,7 +175,7 @@ describe("createWorkerRoutes", () => {
       expect([404, 500]).toContain(res.status);
     });
 
-    it("should serve workspace app when homepage object refers to workspace", async () => {
+    it("should serve app when homepage object refers to workerDirs", async () => {
       const routes = createWorkerRoutes(
         createDeps({
           config: { homepage: { app: "my-app", base: "/" }, version: "1.0.0" },
@@ -189,7 +189,7 @@ describe("createWorkerRoutes", () => {
   });
 
   describe("app routes (:app/*)", () => {
-    it("should route to workspace app", async () => {
+    it("should route to app", async () => {
       const routes = createWorkerRoutes(createDeps());
       const req = new Request("http://localhost/my-app/page");
       const _res = await routes.fetch(req);
@@ -229,10 +229,10 @@ describe("createWorkerRoutes", () => {
       const routes = createWorkerRoutes(
         createDeps({
           config: { homepage: { app: "/cpanel", base: "/" }, version: "1.0.0" },
-          getAppDir: () => "",
+          getWorkerDir: () => "",
         }),
       );
-      // Simulate 404 from workspace app, should fallback to homepage plugin
+      // Simulate 404 from app, should fallback to homepage plugin
       pool.fetchMock.mockImplementationOnce(() =>
         Promise.resolve(new Response("not found", { status: 404 })),
       );
@@ -277,14 +277,14 @@ describe("createWorkerRoutes", () => {
       expect(call).toBeDefined();
     });
 
-    it("should fall through to workspace routing when no registry provided", async () => {
+    it("should fall through to app routing when no registry provided", async () => {
       const routes = createWorkerRoutes(
         createDeps({
           registry: undefined,
         }),
       );
       // With no registry, plugin resolution returns null
-      // Request should fall through to workspace routing, which throws NotFoundError
+      // Request should fall through to app routing, which throws NotFoundError
       const req = new Request("http://localhost/some-path");
       const res = await routes.fetch(req);
       // Should return error (404 or 500)
@@ -292,8 +292,8 @@ describe("createWorkerRoutes", () => {
     });
   });
 
-  describe("workspace app routing", () => {
-    it("should construct correct request for workspace app", async () => {
+  describe("app routing", () => {
+    it("should construct correct request for app", async () => {
       const routes = createWorkerRoutes(createDeps());
       const req = new Request("http://localhost/my-app/api/data?page=1");
       await routes.fetch(req);
@@ -345,8 +345,8 @@ describe("createWorkerRoutes", () => {
       // This is used by handleAppRoute for fallback logic
       const routes = createWorkerRoutes(
         createDeps({
-          config: { homepage: "my-workspace", version: "1.0.0" },
-          getAppDir: () => "", // No apps found - triggers 404 fallback
+          config: { homepage: "my-test-app", version: "1.0.0" },
+          getWorkerDir: () => "", // No apps found - triggers 404 fallback
         }),
       );
 
@@ -400,7 +400,7 @@ describe("createWorkerRoutes", () => {
       expect(pool.fetchMock).toHaveBeenCalled();
     });
 
-    it("should route workspace apps via pool", async () => {
+    it("should route apps via pool", async () => {
       const routes = createWorkerRoutes(
         createDeps({
           config: { homepage: { app: "my-app", base: "/" }, version: "1.0.0" },
@@ -409,7 +409,7 @@ describe("createWorkerRoutes", () => {
 
       const req = new Request("http://localhost/my-app/page");
       const _res = await routes.fetch(req);
-      // Should have called pool.fetch for the workspace app
+      // Should have called pool.fetch for the app
       expect(pool.fetchMock).toHaveBeenCalled();
     });
   });

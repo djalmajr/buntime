@@ -8,6 +8,8 @@
 
 @.claude/rules/code-conventions/function-parameters.md
 
+@.claude/rules/code-conventions/jsx-no-blank-lines.md
+
 @.claude/rules/code-conventions/lint-test-requirement.md
 
 @.claude/rules/code-conventions/no-barrel-files.md
@@ -19,6 +21,10 @@
 @.claude/rules/development/git-operations.md
 
 @.claude/rules/development/testing-ports.md
+
+## Workflow
+
+@.claude/rules/workflow/task-tracking.md
 
 ## Docs
 

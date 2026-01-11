@@ -12,11 +12,9 @@ Plugin para gerenciamento do ciclo de vida de aplicações worker (upload, lista
 
 [source,jsonc]
 ----
-// buntime.jsonc
+// plugins/plugin-deployments/manifest.jsonc
 {
-  "plugins": [
-    "@buntime/plugin-deployments"
-  ]
+  "enabled": true
 }
 ----
 

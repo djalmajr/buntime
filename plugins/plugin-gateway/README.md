@@ -54,26 +54,23 @@ API gateway extension for Buntime runner.
 
 ## Usage
 
-```typescript
-// buntime.config.ts
-export default {
-  plugins: [
-    ["@buntime/gateway", {
-      rateLimit: {
-        requests: 100,
-        window: "1m",
-        keyBy: "ip",
-      },
-      cache: {
-        ttl: 300,
-        methods: ["GET"],
-      },
-      cors: {
-        origin: "*",
-        credentials: false,
-      },
-    }],
-  ],
+```jsonc
+// plugins/plugin-gateway/manifest.jsonc
+{
+  "enabled": true,
+  "rateLimit": {
+    "requests": 100,
+    "window": "1m",
+    "keyBy": "ip"
+  },
+  "cache": {
+    "ttl": 300,
+    "methods": ["GET"]
+  },
+  "cors": {
+    "origin": "*",
+    "credentials": false
+  }
 }
 ```
 

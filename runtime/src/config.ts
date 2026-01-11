@@ -1,14 +1,13 @@
 /**
  * Runtime configuration
  *
- * Combines environment variables with buntime.jsonc settings.
- * Must be initialized after loading buntime.jsonc via initConfig().
+ * Configuration is loaded from environment variables only.
+ * Plugin manifests are auto-discovered from PLUGIN_DIRS.
  */
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { getChildLogger } from "@buntime/shared/logger";
-import type { BuntimeConfig, HomepageConfig } from "@buntime/shared/types";
-import { parseSizeToBytes } from "@buntime/shared/utils/size";
+import type { HomepageConfig } from "@buntime/shared/types";
 import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
 import {
   BodySizeLimits,
@@ -27,6 +26,7 @@ interface RuntimeConfig {
     default: number;
     max: number;
   };
+  configDir: string;
   delayMs: number;
   homepage?: string | HomepageConfig;
   isCompiled: boolean;
@@ -36,18 +36,20 @@ interface RuntimeConfig {
   poolSize: number;
   port: number;
   version: string;
-  workspaces: string[];
+  workerDirs: string[];
 }
 
 // Default values
-const defaults: Omit<RuntimeConfig, "pluginDirs" | "workspaces"> & {
+const defaults: Omit<RuntimeConfig, "configDir" | "pluginDirs" | "workerDirs"> & {
+  configDir?: string;
   pluginDirs?: string[];
-  workspaces?: string[];
+  workerDirs?: string[];
 } = {
   bodySize: {
     default: BodySizeLimits.DEFAULT,
     max: BodySizeLimits.MAX,
   },
+  configDir: undefined,
   delayMs: DELAY_MS,
   homepage: undefined,
   isCompiled: IS_COMPILED,
@@ -57,7 +59,7 @@ const defaults: Omit<RuntimeConfig, "pluginDirs" | "workspaces"> & {
   poolSize: 100,
   port: PORT,
   version: VERSION,
-  workspaces: undefined,
+  workerDirs: undefined,
 };
 
 // Pool size defaults by environment
@@ -100,71 +102,67 @@ function expandDirs(dirs: string[], baseDir: string): string[] {
   });
 }
 
-/**
- * Initialize runtime configuration from buntime.jsonc + env vars
- */
-export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): RuntimeConfig {
-  // Get workspaces: buntime.jsonc (array) > env var (comma-separated paths)
-  // Relative paths are resolved against the config file directory
-  // Supports comma-separated values in env vars: WORKSPACES_DIR="/app,/data"
-  const workspaceDirs =
-    buntimeConfig.workspaces ?? (Bun.env.WORKSPACES_DIR ? [Bun.env.WORKSPACES_DIR] : []);
-  const workspaces = expandDirs(workspaceDirs, baseDir);
+interface InitConfigOptions {
+  /** Base directory for resolving relative paths (default: process.cwd()) */
+  baseDir?: string;
+  /** Config directory for database (default: ./data or CONFIG_DIR env) */
+  configDir?: string;
+  /** Worker directories (default: WORKER_DIRS env) */
+  workerDirs?: string[];
+}
 
-  if (workspaces.length === 0) {
-    throw new Error("workspaces is required: set in buntime.jsonc or WORKSPACES_DIR env var");
+/**
+ * Initialize runtime configuration from environment variables
+ */
+export function initConfig(options: InitConfigOptions = {}): RuntimeConfig {
+  const baseDir = options.baseDir ?? process.cwd();
+
+  // Get workerDirs from env var (comma-separated or JSON array)
+  // Relative paths are resolved against the base directory
+  // WORKER_DIRS="/app,/data" or WORKER_DIRS='["/app","/data"]'
+  const workerDirConfig = options.workerDirs ?? (Bun.env.WORKER_DIRS ? [Bun.env.WORKER_DIRS] : []);
+  const workerDirs = expandDirs(workerDirConfig, baseDir);
+
+  if (workerDirs.length === 0) {
+    throw new Error("workerDirs is required: set WORKER_DIRS env var");
   }
 
-  // Warn about non-existent workspace paths
-  for (const ws of workspaces) {
-    if (!existsSync(ws)) {
-      logger.warn(`Workspace path does not exist: ${ws}`);
+  // Warn about non-existent worker paths
+  for (const dir of workerDirs) {
+    if (!existsSync(dir)) {
+      logger.warn(`Worker directory does not exist: ${dir}`);
     }
   }
 
-  // Get pluginDirs: buntime.jsonc (array) > env var > default ["./plugins"]
-  const pluginDirConfig =
-    buntimeConfig.pluginDirs ?? (Bun.env.PLUGIN_DIRS ? [Bun.env.PLUGIN_DIRS] : ["./plugins"]);
+  // Get pluginDirs from env var or default ["./plugins"]
+  const pluginDirConfig = Bun.env.PLUGIN_DIRS ? [Bun.env.PLUGIN_DIRS] : ["./plugins"];
   const pluginDirs = expandDirs(pluginDirConfig, baseDir);
 
-  // Get poolSize: buntime.jsonc > env var > default by env
+  // Get configDir from env var or default "./data"
+  const configDirRaw = options.configDir ?? Bun.env.CONFIG_DIR ?? "./data";
+  const configDirExpanded = substituteEnvVars(configDirRaw);
+  const configDir = isAbsolute(configDirExpanded)
+    ? configDirExpanded
+    : resolve(baseDir, configDirExpanded);
+
+  // Get poolSize from env var or default by environment
   const envFallback = poolDefaults[NODE_ENV] ?? 100;
-  const poolSize = buntimeConfig.poolSize ?? parsePoolSize(Bun.env.POOL_SIZE, envFallback);
+  const poolSize = parsePoolSize(Bun.env.POOL_SIZE, envFallback);
 
-  // Get homepage: buntime.jsonc > env var (env var is string redirect format)
-  const homepage: string | HomepageConfig | undefined =
-    buntimeConfig.homepage ?? Bun.env.HOMEPAGE_APP;
-
-  // Parse bodySize limits from config (with validation)
-  let bodySizeDefault = BodySizeLimits.DEFAULT;
-  let bodySizeMax = BodySizeLimits.MAX;
-
-  if (buntimeConfig.bodySize) {
-    if (buntimeConfig.bodySize.max !== undefined) {
-      bodySizeMax = parseSizeToBytes(buntimeConfig.bodySize.max);
-    }
-    if (buntimeConfig.bodySize.default !== undefined) {
-      bodySizeDefault = parseSizeToBytes(buntimeConfig.bodySize.default);
-      // Ensure default doesn't exceed max
-      if (bodySizeDefault > bodySizeMax) {
-        logger.warn(
-          `bodySize.default (${bodySizeDefault} bytes) exceeds bodySize.max (${bodySizeMax} bytes), capping to max`,
-        );
-        bodySizeDefault = bodySizeMax;
-      }
-    }
-  }
+  // Get homepage from env var (string redirect format)
+  const homepage: string | HomepageConfig | undefined = Bun.env.HOMEPAGE_APP;
 
   const config: RuntimeConfig = {
     ...defaults,
     bodySize: {
-      default: bodySizeDefault,
-      max: bodySizeMax,
+      default: BodySizeLimits.DEFAULT,
+      max: BodySizeLimits.MAX,
     },
+    configDir,
     homepage,
     pluginDirs,
     poolSize,
-    workspaces,
+    workerDirs,
   };
 
   _config = config;

@@ -56,32 +56,28 @@ interface Policy {
 
 ## Usage
 
-```typescript
-// buntime.config.ts
-export default {
-  plugins: [
-    ["@buntime/authn", { ... }],
-    ["@buntime/authz", {
-      store: "file",
-      path: "./policies.json",
-      policies: [
-        {
-          id: "admin-all",
-          effect: "permit",
-          subjects: [{ role: "admin" }],
-          resources: [{ path: "*" }],
-          actions: [{ method: "*" }],
-        },
-        {
-          id: "user-read",
-          effect: "permit",
-          subjects: [{ role: "user" }],
-          resources: [{ path: "/api/*" }],
-          actions: [{ method: "GET" }],
-        },
-      ],
-    }],
-  ],
+```jsonc
+// plugins/plugin-authz/manifest.jsonc
+{
+  "enabled": true,
+  "store": "file",
+  "path": "./policies.json",
+  "policies": [
+    {
+      "id": "admin-all",
+      "effect": "permit",
+      "subjects": [{ "role": "admin" }],
+      "resources": [{ "path": "*" }],
+      "actions": [{ "method": "*" }]
+    },
+    {
+      "id": "user-read",
+      "effect": "permit",
+      "subjects": [{ "role": "user" }],
+      "resources": [{ "path": "/api/*" }],
+      "actions": [{ "method": "GET" }]
+    }
+  ]
 }
 ```
 

@@ -106,11 +106,9 @@ Para habilitar pre-piercing (server-side rendering do fragmento dentro do shell)
 
 [source,jsonc]
 ----
-// buntime.jsonc
+// plugins/plugin-piercing/manifest.jsonc
 {
-  "plugins": [
-    "@buntime/plugin-piercing"
-  ]
+  "enabled": true
 }
 ----
 

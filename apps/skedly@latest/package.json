@@ -53,13 +53,5 @@
     "bun-plugin-tailwind": "^0.1.2",
     "drizzle-kit": "^0.31.4",
     "tailwindcss": "^4.1.18"
-  },
-  "buntime": {
-    "entrypoint": "dist/index.js",
-    "visibility": "protected",
-    "publicRoutes": {
-      "GET": ["/api/health", "/api/auth/**"],
-      "POST": ["/api/auth/**"]
-    }
   }
 }

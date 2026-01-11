@@ -34,7 +34,7 @@ KeyVal é um banco de dados chave-valor hierárquico onde:
 ----
 import { Kv } from "@buntime/keyval";
 
-const kv = new Kv("http://localhost:8000/api/keyval");
+const kv = new Kv("http://localhost:8000/keyval/api");
 
 // Salvar
 await kv.set(["users", 1], { name: "Alice", email: "alice@example.com" });

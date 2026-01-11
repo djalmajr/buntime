@@ -4,25 +4,7 @@ import vhostsPlugin, { type VHostsPluginConfig } from "./plugin";
 
 describe("vhostsPlugin", () => {
   describe("plugin structure", () => {
-    it("should return correct plugin name", () => {
-      const config: VHostsPluginConfig = {
-        hosts: { "sked.ly": { app: "skedly@latest" } },
-      };
-      const plugin = vhostsPlugin(config);
-
-      expect(plugin.name).toBe("@buntime/plugin-vhosts");
-    });
-
-    it("should have empty base (no routes)", () => {
-      const config: VHostsPluginConfig = {
-        hosts: { "sked.ly": { app: "skedly@latest" } },
-      };
-      const plugin = vhostsPlugin(config);
-
-      expect(plugin.base).toBe("");
-    });
-
-    it("should have server.fetch handler", () => {
+    it("should have implementation properties", () => {
       const config: VHostsPluginConfig = {
         hosts: { "sked.ly": { app: "skedly@latest" } },
       };
@@ -31,14 +13,6 @@ describe("vhostsPlugin", () => {
       expect(plugin.server).toBeDefined();
       expect(plugin.server?.fetch).toBeDefined();
       expect(typeof plugin.server?.fetch).toBe("function");
-    });
-
-    it("should have onInit function", () => {
-      const config: VHostsPluginConfig = {
-        hosts: { "sked.ly": { app: "skedly@latest" } },
-      };
-      const plugin = vhostsPlugin(config);
-
       expect(plugin.onInit).toBeDefined();
       expect(typeof plugin.onInit).toBe("function");
     });
@@ -50,24 +24,6 @@ describe("vhostsPlugin", () => {
       const plugin = vhostsPlugin(config);
 
       expect(plugin.routes).toBeUndefined();
-    });
-
-    it("should not have menus (no UI)", () => {
-      const config: VHostsPluginConfig = {
-        hosts: { "sked.ly": { app: "skedly@latest" } },
-      };
-      const plugin = vhostsPlugin(config);
-
-      expect(plugin.menus).toBeUndefined();
-    });
-
-    it("should not have fragment (no UI)", () => {
-      const config: VHostsPluginConfig = {
-        hosts: { "sked.ly": { app: "skedly@latest" } },
-      };
-      const plugin = vhostsPlugin(config);
-
-      expect(plugin.fragment).toBeUndefined();
     });
   });
 
@@ -124,7 +80,7 @@ describe("vhostsPlugin", () => {
       };
       const plugin = vhostsPlugin(config);
 
-      // Before onInit, getAppDir is undefined, so matching but unresolvable hosts
+      // Before onInit, getWorkerDir is undefined, so matching but unresolvable hosts
       // should return 404
       const req = new Request("http://unknown.com/");
       const response = await plugin.server!.fetch!(req);
@@ -167,7 +123,7 @@ describe("vhostsPlugin", () => {
         getService: mock(() => undefined),
         globalConfig: {
           poolSize: 100,
-          workspaces: ["/tmp/test-workspaces"],
+          workerDirs: ["/tmp/test-workerDirs"],
         },
         logger: loggerMock,
         pool: {

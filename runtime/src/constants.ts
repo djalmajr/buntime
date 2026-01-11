@@ -2,7 +2,7 @@
  * Environment-based constants
  *
  * These are the minimal env vars needed at startup.
- * Additional config comes from buntime.jsonc via config.ts
+ * Additional config comes from environment variables via config.ts
  */
 import { number } from "@buntime/shared/utils/zod-helpers";
 import { z } from "zod";
@@ -45,6 +45,12 @@ export const VERSION = version;
 
 /** Pattern to extract app name from pathname (e.g., "/my-app/page" → "my-app") */
 export const APP_NAME_PATTERN = /^\/([^/]+)/;
+
+/**
+ * Reserved paths that cannot be used by plugins or apps
+ * These are handled by the runtime or should return 404
+ */
+export const RESERVED_PATHS = ["/api", "/health", "/.well-known"];
 
 /**
  * HTTP headers used by Buntime for request routing and fragment rendering

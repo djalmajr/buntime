@@ -35,25 +35,27 @@ route:
 
 # Buntime configuration
 buntime:
-  port: 8000
-  poolSize: 100
-  workspaces: "/app/apps"
-  libsqlUrl: ""
+  configDir: "/data/config"
   logLevel: "info"
+  pluginDirs: "/data/plugins"
+  poolSize: 100
+  port: 8000
+  workerDirs: "/data/apps"
 
-# Plugins (generates buntime.jsonc)
-plugins:
-  metrics:
+# Persistent storage
+persistence:
+  config:
     enabled: true
-  deployments:
+    size: 1Gi
+    accessMode: ReadWriteOnce
+    storageClass: ""  # Use default if empty
+  plugins:
     enabled: true
-  database:
-    enabled: false
-  keyval:
-    enabled: false
-  health:
-    enabled: false
-
-# External LibSQL
-libsql:
-  externalUrl: ""
+    size: 5Gi
+    accessMode: ReadWriteOnce
+    storageClass: ""  # Use default if empty
+  apps:
+    enabled: true
+    size: 10Gi
+    accessMode: ReadWriteOnce
+    storageClass: ""  # Use default if empty

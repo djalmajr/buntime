@@ -1,0 +1,26 @@
+{
+  "name": "@buntime/plugin-durable",
+  "enabled": false,
+  "base": "/durable",
+  // Client entrypoint (compiled files)
+  "entrypoint": "dist/client/index.html",
+  "dependencies": ["@buntime/plugin-database"],
+  "fragment": {
+    "type": "patch"
+  },
+  "menus": [
+    {
+      "icon": "lucide:box",
+      "path": "/durable",
+      "priority": 60,
+      "title": "Durable Objects"
+    }
+  ],
+  // Requires plugin-database to be enabled
+  // Database adapter type: "libsql" | "mysql" | "postgres" | "sqlite"
+  // "database": "libsql",
+  // Time in ms before idle objects hibernate (default: 60000)
+  "hibernateAfter": 60000,
+  // Maximum number of objects to keep in memory (default: 1000)
+  "maxObjects": 1000
+}

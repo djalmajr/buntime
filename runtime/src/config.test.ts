@@ -1,169 +1,84 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import type { BuntimeConfig } from "@buntime/shared/types";
 import { getConfig, initConfig } from "./config";
 import { BodySizeLimits } from "./constants";
 
 describe("config", () => {
-  const originalEnv = { ...Bun.env };
+  // Env vars that tests may modify - always clean these up
+  const testEnvVars = ["POOL_SIZE", "WORKER_DIRS", "HOMEPAGE_APP", "PLUGIN_DIRS", "CONFIG_DIR"] as const;
 
   beforeEach(() => {
-    // Reset env
-    for (const key of Object.keys(Bun.env)) {
-      if (!originalEnv[key]) {
-        delete Bun.env[key];
-      }
+    // Clean up test env vars before each test
+    for (const key of testEnvVars) {
+      delete Bun.env[key];
     }
-    Object.assign(Bun.env, originalEnv);
   });
 
   describe("initConfig", () => {
-    it("should initialize with workspaces from config", () => {
-      const config: BuntimeConfig = {
-        workspaces: ["/tmp/apps"],
-      };
-
-      const result = initConfig(config, "/base");
-      expect(result.workspaces).toContain("/tmp/apps");
+    it("should initialize with workerDirs from options", () => {
+      const result = initConfig({ workerDirs: ["/tmp/apps"] });
+      expect(result.workerDirs).toContain("/tmp/apps");
     });
 
-    it("should resolve relative workspace paths", () => {
-      const config: BuntimeConfig = {
-        workspaces: ["./apps"],
-      };
-
-      const result = initConfig(config, "/base");
-      expect(result.workspaces).toContain("/base/apps");
+    it("should resolve relative workerDirs paths against baseDir", () => {
+      const result = initConfig({ baseDir: "/base", workerDirs: ["./apps"] });
+      expect(result.workerDirs).toContain("/base/apps");
     });
 
-    it("should throw when workspaces is empty", () => {
-      const config: BuntimeConfig = {
-        workspaces: [],
-      };
-
-      expect(() => initConfig(config, "/base")).toThrow(/workspaces is required/);
+    it("should throw when workerDirs is empty", () => {
+      expect(() => initConfig({ workerDirs: [] })).toThrow(/workerDirs is required/);
     });
 
-    it("should use WORKSPACES_DIR env var as fallback", () => {
-      Bun.env.WORKSPACES_DIR = "/env/apps";
-      const config: BuntimeConfig = {};
+    it("should use WORKER_DIRS env var when not in options", () => {
+      Bun.env.WORKER_DIRS = "/env/apps";
 
-      const result = initConfig(config, "/base");
-      expect(result.workspaces).toContain("/env/apps");
+      const result = initConfig();
+      expect(result.workerDirs).toContain("/env/apps");
     });
 
-    it("should handle comma-separated WORKSPACES_DIR", () => {
-      Bun.env.WORKSPACES_DIR = "/app1,/app2,/app3";
-      const config: BuntimeConfig = {};
+    it("should handle comma-separated WORKER_DIRS", () => {
+      Bun.env.WORKER_DIRS = "/app1,/app2,/app3";
 
-      const result = initConfig(config, "/base");
-      expect(result.workspaces).toContain("/app1");
-      expect(result.workspaces).toContain("/app2");
-      expect(result.workspaces).toContain("/app3");
+      const result = initConfig();
+      expect(result.workerDirs).toContain("/app1");
+      expect(result.workerDirs).toContain("/app2");
+      expect(result.workerDirs).toContain("/app3");
     });
 
-    it("should use poolSize from config", () => {
-      const config: BuntimeConfig = {
-        poolSize: 50,
-        workspaces: ["/tmp"],
-      };
-
-      const result = initConfig(config, "/base");
-      expect(result.poolSize).toBe(50);
-    });
-
-    it("should use POOL_SIZE env var when not in config", () => {
+    it("should use POOL_SIZE env var", () => {
       Bun.env.POOL_SIZE = "100";
-      const config: BuntimeConfig = {
-        workspaces: ["/tmp"],
-      };
 
-      const result = initConfig(config, "/base");
+      const result = initConfig({ workerDirs: ["/tmp"] });
       expect(result.poolSize).toBe(100);
     });
 
     it("should use default poolSize for environment", () => {
-      const config: BuntimeConfig = {
-        workspaces: ["/tmp"],
-      };
-
-      const result = initConfig(config, "/base");
+      const result = initConfig({ workerDirs: ["/tmp"] });
       // Default for test environment is 5
       expect(result.poolSize).toBe(5);
     });
 
     it("should handle invalid POOL_SIZE gracefully", () => {
       Bun.env.POOL_SIZE = "invalid";
-      const config: BuntimeConfig = {
-        workspaces: ["/tmp"],
-      };
 
-      const result = initConfig(config, "/base");
+      const result = initConfig({ workerDirs: ["/tmp"] });
       expect(result.poolSize).toBeGreaterThan(0);
     });
 
-    it("should use homepage from config", () => {
-      const config: BuntimeConfig = {
-        homepage: "/dashboard",
-        workspaces: ["/tmp"],
-      };
-
-      const result = initConfig(config, "/base");
-      expect(result.homepage).toBe("/dashboard");
-    });
-
-    it("should use HOMEPAGE_APP env var as fallback", () => {
+    it("should use HOMEPAGE_APP env var", () => {
       Bun.env.HOMEPAGE_APP = "my-app";
-      const config: BuntimeConfig = {
-        workspaces: ["/tmp"],
-      };
 
-      const result = initConfig(config, "/base");
+      const result = initConfig({ workerDirs: ["/tmp"] });
       expect(result.homepage).toBe("my-app");
     });
 
     it("should use default body size limits", () => {
-      const config: BuntimeConfig = {
-        workspaces: ["/tmp"],
-      };
-
-      const result = initConfig(config, "/base");
+      const result = initConfig({ workerDirs: ["/tmp"] });
       expect(result.bodySize.default).toBe(BodySizeLimits.DEFAULT);
       expect(result.bodySize.max).toBe(BodySizeLimits.MAX);
     });
 
-    it("should parse custom body size from config", () => {
-      const config: BuntimeConfig = {
-        bodySize: {
-          default: "5mb",
-          max: "50mb",
-        },
-        workspaces: ["/tmp"],
-      };
-
-      const result = initConfig(config, "/base");
-      expect(result.bodySize.default).toBe(5 * 1024 * 1024);
-      expect(result.bodySize.max).toBe(50 * 1024 * 1024);
-    });
-
-    it("should cap default to max when default exceeds max", () => {
-      const config: BuntimeConfig = {
-        bodySize: {
-          default: "100mb",
-          max: "50mb",
-        },
-        workspaces: ["/tmp"],
-      };
-
-      const result = initConfig(config, "/base");
-      expect(result.bodySize.default).toBe(result.bodySize.max);
-    });
-
     it("should include static config values", () => {
-      const config: BuntimeConfig = {
-        workspaces: ["/tmp"],
-      };
-
-      const result = initConfig(config, "/base");
+      const result = initConfig({ workerDirs: ["/tmp"] });
       expect(typeof result.delayMs).toBe("number");
       expect(typeof result.isCompiled).toBe("boolean");
       expect(typeof result.isDev).toBe("boolean");
@@ -171,24 +86,38 @@ describe("config", () => {
       expect(typeof result.port).toBe("number");
       expect(typeof result.version).toBe("string");
     });
+
+    it("should use configDir from options", () => {
+      const result = initConfig({ configDir: "/custom/data", workerDirs: ["/tmp"] });
+      expect(result.configDir).toBe("/custom/data");
+    });
+
+    it("should use CONFIG_DIR env var as fallback", () => {
+      Bun.env.CONFIG_DIR = "/env/data";
+
+      const result = initConfig({ workerDirs: ["/tmp"] });
+      expect(result.configDir).toBe("/env/data");
+    });
+
+    it("should use default pluginDirs", () => {
+      const result = initConfig({ workerDirs: ["/tmp"] });
+      expect(result.pluginDirs.length).toBeGreaterThan(0);
+    });
+
+    it("should use PLUGIN_DIRS env var", () => {
+      Bun.env.PLUGIN_DIRS = "/custom/plugins";
+
+      const result = initConfig({ workerDirs: ["/tmp"] });
+      expect(result.pluginDirs).toContain("/custom/plugins");
+    });
   });
 
   describe("getConfig", () => {
-    it("should throw when config is not initialized", () => {
-      // Force reset by creating a new module context
-      // In practice, the singleton pattern means this test verifies the check exists
-      // The actual test of uninitialized state is tricky due to module caching
-    });
-
     it("should return initialized config", () => {
-      const config: BuntimeConfig = {
-        workspaces: ["/tmp"],
-      };
-
-      initConfig(config, "/base");
+      initConfig({ workerDirs: ["/tmp"] });
       const result = getConfig();
 
-      expect(result.workspaces).toContain("/tmp");
+      expect(result.workerDirs).toContain("/tmp");
     });
   });
 });

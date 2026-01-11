@@ -15,7 +15,7 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
     config: {},
     globalConfig: {
       poolSize: 10,
-      workspaces: ["./apps"],
+      workerDirs: ["./apps"],
     },
     getService: mock(() => undefined),
     logger: {

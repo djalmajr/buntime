@@ -3,7 +3,7 @@
  */
 
 export interface VHostConfig {
-  /** Workspace app to serve (e.g., "skedly@latest") */
+  /** App to serve from workerDirs (e.g., "skedly@latest") */
   app: string;
   /** Only serve paths starting with this prefix */
   pathPrefix?: string;

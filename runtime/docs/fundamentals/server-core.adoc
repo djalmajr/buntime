@@ -1,4 +1,4 @@
-== Server Core
+= Server Core
 :toc: left
 :toclevels: 3
 :sectnums:
@@ -8,7 +8,7 @@
 
 O núcleo do servidor Buntime é composto por três módulos principais que trabalham em conjunto para inicializar o runtime, carregar plugins e rotear requisições.
 
-=== Arquitetura
+== Arquitetura
 
 [source]
 ----
@@ -19,7 +19,9 @@ runtime/src/
 ├── config.ts             # Runtime configuration
 ├── constants.ts          # Environment variables
 ├── routes/
-│   ├── plugins-info.ts   # /api/plugins
+│   ├── apps-core.ts      # /api/core/apps (app management)
+│   ├── plugins-core.ts   # /api/core/plugins (plugin management)
+│   ├── plugins-info.ts   # /api/plugins (plugin metadata)
 │   └── worker.ts         # /:app/* routes
 └── utils/
     ├── request.ts        # Body cloning, size limits, URL rewriting
@@ -27,7 +29,7 @@ runtime/src/
     └── ...
 ----
 
-=== Fluxo de Inicialização
+== Fluxo de Inicialização
 
 [source]
 ----
@@ -38,12 +40,11 @@ runtime/src/
 ┌──────▼──────┐
 │   api.ts    │ Inicializa dependências:
 │             │ 1. Logger global
-│             │ 2. Carrega buntime.jsonc
-│             │ 3. Inicializa config (workspaces, poolSize)
-│             │ 4. Cria WorkerPool
-│             │ 5. Carrega plugins (PluginLoader)
-│             │ 6. Cria rotas (plugins-info, workers)
-│             │ 7. Cria app (createApp)
+│             │ 2. Inicializa config (env vars: workerDirs, poolSize)
+│             │ 3. Cria WorkerPool
+│             │ 4. Carrega plugins (PluginLoader)
+│             │ 5. Cria rotas (apps-core, plugins-core, plugins-info, workers)
+│             │ 6. Cria app (createApp)
 └──────┬──────┘
        │
 ┌──────▼──────┐
@@ -54,9 +55,9 @@ runtime/src/
 └─────────────┘
 ----
 
-=== Módulos
+== Módulos
 
-==== constants.ts
+== constants.ts
 
 Valida e exporta variáveis de ambiente usando Zod:
 
@@ -111,7 +112,7 @@ Além das variáveis de ambiente, o módulo exporta constantes para uso interno:
 | Constante | Descrição
 
 | `Headers`
-| Headers HTTP customizados (x-base, x-fragment-route, x-not-found, x-request-id, sec-fetch-dest, sec-fetch-mode)
+| Headers HTTP customizados (x-base, x-fragment-route, x-buntime-internal, x-not-found, x-request-id, sec-fetch-dest, sec-fetch-mode)
 
 | `MessageTypes`
 | Tipos de mensagem IPC (READY, REQUEST, RESPONSE, ERROR, IDLE, TERMINATE)
@@ -121,11 +122,17 @@ Além das variáveis de ambiente, o módulo exporta constantes para uso interno:
 
 | `WorkerState`
 | Estados do worker (active, idle, ephemeral, offline)
+
+| `APP_NAME_PATTERN`
+| Regex para extrair nome do app do pathname (`/^\/([^/]+)/`)
+
+| `ContentTypes`
+| Content-types HTTP comuns (HTML, JSON, PLAIN)
 |===
 
-==== config.ts
+== config.ts
 
-Combina variáveis de ambiente com configurações do `buntime.jsonc`:
+Carrega configuração do runtime a partir de variáveis de ambiente:
 
 [source,typescript]
 ----
@@ -134,58 +141,51 @@ interface RuntimeConfig {
     default: number;       // Limite padrão de body (10MB)
     max: number;           // Limite máximo de body (100MB)
   };
+  configDir: string;       // Diretório de configuração (default: ./data)
   delayMs: number;         // Rate limit delay
   homepage?: string | HomepageConfig;  // App ou config de homepage
   isCompiled: boolean;     // Se é binário compilado
   isDev: boolean;          // Se está em modo dev
   nodeEnv: string;         // development|production|staging|test
+  pluginDirs: string[];    // Diretórios de plugins externos
   poolSize: number;        // Tamanho do pool de workers
   port: number;            // Porta do servidor
   version: string;         // Versão do runtime
-  workspaces: string[];    // Diretórios de apps (obrigatório)
+  workerDirs: string[];    // Diretórios de apps (obrigatório)
 }
 ----
 
-===== Inicialização
+=== Inicialização
 
 [source,typescript]
 ----
-// 1. Carrega buntime.jsonc
-const { baseDir, config: buntimeConfig } = await loadBuntimeConfig();
+// Inicializa config a partir de variáveis de ambiente
+const runtimeConfig = initConfig();
 
-// 2. Inicializa config com valores combinados
-const runtimeConfig = initConfig(buntimeConfig, baseDir);
-
-// 3. Usa config
-console.log(runtimeConfig.workspaces);  // ["/path/to/apps"]
+// Usa config
+console.log(runtimeConfig.workerDirs);  // ["/path/to/apps"]
 console.log(runtimeConfig.poolSize);    // 100
 ----
 
-===== Prioridade de Configuração
+=== Variáveis de Ambiente
 
-Para cada campo, a prioridade é:
-
-1. Valor em `buntime.jsonc`
-2. Variável de ambiente
-3. Padrão do ambiente (para `poolSize`)
-4. Padrão hardcoded
-
-[cols="1,1,1,1"]
+[cols="1,1,1"]
 |===
-| Campo | buntime.jsonc | Env Var | Padrão
+| Campo | Env Var | Padrão
 
-| `workspaces`
-| `workspaces: ["apps"]`
-| `WORKSPACES_DIR=/path`
+| `workerDirs`
+| `WORKER_DIRS=/apps,/more`
 | ERRO (obrigatório)
 
+| `pluginDirs`
+| `PLUGIN_DIRS=/plugins`
+| `["./plugins"]`
+
 | `poolSize`
-| `poolSize: 200`
 | `POOL_SIZE=50`
-| 10 (dev), 500 (prod), 50 (staging), 5 (test)
+| 500 (prod), 10 (dev), 50 (staging), 5 (test)
 
 | `homepage`
-| `homepage: "cpanel"` ou `homepage: { app: "cpanel", shell: true }`
 | `HOMEPAGE_APP=cpanel`
 | undefined
 |===
@@ -204,41 +204,39 @@ Além das variáveis acima, `config.ts` também parseia estas variáveis de ambi
 | undefined
 | App para servir na raiz (formato string apenas via env var)
 
-| `WORKSPACES_DIR`
+| `WORKER_DIRS`
 | ERRO (obrigatório)
 | Diretórios de apps (suporta valores separados por vírgula)
 |===
 
-===== Resolução de Caminhos
+=== Resolução de Caminhos
 
-Caminhos relativos em `workspaces` são resolvidos contra o diretório do `buntime.jsonc`:
+Caminhos relativos em `WORKER_DIRS` são resolvidos contra o diretório de trabalho atual:
 
 [source]
 ----
+# WORKER_DIRS=./apps,/abs/path
 /project/
-├── buntime.jsonc         # workspaces: ["./apps", "/abs/path"]
 └── apps/
     └── todos/
 
 Resultado: ["/project/apps", "/abs/path"]
 ----
 
-Variáveis de ambiente são substituídas usando `substituteEnvVars`:
+Variáveis de ambiente podem ser usadas nos valores:
 
-[source,json]
+[source,bash]
 ----
-{
-  "workspaces": ["${HOME}/apps", "${WORKSPACE}/examples"]
-}
+WORKER_DIRS=${HOME}/apps,${PROJECT_DIR}/examples
 ----
 
-==== api.ts
+== api.ts
 
 Inicializa todas as dependências e exporta o app Hono pronto para uso.
 
 IMPORTANT: Este módulo NÃO inicia o servidor. Ele apenas prepara o app para ser usado por `index.ts` (produção) ou `index.tsx` (dev com frontend).
 
-===== Sequência de Inicialização
+=== Sequência de Inicialização
 
 [source,typescript]
 ----
@@ -249,37 +247,36 @@ const logger = createLogger({
 });
 setLogger(logger);
 
-// 2. Carrega buntime.jsonc
-const { baseDir, config: buntimeConfig } = await loadBuntimeConfig();
+// 2. Inicializa config do runtime (variáveis de ambiente)
+const runtimeConfig = initConfig();
 
-// 3. Inicializa config do runtime
-const runtimeConfig = initConfig(buntimeConfig, baseDir);
-
-// 4. Cria pool de workers
+// 3. Cria pool de workers
 const pool = new WorkerPool({ maxSize: runtimeConfig.poolSize });
 
-// 5. Cria resolver de apps
-const getAppDir = createAppResolver(runtimeConfig.workspaces);
+// 4. Cria resolver de apps
+const getAppDir = createAppResolver(runtimeConfig.workerDirs);
 
-// 6. Carrega plugins
-const loader = new PluginLoader(buntimeConfig, pool);
+// 5. Carrega plugins
+const loader = new PluginLoader({ pool });
 const registry = await loader.load();
 
-// 7. Cria rotas
+// 6. Cria rotas
 const pluginsInfo = createPluginsInfoRoutes({ registry });
-const workers = createWorkerRoutes({ config, getAppDir, pool, registry });
+const pluginsCore = createPluginsCoreRoutes({ loader });
+const appsCore = createAppsCoreRoutes();
+const workers = createWorkerRoutes({ config: runtimeConfig, getAppDir, pool, registry });
 
-// 8. Cria app
-const app = createApp({ pluginsInfo, workers, ... });
+// 7. Cria app
+const app = createApp({ appsCore, pluginsCore, pluginsInfo, workers, ... });
 
-// 9. Coleta recursos de plugins
+// 8. Coleta recursos de plugins
 const websocket = registry.getWebSocketHandler();
 const pluginRoutes = registry.collectServerRoutes();
 ----
 
 NOTE: Plugins sempre têm prioridade sobre apps regulares quando há conflito de rotas.
 
-===== Exports
+=== Exports
 
 [cols="1,2"]
 |===
@@ -288,8 +285,8 @@ NOTE: Plugins sempre têm prioridade sobre apps regulares quando há conflito de
 | `app`
 | Hono app principal (fetch handler)
 
-| `buntimeConfig`
-| Configuração do buntime.jsonc
+| `runtimeConfig`
+| Configuração do runtime (via getConfig())
 
 | `hasPluginRoutes`
 | Se há rotas de plugins para Bun.serve
@@ -310,15 +307,15 @@ NOTE: Plugins sempre têm prioridade sobre apps regulares quando há conflito de
 | WebSocket handler de plugins (se houver)
 |===
 
-NOTE: `runtimeConfig` não é exportado diretamente. Use `buntimeConfig` para acessar a configuração do buntime.jsonc.
+NOTE: `runtimeConfig` é acessado via `getConfig()` que retorna a configuração inicializada a partir das variáveis de ambiente.
 
-==== app.ts
+== app.ts
 
 Cria o app Hono principal e implementa a lógica de resolução de rotas, proteção CSRF e roteamento app-shell.
 
-===== Segurança
+=== Segurança
 
-====== CSRF Protection
+==== CSRF Protection
 
 O runtime valida requests que modificam estado (POST, PUT, PATCH, DELETE) para prevenir Cross-Site Request Forgery:
 
@@ -326,7 +323,7 @@ O runtime valida requests que modificam estado (POST, PUT, PATCH, DELETE) para p
 ----
 flowchart TD
     A[Request state-changing] --> B{Origin header presente?}
-    B -->|Não| C{X-Requested-With: XMLHttpRequest?}
+    B -->|Não| C{X-Buntime-Internal: true?}
     B -->|Sim| D{Origin == Host?}
     C -->|Sim| E[OK]
     C -->|Não| F[403]
@@ -336,7 +333,7 @@ flowchart TD
 
 Validações realizadas:
 
-1. **Origin obrigatório**: Requests sem Origin recebem 403, exceto se possuírem `X-Requested-With: XMLHttpRequest` (AJAX same-origin)
+1. **Origin obrigatório**: Requests sem Origin recebem 403, exceto se possuírem `X-Buntime-Internal: true` (comunicação worker-to-runtime)
 2. **Origin válido**: URL parsing seguro, rejeita credenciais embutidas (`user:pass@host`)
 3. **Protocolo válido**: Apenas `http:` e `https:` aceitos
 4. **Host match**: `Origin.host` deve ser igual ao header `Host`
@@ -348,13 +345,13 @@ Validações realizadas:
 // Host: localhost:8000
 // Result: 403 Forbidden
 
-// Exemplo de request permitido (AJAX)
+// Exemplo de request permitido (interno)
 // Origin: (ausente)
-// X-Requested-With: XMLHttpRequest
-// Result: Prossegue
+// X-Buntime-Internal: true
+// Result: Prossegue (comunicação interna worker-to-runtime)
 ----
 
-====== Request Correlation
+==== Request Correlation
 
 Toda request recebe um ID único para rastreamento:
 
@@ -375,7 +372,7 @@ INFO [app] Request received { requestId: "550e8400-e29b-41d4-a716-446655440000" 
 WARN [csrf] Validation failed { requestId: "550e8400-e29b-41d4-a716-446655440000" }
 ----
 
-====== Body Size Limits
+==== Body Size Limits
 
 Requests com body grande são rejeitados para prevenir DoS:
 
@@ -392,24 +389,21 @@ try {
 
 Limites configuráveis por worker (veja <<../deployment/configuration.adoc#body-size>>).
 
-===== App-Shell Mode
+=== App-Shell Mode
 
 O runtime suporta arquitetura micro-frontend onde um "shell" envolve múltiplos fragmentos.
 
-====== Configuração
+==== Configuração
 
-[source,jsonc]
+[source,bash]
 ----
-// buntime.jsonc
-{
-  "homepage": {
-    "app": "cpanel",   // App que serve como shell
-    "shell": true      // Ativa modo app-shell
-  }
-}
+# .env
+HOMEPAGE_APP=cpanel
 ----
 
-====== Fluxo
+NOTE: O modo app-shell é determinado automaticamente quando o homepage app contém um `fragment-outlet`.
+
+==== Fluxo
 
 [mermaid]
 ----
@@ -429,7 +423,7 @@ sequenceDiagram
     F->>B: Fragment HTML
 ----
 
-====== Decisão de Roteamento
+==== Decisão de Roteamento
 
 A função `shouldRouteToShell` determina se uma request vai para o shell:
 
@@ -454,7 +448,7 @@ A função `shouldRouteToShell` determina se uma request vai para o shell:
 | Fragment outlet carrega diretamente
 |===
 
-====== Headers Injetados
+==== Headers Injetados
 
 O shell recebe headers especiais para renderizar o fragment correto:
 
@@ -472,7 +466,7 @@ O shell recebe headers especiais para renderizar o fragment correto:
 | Base path do shell para assets
 |===
 
-===== Request Resolution Flow
+=== Request Resolution Flow
 
 O fluxo de resolução de requests ocorre em etapas ordenadas por prioridade:
 
@@ -485,7 +479,11 @@ flowchart TD
     D -->|Sim| E[Serve via shell]
     D -->|Não| F["Run onRequest hooks<br/>(auth, metrics, etc.)"]
     F -->|Auth failed| G[401/403]
-    F -->|Pass| H{"/api/plugins?"}
+    F -->|Pass| G1{"/api/core/plugins?"}
+    G1 -->|Sim| G2[Plugins core routes]
+    G1 -->|Não| G3{"/api/core/apps?"}
+    G3 -->|Sim| G4[Apps core routes]
+    G3 -->|Não| H{"/api/plugins?"}
     H -->|Sim| I[Plugins info routes]
     H -->|Não| J["Plugin server.fetch"]
     J -->|404?| K["Plugin routes (Hono)"]
@@ -501,16 +499,18 @@ Ordem de execução dentro do handler `app.all("*")`:
 1. **CSRF Protection**: Valida requests state-changing (POST, PUT, PATCH, DELETE)
 2. **Shell mode**: Se navegação (`Sec-Fetch-Mode: navigate`) e path é plugin base, roteia para shell
 3. **onRequest hooks**: Plugins executam autenticação, métricas, rate limiting
-4. **Plugins Info**: Rota `/api/plugins` para metadados de plugins
-5. **Plugin server.fetch**: Handlers customizados de plugins
-6. **Plugin routes (Hono)**: Rotas Hono montadas por plugins
-7. **Plugin apps**: Apps de plugins via worker pool
-8. **Worker routes**: Apps regulares em workspaces (`/:app/*`)
-9. **404 handling**: Shell exibe página de erro ou retorna 404
+4. **Plugins Core**: Rota `/api/core/plugins` para gerenciamento de plugins (upload, reload, etc.)
+5. **Apps Core**: Rota `/api/core/apps` para gerenciamento de apps (upload, etc.)
+6. **Plugins Info**: Rota `/api/plugins` para metadados de plugins
+7. **Plugin server.fetch**: Handlers customizados de plugins
+8. **Plugin routes (Hono)**: Rotas Hono montadas por plugins
+9. **Plugin apps**: Apps de plugins via worker pool
+10. **Worker routes**: Apps regulares em workerDirs (`/:app/*`)
+11. **404 handling**: Shell exibe página de erro ou retorna 404
 
 NOTE: As rotas públicas (configuradas em `publicRoutes`) são verificadas dentro dos hooks `onRequest`, permitindo acesso sem autenticação a endpoints específicos.
 
-===== Resolução de Target App
+=== Resolução de Target App
 
 O `resolveTargetApp` determina qual app irá processar a requisição:
 
@@ -536,21 +536,21 @@ interface ResolvedApp {
 }
 ----
 
-===== Ordem de Resolução
+=== Ordem de Resolução
 
 1. **Plugin apps** (via `registry.resolvePluginApp`)
    - Configurados em plugins com `app` option
    - Exemplo: `@buntime/plugin-proxy` com `{ app: "todos", base: "/todos" }`
 
 2. **Worker apps regulares** (pattern `/:app/*`)
-   - Apps em diretórios de `workspaces`
+   - Apps em diretórios de `workerDirs`
    - Exemplo: `apps/todos/` responde em `/todos/*`
 
-===== Semantic Versioning
+=== Semantic Versioning
 
 O runtime suporta versionamento semântico completo de apps através do `createAppResolver`.
 
-====== Formatos de Diretório
+==== Formatos de Diretório
 
 O resolver suporta dois formatos de organização:
 
@@ -558,7 +558,7 @@ O resolver suporta dois formatos de organização:
 
 [source]
 ----
-workspace/
+appDir/
 ├── todos@1.0.0/
 ├── todos@1.1.0/
 ├── todos@latest/
@@ -569,7 +569,7 @@ workspace/
 
 [source]
 ----
-workspace/
+appDir/
 ├── todos/
 │   ├── 1.0.0/
 │   ├── 1.1.0/
@@ -580,7 +580,7 @@ workspace/
 
 O formato flat é verificado primeiro, permitindo deploy atômico via symlinks ou renames.
 
-====== Resolução de Versão
+==== Resolução de Versão
 
 [cols="2,3"]
 |===
@@ -611,13 +611,13 @@ O formato flat é verificado primeiro, permitindo deploy atômico via symlinks o
 | Range semver (minimum)
 |===
 
-====== Pre-release Versions
+==== Pre-release Versions
 
 Pre-releases são incluídos na resolução:
 
 [source]
 ----
-workspace/
+appDir/
 ├── api@2.0.0-rc.1/
 ├── api@2.0.0-beta.2/
 └── api@2.0.0/
@@ -626,7 +626,7 @@ getAppDir("api@^2.0.0-rc")  → api@2.0.0-rc.1
 getAppDir("api@2")          → api@2.0.0
 ----
 
-====== Tag "latest"
+==== Tag "latest"
 
 O tag `@latest` tem prioridade especial sobre versões semver:
 
@@ -641,13 +641,13 @@ flowchart TD
     E -->|não| F[Maior versão semver]
 ----
 
-====== Exemplo de Uso
+==== Exemplo de Uso
 
 [source,typescript]
 ----
 const getAppDir = createAppResolver(["/apps", "/external"]);
 
-// Busca em todos os workspaces
+// Busca em todos os workerDirs
 getAppDir("todos");           // /apps/todos@latest ou maior semver
 getAppDir("todos@1.4");       // /apps/todos@1.4.2 (maior 1.4.x)
 getAppDir("api@^2.0.0");      // /external/api@2.1.0
@@ -656,9 +656,9 @@ getAppDir("api@^2.0.0");      // /external/api@2.1.0
 getAppDir("nonexistent");     // ""
 ----
 
-NOTE: Workspaces são pesquisados em ordem. O primeiro match prevalece, permitindo overlays de versão.
+NOTE: AppDirs são pesquisados em ordem. O primeiro match prevalece, permitindo overlays de versão.
 
-===== Base Path Injection
+=== Base Path Injection
 
 Apps servidos sob subpaths recebem o header `x-base` para configurar o router:
 
@@ -696,7 +696,7 @@ const base = document.querySelector("base")?.getAttribute("href") || "/";
 const router = createRouter({ basepath: base, ... });
 ----
 
-===== Fragments
+=== Fragments
 
 Micro-frontends são servidos através do mecanismo de app-shell. Quando uma navegação ocorre para um path de plugin (ex: `/metrics`), o runtime:
 
@@ -728,33 +728,33 @@ O fragment-outlet é um web component que:
 2. Faz fetch do conteúdo com `Sec-Fetch-Mode: cors` (evita loop de shell)
 3. Injeta o HTML retornado no DOM
 
-===== Plugin Routes Priority
+=== Plugin Routes Priority
 
 Plugin routes são montadas em ordem de especificidade (mais específica primeiro):
 
 [source,typescript]
 ----
 // Plugins:
-// - @buntime/plugin-keyval: /api/keyval
+// - @buntime/plugin-keyval: /keyval/api
 // - @buntime/plugin-metrics: /api/metrics
 // - @buntime/plugin-root: /
 
 // Ordem de matching:
-const sortedPaths = ["/api/keyval", "/api/metrics", "/"].sort(
+const sortedPaths = ["/keyval/api", "/api/metrics", "/"].sort(
   (a, b) => b.length - a.length
 );
 
-// Request: /api/keyval/get
-// Match: /api/keyval (corresponde)
+// Request: /keyval/api/get
+// Match: /keyval/api (corresponde)
 ----
 
 IMPORTANT: Se dois plugins tentarem montar no mesmo path, ocorre erro na inicialização.
 
-==== index.ts
+== index.ts
 
 Entry point de produção que inicia o servidor Bun.
 
-===== Configuração do Servidor
+=== Configuração do Servidor
 
 O servidor é configurado dinamicamente baseado nos recursos disponíveis:
 
@@ -764,6 +764,7 @@ const server = Bun.serve({
   fetch: app.fetch,
   idleTimeout: 0,  // Desabilita timeout - necessário para SSE/WebSocket
   port: PORT,
+  routes: { "/favicon.ico": new Response(null, { status: 204 }) },
   ...(isDev && { development: { hmr: true } }),
   ...(hasPluginRoutes && { routes: pluginRoutes }),
   ...(websocket && { websocket }),
@@ -777,24 +778,27 @@ const server = Bun.serve({
 | `idleTimeout: 0`
 | Desabilita timeout de conexões idle. Necessário para SSE (Server-Sent Events) e WebSocket que mantêm conexões de longa duração.
 
+| `routes: { "/favicon.ico": ... }`
+| Rota default para retornar 204 (No Content) para requisições de favicon, evitando logs desnecessários.
+
 | `development.hmr`
 | Ativa Hot Module Replacement em modo development.
 
-| `routes`
+| `routes` (plugin)
 | Rotas nativas do Bun.serve (plugin `server.routes`).
 
 | `websocket`
 | Handler WebSocket de plugins.
 |===
 
-===== Plugin Routes vs Hono Routes
+=== Plugin Routes vs Hono Routes
 
 Existem dois tipos de rotas de plugins:
 
 1. **Hono routes** (`plugin.routes`)
    - Hono app montado no app principal
    - Processado via `app.fetch` (sem worker pool)
-   - Exemplo: `/api/keyval/*` (REST API)
+   - Exemplo: `/keyval/api/*` (REST API)
 
 2. **Server routes** (`plugin.server.routes`)
    - Pattern matching nativo do Bun.serve
@@ -819,7 +823,7 @@ const pluginRoutes = registry.collectServerRoutes();
 
 NOTE: `server.routes` tem performance superior para WebSocket e static files, mas `plugin.routes` (Hono) é mais flexível e suporta autenticação via middleware.
 
-===== Lifecycle Hooks
+=== Lifecycle Hooks
 
 [source,typescript]
 ----
@@ -859,7 +863,7 @@ process.on("SIGINT", async () => {
 
 O timeout de shutdown (30 segundos) previne que plugins mal comportados bloqueiem o encerramento indefinidamente.
 
-===== Hot Module Replacement
+=== Hot Module Replacement
 
 Em modo development, HMR é ativado automaticamente:
 
@@ -876,7 +880,7 @@ Bun.serve({
 
 NOTE: HMR funciona apenas para o código do runtime. Workers são recarregados via `pool.reload()`.
 
-=== Uso Programático
+== Uso Programático
 
 O runtime pode ser usado como biblioteca:
 
@@ -889,7 +893,7 @@ import { loadBuntimeConfig, PluginLoader } from "@buntime/runtime/plugins/loader
 const { config, baseDir } = await loadBuntimeConfig();
 
 // 2. Carrega plugins
-const loader = new PluginLoader(config, pool);
+const loader = new PluginLoader({ pool });
 const registry = await loader.load();
 
 // 3. Cria app
@@ -899,46 +903,31 @@ const app = createApp({ ... });
 Bun.serve({ fetch: app.fetch, port: 3000 });
 ----
 
-=== Boas Práticas
+== Boas Práticas
 
-==== DO
+== DO
 
 * Use `getConfig()` para acessar configuração após inicialização
 * Sempre aguarde `registry.shutdown()` antes de encerrar processo
 * Use `logger.flush()` antes de sair para garantir que logs sejam escritos
-* Configure `workspaces` como array para suportar múltiplos diretórios
+* Configure `WORKER_DIRS` como lista para suportar múltiplos diretórios
 
-[source,typescript]
+[source,bash]
 ----
-// buntime.jsonc
-{
-  "workspaces": ["./apps", "./examples", "${HOME}/external-apps"]
-}
+# .env
+WORKER_DIRS=./apps,./examples,${HOME}/external-apps
 ----
 
-==== DON'T
+== DON'T
 
 * Não chame `initConfig()` múltiplas vezes (singleton)
 * Não modifique `runtimeConfig` diretamente após inicialização
 * Não use `console.log` - sempre use `logger`
 * Não inicie `Bun.serve` diretamente em plugins (use hooks)
 
-[source,typescript]
-----
-// ERRADO
-const config = initConfig(buntimeConfig, baseDir);
-config.poolSize = 200;  // Não tem efeito
+== Troubleshooting
 
-// CORRETO
-const config = initConfig(
-  { ...buntimeConfig, poolSize: 200 },
-  baseDir
-);
-----
-
-=== Troubleshooting
-
-==== Conflito de Rotas
+== Conflito de Rotas
 
 [source]
 ----
@@ -948,51 +937,47 @@ Error: Route collision: Plugin "plugin-b" cannot mount routes at "/api" -
 
 Solução: Configure `base` diferente em um dos plugins:
 
-[source,json]
+[source,jsonc]
 ----
+// plugins/plugin-a/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-a", { "base": "/api/a" }],
-    ["@buntime/plugin-b", { "base": "/api/b" }]
-  ]
+  "name": "@buntime/plugin-a",
+  "base": "/api/a",
+  "enabled": true
+}
+
+// plugins/plugin-b/manifest.jsonc
+{
+  "name": "@buntime/plugin-b",
+  "base": "/api/b",
+  "enabled": true
 }
 ----
 
-==== Workspaces Not Found
+== workerDirs Not Found
 
 [source]
 ----
-Error: workspaces is required: set in buntime.jsonc or WORKSPACES_DIR env var
+Error: workerDirs is required: set WORKER_DIRS env var
 ----
 
-Solução: Configure `workspaces` no `buntime.jsonc`:
+Solução: Configure a variável de ambiente `WORKER_DIRS`:
 
-[source,json]
+[source,bash]
 ----
-{
-  "workspaces": ["./apps"]
-}
+WORKER_DIRS=./apps,./examples
 ----
 
-==== Worker Pool Exhausted
+== Worker Pool Exhausted
 
 [source]
 ----
 Warning: Worker pool exhausted (100/100 workers active)
 ----
 
-Solução: Aumente `poolSize` para seu ambiente:
-
-[source,json]
-----
-{
-  "poolSize": 500
-}
-----
-
-Ou via env var:
+Solução: Aumente `POOL_SIZE`:
 
 [source,bash]
 ----
-POOL_SIZE=500 bun start
+POOL_SIZE=500
 ----

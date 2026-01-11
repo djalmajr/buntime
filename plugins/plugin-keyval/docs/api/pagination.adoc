@@ -233,13 +233,13 @@ async function processAllOrders() {
 [source,bash]
 ----
 # Primeira página
-curl "http://localhost:4000/api/keyval/keys/list/users?limit=10"
+curl "http://localhost:8000/keyval/api/keys/list/users?limit=10"
 
 # Próxima página
-curl "http://localhost:4000/api/keyval/keys/list/users?limit=10&cursor=abc123"
+curl "http://localhost:8000/keyval/api/keys/list/users?limit=10&cursor=abc123"
 
 # Ordem reversa
-curl "http://localhost:4000/api/keyval/keys/list/users?limit=10&reverse=true"
+curl "http://localhost:8000/keyval/api/keys/list/users?limit=10&reverse=true"
 ----
 
 **Resposta:**

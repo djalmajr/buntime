@@ -1,0 +1,422 @@
+== Desenvolvimento
+
+=== Arquitetura
+
+O CLI utiliza uma arquitetura híbrida:
+
+* **Commander.js** - Parsing de comandos e opções (estático, compilável)
+* **React + Ink** - Renderização de UI no terminal
+* **Zod** - Validação de dados (opcional)
+
+==== Por que Commander + Ink?
+
+Inicialmente o CLI usava **Pastel** (router file-based para Ink), mas Pastel não funciona com binários compilados pois depende de descoberta de arquivos em runtime.
+
+A solução foi usar Commander para registro estático de comandos enquanto mantém React/Ink para a UI rica.
+
+[source,typescript]
+----
+// Entry point com Commander
+import { Command } from "commander";
+import { render } from "ink";
+import PluginInstall from "./commands/plugin/install.js";
+
+const program = new Command()
+  .name("buntime")
+  .version("1.0.0");
+
+program
+  .command("plugin install <file>")
+  .option("--url <url>", "Server URL", "http://localhost:8000")
+  .action((file, options) => {
+    // Renderiza componente React
+    render(<PluginInstall args={[file]} options={options} />);
+  });
+
+program.parse();
+----
+
+=== Scripts
+
+[cols="1,3"]
+|===
+| Script | Descrição
+
+| `bun run dev`
+| Executa CLI diretamente do source (desenvolvimento)
+
+| `bun run build`
+| Build para JS bundle (dist/index.js)
+
+| `bun run build:bin`
+| Compila para binário standalone (dist/buntime)
+
+| `bun run lint`
+| Executa formatação e verificação de tipos
+|===
+
+=== Criando um Novo Comando
+
+==== Estrutura do Componente
+
+[source,typescript]
+----
+// src/commands/example/my-command.tsx
+import { Box, Text } from "ink";
+import Spinner from "ink-spinner";
+import { useEffect, useState } from "react";
+
+interface Props {
+  args: [string]; // Argumentos posicionais
+  options: {
+    url: string;
+    token?: string;
+  };
+}
+
+export default function MyCommand({ args, options }: Props) {
+  const [file] = args;
+  const [status, setStatus] = useState<"loading" | "done" | "error">("loading");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function execute() {
+      try {
+        // Lógica do comando
+        const res = await fetch(`${options.url}/api/endpoint`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setStatus("done");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+        setStatus("error");
+      }
+    }
+    execute();
+  }, []);
+
+  if (status === "loading") {
+    return (
+      <Box>
+        <Text color="green"><Spinner type="dots" /></Text>
+        <Text> Processing...</Text>
+      </Box>
+    );
+  }
+
+  if (status === "error") {
+    return <Text color="red">Error: {error}</Text>;
+  }
+
+  return <Text color="green">Success!</Text>;
+}
+----
+
+==== Registrando no Entry Point
+
+[source,typescript]
+----
+// src/index.tsx
+import MyCommand from "./commands/example/my-command.js";
+
+program
+  .command("example <file>")
+  .description("Example command description")
+  .option("--url <url>", "Server URL", DEFAULT_URL)
+  .option("--token <token>", "Auth token")
+  .action((file, options) => {
+    render(<MyCommand args={[file]} options={options} />);
+  });
+----
+
+=== Componentes Disponíveis
+
+==== Table
+
+Componente customizado para renderização de tabelas (substitui ink-table por problemas de compatibilidade ESM).
+
+[source,typescript]
+----
+import { Table } from "../components/table.js";
+
+const data = [
+  { Name: "Plugin A", Version: "1.0.0" },
+  { Name: "Plugin B", Version: "2.0.0" },
+];
+
+<Table data={data} />
+----
+
+*Saída:*
+
+[source]
+----
+Name      Version
+--------  -------
+Plugin A  1.0.0
+Plugin B  2.0.0
+----
+
+==== Spinner
+
+[source,typescript]
+----
+import Spinner from "ink-spinner";
+
+<Box>
+  <Text color="green"><Spinner type="dots" /></Text>
+  <Text> Loading...</Text>
+</Box>
+----
+
+==== SelectInput
+
+[source,typescript]
+----
+import SelectInput from "ink-select-input";
+
+const items = [
+  { label: "Option 1", value: "opt1" },
+  { label: "Option 2", value: "opt2" },
+];
+
+<SelectInput
+  items={items}
+  onSelect={(item) => console.log(item.value)}
+/>
+----
+
+=== Tratamento de Erros
+
+==== Padrão de Estados
+
+[source,typescript]
+----
+type Status = "loading" | "done" | "error" | "confirming";
+
+const [status, setStatus] = useState<Status>("loading");
+const [error, setError] = useState<string | null>(null);
+----
+
+==== Exibição de Erros
+
+[source,typescript]
+----
+if (status === "error") {
+  return (
+    <Box flexDirection="column">
+      <Text color="red">Error: {error}</Text>
+      <Text color="gray">Make sure buntime is running at {options.url}</Text>
+    </Box>
+  );
+}
+----
+
+=== Testes
+
+==== Testes Automatizados
+
+O CLI utiliza `bun:test` para testes unitários com `ink-testing-library` para testar componentes React/Ink.
+
+[source,bash]
+----
+# Executar todos os testes
+bun test
+
+# Executar testes de um arquivo específico
+bun test src/components/table.test.tsx
+
+# Executar testes com watch mode
+bun test --watch
+
+# Executar testes com coverage
+bun test --coverage
+----
+
+==== Estrutura de Testes
+
+[source]
+----
+src/
+├── commands/
+│   ├── app.test.tsx        # Testes do AppList
+│   ├── plugin.test.tsx     # Testes do PluginList
+│   └── ...
+├── components/
+│   ├── table.test.tsx      # Testes do Table
+│   └── ...
+└── utils/
+    ├── tls.test.ts         # Testes do setupTls
+    └── ...
+----
+
+==== Exemplo de Teste de Componente
+
+[source,typescript]
+----
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { render } from "ink-testing-library";
+import PluginList from "./plugin";
+
+// Helper para mock de fetch
+function mockFetch(fn: () => Promise<Response>) {
+  globalThis.fetch = mock(fn) as unknown as typeof fetch;
+}
+
+describe("PluginList component", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    mockFetch(() => Promise.resolve(new Response("[]")));
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("should display plugins when fetch succeeds", async () => {
+    const plugins = [{ name: "test-plugin", versions: ["1.0.0"] }];
+    mockFetch(() => Promise.resolve(new Response(JSON.stringify(plugins))));
+
+    const { lastFrame } = render(
+      <PluginList options={{ url: "http://localhost:8000" }} />
+    );
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(lastFrame()).toContain("test-plugin");
+  });
+});
+----
+
+==== Testando Comandos Manualmente
+
+[source,bash]
+----
+# Testar listagem de plugins
+bun src/index.tsx plugin
+
+# Testar com servidor específico
+bun src/index.tsx plugin --url http://localhost:8000
+
+# Testar instalação
+bun src/index.tsx plugin install ./test-plugin.tgz
+----
+
+==== Criando Tarball de Teste
+
+[source,bash]
+----
+# Criar plugin de teste
+mkdir -p test-plugin
+cat > test-plugin/plugin.ts << 'EOF'
+export default function createPlugin() {
+  return {
+    name: "@test/plugin",
+    onInit(ctx) {
+      ctx.logger.info("Test plugin initialized");
+    },
+  };
+}
+EOF
+
+cat > test-plugin/package.json << 'EOF'
+{
+  "name": "@test/plugin",
+  "version": "1.0.0"
+}
+EOF
+
+# Criar tarball
+tar -czvf test-plugin.tgz -C test-plugin .
+----
+
+=== Build e Distribuição
+
+==== Build para Bundle JS
+
+[source,bash]
+----
+bun run build
+# Gera: dist/index.js (2.16 MB)
+----
+
+==== Build para Binário
+
+[source,bash]
+----
+bun run build:bin
+# Gera: dist/buntime (~59 MB)
+----
+
+O binário inclui o runtime Bun e pode ser executado sem instalação prévia.
+
+==== Cross-Compilation
+
+[source,bash]
+----
+# Linux x64
+bun build ./src/index.tsx --compile --target=bun-linux-x64 --outfile ./dist/buntime-linux-x64
+
+# Linux ARM64
+bun build ./src/index.tsx --compile --target=bun-linux-arm64 --outfile ./dist/buntime-linux-arm64
+
+# macOS x64
+bun build ./src/index.tsx --compile --target=bun-darwin-x64 --outfile ./dist/buntime-darwin-x64
+
+# macOS ARM64
+bun build ./src/index.tsx --compile --target=bun-darwin-arm64 --outfile ./dist/buntime-darwin-arm64
+
+# Windows x64
+bun build ./src/index.tsx --compile --target=bun-windows-x64 --outfile ./dist/buntime-windows-x64.exe
+----
+
+=== Dependências
+
+[cols="1,1,2"]
+|===
+| Pacote | Versão | Propósito
+
+| `commander`
+| ^14.0.0
+| Parsing de comandos e opções
+
+| `ink`
+| ^6.6.0
+| Framework React para terminal
+
+| `ink-spinner`
+| ^5.0.0
+| Indicador de loading
+
+| `ink-select-input`
+| ^6.2.0
+| Seleção interativa
+
+| `react`
+| ^19.0.0
+| Renderização de componentes
+
+| `zod`
+| ^4.0.0
+| Validação de dados (opcional)
+|===
+
+NOTE: `ink-table` foi removido por incompatibilidade ESM. Um componente Table customizado foi criado em `src/components/table.tsx`.
+
+=== Troubleshooting
+
+==== Erro: "Cannot find namespace 'z'"
+
+Remova referências ao Zod que não são mais usadas após migração do Pastel.
+
+==== Erro: "require() async module is unsupported"
+
+Pacote incompatível com ESM. Substitua por alternativa ESM-compatible ou crie wrapper.
+
+==== Binário muito grande (~59 MB)
+
+O tamanho inclui o runtime Bun. Para distribuição, considere:
+
+* Compressão com UPX
+* Distribuição apenas para plataformas necessárias
+* Uso do bundle JS quando Bun estiver disponível no target

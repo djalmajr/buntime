@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@buntime/keyval": "workspace:*",
+    "es-toolkit": "^1.42.0",
     "@buntime/piercing": "workspace:*",
     "@buntime/plugin-authn": "workspace:*",
     "@buntime/plugin-authz": "workspace:*",

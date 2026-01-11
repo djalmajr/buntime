@@ -3,21 +3,21 @@ import { join } from "node:path";
 import { getChildLogger } from "@buntime/shared/logger";
 import { maxSatisfying, rsort, valid } from "semver";
 
-const logger = getChildLogger("getAppDir");
+const logger = getChildLogger("getWorkerDir");
 
 /**
- * Special version tag for apps without explicit versioning.
+ * Special version tag for workers without explicit versioning.
  * When no version is specified, "latest" takes precedence over semver versions.
- * Usage: workspace/app-name@latest/ or workspace/app-name/latest/
+ * Usage: workerDir/worker-name@latest/ or workerDir/worker-name/latest/
  */
 const LATEST = "latest";
 
 /**
  * Extract version from a flat folder name (e.g., "hello-api@1.0.0" -> "1.0.0")
- * Also supports "app@latest" as a special version tag
+ * Also supports "worker@latest" as a special version tag
  */
-function extractVersionFromFlat(folderName: string, appName: string): string | null {
-  const prefix = `${appName}@`;
+function extractVersionFromFlat(folderName: string, workerName: string): string | null {
+  const prefix = `${workerName}@`;
   if (!folderName.startsWith(prefix)) return null;
   const version = folderName.slice(prefix.length);
   if (version === LATEST) return LATEST;
@@ -25,23 +25,23 @@ function extractVersionFromFlat(folderName: string, appName: string): string | n
 }
 
 /**
- * Find versions in flat format (workspace/app-name@version/)
+ * Find versions in flat format (baseDir/worker-name@version/)
  */
 function findFlatVersions(
-  workspace: string,
-  appName: string,
+  baseDir: string,
+  workerName: string,
 ): { versions: string[]; dirs: Map<string, string> } {
   const versions: string[] = [];
   const dirs = new Map<string, string>();
 
   try {
-    const entries = readdirSync(workspace, { withFileTypes: true });
+    const entries = readdirSync(baseDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const version = extractVersionFromFlat(entry.name, appName);
+      const version = extractVersionFromFlat(entry.name, workerName);
       if (version) {
         versions.push(version);
-        dirs.set(version, join(workspace, entry.name));
+        dirs.set(version, join(baseDir, entry.name));
       }
     }
   } catch {
@@ -52,28 +52,28 @@ function findFlatVersions(
 }
 
 /**
- * Find versions in nested format (workspace/app-name/version/)
- * Also supports "app-name/latest/" as a special version tag
+ * Find versions in nested format (baseDir/worker-name/version/)
+ * Also supports "worker-name/latest/" as a special version tag
  */
 function findNestedVersions(
-  workspace: string,
-  appName: string,
+  baseDir: string,
+  workerName: string,
 ): { versions: string[]; dirs: Map<string, string> } {
   const versions: string[] = [];
   const dirs = new Map<string, string>();
-  const appDir = join(workspace, appName);
+  const workerDir = join(baseDir, workerName);
 
-  if (!existsSync(appDir) || !statSync(appDir).isDirectory()) {
+  if (!existsSync(workerDir) || !statSync(workerDir).isDirectory()) {
     return { dirs, versions };
   }
 
   try {
-    const entries = readdirSync(appDir, { withFileTypes: true });
+    const entries = readdirSync(workerDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (entry.name === LATEST || valid(entry.name)) {
         versions.push(entry.name);
-        dirs.set(entry.name, join(appDir, entry.name));
+        dirs.set(entry.name, join(workerDir, entry.name));
       }
     }
   } catch {
@@ -84,42 +84,42 @@ function findNestedVersions(
 }
 
 /**
- * Creates a function to retrieve app directories from multiple workspace paths.
- * @param workspaces - Array of workspace directories to search for apps
+ * Creates a function to retrieve worker directories from multiple worker directory paths.
+ * @param workerDirs - Array of worker directories to search for workers
  */
-export function createAppResolver(workspaces: string[]) {
+export function createWorkerResolver(workerDirs: string[]) {
   /**
-   * Retrieves the filesystem path for a given app name.
+   * Retrieves the filesystem path for a given worker name.
    *
-   * Searches through all configured app directories in order.
+   * Searches through all configured worker directories in order.
    * Supports two directory structures per directory:
-   * - Flat: `workspace/app-name@1.0.0/` (checked first)
-   * - Nested: `workspace/app-name/1.0.0/` (fallback)
+   * - Flat: `workerDir/worker-name@1.0.0/` (checked first)
+   * - Nested: `workerDir/worker-name/1.0.0/` (fallback)
    *
-   * The app name can be in the following formats:
-   * - `app-name` (prefers "latest" tag, otherwise highest semver)
-   * - `app-name@latest` (explicit latest tag)
-   * - `app-name@1` (highest version compatible with 1.x.x)
-   * - `app-name@1.4` (highest version compatible with 1.4.x)
-   * - `app-name@1.4.2` (exact version)
+   * The worker name can be in the following formats:
+   * - `worker-name` (prefers "latest" tag, otherwise highest semver)
+   * - `worker-name@latest` (explicit latest tag)
+   * - `worker-name@1` (highest version compatible with 1.x.x)
+   * - `worker-name@1.4` (highest version compatible with 1.4.x)
+   * - `worker-name@1.4.2` (exact version)
    *
    * Supports semantic versioning ranges like ^, ~, >=, etc.
    * Includes pre-release versions (-rc, -beta, -alpha).
    *
-   * @param appName - The name of the app, optionally including a version range (e.g., "app-name@1.4")
-   * @returns The full filesystem path to the app directory, or an empty string if not found
+   * @param workerName - The name of the worker, optionally including a version range (e.g., "worker-name@1.4")
+   * @returns The full filesystem path to the worker directory, or an empty string if not found
    */
-  return function getAppDir(appName: string): string {
-    const [name, versionRange] = appName.split("@");
+  return function getWorkerDir(workerName: string): string {
+    const [name, versionRange] = workerName.split("@");
     if (!name) return "";
 
     // Collect all versions from all directories
     const allVersions: string[] = [];
     const allDirs = new Map<string, string>();
 
-    for (const workspace of workspaces) {
-      // 1. Try flat format first (workspace/app-name@version/)
-      const flat = findFlatVersions(workspace, name);
+    for (const workerDir of workerDirs) {
+      // 1. Try flat format first (workerDir/worker-name@version/)
+      const flat = findFlatVersions(workerDir, name);
       for (const version of flat.versions) {
         if (!allDirs.has(version)) {
           allVersions.push(version);
@@ -127,8 +127,8 @@ export function createAppResolver(workspaces: string[]) {
         }
       }
 
-      // 2. Try nested format (workspace/app-name/version/)
-      const nested = findNestedVersions(workspace, name);
+      // 2. Try nested format (workerDir/worker-name/version/)
+      const nested = findNestedVersions(workerDir, name);
       for (const version of nested.versions) {
         if (!allDirs.has(version)) {
           allVersions.push(version);

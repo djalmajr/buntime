@@ -5,11 +5,9 @@ metadata:
   labels:
     {{- include "buntime.labels" . | nindent 4 }}
 data:
-  PORT: {{ .Values.buntime.port | quote }}
-  POOL_SIZE: {{ .Values.buntime.poolSize | quote }}
-  WORKSPACES_DIR: {{ .Values.buntime.workspaces | quote }}
+  CONFIG_DIR: {{ .Values.buntime.configDir | quote }}
   LOG_LEVEL: {{ .Values.buntime.logLevel | quote }}
-  {{- $libsqlUrl := include "buntime.libsqlUrl" . }}
-  {{- if $libsqlUrl }}
-  LIBSQL_URL: {{ $libsqlUrl | quote }}
-  {{- end }}
+  PLUGIN_DIRS: {{ .Values.buntime.pluginDirs | quote }}
+  POOL_SIZE: {{ .Values.buntime.poolSize | quote }}
+  PORT: {{ .Values.buntime.port | quote }}
+  WORKER_DIRS: {{ .Values.buntime.workerDirs | quote }}

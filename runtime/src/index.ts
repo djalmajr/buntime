@@ -9,7 +9,7 @@
 
 import {
   app,
-  buntimeConfig as config,
+  runtimeConfig as config,
   hasPluginRoutes,
   logger,
   pluginRoutes,
@@ -26,6 +26,7 @@ const server = Bun.serve({
   fetch: app.fetch,
   idleTimeout: 0, // Disable idle timeout - required for SSE/WebSocket
   port: PORT,
+  routes: { "/favicon.ico": new Response(null, { status: 204 }) },
   ...(isDev && { development: { hmr: true } }),
   ...(hasPluginRoutes && { routes: pluginRoutes }),
   ...(websocket && { websocket }),

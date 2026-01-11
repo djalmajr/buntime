@@ -9,44 +9,12 @@ describe("durableObjectsExtension", () => {
       expect(durableObjectsExtension).toBe(namedExport);
     });
 
-    it("should return a valid BuntimePlugin", () => {
+    it("should return a valid PluginImpl with lifecycle hooks", () => {
       const plugin = durableObjectsExtension();
 
-      expect(plugin.name).toBe("@buntime/plugin-durable");
-      expect(plugin.dependencies).toContain("@buntime/plugin-database");
+      // Plugin implementation has lifecycle hooks
       expect(plugin.onInit).toBeInstanceOf(Function);
       expect(plugin.onShutdown).toBeInstanceOf(Function);
-    });
-
-    it("should have correct default base path", () => {
-      const plugin = durableObjectsExtension();
-
-      expect(plugin.base).toBe("/durable");
-    });
-
-    it("should allow custom base path", () => {
-      const plugin = durableObjectsExtension({ base: "/custom-durable" });
-
-      expect(plugin.base).toBe("/custom-durable");
-    });
-
-    it("should have fragment type patch", () => {
-      const plugin = durableObjectsExtension();
-
-      expect(plugin.fragment).toEqual({ type: "patch" });
-    });
-
-    it("should have menu configuration", () => {
-      const plugin = durableObjectsExtension();
-
-      expect(plugin.menus).toBeDefined();
-      expect(plugin.menus).toHaveLength(1);
-      expect(plugin.menus![0]).toEqual({
-        icon: "lucide:box",
-        path: "/durable",
-        priority: 60,
-        title: "Durable Objects",
-      });
     });
   });
 
@@ -59,7 +27,6 @@ describe("durableObjectsExtension", () => {
 
     it("should accept all config options", () => {
       const config = {
-        base: "/my-durable",
         database: "libsql" as const,
         hibernateAfter: 120_000,
         maxObjects: 500,
@@ -67,7 +34,8 @@ describe("durableObjectsExtension", () => {
 
       const plugin = durableObjectsExtension(config);
 
-      expect(plugin.base).toBe("/my-durable");
+      expect(plugin).toBeDefined();
+      expect(plugin.onInit).toBeInstanceOf(Function);
     });
   });
 

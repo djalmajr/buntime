@@ -30,26 +30,23 @@ HTTP and WebSocket proxy extension for Buntime runner.
 
 ## Usage
 
-```typescript
-// buntime.config.ts
-export default {
-  plugins: [
-    ["@buntime/proxy", {
-      rules: [
-        {
-          pattern: "^/api/v(\\d+)/(.*)",
-          target: "${API_URL}",
-          rewrite: "/version/$1/$2",
-          changeOrigin: true,
-        },
-        {
-          pattern: "^/ws/(.*)",
-          target: "ws://realtime:8080",
-          rewrite: "/$1",
-        },
-      ],
-    }],
-  ],
+```jsonc
+// plugins/plugin-proxy/manifest.jsonc
+{
+  "enabled": true,
+  "rules": [
+    {
+      "pattern": "^/api/v(\\d+)/(.*)",
+      "target": "${API_URL}",
+      "rewrite": "/version/$1/$2",
+      "changeOrigin": true
+    },
+    {
+      "pattern": "^/ws/(.*)",
+      "target": "ws://realtime:8080",
+      "rewrite": "/$1"
+    }
+  ]
 }
 ```
 

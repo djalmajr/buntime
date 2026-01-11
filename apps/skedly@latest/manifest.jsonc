@@ -1,0 +1,16 @@
+{
+  "entrypoint": "dist/index.js",
+  "env": {
+    "SKEDLY_BA_HASH": "${SKEDLY_BA_HASH}"
+  },
+  "publicRoutes": {
+    "GET": [
+      "/api/health",
+      "/api/auth/**"
+    ],
+    "POST": [
+      "/api/auth/**"
+    ]
+  },
+  "visibility": "protected"
+}

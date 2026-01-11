@@ -1,9 +1,9 @@
 import type { AdapterType, DatabaseService } from "@buntime/plugin-database";
-import type { BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
+import type { PluginContext, PluginImpl } from "@buntime/shared/types";
 import { api } from "./server";
 import { initialize, shutdown } from "./server/services";
 
-export interface KeyValConfig extends BasePluginConfig {
+export interface KeyValConfig {
   /**
    * Database adapter type to use (uses default if not specified)
    * @example "libsql", "sqlite", "postgres"
@@ -57,54 +57,30 @@ export interface KeyValConfig extends BasePluginConfig {
  *
  * @example
  * ```jsonc
- * // buntime.jsonc
+ * // plugins/plugin-database/manifest.jsonc
  * {
- *   "plugins": [
- *     ["@buntime/plugin-database", {
- *       "adapters": [
- *         { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] }
- *       ]
- *     }],
- *     ["@buntime/plugin-keyval", {
- *       "database": "libsql",
- *       "metrics": { "persistent": true }
- *     }]
+ *   "name": "@buntime/plugin-database",
+ *   "enabled": true,
+ *   "adapters": [
+ *     { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] }
  *   ]
  * }
  * ```
+ *
+ * ```jsonc
+ * // plugins/plugin-keyval/manifest.jsonc
+ * {
+ *   "name": "@buntime/plugin-keyval",
+ *   "enabled": true,
+ *   "database": "libsql",
+ *   "metrics": { "persistent": true }
+ * }
+ * ```
  */
-export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugin {
+export default function keyvalExtension(config: KeyValConfig = {}): PluginImpl {
   return {
-    name: "@buntime/plugin-keyval",
-    base: config.base ?? "/keyval",
-    dependencies: ["@buntime/plugin-database"],
-
     // API routes run on main thread (required for SSE/watch endpoints)
     routes: api,
-
-    // Fragment with patch sandbox (internal plugin)
-    fragment: {
-      type: "patch",
-    },
-
-    // Menu items for C-Panel sidebar
-    menus: [
-      {
-        icon: "lucide:database",
-        path: "/keyval",
-        priority: 80,
-        title: "KeyVal",
-        items: [
-          { icon: "lucide:home", path: "/keyval", title: "Overview" },
-          { icon: "lucide:list", path: "/keyval/entries", title: "Entries" },
-          { icon: "lucide:layers", path: "/keyval/queue", title: "Queue" },
-          { icon: "lucide:search", path: "/keyval/search", title: "Search" },
-          { icon: "lucide:eye", path: "/keyval/watch", title: "Watch" },
-          { icon: "lucide:atom", path: "/keyval/atomic", title: "Atomic" },
-          { icon: "lucide:activity", path: "/keyval/metrics", title: "Metrics" },
-        ],
-      },
-    ],
 
     async onInit(ctx: PluginContext) {
       // Get database service from plugin-database

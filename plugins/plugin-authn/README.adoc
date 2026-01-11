@@ -62,13 +62,19 @@ Este plugin requer `@buntime/plugin-database` para armazenamento de sessões e u
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [{ "type": "libsql", "default": true }]
-    }],
-    ["@buntime/plugin-authn", { ... }]
-  ]
+  "enabled": true,
+  "adapters": [{ "type": "libsql", "default": true }]
+}
+----
+
+[source,jsonc]
+----
+// plugins/plugin-authn/manifest.jsonc
+{
+  "enabled": true,
+  // ... configuração do plugin
 }
 ----
 

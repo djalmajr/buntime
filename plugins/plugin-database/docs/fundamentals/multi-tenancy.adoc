@@ -60,7 +60,7 @@ O `DatabaseService` não "adivinha" o tenant magicamente em chamadas internas, m
 Se você usar middlewares do Buntime, o tenant pode ser extraído de:
 
 1.  **Subdomínio**: `tenant-a.app.com` -> `tenant-a`
-2.  **Header**: `X-Tenant-ID: tenant-a`
+2.  **Header**: `x-tenant-id: tenant-a`
 3.  **Path**: `/api/tenant-a/...` (menos comum)
 
 No código do seu plugin:
@@ -68,7 +68,7 @@ No código do seu plugin:
 [source,typescript]
 ----
 // Em um handler HTTP
-const tenantId = req.headers.get("X-Tenant-ID");
+const tenantId = req.headers.get("x-tenant-id");
 const adapter = await db.getAdapter(tenantId);
 ----
 

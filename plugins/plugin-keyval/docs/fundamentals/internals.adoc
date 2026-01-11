@@ -487,16 +487,18 @@ O sistema de filas executa limpeza automática em background:
 - **Intervalo**: A cada 60 segundos (configurável via `cleanupInterval`)
 - **Ação**: Reseta locks expirados (mensagens "presas" em `processing` por mais de `lockDuration`)
 
-**Configuração no buntime.jsonc:**
+**Configuração no manifest.jsonc do plugin:**
 
 [source,jsonc]
 ----
-["@buntime/plugin-keyval", {
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "enabled": true,
   "queue": {
     "cleanupInterval": 60000,   // Intervalo de limpeza em ms (0 para desabilitar)
     "lockDuration": 30000       // Duração do lock em ms (padrão: 30s)
   }
-}]
+}
 ----
 
 NOTE: O parâmetro `maxAge` foi removido pois mensagens processadas são deletadas imediatamente, não ficam armazenadas com status final.

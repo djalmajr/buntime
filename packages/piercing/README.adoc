@@ -80,7 +80,7 @@ include::docs/client/fragment-host.adoc[leveloffset=+1]
 
 Sistema de comunicação entre fragmentos.
 
-include::docs/message-bus/client-side.adoc[leveloffset=+1]
+include::docs/message-bus/client.adoc[leveloffset=+1]
 
 == Sandbox
 

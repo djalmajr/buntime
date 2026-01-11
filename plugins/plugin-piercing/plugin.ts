@@ -1,4 +1,4 @@
-import type { AppInfo, BasePluginConfig, BuntimePlugin, PluginContext } from "@buntime/shared/types";
+import type { AppInfo, BasePluginConfig, PluginContext, PluginImpl } from "@buntime/shared/types";
 
 export interface PiercingConfig extends BasePluginConfig {
   /**
@@ -134,13 +134,10 @@ async function prePierceResponse(response: Response, baseUrl: string): Promise<R
  *
  * This enables SSR for micro-frontend fragments, reducing time-to-content.
  */
-export default function piercingPlugin(pluginConfig: PiercingConfig = {}): BuntimePlugin {
+export default function piercingPlugin(pluginConfig: PiercingConfig = {}): PluginImpl {
   enabled = pluginConfig.enabled ?? true;
 
   return {
-    name: "@buntime/plugin-piercing",
-    base: "/piercing",
-
     onInit(ctx: PluginContext) {
       logger = ctx.logger;
       logger.info(`Piercing plugin initialized (pre-piercing ${enabled ? "enabled" : "disabled"})`);

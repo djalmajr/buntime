@@ -128,7 +128,7 @@ export type PluginConfig = string | [name: string, config: Record<string, unknow
  */
 export interface HomepageConfig {
   /**
-   * Worker app name (must exist in workspaces)
+   * Worker app name (must exist in workerDirs)
    * @example "cpanel"
    */
   app: string;
@@ -150,7 +150,7 @@ export interface HomepageConfig {
 }
 
 /**
- * Buntime global configuration (buntime.jsonc)
+ * Buntime global configuration (environment variables)
  */
 export interface BuntimeConfig {
   /**
@@ -166,6 +166,15 @@ export interface BuntimeConfig {
     /** Maximum allowed body size (ceiling for per-worker config) */
     max?: number | string;
   };
+
+  /**
+   * Directory for runtime configuration database (SQLite)
+   * Used for storing plugin versions and runtime config
+   * Supports ${ENV_VAR} syntax
+   * @default "./data"
+   * @example "${CONFIG_DIR}" or "/data/config"
+   */
+  configDir?: string;
 
   /**
    * Homepage configuration
@@ -190,27 +199,17 @@ export interface BuntimeConfig {
   pluginDirs?: string[];
 
   /**
-   * Plugins to load (Babel-style array, order matters!)
-   * @example
-   * [
-   *   "@buntime/metrics",
-   *   ["@buntime/authn", { "provider": "keycloak" }]
-   * ]
-   */
-  plugins?: PluginConfig[];
-
-  /**
    * Maximum number of workers in the pool
    * @default 100
    */
   poolSize?: number;
 
   /**
-   * Workspace directories containing worker apps
+   * Worker directories containing worker apps
    * Supports ${ENV_VAR} syntax
-   * @example ["./apps", "../examples"] or ["${WORKSPACES_DIR}"]
+   * @example ["./apps", "../examples"] or ["${WORKER_DIRS}"]
    */
-  workspaces?: string[];
+  workerDirs?: string[];
 }
 
 /**
@@ -231,8 +230,8 @@ export interface GlobalPluginConfig {
   /** Maximum number of workers in the pool */
   poolSize: number;
 
-  /** Workspace directories containing worker apps (normalized to array) */
-  workspaces: string[];
+  /** Worker directories containing worker apps (normalized to array) */
+  workerDirs: string[];
 }
 
 /**
@@ -243,8 +242,8 @@ export interface PluginContext {
   config: Record<string, unknown>;
 
   /**
-   * Global configuration from buntime.jsonc
-   * Provides access to shared values like appsDir, poolSize
+   * Global configuration from environment variables
+   * Provides access to shared values like workerDirs, poolSize
    */
   globalConfig: GlobalPluginConfig;
 
@@ -297,7 +296,7 @@ export interface AppInfo {
 }
 
 /**
- * Worker configuration from buntime.jsonc (per-app)
+ * Worker configuration from manifest.jsonc (per-app)
  */
 /**
  * App visibility in the deployments UI
@@ -310,8 +309,23 @@ export type AppVisibility = "internal" | "protected" | "public";
 export interface WorkerConfig {
   autoInstall?: boolean;
   entrypoint?: string;
+
+  /**
+   * Additional environment variables to pass to the worker
+   */
+  env?: Record<string, string>;
+
   idleTimeout?: number;
   lowMemory?: boolean;
+
+  /**
+   * Maximum body size for this worker
+   * If not set, uses the global bodySize.default
+   * Cannot exceed global bodySize.max
+   * @example "50mb" or 52428800
+   */
+  maxBodySize?: number | string;
+
   maxRequests?: number;
 
   /**
@@ -323,11 +337,6 @@ export interface WorkerConfig {
 
   timeout?: number;
   ttl?: number;
-
-  /**
-   * Additional environment variables to pass to the worker
-   */
-  env?: Record<string, string>;
 
   /**
    * App visibility in the deployments UI
@@ -359,7 +368,7 @@ export interface WorkerStats {
 
 /**
  * App registered by a plugin (served as worker)
- * Different from APPS_DIR: no version convention, direct path mapping
+ * Different from workerDirs: no version convention, direct path mapping
  */
 export interface PluginApp {
   /** Filesystem directory containing the app */
@@ -383,11 +392,25 @@ export interface PluginApp {
 }
 
 /**
- * Plugin definition
+ * Plugin manifest from manifest.jsonc
+ * Contains all metadata and configuration (no code)
  */
-export interface BuntimePlugin {
-  /** Unique plugin name (e.g., "@buntime/metrics") */
+export interface PluginManifest {
+  /** Unique plugin identifier (e.g., "@buntime/plugin-keyval") */
   name: string;
+
+  /** Enable/disable the plugin (default: true) */
+  enabled?: boolean;
+
+  /**
+   * Base path for plugin routes
+   * All routes are mounted at /{base}/*
+   * @example "/keyval" or "/auth"
+   */
+  base: string;
+
+  /** Path to compiled client entrypoint */
+  entrypoint?: string;
 
   /**
    * Required dependencies on other plugins
@@ -404,20 +427,43 @@ export interface BuntimePlugin {
   optionalDependencies?: string[];
 
   /**
-   * Called when plugin is initialized
+   * Fragment configuration for embedding this plugin in the shell (C-Panel)
+   * The plugin's UI is served from its base path and "pierced" into the shell
+   *
+   * If not defined, the plugin has no fragment (API-only plugin)
    */
-  onInit?: (ctx: PluginContext) => Promise<void> | void;
+  fragment?: FragmentOptions;
 
   /**
-   * Called when buntime is shutting down
+   * Menu items for the shell navigation (C-Panel sidebar)
+   * Supports nested menus via `items` property
    */
-  onShutdown?: () => Promise<void> | void;
+  menus?: MenuItem[];
+
+  /** Plugin-specific configuration (passed to factory function) */
+  [key: string]: unknown;
+}
+
+/**
+ * Plugin implementation (code only)
+ * Returned by plugin.ts factory function
+ */
+export interface PluginImpl {
+  /** Alternative to onRequest - Hono middleware */
+  middleware?: MiddlewareHandler;
 
   /**
-   * Called after Bun.serve() starts
-   * Use this to get access to the server instance (e.g., for WebSocket upgrades)
+   * Hono routes for the plugin API
+   * Mounted at /{base}/* (e.g., "/keyval/api/*")
    */
-  onServerStart?: (server: Server<unknown>) => void;
+  routes?: Hono;
+
+  /**
+   * Server module for serving static files and API routes in main process
+   * - routes: goes to Bun.serve({ routes }) with auth wrapper
+   * - fetch: invoked in app.fetch (Hono)
+   */
+  server?: PluginServer;
 
   /**
    * WebSocket handler for Bun.serve()
@@ -428,6 +474,18 @@ export interface BuntimePlugin {
     message?: (ws: ServerWebSocket<unknown>, message: string | Buffer) => void;
     open?: (ws: ServerWebSocket<unknown>) => void;
   };
+
+  /** Called when plugin is initialized */
+  onInit?: (ctx: PluginContext) => Promise<void> | void;
+
+  /** Called when buntime is shutting down */
+  onShutdown?: () => Promise<void> | void;
+
+  /**
+   * Called after Bun.serve() starts
+   * Use this to get access to the server instance (e.g., for WebSocket upgrades)
+   */
+  onServerStart?: (server: Server<unknown>) => void;
 
   /**
    * Called for each incoming request (before worker)
@@ -447,93 +505,36 @@ export interface BuntimePlugin {
    */
   onResponse?: (res: Response, app: AppInfo) => Promise<Response> | Response;
 
-  /**
-   * Called when a worker is spawned
-   */
+  /** Called when a worker is spawned */
   onWorkerSpawn?: (worker: WorkerInstance, app: AppInfo) => void;
 
-  /**
-   * Called when a worker is terminated
-   */
+  /** Called when a worker is terminated */
   onWorkerTerminate?: (worker: WorkerInstance, app: AppInfo) => void;
-
-  /**
-   * Base path for plugin routes (required)
-   * All routes are mounted at /{base}/*
-   * @example "/keyval" or "/auth"
-   */
-  base: string;
-
-  /**
-   * Hono routes for the plugin API
-   * Mounted at /{base}/* (e.g., "/keyval/api/*")
-   */
-  routes?: Hono;
-
-  /**
-   * Alternative to onRequest - Hono middleware
-   */
-  middleware?: MiddlewareHandler;
-
-  /**
-   * Server module for serving static files and API routes in main process
-   * - routes: goes to Bun.serve({ routes }) with auth wrapper
-   * - fetch: invoked in app.fetch (Hono)
-   */
-  server?: PluginServer;
-
-  /**
-   * Fragment configuration for embedding this plugin in the shell (C-Panel)
-   * The plugin's UI is served from its base path and "pierced" into the shell
-   *
-   * If not defined, the plugin has no fragment (API-only plugin)
-   *
-   * @example
-   * // Patch for internal plugins (recommended)
-   * fragment: {
-   *   type: "patch",
-   * }
-   *
-   * @example
-   * // Full isolation with iframe for untrusted external apps
-   * fragment: {
-   *   type: "iframe",
-   *   origin: "https://external-app.com",
-   * }
-   */
-  fragment?: FragmentOptions;
-
-  /**
-   * Menu items for the shell navigation (C-Panel sidebar)
-   * Supports nested menus via `items` property
-   *
-   * @example
-   * menus: [
-   *   { title: "Logs", icon: "lucide:scroll-text", path: "/logs" },
-   *   {
-   *     title: "Reports",
-   *     icon: "lucide:file-text",
-   *     path: "/reports",
-   *     items: [
-   *       { title: "Daily", icon: "lucide:calendar", path: "/reports/daily" },
-   *     ],
-   *   },
-   * ]
-   */
-  menus?: MenuItem[];
 }
 
 /**
- * Plugin factory function type
+ * Combined plugin (manifest + implementation)
+ * Used internally by loader after merging manifest with implementation
  */
-export type PluginFactory = (
-  config?: Record<string, unknown>,
-) => BuntimePlugin | Promise<BuntimePlugin>;
+export type BuntimePlugin = PluginManifest & PluginImpl;
 
 /**
- * Plugin module export type
+ * Plugin implementation factory function type
+ * Receives plugin-specific config from manifest.jsonc
+ */
+export type PluginImplFactory = (
+  config?: Record<string, unknown>,
+) => PluginImpl | Promise<PluginImpl>;
+
+/**
+ * Plugin module export type (from plugin.ts)
  */
 export type PluginModule =
-  | BuntimePlugin
-  | PluginFactory
-  | { default: BuntimePlugin | PluginFactory };
+  | PluginImpl
+  | PluginImplFactory
+  | { default: PluginImpl | PluginImplFactory };
+
+/**
+ * @deprecated Use PluginImplFactory instead
+ */
+export type PluginFactory = PluginImplFactory;

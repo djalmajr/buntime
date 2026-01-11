@@ -1,0 +1,52 @@
+{
+  // Plugin metadata
+  "name": "@buntime/plugin-keyval",
+  "base": "/keyval",
+  "dependencies": ["@buntime/plugin-database"],
+
+  // Plugin state
+  "enabled": false,
+
+  // Client entrypoint (compiled files)
+  "entrypoint": "dist/client/index.html",
+
+  // Fragment configuration for embedding in C-Panel
+  "fragment": {
+    "type": "patch"
+  },
+
+  // Menu items for C-Panel sidebar
+  "menus": [
+    {
+      "icon": "lucide:database",
+      "path": "/keyval",
+      "priority": 80,
+      "title": "KeyVal",
+      "items": [
+        { "icon": "lucide:home", "path": "/keyval", "title": "Overview" },
+        { "icon": "lucide:list", "path": "/keyval/entries", "title": "Entries" },
+        { "icon": "lucide:layers", "path": "/keyval/queue", "title": "Queue" },
+        { "icon": "lucide:search", "path": "/keyval/search", "title": "Search" },
+        { "icon": "lucide:eye", "path": "/keyval/watch", "title": "Watch" },
+        { "icon": "lucide:atom", "path": "/keyval/atomic", "title": "Atomic" },
+        { "icon": "lucide:activity", "path": "/keyval/metrics", "title": "Metrics" }
+      ]
+    }
+  ],
+
+  // Plugin-specific configuration
+  // Database adapter type: "libsql" | "mysql" | "postgres" | "sqlite"
+  // "database": "libsql",
+  "metrics": {
+    // Enable persistent metrics stored in database (default: false)
+    "persistent": false,
+    // Flush interval in ms for persisting metrics (default: 30000)
+    "flushInterval": 30000
+  },
+  "queue": {
+    // Cleanup interval in ms; 0 to disable (default: 60000)
+    "cleanupInterval": 60000,
+    // Lock duration in ms for message processing (default: 30000)
+    "lockDuration": 30000
+  }
+}

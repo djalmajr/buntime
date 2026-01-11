@@ -415,6 +415,7 @@ export class PiercingFragmentOutlet extends HTMLElement {
     const state = getGlobalBus().state;
 
     const response = await fetch(url, {
+      credentials: "include",
       headers: {
         "x-message-bus-state": JSON.stringify(state),
       },

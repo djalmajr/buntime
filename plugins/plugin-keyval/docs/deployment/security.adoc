@@ -15,25 +15,29 @@ O plugin KeyVal não possui autenticação própria. Ele depende completamente d
 
 Todas as requisições HTTP passam pelo middleware de autenticação do Buntime antes de chegarem ao KeyVal:
 
-[source,typescript]
+[source,jsonc]
 ----
-// Configuração no buntime.jsonc
+// plugins/plugin-authn/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-authn", {
-      "provider": "keycloak",
-      "url": "https://auth.example.com",
-      "realm": "production"
-    }],
-    ["@buntime/plugin-database", {
-      "adapter": {
-        "type": "libsql",
-        "urls": ["libsql://..."],
-        "authToken": "${LIBSQL_TOKEN}"
-      }
-    }],
-    "@buntime/plugin-keyval"
-  ]
+  "enabled": true,
+  "provider": "keycloak",
+  "url": "https://auth.example.com",
+  "realm": "production"
+}
+
+// plugins/plugin-database/manifest.jsonc
+{
+  "enabled": true,
+  "adapter": {
+    "type": "libsql",
+    "urls": ["libsql://..."],
+    "authToken": "${LIBSQL_TOKEN}"
+  }
+}
+
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "enabled": true
 }
 ----
 
@@ -43,16 +47,14 @@ O acesso ao banco de dados libSQL requer token de autenticação:
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapter": {
-        "type": "libsql",
-        "urls": ["http://libsql:8080"],
-        "authToken": "${LIBSQL_TOKEN}"  // Variável de ambiente
-      }
-    }]
-  ]
+  "enabled": true,
+  "adapter": {
+    "type": "libsql",
+    "urls": ["http://libsql:8080"],
+    "authToken": "${LIBSQL_TOKEN}"  // Variável de ambiente
+  }
 }
 ----
 
@@ -66,27 +68,24 @@ O plugin KeyVal integra-se com o sistema de autorização do Buntime (`plugin-au
 
 Use prefixos de chave como recursos em políticas XACML-like:
 
-[source,typescript]
+[source,jsonc]
 ----
-// Configuração no buntime.jsonc
+// plugins/plugin-authz/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-authz", {
-      "policies": [
-        {
-          "resource": "/kv/tenant:*",
-          "action": "*",
-          "effect": "permit",
-          "condition": "subject.tenant == resource.tenant"
-        },
-        {
-          "resource": "/kv/admin:*",
-          "action": "*",
-          "effect": "permit",
-          "condition": "subject.role == 'admin'"
-        }
-      ]
-    }]
+  "enabled": true,
+  "policies": [
+    {
+      "resource": "/kv/tenant:*",
+      "action": "*",
+      "effect": "permit",
+      "condition": "subject.tenant == resource.tenant"
+    },
+    {
+      "resource": "/kv/admin:*",
+      "action": "*",
+      "effect": "permit",
+      "condition": "subject.role == 'admin'"
+    }
   ]
 }
 ----
@@ -128,7 +127,7 @@ Use sempre HTTPS para conexões ao libSQL em produção:
 
 ==== Exposição Interna vs Externa
 
-O plugin KeyVal expõe rotas em `/api/keyval/*`:
+O plugin KeyVal expõe rotas em `/keyval/api/*`:
 
 * **Interno**: Acesso apenas do runner para workers
 * **Externo**: Expor ao público requer configuração explícita de proxy
@@ -138,8 +137,8 @@ Recomendações de firewall:
 [source,text]
 ----
 # Permitir apenas conexões internas
-iptables -A INPUT -p tcp --dport 4000 -s 10.0.0.0/8 -j ACCEPT
-iptables -A INPUT -p tcp --dport 4000 -j DROP
+iptables -A INPUT -p tcp --dport 8000 -s 10.0.0.0/8 -j ACCEPT
+iptables -A INPUT -p tcp --dport 8000 -j DROP
 ----
 
 === Segurança de Dados
@@ -360,36 +359,37 @@ await kv.purgeDLQ();
 
 Use o `plugin-gateway` para rate limiting:
 
-[source,typescript]
+[source,jsonc]
 ----
+// plugins/plugin-gateway/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-gateway", {
-      "rateLimit": {
-        "window": 60000,
-        "max": 100,
-        "keyGenerator": "req => req.headers.get('x-user-id')"
-      }
-    }],
-    ["@buntime/plugin-keyval", { ... }]
-  ]
+  "enabled": true,
+  "rateLimit": {
+    "window": 60000,
+    "max": 100,
+    "keyGenerator": "req => req.headers.get('x-user-id')"
+  }
+}
+
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "enabled": true
+  // ... plugin-specific config
 }
 ----
 
 ==== Habilite CORS Restritivo
 
-[source,typescript]
+[source,jsonc]
 ----
+// plugins/plugin-gateway/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-gateway", {
-      "cors": {
-        "origin": ["https://app.example.com"],
-        "methods": ["GET", "POST"],
-        "credentials": true
-      }
-    }]
-  ]
+  "enabled": true,
+  "cors": {
+    "origin": ["https://app.example.com"],
+    "methods": ["GET", "POST"],
+    "credentials": true
+  }
 }
 ----
 

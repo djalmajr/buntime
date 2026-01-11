@@ -2,6 +2,7 @@ import { NotFoundError } from "@buntime/shared/errors";
 import type { HomepageConfig } from "@buntime/shared/types";
 import type { Context } from "hono";
 import { Hono } from "hono";
+import { RESERVED_PATHS } from "@/constants";
 import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
 import type { PluginRegistry } from "@/plugins/registry";
@@ -19,12 +20,12 @@ export interface WorkerRoutesConfig {
 
 export interface WorkerRoutesDeps {
   config: WorkerRoutesConfig;
-  getAppDir: (appName: string) => string;
+  getWorkerDir: (appName: string) => string;
   pool: WorkerPool;
   registry?: PluginRegistry;
 }
 
-export function createWorkerRoutes({ config, getAppDir, pool, registry }: WorkerRoutesDeps) {
+export function createWorkerRoutes({ config, getWorkerDir, pool, registry }: WorkerRoutesDeps) {
   /**
    * Handle plugin app (served as worker from plugin directory)
    * @param ctx - Hono context
@@ -56,10 +57,10 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
   }
 
   /**
-   * Handle workspace app (traditional worker)
+   * Handle app (traditional worker)
    */
   async function runApp(ctx: Context, app: string) {
-    const dir = getAppDir(app);
+    const dir = getWorkerDir(app);
     if (!dir) throw new NotFoundError(`App not found: ${app}`, "APP_NOT_FOUND");
 
     const workerConfig = await loadWorkerConfig(dir);
@@ -76,14 +77,19 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
   }
 
   /**
-   * Main request handler - checks plugin apps first, then workspace apps
+   * Main request handler - checks plugin apps first, then apps
    */
   async function run(ctx: Context, app: string) {
+    // 0. Skip reserved paths (e.g., .well-known, .git, api, health)
+    if (app.startsWith(".") || RESERVED_PATHS.includes(`/${app}`)) {
+      return new Response("Not Found", { status: 404 });
+    }
+
     // 1. Check if this is a plugin app
     const pluginResponse = await runPluginApp(ctx);
     if (pluginResponse) return pluginResponse;
 
-    // 2. Fallback to workspace app
+    // 2. Fallback to app
     return runApp(ctx, app);
   }
 
@@ -94,7 +100,9 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
    */
   async function runHomepage(ctx: Context) {
     if (!config.homepage) {
-      return new Response(`Buntime v${config.version}`);
+      return new Response(`Buntime v${config.version}`, {
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
     }
 
     // Simple string config: redirect to the path
@@ -102,7 +110,7 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
       if (config.homepage.startsWith("/")) {
         return ctx.redirect(config.homepage);
       }
-      // Workspace app name - redirect to /:app
+      // App name - redirect to /:app
       return ctx.redirect(`/${config.homepage}`);
     }
 
@@ -125,7 +133,7 @@ export function createWorkerRoutes({ config, getAppDir, pool, registry }: Worker
       throw new NotFoundError(`Homepage plugin not found: ${app}`, "HOMEPAGE_PLUGIN_NOT_FOUND");
     }
 
-    // Workspace app name
+    // App name
     return runApp(ctx, app);
   }
 

@@ -1,19 +1,21 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { BuntimeConfig } from "@buntime/shared/types";
 import { initConfig } from "@/config";
-import { loadBuntimeConfig, PluginLoader } from "./loader";
+import { closeDatabase } from "@/libs/database";
+import { PluginLoader } from "./loader";
 
 const TEST_DIR = join(import.meta.dir, ".test-loader");
+const TEST_DATA_DIR = join(TEST_DIR, "data");
 
 describe("PluginLoader", () => {
   beforeAll(() => {
     mkdirSync(TEST_DIR, { recursive: true });
-    initConfig({ workspaces: [TEST_DIR] }, TEST_DIR);
+    initConfig({ baseDir: TEST_DIR, configDir: TEST_DATA_DIR, workerDirs: [TEST_DIR] });
   });
 
   afterAll(() => {
+    closeDatabase();
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
@@ -23,32 +25,10 @@ describe("PluginLoader", () => {
       expect(loader).toBeDefined();
     });
 
-    it("should create loader with config and pool", () => {
-      const config: BuntimeConfig = { plugins: [] };
+    it("should create loader with pool", () => {
       const pool = {};
-      const loader = new PluginLoader(config, pool);
+      const loader = new PluginLoader({ pool });
       expect(loader).toBeDefined();
-    });
-  });
-
-  describe("load", () => {
-    it("should return empty registry when no plugins configured", async () => {
-      const loader = new PluginLoader({});
-      const registry = await loader.load();
-      expect(registry.size).toBe(0);
-    });
-
-    it("should return empty registry with empty plugins array", async () => {
-      const loader = new PluginLoader({ plugins: [] });
-      const registry = await loader.load();
-      expect(registry.size).toBe(0);
-    });
-
-    it("should throw for non-existent plugin", async () => {
-      const loader = new PluginLoader({
-        plugins: ["does-not-exist"],
-      });
-      await expect(loader.load()).rejects.toThrow(/Could not resolve plugin/);
     });
   });
 
@@ -58,161 +38,175 @@ describe("PluginLoader", () => {
     beforeEach(() => {
       mkdirSync(join(PLUGINS_TEST_DIR, "plugins"), { recursive: true });
       // Reinitialize config with the test directory as baseDir
-      initConfig({ workspaces: [PLUGINS_TEST_DIR] }, PLUGINS_TEST_DIR);
+      initConfig(
+        { configDir: join(PLUGINS_TEST_DIR, "data"), workerDirs: [PLUGINS_TEST_DIR] },
+        PLUGINS_TEST_DIR,
+      );
     });
 
     afterEach(() => {
+      // Close database before removing directory
+      closeDatabase();
       rmSync(PLUGINS_TEST_DIR, { recursive: true, force: true });
       // Restore original config
-      initConfig({ workspaces: [TEST_DIR] }, TEST_DIR);
+      initConfig({ baseDir: TEST_DIR, configDir: TEST_DATA_DIR, workerDirs: [TEST_DIR] });
     });
 
-    it("should throw for plugin missing name field", async () => {
-      // Create a plugin without name field but with a function that returns an object without name
-      writeFileSync(
-        join(PLUGINS_TEST_DIR, "plugins", "no-name.ts"),
-        `export default { base: "/test", name: "" };`, // Empty name still fails validation
-      );
+    it("should ignore plugin with empty name field in manifest", async () => {
+      // Create a plugin directory with empty name in manifest
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "no-name");
+      mkdirSync(pluginDir, { recursive: true });
+      writeFileSync(join(pluginDir, "manifest.jsonc"), JSON.stringify({ name: "", base: "/test" }));
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      const loader = new PluginLoader({ plugins: ["no-name"] });
-      // Empty name is not scanned, so it's not found
-      await expect(loader.load()).rejects.toThrow(/Could not resolve plugin/);
+      const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
+      // Empty name is not scanned, so registry will be empty
+      const registry = await loader.load();
+      expect(registry.size).toBe(0);
     });
 
-    it("should throw for plugin missing base field", async () => {
-      writeFileSync(
-        join(PLUGINS_TEST_DIR, "plugins", "no-base.ts"),
-        `export default { name: "no-base" };`,
-      );
+    it("should skip plugin with missing base field in manifest", async () => {
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "no-base");
+      mkdirSync(pluginDir, { recursive: true });
+      writeFileSync(join(pluginDir, "manifest.jsonc"), JSON.stringify({ name: "no-base" }));
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      const loader = new PluginLoader({ plugins: ["no-base"] });
-      await expect(loader.load()).rejects.toThrow(/missing required field: base/);
+      // Plugins with invalid manifest (missing base) are silently skipped during scan
+      // because seedPluginFromManifest throws on NOT NULL constraint violation
+      const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
+      const registry = await loader.load();
+      expect(registry.has("no-base")).toBe(false);
     });
 
     it("should throw for invalid base path format", async () => {
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "invalid-base");
+      mkdirSync(pluginDir, { recursive: true });
       writeFileSync(
-        join(PLUGINS_TEST_DIR, "plugins", "invalid-base.ts"),
-        `export default { name: "invalid-base", base: "/invalid base path" };`,
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({ name: "invalid-base", base: "/invalid base path" }),
       );
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      const loader = new PluginLoader({ plugins: ["invalid-base"] });
+      // Plugin is enabled by default when seeded, validation happens during loadPlugin
+      const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
       await expect(loader.load()).rejects.toThrow(/invalid base path/);
     });
 
     it("should throw for reserved path /api", async () => {
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "reserved-api");
+      mkdirSync(pluginDir, { recursive: true });
       writeFileSync(
-        join(PLUGINS_TEST_DIR, "plugins", "reserved-api.ts"),
-        `export default { name: "reserved-api", base: "/api" };`,
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({ name: "reserved-api", base: "/api" }),
       );
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      const loader = new PluginLoader({ plugins: ["reserved-api"] });
+      // Plugin is enabled by default when seeded, validation happens during loadPlugin
+      const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
       await expect(loader.load()).rejects.toThrow(/cannot use reserved path/);
     });
 
     it("should throw for reserved path /health", async () => {
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "reserved-health");
+      mkdirSync(pluginDir, { recursive: true });
       writeFileSync(
-        join(PLUGINS_TEST_DIR, "plugins", "reserved-health.ts"),
-        `export default { name: "reserved-health", base: "/health" };`,
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({ name: "reserved-health", base: "/health" }),
       );
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      const loader = new PluginLoader({ plugins: ["reserved-health"] });
-      await expect(loader.load()).rejects.toThrow(/cannot use reserved path/);
-    });
-
-    it("should allow base override from config", async () => {
-      writeFileSync(
-        join(PLUGINS_TEST_DIR, "plugins", "base-override.ts"),
-        `export default { name: "base-override", base: "/original" };`,
-      );
-
-      const loader = new PluginLoader({
-        plugins: [["base-override", { base: "/custom" }]],
-      });
-      const registry = await loader.load();
-      const plugin = registry.getAll().find((p) => p.name === "base-override");
-      expect(plugin?.base).toBe("/custom");
-    });
-
-    it("should throw for invalid base override format", async () => {
-      writeFileSync(
-        join(PLUGINS_TEST_DIR, "plugins", "invalid-override.ts"),
-        `export default { name: "invalid-override", base: "/original" };`,
-      );
-
-      const loader = new PluginLoader({
-        plugins: [["invalid-override", { base: "/invalid override" }]],
-      });
-      await expect(loader.load()).rejects.toThrow(/invalid base path/);
-    });
-
-    it("should throw for reserved path in base override", async () => {
-      writeFileSync(
-        join(PLUGINS_TEST_DIR, "plugins", "reserved-override.ts"),
-        `export default { name: "reserved-override", base: "/original" };`,
-      );
-
-      const loader = new PluginLoader({
-        plugins: [["reserved-override", { base: "/api" }]],
-      });
+      // Plugin is enabled by default when seeded, validation happens during loadPlugin
+      const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
       await expect(loader.load()).rejects.toThrow(/cannot use reserved path/);
     });
 
     it("should throw for already loaded plugin", async () => {
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "duplicate");
+      mkdirSync(pluginDir, { recursive: true });
       writeFileSync(
-        join(PLUGINS_TEST_DIR, "plugins", "duplicate.ts"),
-        `export default { name: "duplicate", base: "/dup" };`,
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({ name: "duplicate", base: "/dup" }),
       );
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      const loader = new PluginLoader({ plugins: ["duplicate"] });
+      // Plugin is enabled by default when seeded during scan
+      const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
       const _registry = await loader.load();
       // Try to load the same plugin again
       await expect(loader.loadPlugin("duplicate")).rejects.toThrow(/already loaded/);
     });
 
     it("should support factory function plugins", async () => {
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "factory");
+      mkdirSync(pluginDir, { recursive: true });
       writeFileSync(
-        join(PLUGINS_TEST_DIR, "plugins", "factory.ts"),
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({ name: "factory-plugin", base: "/factory" }),
+      );
+      writeFileSync(
+        join(pluginDir, "plugin.ts"),
         `export default (config) => ({
-          name: "factory-plugin",
-          base: config.base || "/factory",
+          onInit: () => console.log("init"),
         });`,
       );
 
-      // Factory functions are scanned by calling them with {} to extract the name
+      // Plugin is enabled by default when seeded during scan
       const loader = new PluginLoader({
-        plugins: [["factory-plugin", { base: "/custom-factory" }]],
+        pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")],
       });
       const registry = await loader.load();
       const plugin = registry.get("factory-plugin");
 
       expect(plugin).toBeDefined();
-      expect(plugin?.base).toBe("/custom-factory");
+      expect(plugin?.base).toBe("/factory");
     });
 
-    it("should throw for invalid plugin module structure", async () => {
-      writeFileSync(join(PLUGINS_TEST_DIR, "plugins", "invalid-module.ts"), `export default 123;`);
+    it("should ignore directory without manifest", async () => {
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "no-manifest");
+      mkdirSync(pluginDir, { recursive: true });
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default 123;`);
 
-      // Invalid modules are silently ignored during scan, so plugin won't be found
-      const loader = new PluginLoader({ plugins: ["invalid-module"] });
-      await expect(loader.load()).rejects.toThrow(/Could not resolve plugin/);
+      // Directories without manifest are silently ignored during scan
+      const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
+      const registry = await loader.load();
+      expect(registry.size).toBe(0);
     });
 
     it("should call onInit hook with timeout protection", async () => {
-      const _initCalled = { value: false };
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "with-init");
+      mkdirSync(pluginDir, { recursive: true });
       writeFileSync(
-        join(PLUGINS_TEST_DIR, "plugins", "with-init.ts"),
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({ name: "with-init", base: "/init" }),
+      );
+      writeFileSync(
+        join(pluginDir, "plugin.ts"),
         `export default {
-          name: "with-init",
-          base: "/init",
           onInit: async (ctx) => {
             // Simulates initialization
           },
         };`,
       );
 
-      const loader = new PluginLoader({ plugins: ["with-init"] });
+      // Plugin is enabled by default when seeded during scan
+      const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
       const registry = await loader.load();
       expect(registry.has("with-init")).toBe(true);
+    });
+
+    it("should skip disabled plugins from manifest", async () => {
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "disabled-plugin");
+      mkdirSync(pluginDir, { recursive: true });
+      writeFileSync(
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({ name: "disabled-plugin", base: "/disabled", enabled: false }),
+      );
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
+
+      // Plugin seeded with enabled=false from manifest should not be loaded
+      const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
+      const registry = await loader.load();
+      expect(registry.has("disabled-plugin")).toBe(false);
     });
   });
 
@@ -222,72 +216,78 @@ describe("PluginLoader", () => {
     beforeEach(() => {
       mkdirSync(join(EXT_TEST_DIR, "plugins"), { recursive: true });
       // Reinitialize config with the test directory as baseDir
-      initConfig({ workspaces: [EXT_TEST_DIR] }, EXT_TEST_DIR);
+      initConfig(
+        { configDir: join(EXT_TEST_DIR, "data"), workerDirs: [EXT_TEST_DIR] },
+        EXT_TEST_DIR,
+      );
     });
 
     afterEach(() => {
+      // Close database before removing directory
+      closeDatabase();
       rmSync(EXT_TEST_DIR, { recursive: true, force: true });
       // Restore original config
-      initConfig({ workspaces: [TEST_DIR] }, TEST_DIR);
+      initConfig({ baseDir: TEST_DIR, configDir: TEST_DATA_DIR, workerDirs: [TEST_DIR] });
     });
 
-    it("should resolve plugin from ./plugins/name.ts by internal name", async () => {
+    it("should resolve plugin from ./plugins/name/plugin.ts with manifest", async () => {
+      const pluginDir = join(EXT_TEST_DIR, "plugins", "my-plugin");
+      mkdirSync(pluginDir, { recursive: true });
       writeFileSync(
-        join(EXT_TEST_DIR, "plugins", "my-plugin.ts"),
-        `export default { name: "my-plugin", base: "/my-plugin" };`,
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({ name: "my-plugin", base: "/my-plugin" }),
       );
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      const loader = new PluginLoader({ plugins: ["my-plugin"] });
+      // Plugin is enabled by default when seeded during scan
+      const loader = new PluginLoader({ pluginDirs: [join(EXT_TEST_DIR, "plugins")] });
       const registry = await loader.load();
       expect(registry.has("my-plugin")).toBe(true);
     });
 
-    it("should resolve plugin from ./plugins/name/index.ts", async () => {
+    it("should resolve plugin from ./plugins/name/index.ts with manifest", async () => {
       const pluginDir = join(EXT_TEST_DIR, "plugins", "nested-plugin");
       mkdirSync(pluginDir, { recursive: true });
       writeFileSync(
-        join(pluginDir, "index.ts"),
-        `export default { name: "nested-plugin", base: "/nested" };`,
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({ name: "nested-plugin", base: "/nested" }),
       );
+      writeFileSync(join(pluginDir, "index.ts"), `export default {};`);
 
-      const loader = new PluginLoader({ plugins: ["nested-plugin"] });
+      // Plugin is enabled by default when seeded during scan
+      const loader = new PluginLoader({ pluginDirs: [join(EXT_TEST_DIR, "plugins")] });
       const registry = await loader.load();
       expect(registry.has("nested-plugin")).toBe(true);
     });
 
-    it("should resolve plugin from ./plugins/name/plugin.ts", async () => {
-      const pluginDir = join(EXT_TEST_DIR, "plugins", "some-dir");
+    it("should resolve scoped plugin names like @buntime/plugin-xxx", async () => {
+      // Create plugin with scoped name in manifest
+      const pluginDir = join(EXT_TEST_DIR, "plugins", "plugin-metrics");
       mkdirSync(pluginDir, { recursive: true });
       writeFileSync(
-        join(pluginDir, "plugin.ts"),
-        `export default { name: "plugin-with-plugin-entry", base: "/plugin-entry" };`,
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({ name: "@buntime/plugin-metrics", base: "/metrics" }),
       );
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      const loader = new PluginLoader({ plugins: ["plugin-with-plugin-entry"] });
-      const registry = await loader.load();
-      expect(registry.has("plugin-with-plugin-entry")).toBe(true);
-    });
-
-    it("should resolve scoped plugin names like @buntime/plugin-xxx", async () => {
-      // Create plugin with buntime naming convention - file name doesn't matter
-      writeFileSync(
-        join(EXT_TEST_DIR, "plugins", "any-filename.ts"),
-        `export default { name: "@buntime/plugin-metrics", base: "/metrics" };`,
-      );
-
-      const loader = new PluginLoader({ plugins: ["@buntime/plugin-metrics"] });
+      // Plugin is enabled by default when seeded during scan
+      const loader = new PluginLoader({ pluginDirs: [join(EXT_TEST_DIR, "plugins")] });
       const registry = await loader.load();
       expect(registry.has("@buntime/plugin-metrics")).toBe(true);
     });
 
-    it("should resolve plugin by internal name regardless of filename", async () => {
-      // File name is "whatever.ts" but internal name is "my-awesome-plugin"
+    it("should resolve plugin by name from manifest regardless of directory name", async () => {
+      // Directory name is "whatever" but internal name is "my-awesome-plugin"
+      const pluginDir = join(EXT_TEST_DIR, "plugins", "whatever");
+      mkdirSync(pluginDir, { recursive: true });
       writeFileSync(
-        join(EXT_TEST_DIR, "plugins", "whatever.ts"),
-        `export default { name: "my-awesome-plugin", base: "/awesome" };`,
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({ name: "my-awesome-plugin", base: "/awesome" }),
       );
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      const loader = new PluginLoader({ plugins: ["my-awesome-plugin"] });
+      // Plugin is enabled by default when seeded during scan
+      const loader = new PluginLoader({ pluginDirs: [join(EXT_TEST_DIR, "plugins")] });
       const registry = await loader.load();
       expect(registry.has("my-awesome-plugin")).toBe(true);
     });
@@ -299,28 +299,42 @@ describe("PluginLoader", () => {
     beforeEach(() => {
       mkdirSync(join(DEP_TEST_DIR, "plugins"), { recursive: true });
       // Reinitialize config with the test directory as baseDir
-      initConfig({ workspaces: [DEP_TEST_DIR] }, DEP_TEST_DIR);
+      initConfig(
+        { configDir: join(DEP_TEST_DIR, "data"), workerDirs: [DEP_TEST_DIR] },
+        DEP_TEST_DIR,
+      );
     });
 
     afterEach(() => {
+      // Close database before removing directory
+      closeDatabase();
       rmSync(DEP_TEST_DIR, { recursive: true, force: true });
       // Restore original config
-      initConfig({ workspaces: [TEST_DIR] }, TEST_DIR);
+      initConfig({ baseDir: TEST_DIR, configDir: TEST_DATA_DIR, workerDirs: [TEST_DIR] });
     });
 
     it("should load plugins in dependency order", async () => {
       // Create plugins with dependencies
-      writeFileSync(
-        join(DEP_TEST_DIR, "plugins", "plugin-a.ts"),
-        `export default { name: "plugin-a", base: "/a" };`,
-      );
-      writeFileSync(
-        join(DEP_TEST_DIR, "plugins", "plugin-b.ts"),
-        `export default { name: "plugin-b", base: "/b", dependencies: ["plugin-a"] };`,
-      );
+      const pluginADir = join(DEP_TEST_DIR, "plugins", "plugin-a");
+      const pluginBDir = join(DEP_TEST_DIR, "plugins", "plugin-b");
+      mkdirSync(pluginADir, { recursive: true });
+      mkdirSync(pluginBDir, { recursive: true });
 
+      writeFileSync(
+        join(pluginADir, "manifest.jsonc"),
+        JSON.stringify({ name: "plugin-a", base: "/a" }),
+      );
+      writeFileSync(join(pluginADir, "plugin.ts"), `export default {};`);
+
+      writeFileSync(
+        join(pluginBDir, "manifest.jsonc"),
+        JSON.stringify({ name: "plugin-b", base: "/b", dependencies: ["plugin-a"] }),
+      );
+      writeFileSync(join(pluginBDir, "plugin.ts"), `export default {};`);
+
+      // Both plugins enabled by default when seeded during scan
       const loader = new PluginLoader({
-        plugins: ["plugin-b", "plugin-a"],
+        pluginDirs: [join(DEP_TEST_DIR, "plugins")],
       });
       const registry = await loader.load();
       // Both should be loaded
@@ -329,48 +343,69 @@ describe("PluginLoader", () => {
     });
 
     it("should throw for missing required dependency", async () => {
+      const pluginDir = join(DEP_TEST_DIR, "plugins", "needs-dep");
+      mkdirSync(pluginDir, { recursive: true });
       writeFileSync(
-        join(DEP_TEST_DIR, "plugins", "needs-dep.ts"),
-        `export default { name: "needs-dep", base: "/needs", dependencies: ["missing-dep"] };`,
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({ name: "needs-dep", base: "/needs", dependencies: ["missing-dep"] }),
       );
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      const loader = new PluginLoader({ plugins: ["needs-dep"] });
-      await expect(loader.load()).rejects.toThrow(/requires.*missing-dep.*not configured/);
+      // Plugin is enabled by default when seeded, validation happens during load
+      const loader = new PluginLoader({ pluginDirs: [join(DEP_TEST_DIR, "plugins")] });
+      await expect(loader.load()).rejects.toThrow(/requires.*missing-dep.*not available/);
     });
 
     it("should detect circular dependencies", async () => {
-      writeFileSync(
-        join(DEP_TEST_DIR, "plugins", "cycle-a.ts"),
-        `export default { name: "cycle-a", base: "/cycle-a", dependencies: ["cycle-b"] };`,
-      );
-      writeFileSync(
-        join(DEP_TEST_DIR, "plugins", "cycle-b.ts"),
-        `export default { name: "cycle-b", base: "/cycle-b", dependencies: ["cycle-a"] };`,
-      );
+      const cycleADir = join(DEP_TEST_DIR, "plugins", "cycle-a");
+      const cycleBDir = join(DEP_TEST_DIR, "plugins", "cycle-b");
+      mkdirSync(cycleADir, { recursive: true });
+      mkdirSync(cycleBDir, { recursive: true });
 
+      writeFileSync(
+        join(cycleADir, "manifest.jsonc"),
+        JSON.stringify({ name: "cycle-a", base: "/cycle-a", dependencies: ["cycle-b"] }),
+      );
+      writeFileSync(join(cycleADir, "plugin.ts"), `export default {};`);
+
+      writeFileSync(
+        join(cycleBDir, "manifest.jsonc"),
+        JSON.stringify({ name: "cycle-b", base: "/cycle-b", dependencies: ["cycle-a"] }),
+      );
+      writeFileSync(join(cycleBDir, "plugin.ts"), `export default {};`);
+
+      // Both plugins enabled by default when seeded, validation happens during load
       const loader = new PluginLoader({
-        plugins: ["cycle-a", "cycle-b"],
+        pluginDirs: [join(DEP_TEST_DIR, "plugins")],
       });
       await expect(loader.load()).rejects.toThrow(/Circular dependency/);
     });
 
     it("should filter optional dependencies to configured only", async () => {
+      const optBaseDir = join(DEP_TEST_DIR, "plugins", "optional-base");
+      const withOptDir = join(DEP_TEST_DIR, "plugins", "with-optional");
+      mkdirSync(optBaseDir, { recursive: true });
+      mkdirSync(withOptDir, { recursive: true });
+
       writeFileSync(
-        join(DEP_TEST_DIR, "plugins", "optional-base.ts"),
-        `export default { name: "optional-base", base: "/opt-base" };`,
+        join(optBaseDir, "manifest.jsonc"),
+        JSON.stringify({ name: "optional-base", base: "/opt-base" }),
       );
+      writeFileSync(join(optBaseDir, "plugin.ts"), `export default {};`);
+
       writeFileSync(
-        join(DEP_TEST_DIR, "plugins", "with-optional.ts"),
-        `export default {
+        join(withOptDir, "manifest.jsonc"),
+        JSON.stringify({
           name: "with-optional",
           base: "/with-opt",
-          optionalDependencies: ["optional-base", "not-configured"]
-        };`,
+          optionalDependencies: ["optional-base", "not-configured"],
+        }),
       );
+      writeFileSync(join(withOptDir, "plugin.ts"), `export default {};`);
 
-      // Only load with-optional and optional-base, not-configured is not in the list
+      // Both plugins enabled by default when seeded during scan
       const loader = new PluginLoader({
-        plugins: ["with-optional", "optional-base"],
+        pluginDirs: [join(DEP_TEST_DIR, "plugins")],
       });
       const registry = await loader.load();
       // Both should be loaded, with-optional should load after optional-base
@@ -385,213 +420,69 @@ describe("PluginLoader", () => {
     beforeEach(() => {
       mkdirSync(join(DEFAULT_TEST_DIR, "plugins"), { recursive: true });
       // Reinitialize config with the test directory as baseDir
-      initConfig({ workspaces: [DEFAULT_TEST_DIR] }, DEFAULT_TEST_DIR);
+      initConfig(
+        { configDir: join(DEFAULT_TEST_DIR, "data"), workerDirs: [DEFAULT_TEST_DIR] },
+        DEFAULT_TEST_DIR,
+      );
     });
 
     afterEach(() => {
+      // Close database before removing directory
+      closeDatabase();
       rmSync(DEFAULT_TEST_DIR, { recursive: true, force: true });
       // Restore original config
-      initConfig({ workspaces: [TEST_DIR] }, TEST_DIR);
+      initConfig({ baseDir: TEST_DIR, configDir: TEST_DATA_DIR, workerDirs: [TEST_DIR] });
     });
 
     it("should resolve plugin with default export", async () => {
+      const pluginDir = join(DEFAULT_TEST_DIR, "plugins", "with-default");
+      mkdirSync(pluginDir, { recursive: true });
       writeFileSync(
-        join(DEFAULT_TEST_DIR, "plugins", "with-default.ts"),
-        `const plugin = { name: "with-default", base: "/default" };
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({ name: "with-default", base: "/default" }),
+      );
+      writeFileSync(
+        join(pluginDir, "plugin.ts"),
+        `const plugin = { onInit: () => {} };
          export default plugin;`,
       );
 
-      const loader = new PluginLoader({ plugins: ["with-default"] });
+      // Plugin is enabled by default when seeded during scan
+      const loader = new PluginLoader({ pluginDirs: [join(DEFAULT_TEST_DIR, "plugins")] });
       const registry = await loader.load();
       expect(registry.has("with-default")).toBe(true);
+    });
+
+    it("should seed plugin manifest to database during scan", async () => {
+      const pluginDir = join(DEFAULT_TEST_DIR, "plugins", "test-seed");
+      mkdirSync(pluginDir, { recursive: true });
+      writeFileSync(
+        join(pluginDir, "manifest.jsonc"),
+        JSON.stringify({
+          name: "test-seed",
+          base: "/seed",
+          dependencies: ["dep-a"],
+          fragment: { type: "patch" },
+        }),
+      );
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
+
+      const loader = new PluginLoader({ pluginDirs: [join(DEFAULT_TEST_DIR, "plugins")] });
+      // Load will fail because dep-a doesn't exist, but the seed should still happen
+      try {
+        await loader.load();
+      } catch {
+        // Expected to fail due to missing dependency
+      }
+
+      // Verify the plugin was seeded to database
+      const { getPlugin } = await import("@/libs/database");
+      const plugin = getPlugin("test-seed");
+      expect(plugin).toBeDefined();
+      expect(plugin?.base).toBe("/seed");
+      expect(plugin?.dependencies).toEqual(["dep-a"]);
+      expect(plugin?.fragment).toEqual({ type: "patch" });
     });
   });
 });
 
-describe("loadBuntimeConfig", () => {
-  beforeAll(() => {
-    mkdirSync(TEST_DIR, { recursive: true });
-  });
-
-  afterAll(() => {
-    rmSync(TEST_DIR, { recursive: true, force: true });
-  });
-
-  it("should return empty config when buntime.jsonc not found", async () => {
-    const originalCwd = process.cwd();
-
-    try {
-      process.chdir(TEST_DIR);
-      const result = await loadBuntimeConfig();
-      expect(result.config).toEqual({});
-    } finally {
-      process.chdir(originalCwd);
-    }
-  });
-
-  it("should load valid buntime.jsonc", async () => {
-    const originalCwd = process.cwd();
-    const configDir = join(TEST_DIR, "config-test");
-
-    try {
-      mkdirSync(configDir, { recursive: true });
-      writeFileSync(join(configDir, "buntime.jsonc"), JSON.stringify({ plugins: ["test"] }));
-      process.chdir(configDir);
-      const result = await loadBuntimeConfig();
-      expect(result.config.plugins).toEqual(["test"]);
-    } finally {
-      process.chdir(originalCwd);
-      rmSync(configDir, { recursive: true, force: true });
-    }
-  });
-
-  it("should validate plugins is an array", async () => {
-    const originalCwd = process.cwd();
-    const configDir = join(TEST_DIR, "invalid-plugins");
-
-    try {
-      mkdirSync(configDir, { recursive: true });
-      writeFileSync(join(configDir, "buntime.jsonc"), JSON.stringify({ plugins: "not-an-array" }));
-      process.chdir(configDir);
-      await expect(loadBuntimeConfig()).rejects.toThrow(/expected array/);
-    } finally {
-      process.chdir(originalCwd);
-      rmSync(configDir, { recursive: true, force: true });
-    }
-  });
-
-  it("should validate plugin tuple format", async () => {
-    const originalCwd = process.cwd();
-    const configDir = join(TEST_DIR, "invalid-tuple");
-
-    try {
-      mkdirSync(configDir, { recursive: true });
-      writeFileSync(
-        join(configDir, "buntime.jsonc"),
-        JSON.stringify({ plugins: [["name", "not-object"]] }),
-      );
-      process.chdir(configDir);
-      await expect(loadBuntimeConfig()).rejects.toThrow(/second element must be object/);
-    } finally {
-      process.chdir(originalCwd);
-      rmSync(configDir, { recursive: true, force: true });
-    }
-  });
-
-  it("should validate plugin tuple has string name", async () => {
-    const originalCwd = process.cwd();
-    const configDir = join(TEST_DIR, "invalid-tuple-name");
-
-    try {
-      mkdirSync(configDir, { recursive: true });
-      writeFileSync(join(configDir, "buntime.jsonc"), JSON.stringify({ plugins: [[123, {}]] }));
-      process.chdir(configDir);
-      await expect(loadBuntimeConfig()).rejects.toThrow(/first element must be string/);
-    } finally {
-      process.chdir(originalCwd);
-      rmSync(configDir, { recursive: true, force: true });
-    }
-  });
-
-  it("should validate plugin tuple length", async () => {
-    const originalCwd = process.cwd();
-    const configDir = join(TEST_DIR, "invalid-tuple-len");
-
-    try {
-      mkdirSync(configDir, { recursive: true });
-      writeFileSync(
-        join(configDir, "buntime.jsonc"),
-        JSON.stringify({ plugins: [["a", {}, "extra"]] }),
-      );
-      process.chdir(configDir);
-      await expect(loadBuntimeConfig()).rejects.toThrow(/tuple must have 1-2 elements/);
-    } finally {
-      process.chdir(originalCwd);
-      rmSync(configDir, { recursive: true, force: true });
-    }
-  });
-
-  it("should reject invalid plugin entry type", async () => {
-    const originalCwd = process.cwd();
-    const configDir = join(TEST_DIR, "invalid-entry");
-
-    try {
-      mkdirSync(configDir, { recursive: true });
-      writeFileSync(join(configDir, "buntime.jsonc"), JSON.stringify({ plugins: [123] }));
-      process.chdir(configDir);
-      await expect(loadBuntimeConfig()).rejects.toThrow(/expected string or.*tuple/);
-    } finally {
-      process.chdir(originalCwd);
-      rmSync(configDir, { recursive: true, force: true });
-    }
-  });
-
-  it("should handle non-object config", async () => {
-    const originalCwd = process.cwd();
-    const configDir = join(TEST_DIR, "non-object");
-
-    try {
-      mkdirSync(configDir, { recursive: true });
-      writeFileSync(join(configDir, "buntime.jsonc"), '"string-config"');
-      process.chdir(configDir);
-      await expect(loadBuntimeConfig()).rejects.toThrow(/expected object/);
-    } finally {
-      process.chdir(originalCwd);
-      rmSync(configDir, { recursive: true, force: true });
-    }
-  });
-
-  it("should handle buntime.jsonc with workspaces config", async () => {
-    const originalCwd = process.cwd();
-    const configDir = join(TEST_DIR, "workspaces-config");
-
-    try {
-      mkdirSync(configDir, { recursive: true });
-      writeFileSync(
-        join(configDir, "buntime.jsonc"),
-        JSON.stringify({ workspaces: ["./apps", "./packages"] }),
-      );
-      process.chdir(configDir);
-      const result = await loadBuntimeConfig();
-      expect(result.config.workspaces).toEqual(["./apps", "./packages"]);
-    } finally {
-      process.chdir(originalCwd);
-      rmSync(configDir, { recursive: true, force: true });
-    }
-  });
-
-  it("should handle buntime.jsonc with empty object", async () => {
-    const originalCwd = process.cwd();
-    const configDir = join(TEST_DIR, "empty-config");
-
-    try {
-      mkdirSync(configDir, { recursive: true });
-      writeFileSync(join(configDir, "buntime.jsonc"), "{}");
-      process.chdir(configDir);
-      const result = await loadBuntimeConfig();
-      expect(result.config).toEqual({});
-    } finally {
-      process.chdir(originalCwd);
-      rmSync(configDir, { recursive: true, force: true });
-    }
-  });
-
-  it("should handle buntime.jsonc with homepage config", async () => {
-    const originalCwd = process.cwd();
-    const configDir = join(TEST_DIR, "homepage-config");
-
-    try {
-      mkdirSync(configDir, { recursive: true });
-      writeFileSync(
-        join(configDir, "buntime.jsonc"),
-        JSON.stringify({ homepage: { app: "cpanel", shell: true } }),
-      );
-      process.chdir(configDir);
-      const result = await loadBuntimeConfig();
-      expect(result.config.homepage).toEqual({ app: "cpanel", shell: true });
-    } finally {
-      process.chdir(originalCwd);
-      rmSync(configDir, { recursive: true, force: true });
-    }
-  });
-});

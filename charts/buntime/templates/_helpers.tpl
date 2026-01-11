@@ -42,15 +42,3 @@ app.kubernetes.io/name: {{ include "buntime.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{/*
-Return the LibSQL URL
-*/}}
-{{- define "buntime.libsqlUrl" -}}
-{{- if .Values.buntime.libsqlUrl }}
-{{- .Values.buntime.libsqlUrl }}
-{{- else if .Values.libsql.externalUrl }}
-{{- .Values.libsql.externalUrl }}
-{{- else }}
-{{- "" }}
-{{- end }}
-{{- end }}

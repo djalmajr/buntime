@@ -12,11 +12,15 @@ O plugin expõe alguns endpoints REST para gerenciamento e monitoramento.
 
 Por padrão, os endpoints estão em `/database/api`.
 
-O caminho pode ser customizado via configuração:
+O caminho pode ser customizado via configuração no `manifest.jsonc` do plugin:
 
 [source,jsonc]
 ----
-["@buntime/plugin-database", { "base": "db" }]
+// plugins/plugin-database/manifest.jsonc
+{
+  "enabled": true,
+  "base": "db"
+}
 ----
 
 Neste caso, os endpoints ficam em `/db/api/*`.

@@ -1,0 +1,52 @@
+{
+  "name": "@buntime/plugin-gateway",
+  "base": "/gateway",
+  "enabled": false,
+  "optionalDependencies": ["@buntime/plugin-authn"],
+  "entrypoint": "dist/client/index.html",
+  "fragment": {
+    "type": "patch"
+  },
+  "menus": [
+    {
+      "icon": "lucide:shield",
+      "path": "/gateway",
+      "priority": 50,
+      "title": "Gateway"
+    }
+  ],
+  "rateLimit": {
+    // Maximum requests per window (default: 100)
+    "requests": 100,
+    // Time window duration: "30s", "1m", "1h" (default: "1m")
+    "window": "1m",
+    // Key extractor: "ip" | "user" (default: "ip")
+    "keyBy": "ip",
+    // Paths to exclude from rate limiting (regex patterns)
+    "excludePaths": ["/health"]
+  },
+  "cache": {
+    // Default TTL in seconds (default: 60)
+    "ttl": 60,
+    // HTTP methods to cache (default: ["GET"])
+    "methods": ["GET"],
+    // Maximum cache entries (default: 1000)
+    "maxEntries": 1000
+    // Paths to exclude from caching (regex patterns)
+    // "excludePaths": []
+  },
+  "cors": {
+    // Allowed origins: "*" for all, or array of origins
+    "origin": "*",
+    // Allowed HTTP methods
+    "methods": ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
+    // Allow credentials (cookies, auth headers)
+    "credentials": false,
+    // Preflight cache max age in seconds (default: 86400)
+    "maxAge": 86400,
+    // Handle preflight automatically (default: true)
+    "preflight": true
+    // "allowedHeaders": [],
+    // "exposedHeaders": []
+  }
+}

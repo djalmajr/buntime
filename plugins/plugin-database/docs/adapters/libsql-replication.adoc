@@ -279,19 +279,21 @@ Opção 1: Detecção automática via variáveis de ambiente (recomendado):
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [
-        {
-          "type": "libsql",
-          "default": true,
-          "authToken": "${LIBSQL_TOKEN}"
-        }
-      ]
-    }],
-    "@buntime/plugin-keyval"
+  "enabled": true,
+  "adapters": [
+    {
+      "type": "libsql",
+      "default": true,
+      "authToken": "${LIBSQL_TOKEN}"
+    }
   ]
+}
+
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "enabled": true
 }
 ----
 
@@ -307,24 +309,26 @@ Opção 2: Configuração explícita no JSON:
 
 [source,jsonc]
 ----
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [
-        {
-          "type": "libsql",
-          "default": true,
-          "urls": [
-            "http://primary:8080",
-            "http://replica1:8080",
-            "http://replica2:8080"
-          ],
-          "authToken": "${LIBSQL_TOKEN}"
-        }
-      ]
-    }],
-    "@buntime/plugin-keyval"
+  "enabled": true,
+  "adapters": [
+    {
+      "type": "libsql",
+      "default": true,
+      "urls": [
+        "http://primary:8080",
+        "http://replica1:8080",
+        "http://replica2:8080"
+      ],
+      "authToken": "${LIBSQL_TOKEN}"
+    }
   ]
+}
+
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "enabled": true
 }
 ----
 
@@ -386,12 +390,12 @@ Para verificar o atraso de replicação, compare timestamps:
 [source,bash]
 ----
 # Escreve no primary com timestamp
-curl -X POST http://localhost:4000/api/keyval/set \
+curl -X POST http://localhost:8000/keyval/api/set \
   -H "Content-Type: application/json" \
   -d '{"key": "test", "value": {"timestamp": "'$(date +%s)'"} }'
 
 # Lê da replica (pode estar desatualizado)
-curl http://localhost:4000/api/keyval/get/test
+curl http://localhost:8000/keyval/api/get/test
 ----
 
 === Limitações

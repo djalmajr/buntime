@@ -1,0 +1,24 @@
+{
+  "name": "@buntime/plugin-deployments",
+  "enabled": true,
+  "base": "/deployments",
+  // Client entrypoint (compiled files)
+  "entrypoint": "dist/client/index.html",
+  // Fragment with patch sandbox (internal plugin)
+  "fragment": {
+    "type": "patch"
+  },
+  // Menu items for shell navigation
+  "menus": [
+    {
+      "icon": "lucide:rocket",
+      "path": "/deployments",
+      "priority": 10,
+      "title": "Deployments"
+    }
+  ],
+  // Directories containing deployable apps (default: globalConfig.workerDirs)
+  // "workerDirs": [],
+  // Folder patterns to exclude from listing (merged with defaults: [".git", "node_modules"])
+  "excludes": [".cache", "dist"]
+}

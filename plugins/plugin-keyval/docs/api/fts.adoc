@@ -35,7 +35,7 @@ Para habilitar busca em um conjunto de chaves, primeiro crie um índice especifi
 
 [source,http]
 ----
-POST /api/keyval/indexes
+POST /keyval/api/indexes
 Content-Type: application/json
 
 {
@@ -131,7 +131,7 @@ await fts.search(["docs-pt"], "run*");  // Encontra "running" (wildcard)
 [source,typescript]
 ----
 // Criar índice para posts
-await fetch("http://localhost:8000/api/keyval/indexes", {
+await fetch("http://localhost:8000/keyval/api/indexes", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -157,7 +157,7 @@ await kv.set(["posts", 1], {
 [source,typescript]
 ----
 // Índice para produtos com campos aninhados
-await fetch("http://localhost:8000/api/keyval/indexes", {
+await fetch("http://localhost:8000/keyval/api/indexes", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -185,7 +185,7 @@ await kv.set(["products", "prod-123"], {
 
 [source,http]
 ----
-GET /api/keyval/indexes
+GET /keyval/api/indexes
 ----
 
 ==== Resposta
@@ -216,7 +216,7 @@ Remove um índice FTS e sua tabela associada. Documentos no KV não são afetado
 
 [source,http]
 ----
-DELETE /api/keyval/indexes
+DELETE /keyval/api/indexes
 Content-Type: application/json
 
 {
@@ -243,7 +243,7 @@ Para buscas rápidas sem filtros adicionais.
 
 [source,http]
 ----
-GET /api/keyval/search?prefix=["posts"]&query=typescript&limit=20
+GET /keyval/api/search?prefix=["posts"]&query=typescript&limit=20
 ----
 
 ===== Parâmetros de Query
@@ -269,7 +269,7 @@ GET /api/keyval/search?prefix=["posts"]&query=typescript&limit=20
 
 [source,bash]
 ----
-curl "http://localhost:8000/api/keyval/search?prefix=%5B%22posts%22%5D&query=typescript+tutorial&limit=10"
+curl "http://localhost:8000/keyval/api/search?prefix=%5B%22posts%22%5D&query=typescript+tutorial&limit=10"
 ----
 
 ==== Busca Avançada (POST)
@@ -278,7 +278,7 @@ Para buscas com where filters adicionais.
 
 [source,http]
 ----
-POST /api/keyval/search
+POST /keyval/api/search
 Content-Type: application/json
 
 {
@@ -465,7 +465,7 @@ Combine busca FTS com filtros adicionais para queries precisas.
 [source,typescript]
 ----
 // Buscar posts publicados sobre TypeScript
-const response = await fetch("http://localhost:8000/api/keyval/search", {
+const response = await fetch("http://localhost:8000/keyval/api/search", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -517,7 +517,7 @@ Para HTTP API, use o placeholder JSON:
 [source,typescript]
 ----
 // Buscar produtos em promoção
-const response = await fetch("http://localhost:8000/api/keyval/search", {
+const response = await fetch("http://localhost:8000/keyval/api/search", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -541,7 +541,7 @@ const response = await fetch("http://localhost:8000/api/keyval/search", {
 [source,typescript]
 ----
 // Buscar artigos recentes sobre API
-const response = await fetch("http://localhost:8000/api/keyval/search", {
+const response = await fetch("http://localhost:8000/keyval/api/search", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -702,7 +702,7 @@ await kv.delete(["posts", 1]);
 [source,typescript]
 ----
 // 1. Criar índice
-await fetch("http://localhost:8000/api/keyval/indexes", {
+await fetch("http://localhost:8000/keyval/api/indexes", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -726,7 +726,7 @@ await kv.set(["blog", "posts", 1], {
 });
 
 // 3. Buscar posts
-const response = await fetch("http://localhost:8000/api/keyval/search", {
+const response = await fetch("http://localhost:8000/keyval/api/search", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -751,7 +751,7 @@ console.log(`Encontrados ${results.length} posts`);
 [source,typescript]
 ----
 // 1. Índice para produtos
-await fetch("http://localhost:8000/api/keyval/indexes", {
+await fetch("http://localhost:8000/keyval/api/indexes", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -775,7 +775,7 @@ await kv.set(["products", "sku-001"], {
 });
 
 // 3. Buscar produtos em promoção
-const response = await fetch("http://localhost:8000/api/keyval/search", {
+const response = await fetch("http://localhost:8000/keyval/api/search", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -797,7 +797,7 @@ const response = await fetch("http://localhost:8000/api/keyval/search", {
 [source,typescript]
 ----
 // 1. Índice para documentação
-await fetch("http://localhost:8000/api/keyval/indexes", {
+await fetch("http://localhost:8000/keyval/api/indexes", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -820,7 +820,7 @@ await kv.set(["docs", "authentication-guide"], {
 });
 
 // 3. Buscar guias recentes sobre autenticação
-const response = await fetch("http://localhost:8000/api/keyval/search", {
+const response = await fetch("http://localhost:8000/keyval/api/search", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -913,10 +913,10 @@ await populatePosts();  // Agora serão indexados
 [source,bash]
 ----
 # 1. Verificar índices existentes
-curl http://localhost:8000/api/keyval/indexes
+curl http://localhost:8000/keyval/api/indexes
 
 # 2. Criar índice para o prefixo
-curl -X POST http://localhost:8000/api/keyval/indexes \
+curl -X POST http://localhost:8000/keyval/api/indexes \
   -H "Content-Type: application/json" \
   -d '{
     "prefix": ["posts"],

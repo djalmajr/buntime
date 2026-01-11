@@ -1,4 +1,4 @@
-== Rotas da API
+= Rotas da API
 :toc: left
 :toclevels: 3
 :sectnums:
@@ -10,13 +10,13 @@ O servidor Buntime expõe dois grupos principais de rotas: plugins info API e wo
 
 NOTE: APIs específicas de plugins (como Deployments, KeyVal, Metrics) estão documentadas nos respectivos READMEs dos plugins em `plugins/plugin-*/README.adoc`.
 
-=== Plugins Info API
+== Plugins Info API
 
 Retorna informações sobre todos os plugins carregados.
 
 Base path: `/api/plugins`
 
-==== GET /api/plugins
+=== GET /api/plugins
 
 Lista todos os plugins carregados com suas configurações.
 
@@ -148,11 +148,11 @@ Estrutura de Plugin:
 | Plugins opcionais
 |===
 
-=== Worker Routes
+== Worker Routes
 
 Roteamento dinâmico para aplicações worker. Suporta versionamento semântico e descoberta automática de apps.
 
-==== Formato de Apps
+=== Formato de Apps
 
 O runtime suporta dois formatos de diretório:
 
@@ -177,7 +177,7 @@ apps/
     2.0.0/
 ----
 
-==== Resolução de Versões
+=== Resolução de Versões
 
 O runtime usa semver para encontrar a versão correta:
 
@@ -212,7 +212,7 @@ O runtime usa semver para encontrar a versão correta:
 
 NOTE: Quando nenhuma versão é especificada (`/my-app/*`), o runtime prefere `latest` se existir, caso contrário usa a maior versão semver.
 
-==== Entrypoints
+=== Entrypoints
 
 O runtime busca entrypoints nesta ordem de prioridade:
 
@@ -221,16 +221,17 @@ O runtime busca entrypoints nesta ordem de prioridade:
 3. `index.js` (worker JavaScript)
 4. `index.mjs` (worker JavaScript)
 
-Entrypoints podem ser customizados em `buntime.jsonc`:
+Entrypoints podem ser customizados em `manifest.jsonc`:
 
-[source,json]
+[source,jsonc]
 ----
+// manifest.jsonc
 {
   "entrypoint": "server.ts"
 }
 ----
 
-==== ALL /:app/*
+=== ALL /:app/*
 
 Roteia todas as requisições para uma aplicação worker.
 
@@ -262,8 +263,8 @@ GET /my-app@^1.0.0/users
 Processo:
 
 1. Verifica se é plugin app (rotas registradas por plugins)
-2. Resolve versão nos workspaces usando semver
-3. Carrega worker config (`buntime.jsonc`)
+2. Resolve versão nos workerDirs usando semver
+3. Carrega worker config (`manifest.jsonc`)
 4. Encontra entrypoint (HTML ou TS/JS)
 5. Cria/reutiliza worker do pool
 6. Injeta header `x-base` com base path (`/my-app`)
@@ -276,7 +277,19 @@ Headers Especiais:
 | Header | Descrição
 
 | `x-base`
-| Base path injetado pelo runtime (ex: `/my-app`)
+| Base path injetado pelo runtime para assets (ex: `/my-app`)
+
+| `x-fragment-route`
+| Rota do fragment para modo app-shell (ex: `/metrics`)
+
+| `x-buntime-internal`
+| Marca request como interno (worker-to-runtime), bypassa CSRF
+
+| `x-not-found`
+| Indica que nenhum app foi encontrado, shell deve renderizar 404
+
+| `x-request-id`
+| ID único para correlação de requests (UUID)
 |===
 
 Resposta:
@@ -284,7 +297,7 @@ Resposta:
 - Depende da aplicação worker
 - Para SPAs (index.html): serve assets estáticos e fallback para index.html
 
-==== GET /*
+=== GET /*
 
 Rota fallback para a raiz (quando nenhuma outra rota corresponde).
 
@@ -309,36 +322,43 @@ GET /
 # Retorna: "Buntime v1.0.0"
 ----
 
-==== Plugin Routes
+=== Plugin Routes
 
 Plugins registram rotas Hono no path base definido. Exemplo real do plugin-keyval:
+
+*Manifesto (manifest.jsonc):*
+
+[source,jsonc]
+----
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "name": "@buntime/plugin-keyval",
+  "base": "/keyval",
+  "dependencies": ["@buntime/plugin-database"],
+  "fragment": { "type": "patch" },
+  "menus": [
+    {
+      "icon": "lucide:database",
+      "path": "/keyval",
+      "priority": 80,
+      "title": "KeyVal",
+      "items": [
+        { "icon": "lucide:home", "path": "/keyval", "title": "Overview" },
+        { "icon": "lucide:list", "path": "/keyval/entries", "title": "Entries" }
+      ]
+    }
+  ]
+}
+----
+
+*Implementação (plugin.ts):*
 
 [source,typescript]
 ----
 // plugins/plugin-keyval/plugin.ts
-export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugin {
+export default function keyvalExtension(config: KeyValConfig = {}): PluginImpl {
   return {
-    name: "@buntime/plugin-keyval",
-    base: config.base ?? "/keyval",
-    dependencies: ["@buntime/plugin-database"],
     routes: api,
-
-    fragment: {
-      type: "patch",
-    },
-
-    menus: [
-      {
-        icon: "lucide:database",
-        path: "/keyval",
-        priority: 80,
-        title: "KeyVal",
-        items: [
-          { icon: "lucide:home", path: "/keyval", title: "Overview" },
-          { icon: "lucide:list", path: "/keyval/entries", title: "Entries" },
-        ],
-      },
-    ],
 
     async onInit(ctx: PluginContext) {
       const database = ctx.getService<DatabaseService>("database");
@@ -353,7 +373,7 @@ export default function keyvalExtension(config: KeyValConfig = {}): BuntimePlugi
 }
 ----
 
-Propriedades do `BuntimePlugin` (conforme `packages/shared/src/types/plugin.ts`):
+Propriedades do `PluginManifest` (manifest.jsonc):
 
 [cols="1,1,3"]
 |===
@@ -375,6 +395,21 @@ Propriedades do `BuntimePlugin` (conforme `packages/shared/src/types/plugin.ts`)
 | string[]
 | Plugins opcionais carregados antes se disponíveis
 
+| `fragment`
+| FragmentOptions
+| Configuração de sandbox (`patch` ou `iframe`)
+
+| `menus`
+| MenuItem[]
+| Items de menu com suporte a nested via `items`
+|===
+
+Propriedades do `PluginImpl` (plugin.ts):
+
+[cols="1,1,3"]
+|===
+| Propriedade | Tipo | Descrição
+
 | `routes`
 | Hono
 | App Hono montado em `/{base}/*`
@@ -386,14 +421,6 @@ Propriedades do `BuntimePlugin` (conforme `packages/shared/src/types/plugin.ts`)
 | `server`
 | PluginServer
 | Rotas para `Bun.serve({ routes })` e fetch handler
-
-| `fragment`
-| FragmentOptions
-| Configuração de sandbox (`patch` ou `iframe`)
-
-| `menus`
-| MenuItem[]
-| Items de menu com suporte a nested via `items`
 |===
 
 Lifecycle hooks:
@@ -424,24 +451,257 @@ Lifecycle hooks:
 | Chamado quando worker é terminado
 |===
 
-=== Arquitetura de Roteamento
+== Core APIs
+
+APIs internas do runtime para gerenciamento de plugins e apps. Estas APIs estão sempre disponíveis (resolvem o problema de bootstrap).
+
+=== Plugins Core API
+
+Base path: `/api/core/plugins`
+
+Todas as operações em plugins individuais usam o `id` numérico do banco de dados.
+
+==== Listagem
+
+[cols="1,2,3"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/api/core/plugins`
+| Lista todos plugins instalados em `pluginDirs`
+
+| GET
+| `/api/core/plugins/:id`
+| Retorna dados de um plugin específico
+|===
+
+==== Upload e Remoção
+
+[cols="1,2,3"]
+|===
+| Método | Endpoint | Descrição
+
+| POST
+| `/api/core/plugins/upload`
+| Upload de plugin (multipart/form-data, campo: `file`)
+
+| DELETE
+| `/api/core/plugins/:id`
+| Remove plugin do filesystem e do database
+|===
+
+==== Versões
+
+[cols="1,2,3"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/api/core/plugins/:id/versions`
+| Lista versões de um plugin
+
+| PUT
+| `/api/core/plugins/:id/version`
+| Seleciona versão ativa (body: `{"version": "1.0.0"}`)
+|===
+
+==== Enable/Disable
+
+[cols="1,2,3"]
+|===
+| Método | Endpoint | Descrição
+
+| PUT
+| `/api/core/plugins/:id/enable`
+| Habilita um plugin
+
+| PUT
+| `/api/core/plugins/:id/disable`
+| Desabilita um plugin
+|===
+
+==== Reload e Reset
+
+[cols="1,2,3"]
+|===
+| Método | Endpoint | Descrição
+
+| POST
+| `/api/core/plugins/reload`
+| Re-escaneia `pluginDirs` e recarrega todos os plugins
+
+| POST
+| `/api/core/plugins/:id/reload`
+| Recarrega plugin específico
+
+| POST
+| `/api/core/plugins/reset`
+| Remove todos plugins do DB e re-seed do manifest
+
+| POST
+| `/api/core/plugins/:id/reset`
+| Remove plugin do DB e re-seed do manifest
+|===
+
+NOTE: **Reload** apenas re-escaneia o filesystem sem alterar o database. **Reset** remove o plugin do database e re-seed a partir do `manifest.jsonc`, restaurando valores padrão (o plugin receberá um novo `id`).
+
+==== Resposta de Listagem
+
+[source,json]
+----
+[
+  {
+    "id": 1,
+    "name": "@buntime/plugin-keyval",
+    "path": "/plugins/@buntime/plugin-keyval",
+    "base": "/keyval",
+    "enabled": true,
+    "version": "latest",
+    "config": { "database": "libsql" },
+    "versions": ["1.0.0", "0.9.0"]
+  }
+]
+----
+
+=== Apps Core API
+
+Base path: `/api/core/apps`
+
+[cols="1,2,3"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/api/core/apps`
+| Lista apps instalados em `workerDirs`
+
+| POST
+| `/api/core/apps/upload`
+| Upload de app (multipart/form-data, campo: `file`)
+
+| DELETE
+| `/api/core/apps/:scope/:name`
+| Remove app (todas as versões)
+
+| DELETE
+| `/api/core/apps/:scope/:name/:version`
+| Remove versão específica de app
+|===
+
+Resposta de listagem:
+
+[source,json]
+----
+[
+  {
+    "name": "my-app",
+    "path": "/apps/my-app",
+    "versions": ["1.0.0", "latest"]
+  }
+]
+----
+
+NOTE: O upload aceita arquivos `.tgz`, `.tar.gz` ou `.zip`. O nome e versão são lidos do `package.json` interno.
+
+=== Config Core API
+
+Base path: `/api/core/config`
+
+Gerenciamento de configurações dinâmicas do runtime armazenadas em SQLite (`buntime.db`).
+
+[cols="1,2,3"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/api/core/config/plugins`
+| Lista todos plugins com versões ativas e configurações
+
+| GET
+| `/api/core/config/plugins/:name/version`
+| Retorna versão ativa e versões disponíveis
+
+| PUT
+| `/api/core/config/plugins/:name/version`
+| Define versão ativa (body: `{"version": "1.0.0"}`)
+
+| DELETE
+| `/api/core/config/plugins/:name/version`
+| Reseta para "latest"
+
+| GET
+| `/api/core/config/plugins/:name/config`
+| Retorna configurações do plugin
+
+| PUT
+| `/api/core/config/plugins/:name/config/:key`
+| Define configuração (body: `{"value": "..."}`)
+
+| DELETE
+| `/api/core/config/plugins/:name/config/:key`
+| Remove configuração específica
+
+| DELETE
+| `/api/core/config/plugins/:name/config`
+| Remove todas configurações do plugin
+|===
+
+Resposta de listagem (`GET /api/core/config/plugins`):
+
+[source,json]
+----
+{
+  "versions": [
+    {
+      "name": "@buntime/plugin-keyval",
+      "version": "1.0.0",
+      "updatedAt": 1704067200
+    }
+  ],
+  "configs": {
+    "@buntime/plugin-keyval": {
+      "metrics.flushInterval": "60000",
+      "queue.cleanupInterval": "30000"
+    }
+  }
+}
+----
+
+Resposta de versão (`GET /api/core/config/plugins/:name/version`):
+
+[source,json]
+----
+{
+  "name": "@buntime/plugin-keyval",
+  "activeVersion": "1.0.0",
+  "availableVersions": ["1.0.0", "0.9.0", "0.8.0"]
+}
+----
+
+NOTE: Configurações do DB sobrescrevem valores do `manifest.jsonc`. Se não houver versão ativa definida, usa "latest" (maior semver).
+
+== Arquitetura de Roteamento
 
 Ordem de resolução de rotas (conforme implementado em `app.ts`):
 
 1. **CSRF Protection** - Validação de Origin para requisições state-changing (POST, PUT, PATCH, DELETE)
-2. **Plugin onRequest Hooks** - Executa hooks de autenticação e pré-processamento
-3. **App-Shell Mode** - Intercepta navegação para shell se configurado (ver <<shell-routing>>)
-4. **Plugins Info API** - `/api/plugins` (informações sobre plugins carregados)
-5. **Plugin server.fetch** - Handlers de requisição de plugins com `server.fetch`
-6. **Plugin Routes** - Rotas Hono montadas por plugins (ex: `/keyval/*`, `/metrics/*`)
-7. **Plugin Apps** - Apps de plugins servidos via worker pool (fragmentos)
-8. **Worker Routes** - Apps nos workspaces (ex: `/my-app/*`)
-9. **404 with Shell** - Fallback para shell exibir página 404 consistente
+2. **App-Shell Mode** - Intercepta navegação para shell se configurado (ver <<shell-routing>>)
+3. **Plugin onRequest Hooks** - Executa hooks de autenticação e pré-processamento
+4. **Plugins Core API** - `/api/core/plugins` (gerenciamento de plugins)
+5. **Apps Core API** - `/api/core/apps` (gerenciamento de apps)
+6. **Config Core API** - `/api/core/config` (configurações dinâmicas)
+7. **Plugins Info API** - `/api/plugins` (informações sobre plugins carregados)
+8. **Plugin server.fetch** - Handlers de requisição de plugins com `server.fetch`
+9. **Plugin Routes** - Rotas Hono montadas por plugins (ex: `/keyval/*`, `/metrics/*`)
+10. **Plugin Apps** - Apps de plugins servidos via worker pool (fragmentos)
+11. **Worker Routes** - Apps nos workerDirs (ex: `/my-app/*`)
+12. **404 with Shell** - Fallback para shell exibir página 404 consistente
 
 NOTE: A ordem de prioridade garante que rotas mais específicas (plugins) sejam resolvidas antes de rotas genéricas (workers). Plugin Routes são ordenados por especificidade (paths mais longos primeiro).
 
 [[shell-routing]]
-==== Lógica de Shell Routing
+=== Lógica de Shell Routing
 
 A função `shouldRouteToShell()` determina se uma requisição deve ser interceptada pelo app-shell:
 
@@ -464,7 +724,7 @@ A função `shouldRouteToShell()` determina se uma requisição deve ser interce
 
 O shell routing executa **após** os hooks `onRequest` dos plugins, permitindo que autenticação seja processada antes da decisão de roteamento.
 
-==== Fallback para Homepage
+=== Fallback para Homepage
 
 Quando uma worker route retorna 404 e existe uma homepage configurada em modo inline (`base` definido), o runtime tenta servir o recurso a partir do app homepage:
 
@@ -479,7 +739,7 @@ GET /unknown-app/chunk-abc.js
 
 Isso permite que SPAs servidas na raiz carreguem assets corretamente mesmo quando acessadas por paths que não correspondem a apps específicos.
 
-=== Formato de Erros
+== Formato de Erros
 
 Plugins retornam erros no formato:
 

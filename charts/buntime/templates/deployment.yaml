@@ -26,10 +26,18 @@ spec:
             - configMapRef:
                 name: {{ include "buntime.fullname" . }}
           volumeMounts:
+            {{- if .Values.persistence.config.enabled }}
             - name: config
-              mountPath: /app/buntime.jsonc
-              subPath: buntime.jsonc
-              readOnly: true
+              mountPath: /data/config
+            {{- end }}
+            {{- if .Values.persistence.plugins.enabled }}
+            - name: plugins
+              mountPath: /data/plugins
+            {{- end }}
+            {{- if .Values.persistence.apps.enabled }}
+            - name: apps
+              mountPath: /data/apps
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /api/plugins
@@ -43,6 +51,18 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 5
       volumes:
+        {{- if .Values.persistence.config.enabled }}
         - name: config
-          configMap:
-            name: {{ include "buntime.fullname" . }}-config
+          persistentVolumeClaim:
+            claimName: {{ include "buntime.fullname" . }}-config
+        {{- end }}
+        {{- if .Values.persistence.plugins.enabled }}
+        - name: plugins
+          persistentVolumeClaim:
+            claimName: {{ include "buntime.fullname" . }}-plugins
+        {{- end }}
+        {{- if .Values.persistence.apps.enabled }}
+        - name: apps
+          persistentVolumeClaim:
+            claimName: {{ include "buntime.fullname" . }}-apps
+        {{- end }}

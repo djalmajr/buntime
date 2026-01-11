@@ -262,19 +262,23 @@ Wherever duration is accepted:
 
 ## Plugin Config
 
+Cada plugin tem seu próprio `manifest.jsonc`:
+
 ```jsonc
-// buntime.jsonc
+// plugins/plugin-database/manifest.jsonc
 {
-  "plugins": [
-    ["@buntime/plugin-database", {
-      "adapters": [{ "type": "libsql", "default": true }]
-    }],
-    ["@buntime/plugin-keyval", {
-      "database": "libsql",
-      "metrics": { "persistent": true, "flushInterval": 30000 },
-      "queue": { "cleanupInterval": 60000, "lockDuration": 30000 }
-    }]
-  ]
+  "enabled": true,
+  "adapters": [{ "type": "libsql", "default": true }]
+}
+```
+
+```jsonc
+// plugins/plugin-keyval/manifest.jsonc
+{
+  "enabled": true,
+  "database": "libsql",
+  "metrics": { "persistent": true, "flushInterval": 30000 },
+  "queue": { "cleanupInterval": 60000, "lockDuration": 30000 }
 }
 ```
 

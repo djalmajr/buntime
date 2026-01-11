@@ -1,4 +1,4 @@
-== Request Handling
+= Request Handling
 :toc: left
 :toclevels: 3
 :sectnums:
@@ -8,9 +8,9 @@
 
 O runtime fornece utilitários para manipulação de requests, serviço de arquivos estáticos e detecção de entrypoints.
 
-=== Utilitários de Request
+== Utilitários de Request
 
-==== cloneRequestBody
+== cloneRequestBody
 
 Clona o body de uma request com limite de tamanho para prevenção de ataques DoS.
 
@@ -47,7 +47,7 @@ Comportamento:
 | Lê body completo, verifica tamanho, lança se exceder
 |===
 
-==== rewriteUrl
+== rewriteUrl
 
 Remove base path de URL preservando query string.
 
@@ -55,8 +55,8 @@ Remove base path de URL preservando query string.
 ----
 import { rewriteUrl } from "@/utils/request";
 
-const url = new URL("http://localhost:8000/api/keyval/keys?prefix=user");
-const rewritten = rewriteUrl(url, "/api/keyval");
+const url = new URL("http://localhost:8000/keyval/api/keys?prefix=user");
+const rewritten = rewriteUrl(url, "/keyval/api");
 // rewritten.pathname = "/keys"
 // rewritten.search = "?prefix=user"
 ----
@@ -72,17 +72,17 @@ Casos especiais:
 | Retorna pathname original
 
 | pathname igual ao basePath
-| `rewriteUrl("/api/keyval", "/api/keyval")`
+| `rewriteUrl("/keyval/api", "/keyval/api")`
 | Retorna `"/"`
 
 | pathname não inicia com basePath
-| `rewriteUrl("/other/path", "/api/keyval")`
+| `rewriteUrl("/other/path", "/keyval/api")`
 | Comportamento indefinido (slice produz resultado incorreto)
 |===
 
 WARNING: A função assume que o pathname inicia com o basePath fornecido. Se essa condição não for satisfeita, o slice produzirá resultados inesperados. Valide o prefixo antes de chamar esta função.
 
-==== createWorkerRequest
+== createWorkerRequest
 
 Cria uma nova request para worker com headers apropriados.
 
@@ -104,7 +104,7 @@ const workerReq = createWorkerRequest({
 // x-not-found: true (se notFound = true)
 ----
 
-=== Serviço de Arquivos Estáticos
+== Serviço de Arquivos Estáticos
 
 O `serveStatic` serve arquivos estáticos com fallback para SPA routing.
 
@@ -146,13 +146,13 @@ const resolved = resolve(baseDir, "../../etc/passwd");
 // → 403 Forbidden
 ----
 
-=== Detecção de Entrypoint
+== Detecção de Entrypoint
 
 O `getEntrypoint` detecta o arquivo de entrada de uma aplicação worker.
 
-==== Ordem de Prioridade
+== Ordem de Prioridade
 
-1. Entrypoint configurado em `buntime.jsonc`
+1. Entrypoint configurado em `manifest.jsonc`
 2. Auto-discovery: `index.html` → `index.ts` → `index.js` → `index.mjs`
 
 [source,typescript]
@@ -179,7 +179,7 @@ Parâmetros:
 | Caminho relativo ao `appDir`. Se fornecido, a função usa `join(appDir, entry)` para resolver o caminho completo. Se omitido, executa auto-discovery.
 |===
 
-==== Tipos de Entrypoint
+== Tipos de Entrypoint
 
 [cols="1,1,2"]
 |===
@@ -194,11 +194,11 @@ Parâmetros:
 | Carregado como worker, executa `fetch()`
 |===
 
-==== Exemplo de Configuração
+== Exemplo de Configuração
 
 [source,jsonc]
 ----
-// buntime.jsonc
+// manifest.jsonc
 {
   "entrypoint": "server/index.ts"  // Override auto-discovery
 }
@@ -217,23 +217,19 @@ other-app/
   server.ts     ← Ignorado
 ----
 
-=== Limites de Tamanho
+== Limites de Tamanho
 
 O runtime aplica limites de tamanho em request bodies para prevenir ataques de negação de serviço.
 
-==== Configuração Global
+== Configuração Global
 
-O limite de tamanho de body é configurado no `buntime.jsonc` principal do runtime:
+O limite de tamanho de body é configurado via variáveis de ambiente:
 
-[source,jsonc]
+[source,bash]
 ----
-// buntime.jsonc (configuração principal do runtime)
-{
-  "bodySize": {
-    "default": "10mb",  // Limite padrão aplicado a workers sem config
-    "max": "100mb"      // Teto máximo permitido (ceiling)
-  }
-}
+# .env
+BODY_SIZE_DEFAULT=10mb   # Limite padrão aplicado a workers sem config
+BODY_SIZE_MAX=100mb      # Teto máximo permitido (ceiling)
 ----
 
 Valores padrão:
@@ -251,13 +247,13 @@ Valores padrão:
 | Teto máximo (ceiling) que não pode ser ultrapassado
 |===
 
-==== Configuração por Worker
+== Configuração por Worker
 
-Workers podem definir seu próprio limite de body via `maxBodySize` no `buntime.jsonc` do app:
+Workers podem definir seu próprio limite de body via `maxBodySize` no `manifest.jsonc` do app:
 
 [source,jsonc]
 ----
-// apps/my-app/buntime.jsonc
+// apps/my-app/manifest.jsonc
 {
   "maxBodySize": "50mb"  // Limite específico para este worker
 }
@@ -269,7 +265,7 @@ O valor é validado contra o `max` global:
 * Se `maxBodySize` não definido: utiliza o `default` global
 * Suporta formato string ("10mb", "1gb") ou número (bytes)
 
-==== Fluxo de Validação
+== Fluxo de Validação
 
 [mermaid]
 ----
@@ -284,15 +280,14 @@ flowchart TD
     F -->|Não| G[Processa request]
 ----
 
-==== Resposta de Erro
+== Resposta de Erro
 
 [source,http]
 ----
 HTTP/1.1 413 Payload Too Large
-Content-Type: application/json
+x-request-id: 550e8400-e29b-41d4-a716-446655440000
 
-{
-  "error": "Request body too large: 52428800 bytes (max: 10485760)",
-  "code": "BODY_TOO_LARGE"
-}
+Payload Too Large
 ----
+
+A resposta inclui o header `x-request-id` para correlação de logs.

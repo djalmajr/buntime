@@ -1,0 +1,61 @@
+{
+  // Plugin metadata
+  "name": "@buntime/plugin-authn",
+  "base": "/auth",
+  "dependencies": ["@buntime/plugin-database"],
+  "optionalDependencies": ["@buntime/plugin-proxy"],
+
+  // Runtime config
+  "enabled": false,
+  // Client entrypoint (compiled files)
+  "entrypoint": "dist/client/index.html",
+  // Requires plugin-database to be enabled
+  // Database adapter type (uses default if not specified)
+  // "database": "libsql",
+  // Login redirect path (default: "/auth/login")
+  "loginPath": "/auth/login",
+  // Trusted origins for CORS
+  "trustedOrigins": ["http://localhost:8000"],
+  // API keys for machine-to-machine authentication
+  "apiKeys": [
+    // {
+    //   "key": "${API_KEY}",
+    //   "name": "CI/CD Pipeline",
+    //   "roles": ["api-client"]
+    // }
+  ],
+  // Authentication providers
+  "providers": [
+    {
+      "type": "email-password",
+      "displayName": "Email",
+      "allowSignUp": true,
+      "requireEmailVerification": false
+    }
+    // Keycloak example:
+    // {
+    //   "type": "keycloak",
+    //   "displayName": "SSO Corporativo",
+    //   "icon": "lucide:building",
+    //   "issuer": "${KEYCLOAK_URL}",
+    //   "realm": "${KEYCLOAK_REALM}",
+    //   "clientId": "${KEYCLOAK_CLIENT_ID}",
+    //   "clientSecret": "${KEYCLOAK_CLIENT_SECRET}"
+    // }
+    // Auth0 example:
+    // {
+    //   "type": "auth0",
+    //   "displayName": "Auth0",
+    //   "domain": "your-tenant.auth0.com",
+    //   "clientId": "${AUTH0_CLIENT_ID}",
+    //   "clientSecret": "${AUTH0_CLIENT_SECRET}"
+    // }
+  ],
+  // SCIM 2.0 configuration for enterprise user provisioning
+  "scim": {
+    "enabled": false,
+    "maxResults": 100,
+    "bulkEnabled": true,
+    "maxBulkOperations": 1000
+  }
+}

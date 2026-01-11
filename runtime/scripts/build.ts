@@ -20,7 +20,7 @@ if (process.argv.includes("--compile")) {
     --minify \
     --outfile ${outfile}`;
 
-  console.log("Compiled: dist/buntime");
+  console.log(`Compiled: ${outfile}`);
   process.exit(0);
 }
 

@@ -25,14 +25,5 @@
     "@types/react-dom": "^19.2.3",
     "bun-plugin-tailwind": "^0.1.2",
     "tailwindcss": "^4.1.17"
-  },
-  "buntime": {
-    "entrypoint": "dist/index.js",
-    "idleTimeout": 30,
-    "lowMemory": false,
-    "maxRequests": 100,
-    "timeout": 30,
-    "ttl": 60,
-    "visibility": "protected"
   }
 }

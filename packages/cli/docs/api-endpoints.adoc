@@ -1,0 +1,317 @@
+== API Endpoints
+
+O CLI comunica com o servidor Buntime através de endpoints REST. Esta seção documenta os endpoints utilizados.
+
+=== Plugins API
+
+==== GET /api/core/plugins
+
+Lista todos os plugins instalados.
+
+*Request:*
+
+[source,http]
+----
+GET /api/core/plugins HTTP/1.1
+Host: localhost:8000
+----
+
+*Response:*
+
+[source,json]
+----
+[
+  {
+    "name": "@buntime/plugin-keyval",
+    "base": "/keyval",
+    "path": "/data/plugins/@buntime/plugin-keyval",
+    "versions": ["1.0.0", "1.1.0"]
+  },
+  {
+    "name": "@buntime/plugin-metrics",
+    "base": "/metrics",
+    "path": "/data/plugins/@buntime/plugin-metrics",
+    "versions": ["1.0.0"]
+  }
+]
+----
+
+==== POST /api/core/plugins/upload
+
+Upload e instalação de plugin via tarball.
+
+*Request:*
+
+[source,http]
+----
+POST /api/core/plugins/upload HTTP/1.1
+Host: localhost:8000
+Content-Type: multipart/form-data
+Authorization: Bearer <token>
+
+------WebKitFormBoundary
+Content-Disposition: form-data; name="file"; filename="plugin.tgz"
+Content-Type: application/gzip
+
+<binary data>
+------WebKitFormBoundary--
+----
+
+*Response (Success):*
+
+[source,json]
+----
+{
+  "success": true,
+  "data": {
+    "plugin": {
+      "name": "@company/my-plugin",
+      "version": "1.0.0",
+      "installedAt": "/data/plugins/@company/my-plugin/1.0.0"
+    }
+  }
+}
+----
+
+*Response (Error):*
+
+[source,json]
+----
+{
+  "success": false,
+  "error": "Invalid tarball format"
+}
+----
+
+==== DELETE /api/core/plugins/:scope/:name
+
+Remove todas as versões de um plugin.
+
+*Request:*
+
+[source,http]
+----
+DELETE /api/core/plugins/@buntime/plugin-keyval HTTP/1.1
+Host: localhost:8000
+Authorization: Bearer <token>
+----
+
+*Response:*
+
+[source,json]
+----
+{
+  "success": true,
+  "message": "Plugin @buntime/plugin-keyval removed"
+}
+----
+
+==== DELETE /api/core/plugins/:scope/:name/:version
+
+Remove uma versão específica de um plugin.
+
+*Request:*
+
+[source,http]
+----
+DELETE /api/core/plugins/@buntime/plugin-keyval/1.0.0 HTTP/1.1
+Host: localhost:8000
+Authorization: Bearer <token>
+----
+
+*Response:*
+
+[source,json]
+----
+{
+  "success": true,
+  "message": "Plugin @buntime/plugin-keyval@1.0.0 removed"
+}
+----
+
+=== Apps API
+
+==== GET /api/core/apps
+
+Lista todas as aplicações instaladas.
+
+*Request:*
+
+[source,http]
+----
+GET /api/core/apps HTTP/1.1
+Host: localhost:8000
+----
+
+*Response:*
+
+[source,json]
+----
+[
+  {
+    "name": "todos-kv",
+    "path": "/data/apps/todos-kv",
+    "versions": ["1.0.0"]
+  },
+  {
+    "name": "hello-api",
+    "path": "/data/apps/hello-api",
+    "versions": ["1.0.0", "1.1.0"]
+  }
+]
+----
+
+==== POST /api/core/apps/upload
+
+Upload e instalação de app via tarball.
+
+*Request:*
+
+[source,http]
+----
+POST /api/core/apps/upload HTTP/1.1
+Host: localhost:8000
+Content-Type: multipart/form-data
+Authorization: Bearer <token>
+
+------WebKitFormBoundary
+Content-Disposition: form-data; name="file"; filename="app.tgz"
+Content-Type: application/gzip
+
+<binary data>
+------WebKitFormBoundary--
+----
+
+*Response (Success):*
+
+[source,json]
+----
+{
+  "success": true,
+  "data": {
+    "app": {
+      "name": "my-app",
+      "version": "1.0.0",
+      "installedAt": "/data/apps/my-app/1.0.0"
+    }
+  }
+}
+----
+
+==== DELETE /api/core/apps/:name
+
+Remove todas as versões de uma app.
+
+*Request:*
+
+[source,http]
+----
+DELETE /api/core/apps/my-app HTTP/1.1
+Host: localhost:8000
+Authorization: Bearer <token>
+----
+
+*Response:*
+
+[source,json]
+----
+{
+  "success": true,
+  "message": "App my-app removed"
+}
+----
+
+==== DELETE /api/core/apps/:name/:version
+
+Remove uma versão específica de uma app.
+
+*Request:*
+
+[source,http]
+----
+DELETE /api/core/apps/my-app/1.0.0 HTTP/1.1
+Host: localhost:8000
+Authorization: Bearer <token>
+----
+
+*Response:*
+
+[source,json]
+----
+{
+  "success": true,
+  "message": "App my-app@1.0.0 removed"
+}
+----
+
+=== Autenticação
+
+Endpoints de upload e delete requerem autenticação via token Bearer.
+
+==== Obtendo Token
+
+O token pode ser obtido através do plugin de autenticação:
+
+[source,bash]
+----
+# Login via endpoint
+curl -X POST https://buntime.home/authn/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@example.com", "password": "secret"}'
+
+# Response
+{
+  "token": "eyJhbGciOiJIUzI1NiIs...",
+  "expiresIn": 3600
+}
+----
+
+==== Usando Token no CLI
+
+[source,bash]
+----
+# Exportar como variável de ambiente
+export BUNTIME_TOKEN="eyJhbGciOiJIUzI1NiIs..."
+
+# Usar no comando
+buntime plugin install ./plugin.tgz --token $BUNTIME_TOKEN
+----
+
+=== Códigos de Status HTTP
+
+[cols="1,2,2"]
+|===
+| Código | Significado | Quando ocorre
+
+| `200`
+| OK
+| Operação bem sucedida
+
+| `201`
+| Created
+| Plugin/App instalado com sucesso
+
+| `400`
+| Bad Request
+| Arquivo inválido ou formato incorreto
+
+| `401`
+| Unauthorized
+| Token ausente ou inválido
+
+| `403`
+| Forbidden
+| Sem permissão para a operação
+
+| `404`
+| Not Found
+| Plugin/App não encontrado
+
+| `409`
+| Conflict
+| Plugin/App já existe na versão especificada
+
+| `500`
+| Internal Server Error
+| Erro interno do servidor
+|===

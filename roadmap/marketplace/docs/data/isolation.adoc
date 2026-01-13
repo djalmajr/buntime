@@ -1,0 +1,446 @@
+= Isolamento de Dados
+
+Este documento descreve as estratégias de isolamento de dados disponíveis para aplicações multi-tenant no marketplace.
+
+== Visão Geral das Estratégias de Isolamento
+
+[mermaid]
+----
+flowchart TB
+    subgraph Strategies["Estratégias de Isolamento"]
+        A[Schema Prefix]
+        B[Database per Tenant]
+        C[Row-Level Security]
+        D[Namespace Isolation]
+    end
+
+    subgraph Storage["Backends de Armazenamento"]
+        KV[KeyVal Store]
+        SQL[LibSQL Database]
+    end
+
+    A --> KV
+    B --> SQL
+    C --> SQL
+    D --> KV
+    D --> SQL
+----
+
+[cols="1,2,1,1"]
+|===
+| Estratégia | Descrição | Complexidade | Caso de Uso
+
+| Schema Prefix
+| Prefixação de chave com identificador do tenant
+| Baixa
+| KeyVal, apps simples
+
+| Database per Tenant
+| Arquivo de banco de dados separado por tenant
+| Média
+| Isolamento total, compliance
+
+| Row-Level Security
+| Coluna tenant ID em todas as tabelas
+| Média
+| Schema compartilhado, custo-efetivo
+
+| Namespace
+| Separação lógica em banco de dados compartilhado
+| Baixa
+| Necessidades moderadas de isolamento
+|===
+
+== Schema Prefix (KeyVal)
+
+A estratégia de schema prefix usa prefixação hierárquica de chaves para isolar dados de tenant no KeyVal.
+
+=== Estrutura da Chave
+
+[source]
+----
+tenant:{tenant_id}:{app_id}:{resource_type}:{resource_id}
+----
+
+Exemplos:
+
+[source]
+----
+tenant:abc:todos:users:123
+tenant:abc:todos:tasks:456
+tenant:xyz:crm:contacts:789
+----
+
+=== Injeção Automática de Prefixo
+
+O cliente KeyVal injeta automaticamente prefixos de tenant quando configurado com contexto de tenant:
+
+[source,typescript]
+----
+import { Kv } from "@buntime/keyval";
+
+// Criar cliente com escopo de tenant
+const kv = new Kv("/keyval/api", {
+  tenant: "abc",
+  app: "todos"
+});
+
+// Essas chamadas são automaticamente prefixadas
+await kv.set(["users", 123], { name: "Alice" });
+// Na verdade armazena: tenant:abc:todos:users:123
+
+const user = await kv.get(["users", 123]);
+// Na verdade lê: tenant:abc:todos:users:123
+
+// List tem escopo para o tenant
+for await (const entry of kv.list(["users"])) {
+  // Apenas itera tenant:abc:todos:users:*
+}
+----
+
+=== Prevenção de Acesso Cross-Tenant
+
+[mermaid]
+----
+sequenceDiagram
+    participant App as Worker App
+    participant KV as KeyVal API
+    participant Store as Storage
+
+    App->>KV: GET ["users", 123]
+    Note over KV: Extrair tenant do contexto
+    KV->>KV: Validar tenant corresponde ao token
+    KV->>Store: GET tenant:abc:todos:users:123
+    Store-->>KV: Data
+    KV-->>App: Entry
+
+    App->>KV: GET ["tenant:xyz:...", 123]
+    Note over KV: Detectar manipulação de prefixo
+    KV-->>App: 403 Forbidden
+----
+
+== Database per Tenant
+
+Para isolamento máximo, cada tenant recebe um banco de dados LibSQL dedicado.
+
+=== Roteamento por Subdomínio
+
+[source]
+----
+{tenant_slug}.libsql.local -> /data/tenants/{tenant_id}/main.db
+----
+
+=== Arquitetura
+
+[mermaid]
+----
+flowchart TB
+    subgraph Requests
+        R1[tenant-abc.libsql.local]
+        R2[tenant-xyz.libsql.local]
+    end
+
+    subgraph Router["Database Router"]
+        DR[LibSQL Router]
+    end
+
+    subgraph Databases
+        DB1[(abc/main.db)]
+        DB2[(xyz/main.db)]
+    end
+
+    R1 --> DR
+    R2 --> DR
+    DR --> DB1
+    DR --> DB2
+----
+
+=== Configuração
+
+[source,typescript]
+----
+// Conexão de banco de dados por tenant
+const getDatabase = (tenantSlug: string) => {
+  return createClient({
+    url: `libsql://${tenantSlug}.libsql.local:8080`,
+    authToken: getTenantToken(tenantSlug)
+  });
+};
+----
+
+=== Vantagens
+
+- Isolamento completo de dados
+- Backup/restore independente por tenant
+- Fácil conformidade com requisitos de residência de dados
+- Nenhum risco de vazamento de dados cross-tenant
+
+=== Desvantagens
+
+- Maior uso de recursos (connection pools por tenant)
+- Migrações de schema mais complexas
+- Maior overhead operacional
+
+== Row-Level Security
+
+Row-level security usa um schema compartilhado com filtragem obrigatória de `tenant_id`.
+
+=== Design do Schema
+
+Todas as tabelas incluem uma coluna `tenant_id`:
+
+[source,sql]
+----
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    email TEXT NOT NULL,
+    name TEXT NOT NULL,
+    UNIQUE (tenant_id, email)
+);
+
+CREATE INDEX idx_users_tenant ON users(tenant_id);
+----
+
+=== Enforcement de Query
+
+[mermaid]
+----
+flowchart LR
+    A[App Query] --> B{Tem tenant_id?}
+    B -->|Não| C[Rejeitar Query]
+    B -->|Sim| D{Corresponde ao Contexto?}
+    D -->|Não| C
+    D -->|Sim| E[Executar Query]
+----
+
+=== Implementação
+
+[source,typescript]
+----
+// Query wrapper força filtragem por tenant
+const query = createTenantQuery(tenantId);
+
+// Isso adiciona automaticamente WHERE tenant_id = ?
+const users = await query.select("users").where({ email: "alice@example.com" });
+// Real: SELECT * FROM users WHERE tenant_id = ? AND email = ?
+
+// Queries diretas são rejeitadas
+await db.execute("SELECT * FROM users WHERE email = ?", ["alice@example.com"]);
+// Erro: Query deve incluir filtro tenant_id
+----
+
+=== Trilha de Auditoria
+
+Todas as queries são logadas com contexto de tenant:
+
+[source,sql]
+----
+CREATE TABLE query_audit (
+    id INTEGER PRIMARY KEY,
+    tenant_id INTEGER NOT NULL,
+    query_hash TEXT NOT NULL,
+    tables_accessed TEXT NOT NULL,
+    executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+----
+
+== Namespace Isolation
+
+Namespace isolation fornece separação lógica dentro de um banco de dados compartilhado usando particionamento a nível de aplicação.
+
+=== Conceito
+
+[mermaid]
+----
+flowchart TB
+    subgraph SharedDB["Banco de Dados Compartilhado"]
+        subgraph NS1["Namespace: tenant_abc"]
+            T1[users]
+            T2[orders]
+        end
+        subgraph NS2["Namespace: tenant_xyz"]
+            T3[users]
+            T4[orders]
+        end
+    end
+----
+
+=== Convenção de Nomenclatura de Tabelas
+
+[source]
+----
+{tenant_slug}_{table_name}
+----
+
+Exemplos:
+- `abc_users`
+- `abc_orders`
+- `xyz_users`
+- `xyz_orders`
+
+=== Criação Dinâmica de Tabelas
+
+[source,typescript]
+----
+const createTenantTables = async (tenantSlug: string) => {
+  const tables = ["users", "orders", "products"];
+
+  for (const table of tables) {
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS ${tenantSlug}_${table}
+      AS SELECT * FROM template_${table} WHERE 0
+    `);
+  }
+};
+----
+
+== Injeção Automática de Prefixo no KeyVal
+
+O runtime injeta automaticamente prefixos de tenant para todas as operações KeyVal.
+
+=== Fluxo de Requisição
+
+[mermaid]
+----
+sequenceDiagram
+    participant Worker as Worker App
+    participant Runtime as Buntime Runtime
+    participant KV as KeyVal Plugin
+
+    Worker->>Runtime: Requisição com header x-tenant
+    Runtime->>Runtime: Validar entitlement do tenant
+    Runtime->>KV: Encaminhar com contexto de tenant
+    KV->>KV: Injetar prefixo em todas as chaves
+    KV-->>Runtime: Resposta
+    Runtime-->>Worker: Resposta
+----
+
+=== Propagação de Contexto
+
+[source,typescript]
+----
+// Runtime injeta contexto de tenant nos globals do worker
+declare global {
+  const __TENANT__: {
+    id: string;
+    slug: string;
+    entitlements: string[];
+  };
+}
+
+// Código do worker usa APIs tenant-aware automaticamente
+const kv = new Kv("/keyval/api");
+// Requisições incluem header x-tenant-id automaticamente
+----
+
+=== Remoção de Prefixo na Leitura
+
+Ao ler dados, prefixos são automaticamente removidos das chaves:
+
+[source,typescript]
+----
+// Armazenado como: tenant:abc:todos:users:123
+// Retornado como: ["users", 123]
+
+for await (const entry of kv.list(["users"])) {
+  console.log(entry.key); // ["users", 123], não ["tenant", "abc", "todos", "users", 123]
+}
+----
+
+== Escolhendo uma Estratégia de Isolamento
+
+[cols="1,1,1,1,1"]
+|===
+| Fator | Schema Prefix | DB per Tenant | Row-Level | Namespace
+
+| Isolamento de Dados
+| Médio
+| Alto
+| Médio
+| Médio
+
+| Performance
+| Alta
+| Média
+| Alta
+| Alta
+
+| Compliance
+| Baixo
+| Alto
+| Médio
+| Baixo
+
+| Custo
+| Baixo
+| Alto
+| Baixo
+| Baixo
+
+| Complexidade
+| Baixa
+| Alta
+| Média
+| Média
+|===
+
+=== Árvore de Decisão
+
+[mermaid]
+----
+flowchart TD
+    A{Requisitos de<br/>Compliance?} -->|Rigorosos| B[Database per Tenant]
+    A -->|Moderados| C{Volume de Dados?}
+    C -->|Alto| D[Row-Level Security]
+    C -->|Baixo| E{Tipo de Storage?}
+    E -->|KeyVal| F[Schema Prefix]
+    E -->|SQL| G[Namespace]
+----
+
+== Considerações de Segurança
+
+=== Validação de Tenant ID
+
+Sempre valide o tenant ID do token autenticado, nunca dos parâmetros da requisição:
+
+[source,typescript]
+----
+// ERRADO - confiando no tenant fornecido pelo cliente
+const tenantId = req.headers.get("x-tenant-id");
+
+// CORRETO - extraindo do JWT verificado
+const token = await verifyToken(req.headers.get("authorization"));
+const tenantId = token.claims.tenant_id;
+----
+
+=== Parametrização de Query
+
+Sempre use queries parametrizadas para prevenir SQL injection:
+
+[source,typescript]
+----
+// ERRADO - interpolação de string
+await db.execute(`SELECT * FROM users WHERE tenant_id = ${tenantId}`);
+
+// CORRETO - parametrizado
+await db.execute("SELECT * FROM users WHERE tenant_id = ?", [tenantId]);
+----
+
+=== Logging de Auditoria
+
+Registre todas as tentativas de acesso cross-tenant:
+
+[source,typescript]
+----
+const logSecurityEvent = async (event: SecurityEvent) => {
+  await auditLog.write({
+    type: "CROSS_TENANT_ATTEMPT",
+    requestedTenant: event.requestedTenant,
+    actualTenant: event.actualTenant,
+    endpoint: event.endpoint,
+    timestamp: Date.now(),
+    ip: event.ip
+  });
+};
+----

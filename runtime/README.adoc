@@ -16,23 +16,21 @@ endif::[]
 
 toc::[]
 
-== Fundamentals
+== Concepts
 
-include::docs/fundamentals/overview.adoc[leveloffset=+2]
+include::docs/concepts/overview.adoc[leveloffset=+2]
 
-include::docs/fundamentals/startup-flow.adoc[leveloffset=+2]
+include::docs/concepts/startup-flow.adoc[leveloffset=+2]
 
-include::docs/fundamentals/worker-pool.adoc[leveloffset=+2]
+include::docs/concepts/worker-pool.adoc[leveloffset=+2]
 
-include::docs/fundamentals/plugin-system.adoc[leveloffset=+2]
+include::docs/concepts/plugin-system.adoc[leveloffset=+2]
 
-include::docs/fundamentals/server-core.adoc[leveloffset=+2]
+include::docs/concepts/server-core.adoc[leveloffset=+2]
 
-include::docs/fundamentals/request-handling.adoc[leveloffset=+2]
+include::docs/concepts/request-handling.adoc[leveloffset=+2]
 
-== API Reference
-
-include::docs/api/routes.adoc[leveloffset=+2]
+include::docs/concepts/routing.adoc[leveloffset=+2]
 
 == Deployment
 

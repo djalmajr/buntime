@@ -7,6 +7,9 @@ import { AppListScreen } from "./screens/apps/app-list.js";
 import { AppMenuScreen } from "./screens/apps/app-menu.js";
 import { AppRemoveScreen } from "./screens/apps/app-remove.js";
 import { ConnectionErrorScreen } from "./screens/connection-error.js";
+import { KeyCreateScreen } from "./screens/keys/key-create.js";
+import { KeyListScreen } from "./screens/keys/key-list.js";
+import { KeyRevokeScreen } from "./screens/keys/key-revoke.js";
 import { MainMenuScreen } from "./screens/main-menu.js";
 import { PluginInstallScreen } from "./screens/plugins/plugin-install.js";
 import { PluginListScreen } from "./screens/plugins/plugin-list.js";
@@ -36,6 +39,12 @@ function Router() {
       return (
         <ConnectionErrorScreen error={currentScreen.error} errorType={currentScreen.errorType} />
       );
+    case "key_create":
+      return <KeyCreateScreen />;
+    case "key_list":
+      return <KeyListScreen />;
+    case "key_revoke":
+      return <KeyRevokeScreen keyId={currentScreen.keyId} keyName={currentScreen.keyName} />;
     case "main_menu":
       return <MainMenuScreen />;
     case "plugin_install":

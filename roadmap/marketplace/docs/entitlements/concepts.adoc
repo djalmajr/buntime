@@ -1,0 +1,448 @@
+= Conceitos de Entitlement
+
+Um entitlement representa o direito de um tenant acessar uma aplicação ou versão específica dentro do marketplace Buntime. Diferente de instalações, que envolvem deploy de código, entitlements controlam permissões de acesso a aplicações que já existem no sistema.
+
+== O Que é um Entitlement?
+
+Um entitlement é uma concessão contratual que permite a um tenant usar uma aplicação sob termos específicos. Ele define:
+
+- Qual aplicação o tenant pode acessar
+- Quais versões são permitidas
+- Qual nível de acesso é concedido
+- Como o licenciamento é aplicado
+- Quotas e limites de recursos
+- Data de expiração (se aplicável)
+
+== Campos do Entitlement
+
+[cols="2,1,3"]
+|===
+| Campo | Tipo | Descrição
+
+| `tenant_id`
+| string
+| Identificador único do tenant que recebe o entitlement
+
+| `app_id`
+| string
+| Identificador da aplicação que este entitlement concede acesso
+
+| `version_spec`
+| string
+| Constraint de versão (ex: `^2.0.0`, `~1.5.0`, `2.1.3`)
+
+| `scope`
+| enum
+| Escopo de permissão: `FULL_ACCESS`, `READ_ONLY` ou `CUSTOM`
+
+| `license_mode`
+| enum
+| Modelo de licenciamento: `NAMED`, `CONCURRENT`, `ACTIVE_USERS` ou `UNLIMITED`
+
+| `quotas`
+| object
+| Limites de recursos (requests, compute, storage, etc.)
+
+| `expires_at`
+| timestamp
+| Quando o entitlement expira (null para perpétuo)
+|===
+
+== Entitlement vs Instalação
+
+Entender a distinção entre entitlements e instalações é fundamental:
+
+[cols="1,2,2"]
+|===
+| Aspecto | Entitlement | Instalação
+
+| Propósito
+| Controla direitos de acesso
+| Deploy de código da aplicação
+
+| Momento
+| Concedido antes ou durante a instalação
+| Acontece após verificação do entitlement
+
+| Escopo
+| Permissão legal/contratual
+| Artefato técnico de deploy
+
+| Modificação
+| Pode mudar sem reinstalar
+| Requer ação de deployment
+
+| Ciclo de vida
+| Pode expirar, ser revogado ou atualizado
+| Persiste até desinstalação
+|===
+
+[mermaid]
+----
+flowchart LR
+    subgraph Controle de Acesso
+        E[Entitlement]
+        E --> |concede| R[Direito de Uso]
+    end
+
+    subgraph Deployment
+        I[Instalação]
+        I --> |deploya| C[Código da Aplicação]
+    end
+
+    R --> |habilita| I
+----
+
+== Resolução de Versão
+
+Quando o sistema determina qual versão da aplicação um tenant pode acessar, segue uma ordem estrita de prioridade:
+
+[mermaid]
+----
+flowchart TD
+    A[Requisição de Versão] --> B{Versão Fixada?}
+    B -->|Sim| C[Usa versão PINNED]
+    B -->|Não| D{Spec do Entitlement?}
+    D -->|Sim| E[Usa version_spec do ENTITLEMENT]
+    D -->|Não| F{Padrão do Plano?}
+    F -->|Sim| G[Usa versão do PLAN]
+    F -->|Não| H[Usa DEFAULT última estável]
+
+    C --> I[Versão Resolvida]
+    E --> I
+    G --> I
+    H --> I
+----
+
+[cols="1,1,3"]
+|===
+| Prioridade | Fonte | Descrição
+
+| 1 (Maior)
+| PINNED
+| Versão explícita fixada pelo administrador do tenant
+
+| 2
+| ENTITLEMENT
+| Constraint de versão do `version_spec` do entitlement
+
+| 3
+| PLAN
+| Versão padrão especificada no plano de assinatura do tenant
+
+| 4 (Menor)
+| DEFAULT
+| Última versão estável da aplicação
+|===
+
+=== Sintaxe do Version Spec
+
+O campo `version_spec` suporta constraints de versionamento semântico:
+
+[cols="1,3"]
+|===
+| Constraint | Significado
+
+| `2.1.3`
+| Apenas versão exata
+
+| `^2.0.0`
+| Compatível com 2.x.x (>=2.0.0 <3.0.0)
+
+| `~1.5.0`
+| Aproximadamente 1.5.x (>=1.5.0 <1.6.0)
+
+| `>=1.0.0`
+| Qualquer versão 1.0.0 ou superior
+
+| `*`
+| Qualquer versão disponível
+|===
+
+== Escopos de Permissão
+
+Escopos de permissão definem o nível de acesso concedido por um entitlement:
+
+=== FULL_ACCESS
+
+Acesso completo a todas as funcionalidades e APIs da aplicação. O tenant pode:
+
+- Ler e escrever dados
+- Executar todas as operações
+- Acessar funções administrativas
+- Modificar configurações
+
+=== READ_ONLY
+
+Limitado apenas a operações de leitura. O tenant pode:
+
+- Visualizar dados e relatórios
+- Executar queries somente leitura
+- Acessar dashboards e analytics
+
+Não pode realizar:
+
+- Modificações de dados
+- Alterações de configuração
+- Operações destrutivas
+
+=== CUSTOM
+
+Conjunto de permissões granulares definido por entitlement. Permite especificar exatamente quais ações são permitidas:
+
+[source,json]
+----
+{
+  "scope": "CUSTOM",
+  "allowed_actions": [
+    "data:read",
+    "reports:generate",
+    "exports:create"
+  ],
+  "denied_actions": [
+    "data:delete",
+    "config:modify"
+  ]
+}
+----
+
+== Modelos de Aquisição
+
+O marketplace suporta dois modelos de aquisição que atendem diferentes perfis de clientes:
+
+=== Modelo Avulso (À la Carte)
+
+Usuários individuais ou pequenas empresas compram apps separadamente, conforme a necessidade:
+
+[mermaid]
+----
+flowchart LR
+    subgraph Tenant["Tenant (Usuário Individual)"]
+        T[João Silva]
+    end
+
+    subgraph Purchases["Compras Separadas"]
+        P1[Compra App CRM<br/>R$ 49/mês]
+        P2[Compra App Tasks<br/>R$ 29/mês]
+        P3[Compra App Reports<br/>R$ 19/mês]
+    end
+
+    subgraph Entitlements["Entitlements Gerados"]
+        E1[Entitlement CRM]
+        E2[Entitlement Tasks]
+        E3[Entitlement Reports]
+    end
+
+    T --> P1 --> E1
+    T --> P2 --> E2
+    T --> P3 --> E3
+----
+
+**Características:**
+
+* Cada compra gera um entitlement individual
+* Billing separado por app (múltiplas assinaturas)
+* Flexibilidade para adicionar/remover apps
+* Ideal para: freelancers, pequenas equipes, uso específico
+
+=== Modelo de Plano (Bundle)
+
+Empresas adquirem um plano que inclui múltiplos apps com condições unificadas:
+
+[mermaid]
+----
+flowchart TB
+    subgraph Tenant["Tenant (Empresa)"]
+        T[Acme Corp]
+    end
+
+    subgraph License["Licença Única"]
+        L[Plano Enterprise<br/>R$ 499/mês]
+    end
+
+    subgraph Plan["Apps Incluídos no Plano"]
+        A1[App CRM]
+        A2[App Tasks]
+        A3[App Reports]
+        A4[App Analytics]
+        A5[App Billing]
+    end
+
+    subgraph Entitlements["Entitlements Derivados"]
+        E1[Entitlement CRM<br/>50 users]
+        E2[Entitlement Tasks<br/>50 users]
+        E3[Entitlement Reports<br/>unlimited]
+        E4[Entitlement Analytics<br/>50 users]
+        E5[Entitlement Billing<br/>unlimited]
+    end
+
+    T --> L
+    L --> Plan
+    A1 --> E1
+    A2 --> E2
+    A3 --> E3
+    A4 --> E4
+    A5 --> E5
+----
+
+**Características:**
+
+* Uma licença gera múltiplos entitlements
+* Billing unificado (uma assinatura, uma fatura)
+* Quotas herdadas do plano (ex: 50 users para todos os apps)
+* Upgrade de plano adiciona novos apps automaticamente
+* Ideal para: empresas, times grandes, uso intensivo
+
+=== Modelo Híbrido
+
+Um tenant pode combinar ambos os modelos:
+
+[source]
+----
+Acme Corp:
+  ├── Licença: Plano Pro (CRM + Tasks + Reports)
+  │     ├── Entitlement CRM (do plano)
+  │     ├── Entitlement Tasks (do plano)
+  │     └── Entitlement Reports (do plano)
+  │
+  └── Compra Avulsa: App Analytics (add-on)
+        └── Entitlement Analytics (individual)
+----
+
+O sistema permite:
+
+* Comprar apps avulsos além do plano
+* Fazer upgrade para plano que já inclui apps comprados (crédito proporcional)
+* Manter entitlements individuais com quotas customizadas
+
+=== Comparação dos Modelos
+
+[cols="1,2,2"]
+|===
+| Aspecto | Avulso (À la Carte) | Plano (Bundle)
+
+| Billing
+| Múltiplas assinaturas
+| Assinatura única
+
+| Flexibilidade
+| Alta (escolhe cada app)
+| Média (pacote definido)
+
+| Custo unitário
+| Maior por app
+| Menor por app (desconto volume)
+
+| Gestão
+| Mais complexa
+| Simplificada
+
+| Ideal para
+| Usuários individuais
+| Empresas
+
+| Quotas
+| Por entitlement
+| Herdadas do plano
+|===
+
+== Modelo Freemium
+
+O marketplace adota um modelo freemium onde usuários podem se cadastrar gratuitamente, mas com acesso restrito até realizarem uma compra.
+
+=== Níveis de Acesso
+
+[cols="1,2,2"]
+|===
+| Nível | Acesso | Requisito
+
+| Free (Gratuito)
+| Apenas apps SPA (frontend-only, sem backend/API)
+| Cadastro no sistema
+
+| Paid (Pago)
+| Acesso completo a apps com API
+| Comprar ao menos um app ou plano
+|===
+
+=== Fluxo de Acesso
+
+[mermaid]
+----
+flowchart TD
+    A[Usuário] --> B[Cadastro Gratuito]
+    B --> C[Conta Free]
+    C --> D{Tenta acessar app}
+
+    D --> E{App é SPA-only?}
+    E -->|Sim| F[Acesso Permitido]
+    E -->|Não| G{Tem entitlement?}
+
+    G -->|Não| H[Redireciona para Loja]
+    G -->|Sim| I[Acesso Permitido]
+
+    H --> J[Compra App]
+    J --> K[Entitlement Criado]
+    K --> L[Conta Paid]
+    L --> I
+----
+
+=== Implementação
+
+A verificação de acesso ocorre no PEP (plugin-authz):
+
+[source,typescript]
+----
+// Exemplo de verificação no PEP
+const decision = await pdp.evaluate({
+  tenant: ctx.tenantId,
+  user: ctx.userId,
+  app: targetApp,
+});
+
+// Apps SPA-only sempre permitidos para usuários autenticados
+if (targetApp.metadata.spaOnly) {
+  return PERMIT;
+}
+
+// Apps com API requerem entitlement
+if (!decision.hasEntitlement) {
+  return DENY; // Redireciona para loja
+}
+----
+
+=== Metadados do App
+
+Apps declaram se são SPA-only no manifest:
+
+[source,jsonc]
+----
+// manifest.jsonc
+{
+  "name": "app-demo",
+  "metadata": {
+    "spaOnly": true,  // Disponível para contas free
+    "description": "Demo app without backend"
+  }
+}
+----
+
+NOTE: Apps SPA-only não fazem requisições à API do backend, funcionando inteiramente no navegador. São úteis para demos, calculadoras, ferramentas offline e onboarding de usuários.
+
+== Ciclo de Vida do Entitlement
+
+[mermaid]
+----
+stateDiagram-v2
+    [*] --> Pending: Criado
+    Pending --> Active: Ativado
+    Active --> Suspended: Problema de Pagamento
+    Active --> Expired: Limite de Tempo Atingido
+    Suspended --> Active: Pagamento Resolvido
+    Suspended --> Revoked: Inadimplência
+    Active --> Revoked: Violação de Política
+    Active --> Upgraded: Mudança de Plano
+    Upgraded --> Active: Novos Termos Aplicados
+    Expired --> [*]
+    Revoked --> [*]
+----

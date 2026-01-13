@@ -1,0 +1,711 @@
+= Requisitos Não-Funcionais (NFRs)
+
+Este documento define os requisitos não-funcionais do marketplace, organizados por categoria e prioridade.
+
+== Status por Categoria
+
+[cols="2,1,1,3"]
+|===
+| Categoria | Status | Completude | Observação
+
+| Segurança (Criptografia/Keys)
+| Documentado
+| 85%
+| Falta gerenciamento de master key, rotação
+
+| Isolamento de Dados
+| Documentado
+| 90%
+| Completo
+
+| Multi-tenancy
+| Documentado
+| 85%
+| Completo
+
+| Licenciamento/Quotas
+| Documentado
+| 95%
+| Completo
+
+| Performance/Escalabilidade
+| Documentado
+| 80%
+| Falta testes de carga, benchmarks
+
+| Disponibilidade/Confiabilidade
+| Pendente
+| 0%
+| Crítico - não definido
+
+| Operacional/Monitoramento
+| Pendente
+| 5%
+| Crítico - não definido
+
+| Consistência de Dados
+| Incompleto
+| 40%
+| Falta modelo de consistência
+
+| Resiliência/Fault Tolerance
+| Documentado
+| 70%
+| Falta implementação, testes de chaos
+|===
+
+== Performance e Escalabilidade
+
+=== SLAs de Latência
+
+[cols="2,1,1,1,1"]
+|===
+| Operação | p50 | p95 | p99 | Timeout
+
+| API - Leitura simples
+| < 50ms
+| < 100ms
+| < 200ms
+| 5s
+
+| API - Escrita simples
+| < 100ms
+| < 200ms
+| < 500ms
+| 10s
+
+| API - Listagem paginada
+| < 100ms
+| < 300ms
+| < 500ms
+| 10s
+
+| Autenticação (JWT validation)
+| < 10ms
+| < 20ms
+| < 50ms
+| 1s
+
+| Autorização (PDP decision)
+| < 20ms
+| < 50ms
+| < 100ms
+| 2s
+
+| Database query (simples)
+| < 10ms
+| < 30ms
+| < 50ms
+| 5s
+
+| Database query (com joins)
+| < 50ms
+| < 100ms
+| < 200ms
+| 10s
+|===
+
+=== Throughput
+
+[cols="2,2,2"]
+|===
+| Métrica | Target Mínimo | Target Ideal
+
+| Requests/segundo (por instância)
+| 500 req/s
+| 2000 req/s
+
+| Conexões simultâneas
+| 1000
+| 10000
+
+| Tenants ativos simultâneos
+| 100
+| 1000
+
+| Workers pool size
+| 100
+| 500
+|===
+
+=== Estratégia de Cache
+
+[cols="2,1,2,2"]
+|===
+| Recurso | TTL | Invalidação | Storage
+
+| Sessões de usuário
+| 30 min
+| Logout, expiração
+| KeyVal
+
+| Entitlements (app-licenses)
+| 60s
+| Webhook billing
+| Memória (por request)
+
+| Permissões (app-iam)
+| 60s
+| API de revogação
+| Memória (por request)
+
+| Políticas PBAC
+| 5 min
+| API PAP update
+| Memória
+
+| Configurações de tenant
+| 5 min
+| API update
+| KeyVal
+
+| Metadados de apps (catálogo)
+| 15 min
+| Deploy
+| KeyVal
+|===
+
+=== Escalabilidade Horizontal
+
+[source]
+----
+                    ┌─────────────┐
+                    │ Load Balancer│
+                    └──────┬──────┘
+           ┌───────────────┼───────────────┐
+           │               │               │
+    ┌──────▼──────┐ ┌──────▼──────┐ ┌──────▼──────┐
+    │  Buntime 1  │ │  Buntime 2  │ │  Buntime N  │
+    │  (stateless)│ │  (stateless)│ │  (stateless)│
+    └──────┬──────┘ └──────┬──────┘ └──────┬──────┘
+           │               │               │
+           └───────────────┼───────────────┘
+                           │
+              ┌────────────┼────────────┐
+              │            │            │
+       ┌──────▼──────┐ ┌───▼───┐ ┌──────▼──────┐
+       │   LibSQL    │ │ KeyVal│ │    Stripe   │
+       │  (Primary)  │ │       │ │  (External) │
+       └──────┬──────┘ └───────┘ └─────────────┘
+              │
+       ┌──────▼──────┐
+       │   LibSQL    │
+       │ (Replicas)  │
+       └─────────────┘
+----
+
+**Princípios:**
+
+* Buntime é stateless - escala horizontalmente
+* Sessions e cache em KeyVal (compartilhado)
+* Database com read replicas para distribuir carga
+* Sem afinidade de sessão necessária
+
+=== Isolamento de Recursos (Noisy Neighbors)
+
+"Noisy neighbors" ocorrem quando um tenant consome recursos excessivos e degrada o serviço para outros tenants. O sistema deve implementar isolamento em múltiplas camadas:
+
+[cols="2,3,2"]
+|===
+| Recurso | Estratégia de Isolamento | Implementação
+
+| CPU/Request
+| Timeout agressivo por request
+| 30s max por request, kill após timeout
+
+| Conexões HTTP
+| Limite por tenant
+| Max 100 conexões simultâneas/tenant
+
+| Database connections
+| Pool compartilhado com fair scheduling
+| Weighted fair queue por tenant
+
+| Queue processing
+| Particionamento por tenant
+| Filas separadas ou fair scheduling
+
+| Worker pool
+| Bulkhead por tier
+| Premium: pool dedicado, Free: pool compartilhado
+
+| Memory/Request
+| Limite de payload
+| Max 10MB request body (configurável)
+
+| Rate limiting
+| Por tenant e por IP
+| Sliding window, 1000 req/min tenant
+|===
+
+**Estratégias de Mitigação:**
+
+[source]
+----
+                    ┌─────────────────────────────────────┐
+                    │           Load Balancer             │
+                    └──────────────┬──────────────────────┘
+                                   │
+                    ┌──────────────▼──────────────────────┐
+                    │         plugin-gateway              │
+                    │  ┌─────────────────────────────┐    │
+                    │  │     Rate Limiter            │    │
+                    │  │  (per tenant, per IP)       │    │
+                    │  └─────────────────────────────┘    │
+                    │  ┌─────────────────────────────┐    │
+                    │  │   Fair Queue Scheduler      │    │
+                    │  │  (weighted by tier/plan)    │    │
+                    │  └─────────────────────────────┘    │
+                    │  ┌─────────────────────────────┐    │
+                    │  │   Adaptive Throttling       │    │
+                    │  │  (based on system load)     │    │
+                    │  └─────────────────────────────┘    │
+                    └──────────────┬──────────────────────┘
+                                   │
+           ┌───────────────────────┼───────────────────────┐
+           │                       │                       │
+    ┌──────▼──────┐         ┌──────▼──────┐         ┌──────▼──────┐
+    │  Premium    │         │  Standard   │         │    Free     │
+    │   Pool      │         │    Pool     │         │    Pool     │
+    │ (dedicated) │         │ (shared)    │         │ (shared)    │
+    └─────────────┘         └─────────────┘         └─────────────┘
+----
+
+**Priorização por Tier:**
+
+[cols="1,2,2,2"]
+|===
+| Tier | Rate Limit | Conexões | Prioridade na Fila
+
+| Enterprise
+| 10000 req/min
+| 500
+| Alta (weight: 10)
+
+| Premium
+| 5000 req/min
+| 200
+| Média (weight: 5)
+
+| Standard
+| 1000 req/min
+| 100
+| Normal (weight: 2)
+
+| Free
+| 100 req/min
+| 20
+| Baixa (weight: 1)
+|===
+
+**Monitoramento de Noisy Neighbors:**
+
+* Métrica `tenant_resource_usage` com labels (tenant_id, resource_type)
+* Alerta quando tenant ultrapassa 80% do limite por 5+ minutos
+* Dashboard de "top consumers" por recurso
+* Logs de throttling com tenant_id para análise
+
+== Disponibilidade e Confiabilidade
+
+=== SLAs de Uptime
+
+[cols="2,2,3"]
+|===
+| Ambiente | Target | Downtime Permitido/mês
+
+| Produção
+| 99.9%
+| ~43 minutos
+
+| Staging
+| 99.0%
+| ~7 horas
+
+| Development
+| 95.0%
+| ~36 horas
+|===
+
+=== Estratégia de Backup
+
+[cols="2,2,2,2"]
+|===
+| Recurso | Frequência | Retenção | Recovery Time
+
+| Database (full)
+| Diário
+| 30 dias
+| < 1 hora
+
+| Database (incremental)
+| Horário
+| 7 dias
+| < 15 min
+
+| Configurações
+| A cada mudança
+| Versionado
+| < 5 min
+
+| Secrets
+| A cada mudança
+| 10 versões
+| < 5 min
+|===
+
+=== Disaster Recovery
+
+[cols="1,3"]
+|===
+| Métrica | Target
+
+| RPO (Recovery Point Objective)
+| < 1 hora (máximo de dados perdidos)
+
+| RTO (Recovery Time Objective)
+| < 4 horas (tempo para restaurar)
+
+| Failover automático
+| < 5 minutos para replicas
+|===
+
+=== Health Checks
+
+[cols="2,2,2"]
+|===
+| Endpoint | Intervalo | Timeout
+
+| `/api/health/live`
+| 10s
+| 5s
+
+| `/api/health/ready`
+| 30s
+| 10s
+
+| Database connectivity
+| 30s
+| 5s
+
+| External services (Stripe)
+| 60s
+| 10s
+|===
+
+== Resiliência e Fault Tolerance
+
+=== Retry Policies
+
+[cols="2,2,2,2"]
+|===
+| Operação | Max Retries | Backoff | Jitter
+
+| Database queries
+| 3
+| Exponencial (100ms, 200ms, 400ms)
+| +/- 20%
+
+| External APIs (Stripe)
+| 3
+| Exponencial (1s, 2s, 4s)
+| +/- 30%
+
+| Webhook delivery
+| 5
+| Exponencial (1m, 5m, 15m, 1h, 4h)
+| +/- 10%
+
+| Queue processing
+| 3
+| Configurável por fila
+| +/- 20%
+|===
+
+=== Circuit Breakers
+
+[cols="2,2,2,2"]
+|===
+| Serviço | Threshold | Reset Time | Fallback
+
+| Database
+| 5 falhas/10s
+| 30s
+| Erro 503
+
+| Stripe API
+| 3 falhas/30s
+| 60s
+| Retry queue
+
+| app-licenses (PIP)
+| 5 falhas/30s
+| 30s
+| Cache stale + warning
+
+| app-iam (PIP)
+| 5 falhas/30s
+| 30s
+| Deny by default
+|===
+
+=== Graceful Degradation
+
+[cols="2,3"]
+|===
+| Cenário | Comportamento
+
+| Database indisponível
+| Retorna 503, health check falha, novas instâncias não iniciam
+
+| Stripe indisponível
+| Aceita requests, enfileira operações de billing
+
+| app-licenses indisponível
+| Usa cache (se disponível) ou nega acesso com warning
+
+| app-iam indisponível
+| Permite acesso base, nega operações que requerem permissão granular
+
+| KeyVal indisponível
+| Cache in-memory temporário, funcionalidade de watch desabilitada
+|===
+
+== Observabilidade
+
+=== Métricas Obrigatórias
+
+[cols="2,2,2"]
+|===
+| Categoria | Métrica | Tipo
+
+| Request
+| `http_requests_total`
+| Counter
+
+| Request
+| `http_request_duration_seconds`
+| Histogram
+
+| Request
+| `http_requests_in_flight`
+| Gauge
+
+| Database
+| `db_queries_total`
+| Counter
+
+| Database
+| `db_query_duration_seconds`
+| Histogram
+
+| Database
+| `db_connections_active`
+| Gauge
+
+| Auth
+| `auth_attempts_total{result=success\|failure}`
+| Counter
+
+| Auth
+| `auth_tokens_active`
+| Gauge
+
+| Billing
+| `billing_transactions_total{status=...}`
+| Counter
+
+| Worker Pool
+| `worker_pool_size`
+| Gauge
+
+| Worker Pool
+| `worker_pool_active`
+| Gauge
+|===
+
+=== Logging
+
+[cols="2,3"]
+|===
+| Level | Uso
+
+| ERROR
+| Erros que requerem atenção imediata
+
+| WARN
+| Situações anormais que não impedem operação
+
+| INFO
+| Eventos de negócio significativos (login, compra, etc.)
+
+| DEBUG
+| Detalhes de execução (desabilitado em produção)
+|===
+
+**Campos obrigatórios em logs:**
+
+* `timestamp` - ISO 8601
+* `level` - ERROR/WARN/INFO/DEBUG
+* `message` - Descrição
+* `tenant_id` - ID do tenant (quando aplicável)
+* `request_id` - ID único da requisição
+* `user_id` - ID do usuário (quando aplicável)
+
+=== Alertas
+
+[cols="2,2,2"]
+|===
+| Alerta | Condição | Severidade
+
+| High Error Rate
+| > 1% de requests 5xx em 5 min
+| Critical
+
+| High Latency
+| p95 > 500ms por 5 min
+| Warning
+
+| Database Connection Pool
+| > 80% utilização por 5 min
+| Warning
+
+| Database Connection Pool
+| > 95% utilização
+| Critical
+
+| Disk Space
+| > 80% utilização
+| Warning
+
+| Disk Space
+| > 95% utilização
+| Critical
+
+| Memory Usage
+| > 85% por 10 min
+| Warning
+
+| Certificate Expiry
+| < 30 dias
+| Warning
+
+| Certificate Expiry
+| < 7 dias
+| Critical
+|===
+
+== Segurança (Complementar)
+
+=== Requisitos de Rede
+
+[cols="2,3"]
+|===
+| Requisito | Especificação
+
+| TLS
+| TLS 1.2+ obrigatório, TLS 1.3 preferido
+
+| Cipher Suites
+| AEAD only (AES-GCM, ChaCha20-Poly1305)
+
+| Certificate
+| RSA 2048+ ou ECDSA P-256+
+
+| HSTS
+| max-age=31536000; includeSubDomains
+
+| Rate Limiting
+| Por tenant: 1000 req/min, Por IP: 100 req/min
+|===
+
+=== Rotação de Chaves
+
+[cols="2,2,2"]
+|===
+| Tipo | Frequência | Procedimento
+
+| Master Key
+| Anual
+| Manual com HSM/KMS
+
+| API Keys (runtime)
+| Sob demanda
+| Via API de revogação
+
+| JWT Signing Keys
+| 90 dias
+| Rotação automática com período de sobreposição
+
+| Database Credentials
+| 90 dias
+| Via secrets manager
+|===
+
+== Compliance
+
+=== LGPD/GDPR
+
+[cols="1,3"]
+|===
+| Requisito | Implementação
+
+| Direito ao esquecimento
+| API de exclusão de dados + cascade delete
+
+| Portabilidade
+| API de export em formato JSON
+
+| Consentimento
+| Registro de aceites com timestamp
+
+| Retenção
+| Política de retenção por tipo de dado
+|===
+
+=== Auditoria
+
+[cols="2,2,2"]
+|===
+| Evento | Retenção | Formato
+
+| Login/Logout
+| 2 anos
+| Estruturado (JSON)
+
+| Alterações de permissão
+| 5 anos
+| Estruturado (JSON)
+
+| Operações de billing
+| 7 anos
+| Estruturado (JSON)
+
+| Acesso a dados sensíveis
+| 2 anos
+| Estruturado (JSON)
+|===
+
+== Impacto no Roadmap
+
+Os NFRs devem ser implementados em paralelo com as fases funcionais:
+
+[cols="1,2,3"]
+|===
+| Fase | NFRs Requeridos | Justificativa
+
+| 0
+| Health checks, logging básico, métricas
+| Fundação de observabilidade
+
+| 1-2
+| Isolamento de dados, auditoria, rate limiting
+| Multi-tenancy requer segurança desde o início
+
+| 3-4
+| Retry policies, circuit breakers (Stripe)
+| Billing não pode falhar silenciosamente
+
+| 5+
+| SLAs completos, alertas, DR
+| Produção requer confiabilidade total
+|===

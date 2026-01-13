@@ -12,7 +12,7 @@ const TEST_DIR = join(import.meta.dir, ".test-worker-routes");
 
 beforeAll(() => {
   mkdirSync(TEST_DIR, { recursive: true });
-  initConfig({ workerDirs: [TEST_DIR] }, TEST_DIR);
+  initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
 });
 
 afterAll(() => {

@@ -1,0 +1,490 @@
+= Quotas e Limites
+
+Quotas definem limites de consumo de recursos para cada entitlement. Elas garantem uso justo, protegem recursos do sistema e habilitam modelos de precificação em níveis.
+
+== Categorias de Quota
+
+Quotas são organizadas em quatro categorias:
+
+[mermaid]
+----
+flowchart LR
+    subgraph "Quotas de Uso"
+        U1[requests_per_month]
+        U2[compute_ms_per_month]
+        U3[storage_bytes]
+    end
+
+    subgraph "Limites de Concorrência"
+        C1[max_concurrent_workers]
+        C2[max_concurrent_connections]
+    end
+
+    subgraph "Limites por Requisição"
+        R1[max_body_size_bytes]
+        R2[max_response_time_ms]
+    end
+
+    subgraph "Feature Flags"
+        F1[sse_enabled]
+        F2[websockets_enabled]
+        F3[custom_domains_count]
+    end
+----
+
+== Quotas de Uso
+
+Quotas de uso rastreiam consumo cumulativo de recursos ao longo de um período de faturamento (tipicamente mensal).
+
+[cols="2,1,2,2"]
+|===
+| Quota | Tipo | Descrição | Reset
+
+| `requests_per_month`
+| integer
+| Total de requisições HTTP permitidas
+| Mensal (ciclo de faturamento)
+
+| `compute_ms_per_month`
+| integer
+| Total de tempo de CPU em milissegundos
+| Mensal (ciclo de faturamento)
+
+| `storage_bytes`
+| integer
+| Alocação de armazenamento persistente
+| Nunca (limite absoluto)
+|===
+
+=== Rastreamento de Uso
+
+[source,typescript]
+----
+interface UsageQuotas {
+  requests_per_month: {
+    limit: number;
+    current: number;
+    reset_at: Date;
+  };
+  compute_ms_per_month: {
+    limit: number;
+    current: number;
+    reset_at: Date;
+  };
+  storage_bytes: {
+    limit: number;
+    current: number;
+  };
+}
+----
+
+=== Fluxo de Enforcement de Uso
+
+[mermaid]
+----
+flowchart TD
+    A[Requisição recebida] --> B{Verifica quota de requisições}
+    B -->|Abaixo do limite| C{Verifica quota de compute}
+    B -->|Excedido| D[NEGADO: Quota de requisições excedida]
+
+    C -->|Abaixo do limite| E[Processa requisição]
+    C -->|Excedido| F[NEGADO: Quota de compute excedida]
+
+    E --> G[Rastreia tempo de compute real]
+    G --> H[Atualiza contadores de uso]
+    H --> I{Operação de storage?}
+    I -->|Sim| J{Verifica quota de storage}
+    I -->|Não| K[Requisição completa]
+    J -->|Abaixo do limite| L[Executa operação de storage]
+    J -->|Excedido| M[NEGADO: Quota de storage excedida]
+    L --> K
+----
+
+=== Limites de Alerta
+
+[cols="1,1,2"]
+|===
+| Nível de Uso | Tipo de Alerta | Ação
+
+| 80%
+| WARNING
+| Notifica admins do tenant
+
+| 95%
+| URGENT
+| Notifica admins + sugere upgrade
+
+| 100%
+| HARD_LIMIT
+| Nega requisições + notifica billing
+|===
+
+== Limites de Concorrência
+
+Limites de concorrência controlam uso simultâneo de recursos para prevenir sobrecarga do sistema.
+
+[cols="2,1,3"]
+|===
+| Limite | Tipo | Descrição
+
+| `max_concurrent_workers`
+| integer
+| Máximo de processos worker rodando simultaneamente
+
+| `max_concurrent_connections`
+| integer
+| Máximo de conexões abertas com banco/serviços externos
+|===
+
+=== Enforcement de Concorrência
+
+[mermaid]
+----
+flowchart TD
+    A[Nova requisição de worker] --> B{Conta workers ativos}
+    B --> C{ativos < max_concurrent_workers?}
+    C -->|Sim| D[Cria worker]
+    C -->|Não| E{Fila habilitada?}
+    E -->|Sim| F[Adiciona à fila]
+    E -->|Não| G[NEGADO: Limite de workers atingido]
+    F --> H{Posição na fila}
+    H -->|Timeout| I[NEGADO: Timeout da fila]
+    H -->|Slot disponível| D
+----
+
+=== Configuração do Pool de Workers
+
+[source,json]
+----
+{
+  "concurrency": {
+    "max_concurrent_workers": 10,
+    "max_concurrent_connections": 50,
+    "queue_enabled": true,
+    "queue_max_size": 100,
+    "queue_timeout_ms": 30000
+  }
+}
+----
+
+== Limites por Requisição
+
+Limites por requisição restringem características de requisições individuais.
+
+[cols="2,1,2,2"]
+|===
+| Limite | Tipo | Descrição | Padrão
+
+| `max_body_size_bytes`
+| integer
+| Tamanho máximo do corpo da requisição
+| 10 MB
+
+| `max_response_time_ms`
+| integer
+| Limite de timeout da requisição
+| 30000 ms
+|===
+
+=== Enforcement por Requisição
+
+[mermaid]
+----
+flowchart TD
+    A[Requisição recebida] --> B{Verifica Content-Length}
+    B -->|> max_body_size| C[NEGADO: Corpo muito grande]
+    B -->|<= max_body_size| D[Inicia processamento]
+
+    D --> E[Inicia timer de timeout]
+    E --> F{Processamento completo?}
+    F -->|Sim, dentro do timeout| G[Retorna resposta]
+    F -->|Timeout excedido| H[Aborta requisição]
+    H --> I[Retorna 504 Gateway Timeout]
+----
+
+=== Configuração de Limites de Requisição
+
+[source,json]
+----
+{
+  "request_limits": {
+    "max_body_size_bytes": 10485760,
+    "max_response_time_ms": 30000,
+    "max_header_size_bytes": 16384,
+    "max_url_length": 2048
+  }
+}
+----
+
+== Feature Flags
+
+Feature flags habilitam ou desabilitam capacidades específicas baseadas no tier do entitlement.
+
+[cols="2,1,3"]
+|===
+| Flag | Tipo | Descrição
+
+| `sse_enabled`
+| boolean
+| Suporte a Server-Sent Events
+
+| `websockets_enabled`
+| boolean
+| Conexões WebSocket permitidas
+
+| `custom_domains_count`
+| integer
+| Número de domínios customizados permitidos
+|===
+
+=== Enforcement de Feature Flags
+
+[mermaid]
+----
+flowchart TD
+    A[Requisição de feature] --> B{Tipo de feature}
+
+    B -->|SSE| C{sse_enabled?}
+    C -->|Sim| D[Permite conexão SSE]
+    C -->|Não| E[NEGADO: SSE não disponível]
+
+    B -->|WebSocket| F{websockets_enabled?}
+    F -->|Sim| G[Permite upgrade WS]
+    F -->|Não| H[NEGADO: WebSocket não disponível]
+
+    B -->|Domínio Customizado| I{Conta domínios existentes}
+    I --> J{contador < custom_domains_count?}
+    J -->|Sim| K[Permite adição de domínio]
+    J -->|Não| L[NEGADO: Limite de domínios atingido]
+----
+
+=== Configuração de Features
+
+[source,json]
+----
+{
+  "features": {
+    "sse_enabled": true,
+    "websockets_enabled": false,
+    "custom_domains_count": 3,
+    "scheduled_jobs_enabled": true,
+    "cron_expressions_allowed": ["*/15 * * * *", "0 * * * *"],
+    "api_rate_limit_per_minute": 1000
+  }
+}
+----
+
+== Job de Limpeza de Sessões
+
+Um job em background roda periodicamente para limpar sessões obsoletas e manter contagens de concorrência precisas.
+
+=== Configuração do Job
+
+[cols="1,2"]
+|===
+| Parâmetro | Valor
+
+| Intervalo de execução
+| A cada 5 minutos
+
+| Limite de obsolescência
+| 30 minutos de inatividade
+
+| Tamanho do lote
+| 1000 sessões por execução
+
+| Duração do lock
+| 2 minutos
+|===
+
+=== Fluxo de Limpeza
+
+[mermaid]
+----
+flowchart TD
+    A[Job dispara a cada 5 min] --> B{Adquire lock distribuído}
+    B -->|Falhou| C[Pula - outra instância rodando]
+    B -->|Sucesso| D[Consulta sessões obsoletas]
+
+    D --> E[last_activity < now - 30min]
+    E --> F[Atualiza em lote para ended]
+    F --> G[Atualiza contadores de concorrência]
+    G --> H[Libera lock]
+
+    subgraph "Estados de Sessão"
+        S1[active] --> S2[stale]
+        S2 --> S3[ended]
+    end
+----
+
+=== Implementação
+
+[source,typescript]
+----
+const SESSION_CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
+const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutos
+const BATCH_SIZE = 1000;
+
+async function cleanupStaleSessions(): Promise<CleanupResult> {
+  const lockKey = "session-cleanup-lock";
+  const lock = await acquireLock(lockKey, { ttl: 120000 });
+
+  if (!lock) {
+    return { skipped: true, reason: "Lock mantido por outra instância" };
+  }
+
+  try {
+    const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_MS);
+
+    const staleSessions = await db.sessions.findMany({
+      where: {
+        status: "active",
+        last_activity: { lt: staleThreshold }
+      },
+      take: BATCH_SIZE
+    });
+
+    if (staleSessions.length === 0) {
+      return { cleaned: 0 };
+    }
+
+    // Atualiza sessões em lote
+    await db.sessions.updateMany({
+      where: {
+        id: { in: staleSessions.map(s => s.id) }
+      },
+      data: {
+        status: "ended",
+        ended_at: new Date(),
+        end_reason: "stale_timeout"
+      }
+    });
+
+    // Atualiza contagens concorrentes dos entitlements
+    const entitlementGroups = groupBy(staleSessions, "entitlement_id");
+
+    for (const [entitlementId, sessions] of Object.entries(entitlementGroups)) {
+      await db.entitlements.update({
+        where: { id: entitlementId },
+        data: {
+          active_session_count: { decrement: sessions.length }
+        }
+      });
+    }
+
+    return { cleaned: staleSessions.length };
+  } finally {
+    await releaseLock(lock);
+  }
+}
+----
+
+== Modelo de Dados de Quota
+
+Configuração completa de quota para um entitlement:
+
+[source,json]
+----
+{
+  "entitlement_id": "ent_abc123",
+  "quotas": {
+    "usage": {
+      "requests_per_month": {
+        "limit": 1000000,
+        "current": 245000,
+        "reset_at": "2024-02-01T00:00:00Z"
+      },
+      "compute_ms_per_month": {
+        "limit": 3600000,
+        "current": 890000,
+        "reset_at": "2024-02-01T00:00:00Z"
+      },
+      "storage_bytes": {
+        "limit": 10737418240,
+        "current": 2147483648
+      }
+    },
+    "concurrency": {
+      "max_concurrent_workers": 10,
+      "max_concurrent_connections": 50,
+      "current_workers": 3,
+      "current_connections": 12
+    },
+    "request_limits": {
+      "max_body_size_bytes": 10485760,
+      "max_response_time_ms": 30000
+    },
+    "features": {
+      "sse_enabled": true,
+      "websockets_enabled": true,
+      "custom_domains_count": 5,
+      "current_custom_domains": 2
+    }
+  }
+}
+----
+
+== Tipos de Violação de Quota
+
+[cols="1,2,2"]
+|===
+| Código de Violação | Descrição | Resolução
+
+| `REQUESTS_EXCEEDED`
+| Limite mensal de requisições atingido
+| Aguardar reset ou fazer upgrade do plano
+
+| `COMPUTE_EXCEEDED`
+| Tempo mensal de compute esgotado
+| Aguardar reset ou fazer upgrade do plano
+
+| `STORAGE_EXCEEDED`
+| Alocação de storage cheia
+| Deletar dados ou fazer upgrade de storage
+
+| `WORKERS_EXCEEDED`
+| Muitos workers concorrentes
+| Aguardar workers completarem
+
+| `CONNECTIONS_EXCEEDED`
+| Muitas conexões concorrentes
+| Fechar conexões ou aumentar limite
+
+| `BODY_TOO_LARGE`
+| Corpo da requisição excede limite
+| Reduzir tamanho do payload
+
+| `REQUEST_TIMEOUT`
+| Processamento excedeu limite de tempo
+| Otimizar código ou aumentar timeout
+
+| `FEATURE_DISABLED`
+| Feature não disponível no tier
+| Fazer upgrade para tier com a feature
+|===
+
+== Cronograma de Reset de Quota
+
+[mermaid]
+----
+flowchart LR
+    subgraph "Reset Mensal"
+        M1[requests_per_month]
+        M2[compute_ms_per_month]
+    end
+
+    subgraph "Nunca Reseta"
+        N1[storage_bytes]
+    end
+
+    subgraph "Tempo Real"
+        R1[concurrent_workers]
+        R2[concurrent_connections]
+    end
+
+    M1 --> |Ciclo de faturamento| RESET[Reset para 0]
+    M2 --> |Ciclo de faturamento| RESET
+    N1 --> |Limpeza manual| REDUCE[Reduz uso]
+    R1 --> |Job completa| FREE[Libera slot]
+    R2 --> |Conexão fecha| FREE
+----

@@ -1,0 +1,831 @@
+= Integração de Autorização
+
+Este documento descreve como o sistema de autorização se integra com os plugins do marketplace, seguindo a arquitetura de referência XACML com Policy Enforcement Points (PEP), Policy Decision Points (PDP), Policy Information Points (PIP) e Policy Administration Points (PAP).
+
+== Visão Geral da Arquitetura XACML
+
+O marketplace implementa uma arquitetura de autorização completa no estilo XACML, onde políticas definem regras de acesso e entitlements fornecem o contexto de dados para essas regras.
+
+[mermaid]
+----
+flowchart TB
+    subgraph Request["Requisição"]
+        REQ[HTTP Request]
+    end
+
+    subgraph Middleware["Cadeia de Middleware"]
+        AUTHN[plugin-authn<br/>Identifica tenant<br/>Valida credenciais]
+        PEP[PEP - plugin-authz hook]
+    end
+
+    subgraph Decision["Camada de Decisão"]
+        PDP[PDP - plugin-authz engine]
+    end
+
+    subgraph Information["Camada de Informação - PIPs"]
+        PIP1[PIP - app-licenses<br/>Worker - Entitlements Contratuais]
+        PIP2[PIP - Database<br/>API key scopes]
+    end
+
+    subgraph AppLevel["Verificação no App"]
+        APP[App Worker]
+        IAM[app-iam<br/>Worker - Permissões Granulares]
+    end
+
+    subgraph Administration["Camada de Administração"]
+        PAP[PAP - plugin-authz policies]
+    end
+
+    REQ --> AUTHN
+    AUTHN -->|"x-tenant-id, x-key-id, x-user-id"| PEP
+    PEP -->|"1. Solicita decisão"| PDP
+    PDP -->|"2. HTTP: entitlements"| PIP1
+    PDP -->|"2. Query: scopes"| PIP2
+    PIP1 -->|"3. {apps, quotas, ...}"| PDP
+    PIP2 -->|"3. [scope1, scope2]"| PDP
+    PAP -->|"Carrega políticas"| PDP
+    PDP -->|"4. Allow/Deny"| PEP
+    PEP -->|"5. Se OK → App"| APP
+    APP -->|"6. HTTP: permissões"| IAM
+    IAM -->|"7. {has_permission}"| APP
+----
+
+IMPORTANT: O `plugin-authn` é **middleware**, não PIP. Ele executa ANTES do authz e injeta headers de contexto (x-tenant-id, x-key-id, x-user-id). Os PIPs consultados pelo PDP são apenas: `app-licenses` (entitlements contratuais) e database (scopes de API keys). O `app-iam` (permissões granulares) é consultado diretamente pelos apps quando necessário.
+
+== Responsabilidades dos Componentes
+
+[cols="1,1,2,1"]
+|===
+| Componente | Plugin/Fonte | Responsabilidade | Tipo
+
+| Middleware
+| plugin-authn
+| Identifica tenant, valida credenciais, injeta headers de contexto
+| PREPARAÇÃO
+
+| PAP
+| plugin-authz
+| Gerencia e armazena políticas de autorização
+| REGRAS
+
+| PIP (PDP)
+| app-licenses (worker)
+| Fornece entitlements contratuais (apps, quotas, seats) via HTTP ao PDP
+| DADOS
+
+| PIP (App)
+| app-iam (worker)
+| Fornece permissões granulares (roles, permissions) via HTTP aos apps
+| DADOS
+
+| PIP (PDP)
+| Database (auth_api_keys)
+| Fornece scopes de API keys sob demanda ao PDP
+| DADOS
+
+| PDP
+| plugin-authz
+| Avalia políticas contra o contexto
+| DECISÃO
+
+| PEP
+| plugin-authz
+| Intercepta requisições e aplica decisões
+| ENFORCEMENT
+|===
+
+NOTE: O `plugin-authn` não é um PIP - ele é middleware que executa antes do authz e já injeta os dados necessários nos headers da requisição.
+
+== Policy Administration Point (PAP)
+
+O PAP é gerenciado pelo plugin-authz e fornece interfaces para definir, atualizar e organizar políticas de autorização.
+
+=== Estrutura da Política
+
+[source,typescript]
+----
+interface Policy {
+  id: string;
+  name: string;
+  description?: string;
+  effect: "allow" | "deny";
+  priority: number;
+  resources: string[];      // Padrões de recursos
+  actions: string[];        // Métodos HTTP ou nomes de ações
+  conditions: Condition[];  // Condições de avaliação
+  enabled: boolean;
+}
+
+interface Condition {
+  attribute: string;        // Caminho do atributo (ex: "user.role")
+  operator: Operator;       // $eq, $in, $gt, etc.
+  value: unknown;           // Valor esperado
+}
+----
+
+=== Exemplos de Políticas
+
+[source,typescript]
+----
+// Acesso de admin de tenant ao billing
+const billingPolicy: Policy = {
+  id: "pol_billing_admin",
+  name: "Billing Admin Access",
+  effect: "allow",
+  priority: 100,
+  resources: ["/billing/*"],
+  actions: ["GET", "POST", "PATCH"],
+  conditions: [
+    { attribute: "user.role", operator: "$in", value: ["admin", "owner"] },
+    { attribute: "tenant.status", operator: "$eq", value: "active" }
+  ],
+  enabled: true
+};
+
+// Acesso a recurso baseado em entitlement
+const featurePolicy: Policy = {
+  id: "pol_advanced_analytics",
+  name: "Advanced Analytics Feature",
+  effect: "allow",
+  priority: 50,
+  resources: ["/analytics/advanced/*"],
+  actions: ["*"],
+  conditions: [
+    { attribute: "entitlements.features", operator: "$contains", value: "advanced_analytics" }
+  ],
+  enabled: true
+};
+----
+
+=== Endpoints da API do PAP
+
+[cols="1,1,2"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/authz/api/policies`
+| Lista todas as políticas
+
+| GET
+| `/authz/api/policies/:id`
+| Obtém política por ID
+
+| POST
+| `/authz/api/policies`
+| Cria nova política
+
+| PATCH
+| `/authz/api/policies/:id`
+| Atualiza política
+
+| DELETE
+| `/authz/api/policies/:id`
+| Remove política
+
+| POST
+| `/authz/api/policies/:id/enable`
+| Ativa política
+
+| POST
+| `/authz/api/policies/:id/disable`
+| Desativa política
+|===
+
+== Policy Information Point (PIP)
+
+Os PIPs fornecem dados contextuais necessários para autorização. O marketplace utiliza PIPs em dois níveis:
+
+**Nível 1 - PIPs do PDP** (consultados pelo plugin-authz):
+
+* `app-licenses`: Entitlements contratuais via HTTP
+* `Database`: Scopes de API keys via query
+
+**Nível 2 - PIP dos Apps** (consultado diretamente pelos workers):
+
+* `app-iam`: Permissões granulares via HTTP
+
+=== app-licenses como PIP
+
+A aplicação de licenças (executada como worker) fornece dados de entitlements que as políticas podem referenciar. O PDP consulta o worker via HTTP:
+
+[source,typescript]
+----
+interface EntitlementContext {
+  plan: {
+    id: string;
+    name: string;
+    tier: "free" | "starter" | "pro" | "enterprise";
+  };
+  features: string[];           // Códigos de recursos licenciados
+  limits: {
+    [feature: string]: {
+      limit: number;
+      used: number;
+      remaining: number;
+    };
+  };
+  validUntil: string;           // Data ISO
+  seats: {
+    total: number;
+    used: number;
+  };
+}
+----
+
+=== Contexto Injetado pelo plugin-authn
+
+O `plugin-authn` é **middleware**, não PIP. Ele executa antes do `plugin-authz` e injeta headers na requisição:
+
+[cols="1,2"]
+|===
+| Header | Descrição
+
+| x-tenant-id
+| ID do tenant identificado (via JWT, API key ou subdomain)
+
+| x-user-id
+| ID do usuário autenticado (quando login via JWT)
+
+| x-key-id
+| ID da API key (quando autenticação via API key)
+
+| x-app-id
+| ID do app que a API key acessa (quando via API key)
+|===
+
+O PDP lê esses headers do contexto da requisição - não precisa consultar o plugin-authn como PIP:
+
+[source,typescript]
+----
+// No PDP, os dados do authn já estão disponíveis no request
+const tenantId = c.req.header("x-tenant-id");
+const keyId = c.req.header("x-key-id");
+
+// Se precisar de scopes da API key, consulta o banco (PIP)
+if (keyId) {
+  const scopes = await db.getApiKeyScopes(keyId);
+}
+----
+
+NOTE: Os scopes da API key NÃO são injetados como header. Eles são carregados sob demanda (lazy loading) pelo PDP quando necessário.
+
+=== Fluxo de Integração dos PIPs
+
+[mermaid]
+----
+sequenceDiagram
+    participant REQ as Request Context
+    participant PDP as PDP (plugin-authz)
+    participant LIC as PIP (app-licenses)
+    participant DB as PIP (Database)
+
+    Note over REQ: Headers injetados pelo plugin-authn:<br/>x-tenant-id, x-key-id, x-user-id
+
+    PDP->>REQ: Lê headers de contexto
+    REQ-->>PDP: { tenantId, keyId, userId }
+
+    PDP->>LIC: HTTP GET /licenses/api/entitlements?tenantId=...
+    LIC-->>PDP: { plan, features, limits }
+
+    opt Se for API key
+        PDP->>DB: getScopes(keyId)
+        DB-->>PDP: ["scope1", "scope2", ...]
+    end
+
+    Note over PDP: Mescla contextos em<br/>contexto de avaliação
+
+    PDP->>PDP: Avalia políticas<br/>contra contexto mesclado
+----
+
+NOTE: O contexto de autenticação (tenant, user, key) já está nos headers da requisição - foi injetado pelo middleware `plugin-authn`. Os PIPs consultados pelo PDP são: `app-licenses` (worker via HTTP) e banco de dados (scopes de API keys). O `app-iam` é consultado diretamente pelos apps quando necessário, não pelo PDP.
+
+== Autorização de API Keys
+
+Quando uma API key é usada para autenticação, o sistema utiliza lazy loading para carregar os scopes, otimizando performance para apps com muitas permissões.
+
+=== Lazy Loading de Scopes
+
+Os scopes de uma API key são armazenados no banco de dados e carregados apenas quando necessário:
+
+[source,sql]
+----
+-- Scopes armazenados na tabela de API keys do plugin-authn
+CREATE TABLE auth_api_keys (
+  id TEXT PRIMARY KEY,
+  key_hash TEXT NOT NULL,
+  key_prefix TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  app_id TEXT NOT NULL,
+  scopes TEXT NOT NULL DEFAULT '[]',  -- JSON array de permissões
+  name TEXT NOT NULL,
+  created_by TEXT,
+  expires_at TEXT,
+  revoked_at TEXT,
+  last_used_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+----
+
+=== Fluxo de Autorização com API Key
+
+No modelo XACML, o PEP intercepta automaticamente TODAS as requisições e verifica apenas entitlements contratuais. A verificação granular é delegada aos apps:
+
+[mermaid]
+----
+sequenceDiagram
+    participant Client
+    participant AUTHN as plugin-authn
+    participant PEP as plugin-authz PEP
+    participant PDP as plugin-authz PDP
+    participant LIC as app-licenses PIP
+    participant DB as Database PIP
+    participant App
+    participant IAM as app-iam
+
+    Client->>AUTHN: Request + API Key (apk_...)
+    AUTHN->>DB: Valida key (hash)
+    DB-->>AUTHN: key_id, tenant_id, app_id
+    Note over AUTHN: Injeta headers:<br/>x-tenant-id, x-key-id
+
+    AUTHN->>PEP: Request + headers
+
+    PEP->>PDP: evaluate(tenant, app)
+
+    par Consulta 2 PIPs em paralelo
+        PDP->>LIC: HTTP GET /licenses/api/entitlements/{appId}
+        LIC-->>PDP: {license_mode, seats, quotas, ...}
+    and
+        PDP->>DB: getScopes(key_id)
+        DB-->>PDP: ["contacts:read", "contacts:write"]
+    end
+
+    Note over LIC: Cache TTL 60s
+
+    Note over PDP: Avalia: entitlement + scopes
+
+    PDP-->>PEP: PERMIT / DENY
+
+    alt Entitlement OK
+        PEP->>App: Request autorizada
+
+        Note over App,IAM: App decide se precisa verificar permissões
+        opt Verificação granular necessária
+            App->>IAM: HTTP GET /iam/api/permissions?userId=...&permission=files:delete
+            IAM-->>App: {has_permission: true/false}
+            Note over IAM: Cache TTL 60s
+            App->>App: Permitir ou bloquear ação
+        end
+
+        App-->>Client: Response
+    else Entitlement negado
+        PEP-->>Client: 403 Forbidden (sem licença)
+    end
+----
+
+IMPORTANT: O PEP verifica apenas nível contratual (licença do tenant). A verificação de permissões granulares (roles, organograma) é feita pelo próprio app consultando `app-iam` via HTTP quando necessário.
+
+[NOTE]
+====
+**Por que não verificar permissões no PEP?**
+
+O PEP não consegue detectar a "ação semântica" apenas olhando HTTP method + path. Por exemplo, `DELETE /files/123` pode significar `files:delete`, `files:trash`, ou `files:archive` dependendo do contexto do app.
+
+**Futura evolução:** Explorar a possibilidade de apps declararem mapeamento de rotas → permissões via manifest, permitindo que o PEP faça a verificação automaticamente.
+====
+
+=== Vantagens do Lazy Loading
+
+[cols="1,2"]
+|===
+| Benefício | Descrição
+
+| Performance
+| Scopes só são carregados quando o PDP precisa avaliar a política
+
+| Escalabilidade
+| Suporta centenas de apps, cada um com centenas de scopes
+
+| Cache eficiente
+| Uma única query por PIP por request
+
+| Simplicidade
+| Tokens/headers menores, sem risco de overflow
+|===
+
+=== Relação Scopes vs Permissões
+
+Os scopes de uma API key são um subconjunto das permissões definidas pelo app no `plugin-authz`:
+
+[mermaid]
+----
+flowchart TB
+    subgraph App["Permissões do App (plugin-authz)"]
+        P1[contacts:read]
+        P2[contacts:write]
+        P3[contacts:delete]
+        P4[deals:read]
+        P5[deals:write]
+    end
+
+    subgraph Key["Scopes da API Key"]
+        S1[contacts:read]
+        S2[contacts:write]
+    end
+
+    P1 -.->|"subset"| S1
+    P2 -.->|"subset"| S2
+----
+
+O PDP do `plugin-authz` usa o mesmo vocabulário de permissões para diferentes tipos de sujeitos:
+
+* **Usuários**: Verificação baseada em roles (`user.role` tem permissão X?)
+* **API Keys**: Verificação baseada em scopes (`key.scopes` inclui X?)
+
+[source,typescript]
+----
+// Lógica interna do PDP - o App NÃO chama isso diretamente
+// O PEP intercepta e o PDP avalia automaticamente
+
+function evaluatePermission(subject: Subject, permission: string): boolean {
+  if (subject.type === "user") {
+    // Verifica se role do usuário inclui a permissão
+    return roleHasPermission(subject.role, permission);
+  } else if (subject.type === "apikey") {
+    // Verifica se scopes da API key incluem a permissão
+    return subject.scopes.includes(permission);
+  }
+  return false;
+}
+----
+
+== Policy Decision Point (PDP)
+
+O PDP é o motor de avaliação central no plugin-authz. Ele recebe requisições de autorização, coleta contexto dos PIPs e avalia as políticas aplicáveis.
+
+=== Requisição de Decisão
+
+[source,typescript]
+----
+interface AuthzRequest {
+  resource: string;      // Caminho do recurso alvo
+  action: string;        // Método HTTP ou nome da ação
+  subject?: {            // Override opcional do sujeito
+    id: string;
+    type: "user" | "service";
+  };
+  context?: Record<string, unknown>;  // Contexto adicional
+}
+----
+
+=== Resposta de Decisão
+
+[source,typescript]
+----
+interface AuthzResponse {
+  decision: "allow" | "deny";
+  reason?: string;
+  matchedPolicy?: string;      // ID da política que correspondeu
+  obligations?: Obligation[];  // Ações a executar
+  advice?: Advice[];           // Sugestões (não vinculantes)
+}
+
+interface Obligation {
+  id: string;
+  action: "log" | "notify" | "rate_limit";
+  parameters: Record<string, unknown>;
+}
+----
+
+=== Algoritmo de Avaliação
+
+[mermaid]
+----
+flowchart TB
+    START[Recebe Requisição] --> GATHER[Coleta Contexto dos PIPs]
+    GATHER --> FILTER[Filtra Políticas Aplicáveis]
+    FILTER --> EMPTY{Alguma política?}
+
+    EMPTY -->|Não| DEFAULT[Aplica Deny Padrão]
+    EMPTY -->|Sim| SORT[Ordena por Prioridade]
+
+    SORT --> EVAL[Avalia Cada Política]
+    EVAL --> MATCH{Condições Correspondem?}
+
+    MATCH -->|Não| NEXT{Mais Políticas?}
+    MATCH -->|Sim| EFFECT{Efeito?}
+
+    EFFECT -->|Allow| ALLOW[Retorna Allow]
+    EFFECT -->|Deny| DENY[Retorna Deny]
+
+    NEXT -->|Sim| EVAL
+    NEXT -->|Não| DEFAULT
+
+    DEFAULT --> RESPOND[Retorna Decisão]
+    ALLOW --> RESPOND
+    DENY --> RESPOND
+----
+
+== Policy Enforcement Point (PEP)
+
+O PEP é implementado como um hook `onRequest` no plugin-authz que intercepta todas as requisições e aplica as decisões de autorização.
+
+=== Implementação do Hook
+
+[source,typescript]
+----
+// plugin-authz/hooks.ts
+export const onRequest: PluginHook = async (c, next) => {
+  const request = {
+    resource: c.req.path,
+    action: c.req.method,
+    subject: {
+      id: c.get("userId"),
+      type: "user" as const
+    }
+  };
+
+  const decision = await pdp.evaluate(request);
+
+  if (decision.decision === "deny") {
+    return c.json({
+      error: "Forbidden",
+      reason: decision.reason,
+      code: "AUTHZ_DENIED"
+    }, 403);
+  }
+
+  // Executa obligations
+  for (const obligation of decision.obligations ?? []) {
+    await executeObligation(obligation, c);
+  }
+
+  return next();
+};
+----
+
+=== Fluxo de Requisição
+
+[mermaid]
+----
+sequenceDiagram
+    participant Client
+    participant PEP as PEP (hook onRequest)
+    participant PDP as PDP (evaluate)
+    participant PIP as PIPs
+    participant Handler as Route Handler
+
+    Client->>PEP: GET /analytics/advanced/reports
+    PEP->>PDP: Evaluate request
+
+    PDP->>PIP: Gather context
+    PIP-->>PDP: Context data
+
+    PDP->>PDP: Find matching policies
+    PDP->>PDP: Evaluate conditions
+
+    alt Decisão: Allow
+        PDP-->>PEP: { decision: "allow" }
+        PEP->>Handler: Forward request
+        Handler-->>PEP: Response
+        PEP-->>Client: 200 OK + data
+    else Decisão: Deny
+        PDP-->>PEP: { decision: "deny", reason: "..." }
+        PEP-->>Client: 403 Forbidden
+    end
+----
+
+== Entitlements vs Políticas
+
+O sistema de autorização separa dados (entitlements) de regras (políticas), permitindo configuração flexível de controle de acesso.
+
+=== Entitlements (DADOS)
+
+Entitlements definem o que um tenant POSSUI:
+
+[source,typescript]
+----
+// O que o tenant tem direito
+const entitlements = {
+  plan: { tier: "pro" },
+  features: ["analytics_basic", "analytics_advanced", "api_access"],
+  limits: {
+    api_calls: { limit: 10000, used: 2500 },
+    storage_gb: { limit: 100, used: 45 }
+  },
+  seats: { total: 25, used: 18 }
+};
+----
+
+=== Políticas (REGRAS)
+
+Políticas definem o que PODE SER FEITO com entitlements:
+
+[source,typescript]
+----
+// Regras que referenciam entitlements
+const policies = [
+  {
+    name: "Pro tier API access",
+    resources: ["/api/*"],
+    conditions: [
+      { attribute: "entitlements.features", operator: "$contains", value: "api_access" },
+      { attribute: "entitlements.limits.api_calls.remaining", operator: "$gt", value: 0 }
+    ]
+  },
+  {
+    name: "Advanced analytics",
+    resources: ["/analytics/advanced/*"],
+    conditions: [
+      { attribute: "entitlements.features", operator: "$contains", value: "analytics_advanced" }
+    ]
+  }
+];
+----
+
+=== Diagrama de Integração
+
+[mermaid]
+----
+flowchart LR
+    subgraph Entitlements["Entitlements (DADOS)"]
+        PLAN[Plan: Pro]
+        FEAT[Features: analytics_advanced]
+        LIM[Limits: 10000 API calls]
+    end
+
+    subgraph Policies["Políticas (REGRAS)"]
+        POL1[Se tem analytics_advanced<br/>Então permite /analytics/advanced/*]
+        POL2[Se api_calls.remaining > 0<br/>Então permite /api/*]
+    end
+
+    subgraph Evaluation["Avaliação"]
+        CTX[Contexto Mesclado]
+        DEC[Motor de Decisão]
+    end
+
+    PLAN --> CTX
+    FEAT --> CTX
+    LIM --> CTX
+    POL1 --> DEC
+    POL2 --> DEC
+    CTX --> DEC
+    DEC --> RESULT[Allow/Deny]
+----
+
+== Fluxo Completo de Requisição
+
+O diagrama a seguir mostra o fluxo completo de autorização desde a requisição até a resposta:
+
+[mermaid]
+----
+sequenceDiagram
+    participant Client
+    participant AUTHN as plugin-authn<br/>(middleware)
+    participant PEP as PEP<br/>(plugin-authz hook)
+    participant PDP as PDP<br/>(plugin-authz engine)
+    participant LicensePIP as PIP<br/>(app-licenses)
+    participant IAMPIP as PIP<br/>(app-iam)
+    participant DB as PIP<br/>(Database)
+    participant PAP as PAP<br/>(policy store)
+    participant Handler as Route Handler
+
+    Client->>AUTHN: GET /vendor/analytics + API Key
+    AUTHN->>AUTHN: Valida credenciais
+    AUTHN->>AUTHN: Identifica tenant
+    Note over AUTHN: Injeta headers:<br/>x-tenant-id, x-key-id, x-user-id
+
+    AUTHN->>PEP: Request + headers
+
+    Note over PEP,PDP: 1. Solicita decisão de autorização
+
+    PEP->>PDP: evaluate({ resource: "/vendor/analytics", action: "GET" })
+
+    Note over PDP,PAP: 2. Carrega políticas aplicáveis
+
+    PDP->>PAP: Get policies for /vendor/*
+    PAP-->>PDP: [Policy: vendor_analytics]
+
+    Note over PDP,IAMPIP: 3. Coleta contexto dos 3 PIPs
+
+    par Consulta PIPs em paralelo
+        PDP->>LicensePIP: HTTP GET /licenses/api/entitlements/{appId}
+        LicensePIP-->>PDP: { license_mode, seats, quotas }
+    and
+        PDP->>IAMPIP: HTTP GET /iam/api/permissions?userId=...
+        IAMPIP-->>PDP: { effective_permissions: [...] }
+    and
+        PDP->>DB: getScopes(key_id)
+        DB-->>PDP: ["vendor:read", "vendor:write"]
+    end
+
+    Note over LicensePIP: Worker cache TTL 60s
+    Note over IAMPIP: Worker cache TTL 60s
+
+    Note over PDP: 4. Avalia condições da política
+
+    PDP->>PDP: Check 1: tenant tem entitlement para app
+    PDP->>PDP: Check 2: scopes includes "vendor:read"
+    PDP->>PDP: Check 3: permissions includes required permission
+    PDP->>PDP: Check 4: quotas não excedidas
+
+    Note over PEP,PDP: 5. Retorna decisão
+
+    alt Todas as condições passam
+        PDP-->>PEP: { decision: "allow" }
+        PEP->>Handler: Forward to handler
+        Handler-->>Client: 200 OK + analytics data
+    else Condição falha
+        PDP-->>PEP: { decision: "deny", reason: "Feature not licensed" }
+        PEP-->>Client: 403 Forbidden
+    end
+----
+
+== Configuração
+
+A integração de autorização é configurada através dos manifestos dos plugins:
+
+[source,jsonc]
+----
+// plugins/plugin-authz/manifest.jsonc
+{
+  "name": "@buntime/plugin-authz",
+  "enabled": true,
+  "base": "/authz",
+  "dependencies": ["@buntime/plugin-authn"],  // Executa após authn
+  "pdp": {
+    "defaultDecision": "deny",
+    "cacheDecisions": true,
+    "cacheTtl": 60000
+  },
+  "pep": {
+    "excludePaths": ["/health", "/metrics"],
+    "auditDenials": true
+  },
+  "pips": [
+    { "worker": "app-licenses", "endpoint": "/licenses/api/entitlements", "priority": 1 },
+    { "source": "database", "table": "auth_api_keys", "priority": 2 }
+  ]
+}
+----
+
+NOTE: O `plugin-authn` não é PIP - é declarado como `dependency` para garantir que seu middleware execute antes do PEP.
+
+== Estratégia de Cache
+
+Para otimizar performance, o PDP faz cache tanto de dados de contexto quanto de decisões:
+
+[cols="1,1,2"]
+|===
+| Cache | TTL | Invalidação
+
+| Contexto do tenant
+| 5 minutos
+| Ao receber webhook de atualização de tenant
+
+| Entitlements
+| 1 minuto
+| Ao receber evento de mudança de licença
+
+| Scopes de API Key
+| Por request
+| Ao final de cada requisição
+
+| Decisões de política
+| 1 minuto
+| Ao atualizar política
+
+| Definições de política
+| 10 minutos
+| Ao escrever no PAP
+|===
+
+NOTE: Os scopes de API key usam cache por request (não persistente entre requests) para garantir que alterações de permissões sejam aplicadas imediatamente.
+
+[mermaid]
+----
+flowchart TB
+    subgraph Cache["Camada de Cache"]
+        TC[Cache de Tenant]
+        EC[Cache de Entitlement]
+        SC[Cache de Scopes<br/>por request]
+        DC[Cache de Decisão]
+        PC[Cache de Política]
+    end
+
+    subgraph Invalidation["Eventos de Invalidação"]
+        TU[Tenant Atualizado]
+        LU[Licença Alterada]
+        PU[Política Atualizada]
+        RE[Request Finalizado]
+    end
+
+    TU -->|Limpa| TC
+    LU -->|Limpa| EC
+    LU -->|Limpa| DC
+    PU -->|Limpa| PC
+    PU -->|Limpa| DC
+    RE -->|Limpa| SC
+----
+
+Esta arquitetura garante que decisões de autorização sejam seguras e performáticas, com clara separação entre provedores de dados (PIPs) e avaliação de regras (PDP).

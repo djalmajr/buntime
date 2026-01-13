@@ -2,16 +2,17 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { initConfig } from "@/config";
-import { closeDatabase } from "@/libs/database";
+import { closeDatabase, initDatabase } from "@/libs/database";
 import { PluginLoader } from "./loader";
 
 const TEST_DIR = join(import.meta.dir, ".test-loader");
 const TEST_DATA_DIR = join(TEST_DIR, "data");
 
 describe("PluginLoader", () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     mkdirSync(TEST_DIR, { recursive: true });
-    initConfig({ baseDir: TEST_DIR, configDir: TEST_DATA_DIR, workerDirs: [TEST_DIR] });
+    initConfig({ baseDir: TEST_DIR, libsqlUrl: "http://localhost:8880", workerDirs: [TEST_DIR] });
+    await initDatabase();
   });
 
   afterAll(() => {
@@ -35,21 +36,24 @@ describe("PluginLoader", () => {
   describe("loadPlugin validation", () => {
     const PLUGINS_TEST_DIR = join(TEST_DIR, "plugins-validation");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       mkdirSync(join(PLUGINS_TEST_DIR, "plugins"), { recursive: true });
       // Reinitialize config with the test directory as baseDir
-      initConfig(
-        { configDir: join(PLUGINS_TEST_DIR, "data"), workerDirs: [PLUGINS_TEST_DIR] },
-        PLUGINS_TEST_DIR,
-      );
+      initConfig({
+        baseDir: PLUGINS_TEST_DIR,
+        libsqlUrl: "http://localhost:8880",
+        workerDirs: [PLUGINS_TEST_DIR],
+      });
+      await initDatabase();
     });
 
-    afterEach(() => {
+    afterEach(async () => {
       // Close database before removing directory
       closeDatabase();
       rmSync(PLUGINS_TEST_DIR, { recursive: true, force: true });
       // Restore original config
-      initConfig({ baseDir: TEST_DIR, configDir: TEST_DATA_DIR, workerDirs: [TEST_DIR] });
+      initConfig({ baseDir: TEST_DIR, libsqlUrl: "http://localhost:8880", workerDirs: [TEST_DIR] });
+      await initDatabase();
     });
 
     it("should ignore plugin with empty name field in manifest", async () => {
@@ -213,21 +217,24 @@ describe("PluginLoader", () => {
   describe("scanPluginDirs", () => {
     const EXT_TEST_DIR = join(TEST_DIR, "external-plugins");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       mkdirSync(join(EXT_TEST_DIR, "plugins"), { recursive: true });
       // Reinitialize config with the test directory as baseDir
-      initConfig(
-        { configDir: join(EXT_TEST_DIR, "data"), workerDirs: [EXT_TEST_DIR] },
-        EXT_TEST_DIR,
-      );
+      initConfig({
+        baseDir: EXT_TEST_DIR,
+        libsqlUrl: "http://localhost:8880",
+        workerDirs: [EXT_TEST_DIR],
+      });
+      await initDatabase();
     });
 
-    afterEach(() => {
+    afterEach(async () => {
       // Close database before removing directory
       closeDatabase();
       rmSync(EXT_TEST_DIR, { recursive: true, force: true });
       // Restore original config
-      initConfig({ baseDir: TEST_DIR, configDir: TEST_DATA_DIR, workerDirs: [TEST_DIR] });
+      initConfig({ baseDir: TEST_DIR, libsqlUrl: "http://localhost:8880", workerDirs: [TEST_DIR] });
+      await initDatabase();
     });
 
     it("should resolve plugin from ./plugins/name/plugin.ts with manifest", async () => {
@@ -296,21 +303,24 @@ describe("PluginLoader", () => {
   describe("topological sort with dependencies", () => {
     const DEP_TEST_DIR = join(TEST_DIR, "deps-plugins");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       mkdirSync(join(DEP_TEST_DIR, "plugins"), { recursive: true });
       // Reinitialize config with the test directory as baseDir
-      initConfig(
-        { configDir: join(DEP_TEST_DIR, "data"), workerDirs: [DEP_TEST_DIR] },
-        DEP_TEST_DIR,
-      );
+      initConfig({
+        baseDir: DEP_TEST_DIR,
+        libsqlUrl: "http://localhost:8880",
+        workerDirs: [DEP_TEST_DIR],
+      });
+      await initDatabase();
     });
 
-    afterEach(() => {
+    afterEach(async () => {
       // Close database before removing directory
       closeDatabase();
       rmSync(DEP_TEST_DIR, { recursive: true, force: true });
       // Restore original config
-      initConfig({ baseDir: TEST_DIR, configDir: TEST_DATA_DIR, workerDirs: [TEST_DIR] });
+      initConfig({ baseDir: TEST_DIR, libsqlUrl: "http://localhost:8880", workerDirs: [TEST_DIR] });
+      await initDatabase();
     });
 
     it("should load plugins in dependency order", async () => {
@@ -417,21 +427,24 @@ describe("PluginLoader", () => {
   describe("resolvePlugin with default export", () => {
     const DEFAULT_TEST_DIR = join(TEST_DIR, "default-export");
 
-    beforeEach(() => {
+    beforeEach(async () => {
       mkdirSync(join(DEFAULT_TEST_DIR, "plugins"), { recursive: true });
       // Reinitialize config with the test directory as baseDir
-      initConfig(
-        { configDir: join(DEFAULT_TEST_DIR, "data"), workerDirs: [DEFAULT_TEST_DIR] },
-        DEFAULT_TEST_DIR,
-      );
+      initConfig({
+        baseDir: DEFAULT_TEST_DIR,
+        libsqlUrl: "http://localhost:8880",
+        workerDirs: [DEFAULT_TEST_DIR],
+      });
+      await initDatabase();
     });
 
-    afterEach(() => {
+    afterEach(async () => {
       // Close database before removing directory
       closeDatabase();
       rmSync(DEFAULT_TEST_DIR, { recursive: true, force: true });
       // Restore original config
-      initConfig({ baseDir: TEST_DIR, configDir: TEST_DATA_DIR, workerDirs: [TEST_DIR] });
+      initConfig({ baseDir: TEST_DIR, libsqlUrl: "http://localhost:8880", workerDirs: [TEST_DIR] });
+      await initDatabase();
     });
 
     it("should resolve plugin with default export", async () => {
@@ -477,7 +490,7 @@ describe("PluginLoader", () => {
 
       // Verify the plugin was seeded to database
       const { getPlugin } = await import("@/libs/database");
-      const plugin = getPlugin("test-seed");
+      const plugin = await getPlugin("test-seed");
       expect(plugin).toBeDefined();
       expect(plugin?.base).toBe("/seed");
       expect(plugin?.dependencies).toEqual(["dep-a"]);
@@ -485,4 +498,3 @@ describe("PluginLoader", () => {
     });
   });
 });
-

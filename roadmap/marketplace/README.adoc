@@ -1,0 +1,73 @@
+= Buntime Marketplace
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+ifdef::env-github[]
+:tip-caption: 💡
+:note-caption: ℹ️
+:important-caption: ⚠️
+:caution-caption: 🔥
+:warning-caption: ⚠️
+endif::[]
+
+toc::[]
+
+Planejamento para transformar o Buntime runtime em núcleo de um marketplace multitenant de plugins e apps.
+
+== Conceitos
+
+include::docs/concepts/overview.adoc[leveloffset=+2]
+
+include::docs/concepts/multitenancy.adoc[leveloffset=+2]
+
+include::docs/concepts/hybrid-model.adoc[leveloffset=+2]
+
+== Arquitetura
+
+include::docs/architecture/plugins.adoc[leveloffset=+2]
+
+include::docs/architecture/workers.adoc[leveloffset=+2]
+
+include::docs/architecture/authz-integration.adoc[leveloffset=+2]
+
+== Entitlements
+
+include::docs/entitlements/concepts.adoc[leveloffset=+2]
+
+include::docs/entitlements/licensing.adoc[leveloffset=+2]
+
+include::docs/entitlements/enforcement.adoc[leveloffset=+2]
+
+include::docs/entitlements/quotas.adoc[leveloffset=+2]
+
+== Dados
+
+include::docs/data/schema.adoc[leveloffset=+2]
+
+include::docs/data/isolation.adoc[leveloffset=+2]
+
+== Segurança
+
+include::docs/security/secrets.adoc[leveloffset=+2]
+
+include::docs/security/verification.adoc[leveloffset=+2]
+
+== Marketplace
+
+include::docs/marketplace/registry.adoc[leveloffset=+2]
+
+include::docs/marketplace/vendor.adoc[leveloffset=+2]
+
+include::docs/marketplace/api.adoc[leveloffset=+2]
+
+== Requisitos Não-Funcionais
+
+include::docs/nfr/requirements.adoc[leveloffset=+2]
+
+== Roadmap
+
+include::docs/roadmap/phases.adoc[leveloffset=+2]

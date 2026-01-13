@@ -82,14 +82,13 @@ interface ParsedPlugin {
 }
 /**
  * Scanned plugin entry from plugin directories
+ * Module is loaded lazily to avoid importing disabled plugins
  */
 interface ScannedPlugin {
   /** Root directory containing the plugin file */
   dir: string;
   /** Full path to the plugin entry file */
   path: string;
-  /** Plugin module (imported) */
-  module: PluginModule;
   /** Plugin manifest from manifest.jsonc */
   manifest: PluginManifest;
   /** Version of this plugin (from directory name) */
@@ -145,7 +144,7 @@ export class PluginLoader {
   /**
    * Get the active version for a plugin (from SQLite or "latest")
    */
-  getActiveVersion(name: string): string {
+  async getActiveVersion(name: string): Promise<string> {
     return getPluginVersion(name);
   }
 
@@ -153,7 +152,7 @@ export class PluginLoader {
    * Set the active version for a plugin
    * Takes effect on next rescan
    */
-  setActiveVersion(name: string, version: string): void {
+  async setActiveVersion(name: string, version: string): Promise<void> {
     const versions = this.availableVersions.get(name);
     if (!versions) {
       throw new Error(`Plugin "${name}" not found`);
@@ -164,7 +163,7 @@ export class PluginLoader {
           `Available versions: ${[...versions.keys()].join(", ")}`,
       );
     }
-    dbSetPluginVersion(name, version);
+    await dbSetPluginVersion(name, version);
   }
 
   /**
@@ -212,7 +211,7 @@ export class PluginLoader {
 
       // Skip plugins not enabled in database
       // Database is source of truth for enabled state (not manifest.enabled)
-      if (!isPluginEnabled(name)) {
+      if (!(await isPluginEnabled(name))) {
         logger.debug(`Skipping plugin not enabled in database: ${name}`);
         continue;
       }
@@ -356,7 +355,11 @@ export class PluginLoader {
       throw new Error(`Plugin "${name}" not found in scanned plugins`);
     }
 
-    const { dir, module, manifest } = scanned;
+    const { dir, path, manifest } = scanned;
+
+    // Import module lazily - only when plugin is actually being loaded
+    // This prevents disabled plugins from being imported
+    const module = await import(path);
 
     // Resolve implementation from module
     const impl = await resolvePluginImpl(module, options);
@@ -365,25 +368,25 @@ export class PluginLoader {
     if (!manifest.name) {
       throw new Error(`Plugin "${name}" manifest is missing required field: name`);
     }
-    if (!manifest.base) {
-      throw new Error(`Plugin "${name}" manifest is missing required field: base`);
-    }
 
-    // Validate base path format (security: prevent route interception)
-    const BASE_PATH_PATTERN = /^\/[a-zA-Z0-9_-]+$/;
-    if (manifest.base !== "/" && !BASE_PATH_PATTERN.test(manifest.base)) {
-      throw new Error(
-        `Plugin "${name}" has invalid base path "${manifest.base}". ` +
-          `Must match pattern: /[a-zA-Z0-9_-]+ (e.g., "/metrics", "/my-plugin")`,
-      );
-    }
+    // Validate base path format if provided (security: prevent route interception)
+    // base is optional - plugins with only hooks (onRequest, onInit) don't need it
+    if (manifest.base) {
+      const BASE_PATH_PATTERN = /^\/[a-zA-Z0-9_-]+$/;
+      if (manifest.base !== "/" && !BASE_PATH_PATTERN.test(manifest.base)) {
+        throw new Error(
+          `Plugin "${name}" has invalid base path "${manifest.base}". ` +
+            `Must match pattern: /[a-zA-Z0-9_-]+ (e.g., "/metrics", "/my-plugin")`,
+        );
+      }
 
-    // Security: Block reserved paths used by runtime internals
-    if (RESERVED_PATHS.includes(manifest.base)) {
-      throw new Error(
-        `Plugin "${name}" cannot use reserved path "${manifest.base}". ` +
-          `Reserved paths: ${RESERVED_PATHS.join(", ")}`,
-      );
+      // Security: Block reserved paths used by runtime internals
+      if (RESERVED_PATHS.includes(manifest.base)) {
+        throw new Error(
+          `Plugin "${name}" cannot use reserved path "${manifest.base}". ` +
+            `Reserved paths: ${RESERVED_PATHS.join(", ")}`,
+        );
+      }
     }
 
     // Merge manifest (metadata) with implementation (code)
@@ -563,7 +566,7 @@ export class PluginLoader {
     this.availableVersions.set(pluginName, versionMap);
 
     // Determine which version to use
-    const configuredVersion = getPluginVersion(pluginName);
+    const configuredVersion = await getPluginVersion(pluginName);
     const latestVersion = versions[0]!;
     const targetVersion =
       configuredVersion === "latest"
@@ -613,17 +616,11 @@ export class PluginLoader {
         return;
       }
 
-      // Manifest must have base
-      if (!manifest.base || typeof manifest.base !== "string") {
-        logger.warn(`Manifest in ${dir} is missing required field: base`);
-        return;
-      }
-
       const pluginName = manifest.name;
 
       // Seed manifest to database (creates if not exists, skips if exists)
       // This ensures every discovered plugin is tracked in the database
-      seedPluginFromManifest(manifest);
+      await seedPluginFromManifest(manifest);
 
       // Check for duplicates
       if (this.scannedPlugins.has(pluginName)) {
@@ -635,16 +632,14 @@ export class PluginLoader {
         return;
       }
 
-      // Import the module
-      const module = await import(filePath);
-
       // Determine version from parameter or directory name
       const pluginVersion = version ?? basename(dir);
 
+      // Store plugin info WITHOUT importing the module
+      // Module is imported lazily in loadPlugin() to avoid loading disabled plugins
       this.scannedPlugins.set(pluginName, {
         dir,
         manifest,
-        module,
         path: filePath,
         version: pluginVersion,
       });

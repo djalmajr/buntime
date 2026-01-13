@@ -12,5 +12,8 @@ dist
 node_modules
 tmp
 
+# Go binaries
+packages/cli-go/buntime-cli
+
 # Local runtime config
 runtime/data

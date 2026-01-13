@@ -1,0 +1,844 @@
+= Fases de Implementação
+
+A implementação do marketplace está dividida em fases, cada uma construindo sobre as entregas anteriores. Esta abordagem por fases garante uma fundação estável antes de adicionar recursos de nível superior.
+
+== Fase 0: Plugins Base
+
+Antes de iniciar o marketplace, os plugins fundamentais precisam estar completos. Esta fase desenvolve os componentes que serão usados nas fases seguintes.
+
+=== Status Atual dos Plugins
+
+[cols="2,1,3"]
+|===
+| Plugin | Status | Pendências
+
+| plugin-database
+| Completo
+| ✓ Multi-adapter (libsql, postgres, mysql, sqlite) ✓ Multi-tenancy via adapters
+
+| plugin-keyval
+| Completo
+| ✓ KV store completo ✓ Queue, FTS, Watch ✓ Namespace por tenant
+
+| plugin-authn
+| Parcial
+| ❌ Tenant identification (subdomain/JWT/API key) ❌ x-tenant-id header injection ❌ Tabela e gestão de tenants ❌ App keys (apk_) para apps
+
+| plugin-authz
+| Parcial
+| ❌ PEP middleware (enforcement automático) ❌ Integração com PIPs externos (app-licenses) ❌ Modelo de entitlements (atual é só RBAC)
+
+| plugin-billing
+| Não existe
+| ❌ Integração Stripe ❌ Gestão de assinaturas ❌ Webhooks de pagamento
+
+| plugin-logs
+| Não existe
+| ❌ Logging estruturado (JSON) ❌ Campos obrigatórios (tenant_id, request_id) ❌ Níveis configuráveis ❌ Audit trail para compliance
+
+| plugin-metrics
+| Não existe
+| ❌ Métricas de request (total, duration, in_flight) ❌ Métricas de database ❌ Métricas de auth ❌ Export Prometheus
+
+| plugin-gateway
+| Não existe
+| ❌ Rate limiting (por tenant, por IP) ❌ Circuit breakers ❌ Retry policies ❌ Request routing avançado
+|===
+
+=== Fase 0a: Multi-tenancy no plugin-authn
+
+[cols="1,4"]
+|===
+| Duração | 3 semanas
+
+| Entregas
+a|
+- Modelo de dados `tenants` (id, slug, domain, status, settings)
+- Identificação de tenant via:
+  * Subdomain (`acme.app.com` → tenant: acme)
+  * JWT claim (`tenant_id`)
+  * API key lookup
+- Middleware de injeção `x-tenant-id`
+- API de gestão de tenants (CRUD)
+- App keys (`apk_*`) para autenticação machine-to-machine de apps
+|===
+
+=== Fase 0b: PEP e PIPs no plugin-authz
+
+[cols="1,4"]
+|===
+| Duração | 3 semanas
+
+| Entregas
+a|
+- PEP (Policy Enforcement Point) como middleware automático
+- Interface PIP (Policy Information Point) para providers externos
+- Integração via HTTP com PIPs (app-licenses, database)
+- Separação de concerns:
+  * PEP: intercepta requests, chama PDP
+  * PDP: avalia políticas, consulta PIPs
+  * PIP: fornece dados (entitlements, scopes, etc.)
+- Cache de decisões por request
+|===
+
+=== Fase 0c: Criação do plugin-billing
+
+[cols="1,4"]
+|===
+| Duração | 4 semanas
+
+| Entregas
+a|
+- Estrutura do plugin (manifest, plugin.ts, server/, client/)
+- Integração Stripe:
+  * Customers, Products, Prices
+  * Subscriptions e ciclos de billing
+  * Payment Methods
+- Webhook handler para eventos Stripe
+- API interna para:
+  * Criar/atualizar assinaturas
+  * Consultar status de pagamento
+  * Gerar links do portal de billing
+- UI básica de administração
+|===
+
+=== Fase 0d: Observabilidade (plugin-logs + plugin-metrics)
+
+[cols="1,4"]
+|===
+| Duração | 2 semanas
+
+| Entregas
+a|
+**plugin-logs:**
+
+- Logging estruturado em JSON
+- Campos obrigatórios: timestamp, level, message, tenant_id, request_id, user_id
+- Níveis configuráveis por ambiente (ERROR/WARN/INFO/DEBUG)
+- Integração com request context (injeção automática de IDs)
+- Audit trail para eventos de negócio (login, compra, alteração de permissão)
+- Retenção configurável por tipo de log
+
+**plugin-metrics:**
+
+- Métricas de request: `http_requests_total`, `http_request_duration_seconds`, `http_requests_in_flight`
+- Métricas de database: `db_queries_total`, `db_query_duration_seconds`, `db_connections_active`
+- Métricas de auth: `auth_attempts_total`, `auth_tokens_active`
+- Export em formato Prometheus (`/metrics`)
+- Labels por tenant, app, método HTTP
+|===
+
+NOTE: Observabilidade é fundacional e deve existir desde o início para debugging e troubleshooting de todas as outras fases.
+
+=== Fase 0e: Criação do plugin-gateway
+
+[cols="1,4"]
+|===
+| Duração | 3 semanas
+
+| Dependências | Fase 0a (precisa de contexto de tenant)
+
+| Entregas
+a|
+**Rate Limiting:**
+
+- Por tenant: 1000 req/min (configurável por plano)
+- Por IP: 100 req/min (proteção contra abuse)
+- Headers padrão: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+- Sliding window algorithm
+
+**Noisy Neighbor Mitigation:**
+
+- Fair queuing por tenant (weighted fair queue)
+- Limites de conexões simultâneas por tenant
+- Request prioritization (tenants premium vs free)
+- Bulkhead pattern: pools de recursos isolados por tier
+- Throttling adaptativo baseado em carga do sistema
+- Quota de CPU/memória por request (timeout agressivo)
+
+**Circuit Breakers:**
+
+- Por serviço externo (Stripe, PIPs)
+- Threshold configurável (ex: 5 falhas/30s)
+- Estados: closed → open → half-open
+- Fallback configurável por serviço
+
+**Retry Policies:**
+
+- Exponential backoff com jitter
+- Max retries configurável por operação
+- Retry apenas em erros transientes (5xx, timeout)
+
+**Request Routing:**
+
+- Health check endpoints (`/health/live`, `/health/ready`)
+- Graceful degradation quando serviços falham
+|===
+
+NOTE: Noisy neighbors ocorrem quando um tenant consome recursos excessivos e impacta outros tenants. O plugin-gateway implementa isolamento de recursos para garantir QoS (Quality of Service) mesmo sob carga irregular.
+
+=== Cronograma Fase 0
+
+[mermaid]
+----
+gantt
+    title Fase 0 - Plugins Base
+    dateFormat  YYYY-MM-DD
+
+    section Observabilidade
+    0d - Logs + Metrics   :p0d, 2025-01-01, 2w
+
+    section Autenticação
+    0a - Multi-tenancy    :p0a, 2025-01-01, 3w
+
+    section Autorização
+    0b - PEP/PIPs         :p0b, after p0a, 3w
+
+    section Billing
+    0c - Billing          :p0c, after p0a, 4w
+
+    section Gateway
+    0e - Rate Limit/CB    :p0e, after p0b, 3w
+----
+
+**Duração total Fase 0:** ~10 semanas
+
+* Semanas 1-3: 0a (multi-tenancy) + 0d (observabilidade) em paralelo
+* Semanas 4-7: 0b (authz) + 0c (billing) em paralelo
+* Semanas 8-10: 0e (gateway) após authz estar pronto
+
+=== NFRs em Paralelo
+
+Os requisitos não-funcionais devem ser implementados em paralelo com cada fase:
+
+[cols="1,3"]
+|===
+| Fase | NFRs Requeridos
+
+| 0
+| Health checks, logging estruturado, métricas básicas
+
+| 1-2
+| Isolamento de dados, auditoria, rate limiting por tenant
+
+| 3-4
+| Retry policies, circuit breakers (Stripe), webhooks confiáveis
+
+| 5+
+| SLAs completos, alertas, disaster recovery
+|===
+
+Ver link:../nfr/requirements.adoc[Requisitos Não-Funcionais] para especificações detalhadas.
+
+== Dependências entre Fases
+
+[mermaid]
+----
+flowchart TB
+    subgraph "Fase 0: Plugins Base"
+        P0d[0d: Observabilidade<br/>logs + metrics]
+        P0a[0a: Multi-tenancy<br/>plugin-authn]
+        P0b[0b: PEP/PIPs<br/>plugin-authz]
+        P0c[0c: plugin-billing]
+        P0e[0e: Gateway<br/>rate limit + CB]
+    end
+
+    P1[Fase 1: Fundação de Tenants]
+    P2[Fase 2: Sistema de Entitlements]
+    P3[Fase 3: Quotas e Uso]
+    P4[Fase 4: Infraestrutura de Billing]
+    P5[Fase 5: Apps de Admin]
+    P6[Fase 6: App da Loja]
+    P7[Fase 7: App do Tenant]
+
+    P0a --> P0b
+    P0a --> P0c
+    P0b --> P0e
+    P0a --> P1
+    P0b --> P1
+    P0e --> P1
+    P0c --> P4
+
+    P1 --> P2
+    P2 --> P3
+    P3 --> P4
+    P4 --> P5
+    P4 --> P6
+    P5 --> P7
+    P6 --> P7
+
+    classDef phase0 fill:#fff3e0,stroke:#e65100
+    classDef observ fill:#e8f5e9,stroke:#2e7d32
+    classDef plugin fill:#e1f5fe,stroke:#01579b
+    classDef worker fill:#f3e5f5,stroke:#4a148c
+
+    class P0a,P0b,P0c,P0e phase0
+    class P0d observ
+    class P1,P2,P3,P4 plugin
+    class P5,P6,P7 worker
+----
+
+== Detalhes das Fases
+
+=== Fase 1: Fundação de Tenants
+
+[cols="1,4"]
+|===
+| Tipo | ADAPTAÇÃO
+
+| Componente | plugin-authn
+
+| Dependências | plugin-database
+
+| Entregas
+a|
+- Modelo de dados e armazenamento de tenants
+- Identificação de tenant via subdomain, JWT claims, API key
+- Injeção de contexto de tenant (x-tenant-id)
+- Gestão de API keys de apps (apk_)
+- Provisionamento de tenants integrado ao plugin-billing
+|===
+
+O plugin de autenticação existente será adaptado para incluir identificação de tenant, fornecendo a camada fundamental de multi-tenancy.
+
+[source,sql]
+----
+CREATE TABLE tenants (
+  id            TEXT PRIMARY KEY,
+  slug          TEXT NOT NULL UNIQUE,
+  name          TEXT NOT NULL,
+  domain        TEXT UNIQUE,
+  status        TEXT NOT NULL DEFAULT 'active',
+  settings      TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+----
+
+=== Fase 2: Sistema de Autorizaçao (Entitlements + IAM)
+
+[cols="1,4"]
+|===
+| Tipo | WORKER
+
+| Componentes | app-licenses, app-iam
+
+| Dependências | Fase 1 (Fundação de Tenants)
+
+| Entregas
+a|
+**app-licenses (Entitlements Contratuais):**
+
+- Verificação de licenças de apps (quais apps o tenant/usuário pode acessar)
+- Modelos de licenciamento: NAMED, CONCURRENT, UNLIMITED, ACTIVE_USERS
+- Gestão de seats e sessões concorrentes
+- User plans B2C (basic, premium, enterprise) e addons
+- Controle de versões permitidas por contrato
+- PIP (Policy Information Point) consultado pelo PDP via HTTP
+- Cache de entitlements (TTL 60s) para reduzir latência
+
+**app-iam (Permissões Granulares):**
+
+- Gerenciamento de roles e permissões por app (B2B)
+- Organograma de departamentos e hierarquia (B2B)
+- Permissões explícitas (grants/revokes) por usuário
+- API HTTP para apps consultarem permissões
+- Cache de permissões (TTL 60s) para reduzir latência
+|===
+
+Esta fase implementa o sistema de autorização em dois níveis:
+
+1. **Nível Contratual (Runtime - plugin-authz PEP):** Verifica se o tenant/usuário possui direito de acessar o app baseado no contrato/assinatura consultando app-licenses
+2. **Nível Granular (App):** Cada app decide se precisa verificar permissões e consulta app-iam diretamente via HTTP para saber se o usuário pode executar a ação específica
+
+[mermaid]
+----
+sequenceDiagram
+    participant Client
+    participant PEP as plugin-authz PEP
+    participant PDP as plugin-authz PDP
+    participant LIC as app-licenses
+    participant App
+    participant IAM as app-iam
+
+    Client->>PEP: Request (tenant + user + app)
+    PEP->>PDP: evaluate(tenant, app)
+
+    PDP->>LIC: HTTP GET /licenses/api/entitlements?tenant=...&app=...
+    LIC-->>PDP: {has_license: true, mode: "CONCURRENT", seats_available: true}
+
+    PDP->>PDP: Avaliar entitlement contratual
+
+    alt Entitlement OK
+        PDP-->>PEP: PERMIT
+        PEP->>App: Request autorizado
+
+        Note over App,IAM: App decide se precisa verificar permissões
+        opt Verificação granular necessária
+            App->>IAM: HTTP GET /iam/api/permissions?user=...&permission=files:delete
+            IAM-->>App: {has_permission: true/false}
+            App->>App: Permitir ou bloquear ação
+        end
+
+        App-->>Client: Response
+    else Entitlement negado
+        PDP-->>PEP: DENY
+        PEP-->>Client: 403 Forbidden (sem licença)
+    end
+----
+
+=== Fase 3: Quotas e Uso
+
+[cols="1,4"]
+|===
+| Tipo | WORKER
+
+| Componente | app-licenses (extensão)
+
+| Dependências | Fase 2 (Sistema de Entitlements)
+
+| Entregas
+a|
+- Rastreamento e medição de uso
+- Aplicação de quotas
+- Alertas e notificações de uso
+- Tratamento de excedentes
+- Dados do dashboard de analytics de uso
+|===
+
+[source,sql]
+----
+CREATE TABLE usage_records (
+  id          TEXT PRIMARY KEY,
+  tenant_id   TEXT NOT NULL REFERENCES tenants(id),
+  metric      TEXT NOT NULL,
+  value       INTEGER NOT NULL,
+  period      TEXT NOT NULL,
+  recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE quotas (
+  id          TEXT PRIMARY KEY,
+  tenant_id   TEXT NOT NULL REFERENCES tenants(id),
+  metric      TEXT NOT NULL,
+  limit_value INTEGER NOT NULL,
+  period      TEXT NOT NULL,
+  UNIQUE(tenant_id, metric, period)
+);
+----
+
+=== Fase 4: Infraestrutura de Billing
+
+[cols="1,4"]
+|===
+| Tipo | PLUGIN
+
+| Componente | plugin-billing
+
+| Dependências | Fase 3 (Quotas e Uso)
+
+| Entregas
+a|
+- Integração com provedor de pagamento (Stripe)
+- Gerenciamento de assinaturas
+- Geração de faturas
+- Tratamento de webhooks de pagamento
+- Integração com portal de billing
+|===
+
+[mermaid]
+----
+sequenceDiagram
+    participant Tenant
+    participant Billing
+    participant Stripe
+    participant Licenses
+
+    Tenant->>Billing: Assinar plano
+    Billing->>Stripe: Criar assinatura
+    Stripe-->>Billing: Assinatura criada
+    Billing->>Licenses: Ativar entitlements
+    Licenses-->>Tenant: Acesso concedido
+
+    Stripe->>Billing: Webhook: payment_succeeded
+    Billing->>Billing: Registrar pagamento
+
+    Stripe->>Billing: Webhook: subscription_canceled
+    Billing->>Licenses: Revogar entitlements
+----
+
+=== Fase 5: Apps de Admin
+
+[cols="1,4"]
+|===
+| Tipo | WORKER
+
+| Componentes | app-admin, app-billing
+
+| Dependências | Fase 1 (Fundação de Tenants), Fase 4 (Infraestrutura de Billing)
+
+| Entregas
+a|
+- Dashboard de admin da plataforma
+- UI de gerenciamento de tenants
+- UI de gerenciamento de usuários
+- UI de administração de billing
+- UI de configuração do sistema
+- Visualizador de logs de auditoria
+|===
+
+=== Fase 6: App da Loja
+
+[cols="1,4"]
+|===
+| Tipo | WORKER
+
+| Componente | app-store
+
+| Dependências | Fase 2 (Sistema de Entitlements), Fase 4 (Billing)
+
+| Entregas
+a|
+- Catálogo de apps disponíveis
+- Página de detalhes do app (descrição, screenshots, preço)
+- Fluxo de compra/assinatura (integrado com billing)
+- Lista de apps adquiridos pelo usuário
+|===
+
+NOTE: Apps são publicados internamente. O suporte a vendors terceiros é escopo futuro.
+
+[mermaid]
+----
+flowchart LR
+    A[Catálogo] --> B[Detalhes do App]
+    B --> C[Comprar/Assinar]
+    C --> D[Checkout]
+    D --> E[App Liberado]
+----
+
+=== Fase 7: App do Tenant
+
+[cols="1,4"]
+|===
+| Tipo | WORKER
+
+| Componente | app-tenant
+
+| Dependências | Fase 5 (Apps de Admin), Fase 6 (App da Loja)
+
+| Entregas
+a|
+- Dashboard do tenant
+- Gerenciamento de packages instalados
+- Dashboard de uso
+- Gerenciamento de billing
+- Gerenciamento de equipe
+- Configurações
+|===
+
+== Resumo das Fases
+
+[cols="1,1,2,4"]
+|===
+| Fase | Tipo | Componente | Entregas Principais
+
+| 1
+| ADAPTAÇÃO
+| plugin-authn
+| Fundação de multi-tenancy, identificação de tenant
+
+| 2
+| WORKER
+| app-licenses, app-iam
+| PIP para entitlements contratuais + PIP para permissões granulares
+
+| 3
+| WORKER
+| app-licenses
+| Medição de uso, aplicação de quotas
+
+| 4
+| PLUGIN
+| plugin-billing
+| Pagamentos, assinaturas, faturamento
+
+| 5
+| WORKER
+| app-admin, app-billing
+| Dashboards de admin
+
+| 6
+| WORKER
+| app-store
+| Catálogo de packages internos, compra/assinatura
+
+| 7
+| WORKER
+| app-tenant
+| Dashboard de autoatendimento do tenant
+|===
+
+== Matriz de Prioridade
+
+[cols="1,3,4"]
+|===
+| Prioridade | Fases | Justificativa
+
+| Alta
+| Fase 1 (Fundação de Tenants), Fase 2 (Sistema de Autorização)
+| Infraestrutura central requerida por todas as outras fases. Sistema de autorização em dois níveis (contratual + granular) deve ser estável e bem testado antes de prosseguir.
+
+| Média
+| Fase 3 (Quotas e Uso), Fase 6 (App da Loja)
+| Essencial para monetização e descoberta de packages. Habilita geração de receita.
+
+| Baixa
+| Fase 7 (App do Tenant)
+| Dashboard de autoatendimento. Funcionalidades podem ser inicialmente via admin.
+|===
+
+== Cronograma de Marcos
+
+O diagrama abaixo reflete as dependências reais entre fases, incluindo a Fase 0 (plugins base).
+
+[mermaid]
+----
+gantt
+    title Cronograma de Implementação do Marketplace
+    dateFormat  YYYY-MM-DD
+
+    section Fase 0 - Plugins Base
+    0d - Observabilidade   :p0d, 2025-01-01, 2w
+    0a - Multi-tenancy     :crit, p0a, 2025-01-01, 3w
+    0b - PEP/PIPs          :p0b, after p0a, 3w
+    0c - plugin-billing    :p0c, after p0a, 4w
+    0e - Gateway           :p0e, after p0b, 3w
+    Buffer (revisão P0)    :b0, after p0c p0e, 1w
+
+    section Fundação (após P0)
+    Fase 1 - Tenants       :crit, p1, after b0, 4w
+    Fase 2 - Autorização   :crit, p2, after p1, 5w
+    Buffer (testes integ.) :b2, after p2, 1w
+
+    section Core (após P2)
+    Fase 3 - Quotas        :crit, p3, after b2, 3w
+    Fase 4 - Billing       :crit, p4, after p3, 3w
+    Buffer (billing tests) :b3, after p4, 1w
+
+    section Apps (após P4)
+    Fase 5 - Apps Admin    :p5, after b3, 5w
+    Fase 6 - App Loja      :p6, after b3, 3w
+    Buffer (UAT)           :b4, after p5, 1w
+
+    section Tenant (após P5 e P6)
+    Fase 7 - App Tenant    :p7, after b4, 4w
+    Buffer final           :b5, after p7, 1w
+----
+
+=== Análise de Duração
+
+[cols="1,2,1,3"]
+|===
+| Fase | Componentes | Duração | Justificativa
+
+| 0d
+| plugin-logs + plugin-metrics
+| 2 sem
+| Observabilidade fundacional (paralelo com 0a)
+
+| 0a
+| plugin-authn (multi-tenancy)
+| 3 sem
+| Tenant model, identification, x-tenant-id injection
+
+| 0b
+| plugin-authz (PEP/PIPs)
+| 3 sem
+| Middleware PEP, interface PIP, cache (paralelo com 0c)
+
+| 0c
+| plugin-billing (novo)
+| 4 sem
+| Integração Stripe completa (paralelo com 0b)
+
+| 0e
+| plugin-gateway
+| 3 sem
+| Rate limiting, circuit breakers, retry policies
+
+| _b0_
+| _Buffer_
+| _1 sem_
+| _Revisão Fase 0, ajustes, testes de integração_
+
+| 1
+| plugin-authn (integração)
+| 4 sem
+| Integrar tenants com sistema existente
+
+| 2
+| app-licenses, app-iam
+| 5 sem
+| Autorização em 2 níveis (contratual + granular)
+
+| _b2_
+| _Buffer_
+| _1 sem_
+| _Testes de integração auth/entitlements_
+
+| 3
+| app-licenses (extensão)
+| 3 sem
+| Quotas e medição de uso
+
+| 4
+| plugin-billing (integração)
+| 3 sem
+| Conectar billing com entitlements
+
+| _b3_
+| _Buffer_
+| _1 sem_
+| _Testes de billing, webhooks, edge cases_
+
+| 5
+| app-admin, app-billing
+| 5 sem
+| UIs administrativas (paralelo com P6)
+
+| 6
+| app-store
+| 3 sem
+| Catálogo + compra (paralelo com P5)
+
+| _b4_
+| _Buffer_
+| _1 sem_
+| _UAT, feedback, ajustes de UX_
+
+| 7
+| app-tenant
+| 4 sem
+| Dashboard self-service
+
+| _b5_
+| _Buffer_
+| _1 sem_
+| _Testes finais, documentação, deploy_
+|===
+
+**Total desenvolvimento:** 36 semanas | **Total buffers:** 5 semanas | **Total geral:** 41 semanas
+
+=== Resumo de Duração
+
+[cols="2,1,3"]
+|===
+| Caminho | Duração | Fases
+
+| **Crítico (com buffers)**
+| ~41 sem
+| 0a → 0b → 0e → b0 → P1 → P2 → b2 → P3 → P4 → b3 → P5 → b4 → P7 → b5
+
+| Paralelos
+| -
+| 0d//0a, 0c//0b, P6//P5
+
+| Buffer total
+| ~5 sem
+| Imprevistos, reuniões, mudanças de escopo, testes
+|===
+
+=== Premissas do Cronograma
+
+[cols="1,3"]
+|===
+| Premissa | Descrição
+
+| Paralelismo máximo
+| No máximo 2 tarefas em paralelo por vez
+
+| Buffer por milestone
+| 1 semana de buffer após cada entrega major
+
+| Contingência total
+| ~12% do tempo (5 semanas em 41)
+
+| Capacidade
+| 1 desenvolvedor full-time ou equivalente
+|===
+
+**Duração total estimada:** ~41 semanas (~10 meses)
+
+**Breakdown:**
+
+* **Fase 0 (Plugins):** ~10 semanas (inclui observabilidade, auth, authz, billing, gateway)
+* **Fases 1-4 (Core):** ~17 semanas (tenants, entitlements, quotas, billing integration)
+* **Fases 5-7 (Apps):** ~14 semanas (admin, store, tenant dashboard)
+
+**Notas:**
+
+* Modelo freemium elimina app de onboarding separado
+* Cadastro gratuito dá acesso apenas a apps SPA (sem API)
+* Compra de app ou plano libera acesso completo
+* Buffers podem ser consumidos por: revisões de código, bugs críticos, mudanças de requisitos, reuniões de alinhamento
+
+== Mitigação de Riscos
+
+[cols="2,2,3"]
+|===
+| Risco | Impacto | Mitigação
+
+| Violação de isolamento de tenant
+| Crítico
+| Testes abrangentes, auditoria de segurança, row-level security
+
+| Problemas de integração de pagamento
+| Alto
+| Começar com modo de teste do Stripe, testes extensivos de webhooks
+
+| Desempenho em escala
+| Médio
+| Testes de carga em cada fase, design para escalabilidade horizontal
+
+| Expansão de escopo de recursos
+| Médio
+| Limites estritos de fase, MVP por fase
+|===
+
+== Planos Futuros
+
+Funcionalidades removidas do escopo atual para implementação futura:
+
+=== Portal de Vendors (Terceiros)
+
+Quando houver demanda para apps de terceiros:
+
+[cols="1,3"]
+|===
+| Componente | Funcionalidades
+
+| app-vendor
+a|
+- Dashboard do vendor
+- Gerenciamento de apps publicados
+- Publicação de novas versões
+- Analytics de downloads e receita
+- Configuração de preços e planos
+
+| app-store (extensão)
+a|
+- UI de avaliações e notas
+- Motor de recomendações
+- Coleções e curadoria
+- Perfis de desenvolvedores
+- Compartilhamento social
+|===
+
+=== Pré-requisitos para Vendors
+
+Antes de habilitar vendors terceiros:
+
+- [ ] Processo de aprovação/revisão de apps
+- [ ] Sandboxing de execução
+- [ ] Sistema de split de pagamentos (revenue share)
+- [ ] Contratos e termos de uso
+- [ ] Verificação de identidade de vendors

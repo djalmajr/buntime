@@ -1,0 +1,1053 @@
+= Schema de Dados
+
+Este documento define o schema do banco de dados central para a arquitetura multitenant do marketplace.
+
+== Relacionamento de Entidades
+
+[mermaid]
+----
+erDiagram
+    %% Modelo de Aquisição
+    plans ||--o{ plan_apps : inclui
+    plans ||--o{ licenses : subscreve
+    plan_apps }o--|| apps : referencia
+    licenses }o--o| plans : baseada_em
+    licenses ||--o{ tenant_entitlements : gera
+    tenants ||--o{ licenses : possui
+
+    %% Entitlements e Uso
+    tenants ||--o{ tenant_entitlements : possui
+    tenants ||--o{ license_assignments : possui
+    tenants ||--o{ session_tracking : possui
+    tenants ||--o{ tenant_usage : possui
+    tenants ||--o{ tenant_resources : possui
+    tenant_entitlements }o--|| apps : referencia
+    license_assignments }o--|| apps : referencia
+    session_tracking }o--|| apps : referencia
+    tenant_usage }o--|| apps : referencia
+    tenant_resources }o--|| apps : referencia
+    tenant_resources }o--|| resource_types : possui_tipo
+
+    %% IAM (Permissões Granulares)
+    tenants ||--o{ iam_departments : possui
+    tenants ||--o{ iam_roles : define
+    tenants ||--o{ iam_user_roles : atribui
+    tenants ||--o{ iam_user_permissions : concede
+    tenants ||--o{ licenses_user_plans : subscreve
+    iam_departments ||--o{ iam_departments : "parent/child"
+    iam_roles ||--o{ iam_user_roles : "assigned to"
+
+    plans {
+        text id PK
+        text name
+        text tier
+        text billing_period
+        integer price_cents
+        json default_quotas
+    }
+
+    plan_apps {
+        text plan_id FK
+        text app_id FK
+        json quota_overrides
+    }
+
+    licenses {
+        text id PK
+        text tenant_id FK
+        text plan_id FK
+        text source
+        text status
+        text stripe_subscription_id
+        text valid_from
+        text valid_until
+    }
+
+    tenants {
+        text id PK
+        text uuid UK
+        text name
+        text slug UK
+        text domain
+        text status
+        text created_at
+    }
+
+    tenant_entitlements {
+        text id PK
+        text tenant_id FK
+        text license_id FK
+        text app_id FK
+        text version_spec
+        text scope
+        text license_mode
+        json quotas
+        text expires_at
+    }
+
+    license_assignments {
+        text tenant_id FK
+        text department_id FK
+        text app_id FK
+        text user_id FK
+        text assigned_at
+    }
+
+    session_tracking {
+        text id PK
+        text tenant_id FK
+        text app_id FK
+        text user_id FK
+        text started_at
+        text ended_at
+        text last_activity_at
+        text end_reason
+    }
+
+    tenant_usage {
+        text tenant_id FK
+        text app_id FK
+        text period_start
+        integer requests_count
+        integer compute_ms
+        integer storage_bytes
+    }
+
+    resource_types {
+        text id PK
+        text name UK
+        text version
+        json fields
+    }
+
+    tenant_resources {
+        text id PK
+        text tenant_id FK
+        text app_id FK
+        text type_id FK
+        blob config
+        text status
+    }
+----
+
+== Tenants
+
+A tabela `tenants` armazena informações em nível de organização para cada cliente.
+
+[source,sql]
+----
+CREATE TABLE tenants (
+    id TEXT PRIMARY KEY,
+    uuid TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    domain TEXT,
+    status TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'suspended', 'pending', 'deleted')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_tenants_status ON tenants(status);
+CREATE INDEX idx_tenants_domain ON tenants(domain) WHERE domain IS NOT NULL;
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| id
+| TEXT
+| Chave primária
+
+| uuid
+| TEXT
+| Identificador único público (UUIDv7)
+
+| name
+| TEXT
+| Nome de exibição da organização
+
+| slug
+| TEXT
+| Identificador seguro para URL (ex: `acme-corp`)
+
+| domain
+| TEXT
+| Domínio customizado para white-label (opcional)
+
+| status
+| TEXT
+| Estado do ciclo de vida do tenant
+
+| created_at
+| TEXT
+| Timestamp de criação da conta
+|===
+
+== Plans
+
+A tabela `plans` define pacotes de apps disponíveis para assinatura (modelo bundle).
+
+[source,sql]
+----
+CREATE TABLE plans (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    tier TEXT NOT NULL CHECK (tier IN ('free', 'starter', 'pro', 'enterprise')),
+    billing_period TEXT NOT NULL DEFAULT 'monthly'
+        CHECK (billing_period IN ('monthly', 'yearly')),
+    price_cents INTEGER NOT NULL DEFAULT 0,
+    default_quotas TEXT NOT NULL DEFAULT '{}',
+    stripe_price_id TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_plans_tier ON plans(tier);
+CREATE INDEX idx_plans_active ON plans(active) WHERE active = 1;
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| id
+| TEXT
+| Chave primária (ex: `plan_pro_monthly`)
+
+| name
+| TEXT
+| Nome de exibição (ex: `Plano Pro`)
+
+| tier
+| TEXT
+| Nível do plano para hierarquia de features
+
+| billing_period
+| TEXT
+| Ciclo de cobrança (monthly/yearly)
+
+| price_cents
+| INTEGER
+| Preço em centavos (0 para plano gratuito)
+
+| default_quotas
+| TEXT
+| Quotas padrão herdadas por todos os apps do plano (JSON)
+
+| stripe_price_id
+| TEXT
+| ID do preço no Stripe para billing
+
+| active
+| INTEGER
+| Se o plano está disponível para novas assinaturas
+|===
+
+=== Estrutura JSON de default_quotas
+
+[source,json]
+----
+{
+  "max_users": 50,
+  "max_storage_gb": 100,
+  "max_requests_per_day": 50000
+}
+----
+
+== Plan Apps
+
+A tabela `plan_apps` define quais apps estão incluídos em cada plano.
+
+[source,sql]
+----
+CREATE TABLE plan_apps (
+    plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+    app_id TEXT NOT NULL,
+    quota_overrides TEXT,  -- Override das quotas padrão do plano
+    license_mode TEXT NOT NULL DEFAULT 'unlimited'
+        CHECK (license_mode IN ('concurrent', 'named', 'unlimited', 'active_users')),
+    PRIMARY KEY (plan_id, app_id)
+);
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| plan_id
+| TEXT
+| Foreign key para plans
+
+| app_id
+| TEXT
+| Identificador do app incluído
+
+| quota_overrides
+| TEXT
+| Quotas específicas para este app no plano (sobrescreve default_quotas)
+
+| license_mode
+| TEXT
+| Modo de licenciamento para este app no plano
+|===
+
+=== Estrutura JSON de quota_overrides
+
+[source,json]
+----
+{
+  "max_users": null,  -- null = usa default do plano
+  "max_storage_gb": 200,  -- override específico
+  "features": ["advanced_analytics", "api_access"]
+}
+----
+
+== Licenses
+
+A tabela `licenses` representa a assinatura de um tenant (seja de plano ou app avulso).
+
+[source,sql]
+----
+CREATE TABLE licenses (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    plan_id TEXT REFERENCES plans(id),  -- NULL para compra avulsa
+    source TEXT NOT NULL CHECK (source IN ('plan', 'individual', 'trial', 'promo')),
+    status TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'suspended', 'cancelled', 'expired')),
+    stripe_subscription_id TEXT,
+    stripe_customer_id TEXT,
+    valid_from TEXT NOT NULL DEFAULT (datetime('now')),
+    valid_until TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_licenses_tenant ON licenses(tenant_id);
+CREATE INDEX idx_licenses_status ON licenses(status);
+CREATE INDEX idx_licenses_stripe ON licenses(stripe_subscription_id)
+    WHERE stripe_subscription_id IS NOT NULL;
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| id
+| TEXT
+| Chave primária
+
+| tenant_id
+| TEXT
+| Foreign key para tenants
+
+| plan_id
+| TEXT
+| Foreign key para plans (NULL para compra avulsa)
+
+| source
+| TEXT
+| Origem da licença: `plan` (bundle), `individual` (avulso), `trial`, `promo`
+
+| status
+| TEXT
+| Status da assinatura
+
+| stripe_subscription_id
+| TEXT
+| ID da assinatura no Stripe
+
+| stripe_customer_id
+| TEXT
+| ID do cliente no Stripe
+
+| valid_from
+| TEXT
+| Início da validade
+
+| valid_until
+| TEXT
+| Fim da validade (NULL = enquanto ativo)
+|===
+
+=== Fluxo de Criação de Entitlements
+
+Quando uma licença é criada:
+
+[mermaid]
+----
+flowchart TD
+    L[Nova Licença] --> S{source?}
+    S -->|plan| P[Busca plan_apps]
+    S -->|individual| I[App específico]
+
+    P --> E1[Cria Entitlement App 1]
+    P --> E2[Cria Entitlement App 2]
+    P --> E3[Cria Entitlement App N]
+
+    I --> E4[Cria Entitlement único]
+
+    E1 --> Q[Aplica quotas do plano]
+    E2 --> Q
+    E3 --> Q
+    E4 --> Q2[Aplica quotas da compra]
+----
+
+== Tenant Entitlements
+
+A tabela `tenant_entitlements` define quais apps um tenant pode acessar e sob quais condições. Cada entitlement é gerado a partir de uma licença (plano ou compra avulsa).
+
+[source,sql]
+----
+CREATE TABLE tenant_entitlements (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    license_id TEXT NOT NULL REFERENCES licenses(id) ON DELETE CASCADE,
+    app_id TEXT NOT NULL,
+    version_spec TEXT NOT NULL DEFAULT '*',
+    scope TEXT NOT NULL DEFAULT 'full_access'
+        CHECK (scope IN ('full_access', 'read_only', 'custom')),
+    license_mode TEXT NOT NULL DEFAULT 'unlimited'
+        CHECK (license_mode IN ('concurrent', 'named', 'unlimited', 'active_users')),
+    quotas TEXT NOT NULL DEFAULT '{}',
+    expires_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (tenant_id, app_id, license_id)
+);
+
+CREATE INDEX idx_tenant_entitlements_license ON tenant_entitlements(license_id);
+CREATE INDEX idx_tenant_entitlements_expires ON tenant_entitlements(expires_at)
+    WHERE expires_at IS NOT NULL;
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| id
+| TEXT
+| Chave primária
+
+| tenant_id
+| TEXT
+| Foreign key para tenants
+
+| license_id
+| TEXT
+| Foreign key para licenses (origem do entitlement)
+
+| app_id
+| TEXT
+| Identificador do app
+
+| version_spec
+| TEXT
+| Range SemVer (ex: `^2.0.0`, `>=1.5.0 <2.0.0`)
+
+| scope
+| TEXT
+| Nível de acesso: full_access, read_only ou custom
+
+| license_mode
+| TEXT
+| Modelo de licenciamento para este entitlement
+
+| quotas
+| TEXT
+| Limites de uso em formato JSON
+
+| expires_at
+| TEXT
+| Expiração do entitlement (herda da licença ou override)
+
+| created_at
+| TEXT
+| Quando o entitlement foi criado
+|===
+
+=== Estrutura JSON de Quotas
+
+[source,json]
+----
+{
+  "max_users": 100,
+  "max_storage_gb": 50,
+  "max_requests_per_day": 10000,
+  "max_concurrent_sessions": 25,
+  "features": ["export", "api_access", "webhooks"]
+}
+----
+
+== License Assignments
+
+A tabela `license_assignments` rastreia atribuições individuais de licenças para o modelo named/per-seat.
+
+[source,sql]
+----
+CREATE TABLE license_assignments (
+    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    department_id TEXT,
+    app_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    assigned_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (tenant_id, app_id, user_id)
+);
+
+CREATE INDEX idx_license_assignments_user ON license_assignments(user_id);
+CREATE INDEX idx_license_assignments_dept ON license_assignments(tenant_id, department_id)
+    WHERE department_id IS NOT NULL;
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| tenant_id
+| TEXT
+| Foreign key para tenants
+
+| department_id
+| TEXT
+| Agrupamento opcional por departamento/equipe
+
+| app_id
+| TEXT
+| Identificador do app
+
+| user_id
+| TEXT
+| Identificador do usuário dentro do tenant
+
+| assigned_at
+| TEXT
+| Quando a licença foi atribuída
+|===
+
+== Session Tracking
+
+A tabela `session_tracking` monitora sessões ativas e históricas de usuários para licenciamento concorrente e analytics.
+
+[source,sql]
+----
+CREATE TABLE session_tracking (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    app_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    ended_at TEXT,
+    last_activity_at TEXT NOT NULL DEFAULT (datetime('now')),
+    end_reason TEXT CHECK (end_reason IN ('logout', 'timeout', 'forced', 'cleanup'))
+);
+
+CREATE INDEX idx_session_tracking_active ON session_tracking(tenant_id, app_id)
+    WHERE ended_at IS NULL;
+CREATE INDEX idx_session_tracking_user ON session_tracking(tenant_id, user_id);
+CREATE INDEX idx_session_tracking_activity ON session_tracking(last_activity_at)
+    WHERE ended_at IS NULL;
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| id
+| TEXT
+| Chave primária
+
+| tenant_id
+| TEXT
+| Foreign key para tenants
+
+| app_id
+| TEXT
+| Identificador do app
+
+| user_id
+| TEXT
+| Identificador do usuário dentro do tenant
+
+| started_at
+| TEXT
+| Hora de início da sessão
+
+| ended_at
+| TEXT
+| Hora de fim da sessão (null = ativa)
+
+| last_activity_at
+| TEXT
+| Última atividade registrada
+
+| end_reason
+| TEXT
+| Como a sessão terminou
+|===
+
+== Tenant Usage
+
+A tabela `tenant_usage` agrega métricas de uso por tenant/app para billing e enforcement de quotas.
+
+[source,sql]
+----
+CREATE TABLE tenant_usage (
+    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    app_id TEXT NOT NULL,
+    period_start TEXT NOT NULL,
+    requests_count INTEGER NOT NULL DEFAULT 0,
+    compute_ms INTEGER NOT NULL DEFAULT 0,
+    storage_bytes INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (tenant_id, app_id, period_start)
+);
+
+CREATE INDEX idx_tenant_usage_period ON tenant_usage(period_start);
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| tenant_id
+| TEXT
+| Foreign key para tenants
+
+| app_id
+| TEXT
+| Identificador do app
+
+| period_start
+| TEXT
+| Início do período de agregação (horário/diário)
+
+| requests_count
+| INTEGER
+| Total de requests no período
+
+| compute_ms
+| INTEGER
+| Tempo total de computação em milissegundos
+
+| storage_bytes
+| INTEGER
+| Snapshot de uso de armazenamento
+|===
+
+== User Plans (B2C)
+
+A tabela `licenses_user_plans` armazena entitlements individuais de usuários no modelo B2C. Diferentemente do modelo B2B onde o tenant possui a licença, aqui cada usuário possui seu próprio plano de acesso.
+
+[source,sql]
+----
+CREATE TABLE licenses_user_plans (
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  app_id TEXT NOT NULL,
+  plan TEXT NOT NULL CHECK (plan IN ('free', 'basic', 'premium', 'enterprise')),
+  plan_features TEXT NOT NULL DEFAULT '[]',
+  addons TEXT NOT NULL DEFAULT '[]',
+  trial_plan TEXT,
+  trial_expires_at TEXT,
+  quotas TEXT NOT NULL DEFAULT '{}',
+  expires_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (tenant_id, user_id, app_id)
+);
+
+CREATE INDEX idx_licenses_user_plans_user ON licenses_user_plans(tenant_id, user_id);
+CREATE INDEX idx_licenses_user_plans_trial ON licenses_user_plans(trial_expires_at)
+    WHERE trial_expires_at IS NOT NULL;
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| tenant_id
+| TEXT
+| Foreign key para tenants
+
+| user_id
+| TEXT
+| ID do usuário
+
+| app_id
+| TEXT
+| ID do app
+
+| plan
+| TEXT
+| Plano do usuário: "free", "basic", "premium" ou "enterprise"
+
+| plan_features
+| TEXT
+| JSON array de features do plano (ex: ["export:pdf", "storage:10gb", "api_access"])
+
+| addons
+| TEXT
+| JSON array de features adicionais compradas (ex: [{"id": "storage_50gb", "name": "Storage Extra 50GB", "features": ["storage:+50gb"]}])
+
+| trial_plan
+| TEXT
+| Plano em trial (null se não há trial ativo)
+
+| trial_expires_at
+| TEXT
+| Data de expiração do trial
+
+| quotas
+| TEXT
+| Limites individuais em formato JSON (ex: {"max_storage_gb": 10, "max_projects": 5, "max_api_requests_per_day": 1000})
+
+| expires_at
+| TEXT
+| Data de expiração do plano (null = permanente)
+
+| created_at
+| TEXT
+| Quando o plano foi criado
+
+| updated_at
+| TEXT
+| Última atualização do plano
+|===
+
+NOTE: User plans (B2C) são entitlements contratuais gerenciados pelo `app-licenses`, pois definem QUAIS apps/features o usuário pode acessar. Permissões de AÇÕES dentro dos apps (o que o usuário pode fazer) são gerenciadas pelo `app-iam` através de roles.
+
+== Resource Types
+
+A tabela `resource_types` define o schema para recursos configuráveis por tenant.
+
+[source,sql]
+----
+CREATE TABLE resource_types (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    version TEXT NOT NULL DEFAULT '1.0.0',
+    fields TEXT NOT NULL
+);
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| id
+| TEXT
+| Chave primária
+
+| name
+| TEXT
+| Identificador do tipo de recurso (ex: `database`, `storage_bucket`)
+
+| version
+| TEXT
+| Versão do schema para migrações
+
+| fields
+| TEXT
+| Definições de campos com tipos e validação em JSON
+|===
+
+=== Estrutura JSON de Fields
+
+[source,json]
+----
+{
+  "host": { "type": "string", "required": true, "sensitive": false },
+  "port": { "type": "integer", "default": 5432, "sensitive": false },
+  "ssl": { "type": "boolean", "default": true, "sensitive": false },
+  "password": { "type": "string", "required": true, "sensitive": true }
+}
+----
+
+== Tenant Resources
+
+A tabela `tenant_resources` armazena configurações específicas de recursos por tenant com dados sensíveis criptografados.
+
+[source,sql]
+----
+CREATE TABLE tenant_resources (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    app_id TEXT NOT NULL,
+    type_id TEXT NOT NULL REFERENCES resource_types(id),
+    config BLOB NOT NULL,  -- JSON criptografado com AES-256-GCM
+    status TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'pending', 'disabled', 'error')),
+    UNIQUE (tenant_id, app_id, type_id)
+);
+
+CREATE INDEX idx_tenant_resources_type ON tenant_resources(type_id);
+CREATE INDEX idx_tenant_resources_status ON tenant_resources(status);
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| id
+| TEXT
+| Chave primária
+
+| tenant_id
+| TEXT
+| Foreign key para tenants
+
+| app_id
+| TEXT
+| Identificador do app
+
+| type_id
+| TEXT
+| Foreign key para resource_types
+
+| config
+| BLOB
+| Configuração criptografada (AES-256-GCM)
+
+| status
+| TEXT
+| Status de provisionamento do recurso
+|===
+
+== IAM Departments
+
+A tabela `iam_departments` armazena a estrutura de organograma (B2B) com hierarquia de departamentos.
+
+[source,sql]
+----
+CREATE TABLE iam_departments (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  parent_id TEXT REFERENCES iam_departments(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (tenant_id, name)
+);
+
+CREATE INDEX idx_iam_departments_tenant ON iam_departments(tenant_id);
+CREATE INDEX idx_iam_departments_parent ON iam_departments(parent_id);
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| id
+| TEXT
+| Chave primária
+
+| tenant_id
+| TEXT
+| Foreign key para tenants
+
+| name
+| TEXT
+| Nome do departamento
+
+| parent_id
+| TEXT
+| Departamento pai (hierarquia)
+
+| created_at
+| TEXT
+| Timestamp de criação
+|===
+
+== IAM Roles
+
+A tabela `iam_roles` define papéis (roles) com suas respectivas permissões por tenant e app.
+
+[source,sql]
+----
+CREATE TABLE iam_roles (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  app_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  permissions TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (tenant_id, app_id, name)
+);
+
+CREATE INDEX idx_iam_roles_app ON iam_roles(tenant_id, app_id);
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| id
+| TEXT
+| Chave primária
+
+| tenant_id
+| TEXT
+| Foreign key para tenants
+
+| app_id
+| TEXT
+| ID do app para o qual a role se aplica
+
+| name
+| TEXT
+| Nome da role (ex: "admin", "editor", "viewer")
+
+| permissions
+| TEXT
+| JSON array de permissões (ex: `["files:create", "files:delete"]`)
+
+| created_at
+| TEXT
+| Timestamp de criação
+|===
+
+== IAM User Roles
+
+A tabela `iam_user_roles` mapeia usuários para roles (com departamento opcional).
+
+[source,sql]
+----
+CREATE TABLE iam_user_roles (
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  app_id TEXT NOT NULL,
+  role_id TEXT NOT NULL REFERENCES iam_roles(id) ON DELETE CASCADE,
+  department_id TEXT REFERENCES iam_departments(id),
+  assigned_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (tenant_id, user_id, app_id)
+);
+
+CREATE INDEX idx_iam_user_roles_user ON iam_user_roles(user_id);
+CREATE INDEX idx_iam_user_roles_dept ON iam_user_roles(tenant_id, department_id)
+  WHERE department_id IS NOT NULL;
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| tenant_id
+| TEXT
+| Foreign key para tenants
+
+| user_id
+| TEXT
+| ID do usuário
+
+| app_id
+| TEXT
+| ID do app
+
+| role_id
+| TEXT
+| Foreign key para iam_roles
+
+| department_id
+| TEXT
+| Foreign key para iam_departments (opcional)
+
+| assigned_at
+| TEXT
+| Quando a role foi atribuída
+|===
+
+== IAM User Permissions
+
+A tabela `iam_user_permissions` armazena permissões explícitas (overrides) por usuário.
+
+[source,sql]
+----
+CREATE TABLE iam_user_permissions (
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  app_id TEXT NOT NULL,
+  permission TEXT NOT NULL,
+  granted INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (tenant_id, user_id, app_id, permission)
+);
+
+CREATE INDEX idx_iam_user_perms_user ON iam_user_permissions(tenant_id, user_id, app_id);
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| tenant_id
+| TEXT
+| Foreign key para tenants
+
+| user_id
+| TEXT
+| ID do usuário
+
+| app_id
+| TEXT
+| ID do app
+
+| permission
+| TEXT
+| Permissão específica (ex: "files:delete")
+
+| granted
+| INTEGER
+| 1 = concedida, 0 = revogada (override negativo)
+
+| created_at
+| TEXT
+| Quando a permissão foi modificada
+|===
+
+== Estratégia de Migração
+
+[mermaid]
+----
+flowchart LR
+    A[Schema v1] --> B{Breaking?}
+    B -->|Não| C[ALTER TABLE]
+    B -->|Sim| D[Nova Tabela + Migração]
+    D --> E[Copiar Dados]
+    E --> F[Trocar Nomes]
+    F --> G[Remover Antiga]
+----
+
+Para mudanças não-breaking, use `ALTER TABLE`. Para mudanças breaking, crie uma nova versão da tabela, migre os dados e depois troque os nomes.
+
+== Fluxo de Dados
+
+O diagrama abaixo ilustra como os dados fluem durante uma requisição:
+
+[mermaid]
+----
+sequenceDiagram
+    participant C as Cliente
+    participant A as plugin-authn
+    participant L as app-licenses
+    participant DB as Database
+    participant W as Worker
+
+    C->>A: Request com API Key
+    A->>DB: Busca tenant por API key
+    DB-->>A: Dados do tenant
+    A->>L: Request + x-tenant-id
+    L->>DB: Busca entitlement
+    DB-->>L: Entitlement + license_mode
+
+    alt Modo CONCURRENT
+        L->>DB: Conta sessões ativas
+        DB-->>L: count atual
+        alt count < limit
+            L->>DB: Cria sessão
+        else count >= limit
+            L-->>C: 409 Conflict
+        end
+    end
+
+    L->>W: Request autorizada
+    W->>DB: Atualiza tenant_usage
+    W-->>C: Response
+----

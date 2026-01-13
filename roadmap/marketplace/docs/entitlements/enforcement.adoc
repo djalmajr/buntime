@@ -1,0 +1,461 @@
+= Enforcement de Licenças
+
+O enforcement de licenças garante que tenants operem dentro dos limites de seus entitlements. O sistema de enforcement valida direitos de acesso em múltiplos pontos de verificação e trata violações de forma adequada.
+
+== Visão Geral do Fluxo de Enforcement
+
+Toda requisição de acesso passa por um pipeline de enforcement em múltiplos estágios:
+
+[mermaid]
+----
+flowchart TD
+    A[Requisição de Acesso] --> B{Entitlement existe?}
+    B -->|Não| C[NEGADO: Sem entitlement]
+    B -->|Sim| D{Verifica expiração}
+    D -->|Expirado| E[NEGADO: EXPIRED_LICENSE]
+    D -->|Válido| F{Verifica modo de licença}
+
+    F -->|NAMED| G[Enforcement NAMED]
+    F -->|CONCURRENT| H[Enforcement CONCURRENT]
+    F -->|ACTIVE_USERS| I[Enforcement ACTIVE_USERS]
+    F -->|UNLIMITED| J[Pula verificação de licença]
+
+    G --> K{Passou?}
+    H --> K
+    I --> K
+    J --> K
+
+    K -->|Não| L[NEGADO: Violação específica do modo]
+    K -->|Sim| M{Verifica escopo de permissão}
+
+    M --> N{Ação permitida?}
+    N -->|Não| O[NEGADO: Permissões insuficientes]
+    N -->|Sim| P{Verifica quotas}
+
+    P --> Q{Dentro dos limites?}
+    Q -->|Não| R[NEGADO: Quota excedida]
+    Q -->|Sim| S[ACESSO CONCEDIDO]
+----
+
+== Verificação de Expiração
+
+A primeira verificação de enforcement valida que o entitlement não expirou:
+
+[source,typescript]
+----
+interface ExpirationCheck {
+  entitlement_id: string;
+  expires_at: Date | null;  // null = perpétuo
+  current_time: Date;
+  grace_period_hours: number;  // padrão: 24
+}
+----
+
+Entitlements expirados entram em período de carência antes da negação definitiva:
+
+[cols="1,2,2"]
+|===
+| Estado | Duração | Comportamento
+
+| Ativo
+| Antes de `expires_at`
+| Acesso completo
+
+| Período de Carência
+| 0-24 horas após expiração
+| Acesso completo + banner de aviso
+
+| Expirado
+| >24 horas após expiração
+| Acesso negado
+|===
+
+== Enforcement de Licença NAMED
+
+Para licenciamento NAMED, o enforcement ocorre no momento da atribuição do usuário, não no login:
+
+[mermaid]
+----
+flowchart TD
+    subgraph "Momento da Atribuição"
+        A1[Admin atribui usuário] --> A2{Conta atribuídos}
+        A2 --> A3{atribuídos < limite?}
+        A3 -->|Sim| A4[Atribuição bem-sucedida]
+        A3 -->|Não| A5[Atribuição negada]
+    end
+
+    subgraph "Momento do Login"
+        L1[Login do usuário] --> L2{Usuário atribuído?}
+        L2 -->|Sim| L3[Acesso concedido]
+        L2 -->|Não| L4[Acesso negado]
+    end
+
+    subgraph "Alertas de Capacidade"
+        C1{atribuídos >= 80%?}
+        C1 -->|Sim| C2[Envia aviso para admins]
+        C3{atribuídos >= 95%?}
+        C3 -->|Sim| C4[Envia alerta urgente]
+    end
+----
+
+=== Regras de Enforcement NAMED
+
+[cols="1,2,2"]
+|===
+| Limite | Nível do Alerta | Ação
+
+| 80% capacidade
+| WARNING
+| Notifica admins do tenant via email
+
+| 95% capacidade
+| URGENT
+| Notifica admins + sugere caminho de upgrade
+
+| 100% capacidade
+| CRITICAL
+| Bloqueia novas atribuições, notifica billing
+|===
+
+=== Implementação
+
+[source,typescript]
+----
+async function enforceNamed(entitlement: Entitlement, userId: string): Promise<EnforcementResult> {
+  const assignedCount = await countAssignedLicenses(entitlement.id);
+  const limit = entitlement.license_limit;
+
+  // Verifica se usuário já está atribuído
+  const isAssigned = await isUserAssigned(entitlement.id, userId);
+
+  if (isAssigned) {
+    return { granted: true };
+  }
+
+  // Usuário não atribuído - nega acesso
+  return {
+    granted: false,
+    violation: "NAMED_NOT_ASSIGNED",
+    message: "Usuário deve ser atribuído a uma licença por um administrador"
+  };
+}
+----
+
+== Enforcement de Licença CONCURRENT
+
+Para licenciamento CONCURRENT, o enforcement ocorre no login/criação de sessão:
+
+[mermaid]
+----
+flowchart TD
+    A[Tentativa de login] --> B[Conta sessões ativas]
+    B --> C{ativas < limite?}
+    C -->|Sim| D[Cria nova sessão]
+    C -->|Não| E{Verifica sessões obsoletas}
+    E --> F{Existem sessões obsoletas?}
+    F -->|Sim| G[Limpa sessões obsoletas]
+    G --> H{ativas < limite agora?}
+    H -->|Sim| D
+    H -->|Não| I{Desconexão forçada?}
+    F -->|Não| I
+    I -->|Sim| J[Desconecta mais antiga]
+    I -->|Não| K[NEGADO: CONCURRENT_EXCEEDED]
+    J --> D
+
+    D --> L{ativas >= 90%?}
+    L -->|Sim| M[Envia alerta de capacidade]
+    L -->|Não| N[Acesso concedido]
+    M --> N
+----
+
+=== Regras de Enforcement CONCURRENT
+
+[cols="1,2"]
+|===
+| Configuração | Descrição
+
+| `concurrent_limit`
+| Máximo de sessões simultâneas
+
+| `session_timeout_minutes`
+| Timeout de inatividade (padrão: 30)
+
+| `force_disconnect_oldest`
+| Permite desconectar sessão mais antiga quando na capacidade
+
+| `stale_threshold_minutes`
+| Tempo antes da sessão ser considerada obsoleta (padrão: 30)
+|===
+
+=== Limpeza de Sessões
+
+Um job em background roda a cada 5 minutos para limpar sessões obsoletas:
+
+[source,typescript]
+----
+async function cleanupStaleSessions(): Promise<void> {
+  const staleThreshold = new Date(Date.now() - 30 * 60 * 1000); // 30 minutos
+
+  await db.sessions.updateMany({
+    where: {
+      last_activity: { lt: staleThreshold },
+      status: "active"
+    },
+    data: {
+      status: "stale",
+      ended_at: new Date()
+    }
+  });
+}
+----
+
+== Enforcement de Licença ACTIVE_USERS
+
+Para licenciamento ACTIVE_USERS, o enforcement ocorre no login:
+
+[mermaid]
+----
+flowchart TD
+    A[Tentativa de login] --> B{Usuário na janela atual?}
+    B -->|Sim| C[Acesso concedido - já contado]
+    B -->|Não| D[Conta usuários únicos na janela]
+    D --> E{contagem < limite?}
+    E -->|Sim| F[Adiciona usuário à janela]
+    E -->|Não| G[NEGADO: ACTIVE_USERS_EXCEEDED]
+    F --> H[Acesso concedido]
+
+    subgraph "Cálculo da Janela"
+        W1[window_start = now - 30 dias]
+        W2[SELECT DISTINCT user_id]
+        W3[WHERE first_access >= window_start]
+    end
+----
+
+=== Regras de Enforcement ACTIVE_USERS
+
+[cols="1,2"]
+|===
+| Parâmetro | Descrição
+
+| `window_days`
+| Tamanho da janela móvel (padrão: 30)
+
+| `active_user_limit`
+| Máximo de usuários únicos na janela
+
+| `count_method`
+| `first_access` ou `any_access`
+|===
+
+=== Implementação
+
+[source,typescript]
+----
+async function enforceActiveUsers(entitlement: Entitlement, userId: string): Promise<EnforcementResult> {
+  const windowStart = new Date(Date.now() - entitlement.window_days * 24 * 60 * 60 * 1000);
+
+  // Verifica se usuário já contado nesta janela
+  const existingAccess = await db.activeUsers.findFirst({
+    where: {
+      entitlement_id: entitlement.id,
+      user_id: userId,
+      first_access: { gte: windowStart }
+    }
+  });
+
+  if (existingAccess) {
+    return { granted: true };
+  }
+
+  // Conta usuários únicos atuais
+  const currentCount = await db.activeUsers.count({
+    where: {
+      entitlement_id: entitlement.id,
+      first_access: { gte: windowStart }
+    }
+  });
+
+  if (currentCount >= entitlement.active_user_limit) {
+    return {
+      granted: false,
+      violation: "ACTIVE_USERS_EXCEEDED",
+      message: `Limite de usuários ativos de ${entitlement.active_user_limit} atingido para este período`
+    };
+  }
+
+  // Adiciona usuário ao conjunto ativo
+  await db.activeUsers.create({
+    data: {
+      entitlement_id: entitlement.id,
+      user_id: userId,
+      first_access: new Date()
+    }
+  });
+
+  return { granted: true };
+}
+----
+
+== Verificação de Escopo de Permissão
+
+Após o enforcement do modo de licença passar, o sistema verifica a ação requisitada contra o escopo de permissão do entitlement:
+
+[mermaid]
+----
+flowchart TD
+    A[Ação requisitada] --> B{Obtém escopo do entitlement}
+    B --> C{Tipo de escopo?}
+
+    C -->|FULL_ACCESS| D[Todas as ações permitidas]
+    C -->|READ_ONLY| E{É operação de leitura?}
+    C -->|CUSTOM| F{Verifica allowed_actions}
+
+    E -->|Sim| G[Ação permitida]
+    E -->|Não| H[Ação negada]
+
+    F --> I{Ação na lista permitida?}
+    I -->|Sim| J{Ação na lista negada?}
+    I -->|Não| K[Ação negada]
+    J -->|Não| G
+    J -->|Sim| K
+
+    D --> G
+----
+
+=== Definições de Escopo
+
+[cols="1,3"]
+|===
+| Escopo | Ações Permitidas
+
+| `FULL_ACCESS`
+| Todas as operações incluindo funções admin
+
+| `READ_ONLY`
+| `data:read`, `reports:view`, `exports:download`
+
+| `CUSTOM`
+| Explicitamente listadas em `allowed_actions`
+|===
+
+=== Exemplo de Escopo CUSTOM
+
+[source,json]
+----
+{
+  "scope": "CUSTOM",
+  "allowed_actions": [
+    "data:read",
+    "data:create",
+    "reports:generate",
+    "exports:create"
+  ],
+  "denied_actions": [
+    "data:delete",
+    "config:modify",
+    "users:manage"
+  ]
+}
+----
+
+== Tipos de Violação
+
+[cols="1,2,2"]
+|===
+| Código da Violação | Descrição | Resolução
+
+| `EXPIRED_LICENSE`
+| Entitlement passou da data de expiração
+| Renovar assinatura ou contatar billing
+
+| `NAMED_NOT_ASSIGNED`
+| Usuário não atribuído a uma licença NAMED
+| Admin deve atribuir usuário a assento disponível
+
+| `NAMED_EXCEEDED`
+| Todas as licenças NAMED atribuídas
+| Comprar assentos adicionais ou desatribuir usuários inativos
+
+| `CONCURRENT_EXCEEDED`
+| Máximo de sessões simultâneas atingido
+| Aguardar término de sessões ou aumentar limite
+
+| `ACTIVE_USERS_EXCEEDED`
+| Limite de usuários únicos atingido para o período
+| Aguardar janela avançar ou fazer upgrade do plano
+
+| `INSUFFICIENT_PERMISSIONS`
+| Ação não permitida pelo escopo
+| Solicitar upgrade de escopo ou usar ação diferente
+
+| `QUOTA_EXCEEDED`
+| Quota de recursos esgotada
+| Aguardar reset ou fazer upgrade de quota
+|===
+
+== Formato de Resposta do Enforcement
+
+Todas as decisões de enforcement retornam uma resposta padronizada:
+
+[source,typescript]
+----
+interface EnforcementResult {
+  granted: boolean;
+  violation?: ViolationType;
+  message?: string;
+  context?: {
+    current_usage?: number;
+    limit?: number;
+    reset_at?: Date;
+    upgrade_url?: string;
+  };
+}
+----
+
+=== Resposta de Sucesso
+
+[source,json]
+----
+{
+  "granted": true
+}
+----
+
+=== Resposta de Negação
+
+[source,json]
+----
+{
+  "granted": false,
+  "violation": "CONCURRENT_EXCEEDED",
+  "message": "Máximo de 25 sessões concorrentes atingido",
+  "context": {
+    "current_usage": 25,
+    "limit": 25,
+    "upgrade_url": "/billing/upgrade?feature=concurrent_sessions"
+  }
+}
+----
+
+== Exceções ao Enforcement
+
+Certos cenários permitem exceções ao enforcement:
+
+[cols="1,2,2"]
+|===
+| Cenário | Nível de Exceção | Condições
+
+| Manutenção do sistema
+| Exceção completa
+| Sinalizado por admin da plataforma
+
+| Período de carência
+| Exceção parcial
+| Dentro de 24h da expiração
+
+| Acesso de suporte
+| Apenas auditoria
+| Referência de ticket de suporte requerida
+|===
+
+WARNING: Todas as exceções são registradas para fins de auditoria e requerem justificativa explícita.

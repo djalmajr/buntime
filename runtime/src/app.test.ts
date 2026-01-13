@@ -16,7 +16,7 @@ const TEST_DIR = join(import.meta.dir, ".test-app");
 // Initialize config once before all tests
 beforeAll(() => {
   mkdirSync(TEST_DIR, { recursive: true });
-  initConfig({ workerDirs: [TEST_DIR] }, TEST_DIR);
+  initConfig({ baseDir: TEST_DIR, libsqlUrl: "http://localhost:8880", workerDirs: [TEST_DIR] });
 });
 
 // Clean up after tests
@@ -76,28 +76,26 @@ const createMockPlugin = (overrides: Partial<BuntimePlugin> = {}): BuntimePlugin
 describe("createApp", () => {
   let registry: PluginRegistry;
   let pool: WorkerPool & { fetchMock: ReturnType<typeof mock> };
-  let pluginsInfo: Hono;
-  let pluginsCore: Hono;
-  let configCore: Hono;
-  let appsCore: Hono;
+  let coreRoutes: Hono;
   let workers: Hono;
 
   beforeEach(() => {
     registry = new PluginRegistry();
     pool = createMockPool();
-    pluginsInfo = new HonoApp().get("/", (c) => c.json({ plugins: [] }));
-    pluginsCore = new HonoApp().get("/", (c) => c.json([]));
-    configCore = new HonoApp().get("/plugins", (c) => c.json({ configs: {}, versions: [] }));
-    appsCore = new HonoApp().get("/", (c) => c.json([]));
+    // Mock core routes - mounted at /api in the app
+    coreRoutes = new HonoApp()
+      .get("/apps", (c) => c.json([]))
+      .get("/config/plugins", (c) => c.json({ configs: {}, versions: [] }))
+      .get("/health", (c) => c.json({ ok: true, status: "healthy" }))
+      .get("/keys", (c) => c.json({ keys: [] }))
+      .get("/plugins", (c) => c.json([]))
+      .get("/plugins/loaded", (c) => c.json([]));
     workers = new HonoApp().all("*", () => new Response("worker fallback"));
   });
 
   const createDeps = (overrides: Partial<AppDeps> = {}): AppDeps => ({
-    appsCore,
-    configCore,
+    coreRoutes: coreRoutes as any,
     getWorkerDir: () => "/mock/app/dir",
-    pluginsCore,
-    pluginsInfo,
     pool: pool as unknown as WorkerPool,
     registry,
     workers,
@@ -111,13 +109,13 @@ describe("createApp", () => {
       expect(typeof app.fetch).toBe("function");
     });
 
-    it("should handle /api/plugins route", async () => {
+    it("should handle /api/plugins/loaded route", async () => {
       const app = createApp(createDeps());
-      const req = new Request("http://localhost/api/plugins");
+      const req = new Request("http://localhost/api/plugins/loaded");
       const res = await app.fetch(req);
       expect(res.status).toBe(200);
       const json = await res.json();
-      expect(json).toEqual({ plugins: [] });
+      expect(json).toEqual([]);
     });
 
     it("should forward requests to workers", async () => {

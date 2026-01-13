@@ -1,0 +1,295 @@
+= Modelo Híbrido
+
+O Buntime suporta dois tipos de aplicações: nativas (Workers) e legadas (Proxied). Este modelo híbrido permite migração gradual de sistemas existentes enquanto novos desenvolvimentos aproveitam a infraestrutura moderna.
+
+== Tipos de Aplicações
+
+=== Apps Nativos (Workers)
+
+Aplicações nativas são executadas diretamente pelo Buntime em worker threads isoladas.
+
+Características:
+
+* Código TypeScript/JavaScript executado pelo Bun
+* Servidas pelo Buntime (sem servidor externo)
+* Multitenancy via `plugin-database` (isolamento automático)
+* Suporte a múltiplos bancos: LibSQL (namespaces), PostgreSQL (schemas), MySQL (databases), SQLite (files)
+* Acesso ao KeyVal com namespace do tenant
+
+Exemplos:
+
+* Novos microsserviços desenvolvidos para o marketplace
+* SPAs com backend Bun
+* APIs modernas
+
+=== Apps Legados (Proxied)
+
+Aplicações legadas são sistemas existentes servidos por backends externos.
+
+Características:
+
+* Código executado em servidores próprios (Java, Python, etc.)
+* Buntime atua como gateway via `plugin-proxy`
+* Multitenancy gerenciada pelo backend (PostgreSQL schema por cliente)
+* Tenant ID extraído do JWT e passado via headers
+
+Exemplos:
+
+* ERPs existentes
+* CRMs legados
+* APIs externas integradas
+
+== Comparativo
+
+[cols="1,2,2"]
+|===
+| Aspecto | Apps Nativos | Apps Legados
+
+| Execução
+| Worker threads do Buntime
+| Servidores externos
+
+| Banco de dados
+| LibSQL, PostgreSQL, MySQL ou SQLite (isolamento por tenant)
+| PostgreSQL, MySQL ou outro (schema/banco por cliente)
+
+| Multitenancy
+| Automática via plugins
+| Gerenciada pelo backend
+
+| Configuração
+| `manifest.jsonc` na pasta do app
+| Regras no `plugin-proxy`
+
+| Deploy
+| Basta atualizar código no Buntime
+| Deploy independente do backend
+|===
+
+== Fluxo de Request
+
+O diagrama abaixo ilustra como uma requisição é processada dependendo do tipo de aplicação:
+
+[mermaid]
+----
+flowchart TD
+    req[Request]
+    authn[plugin-authn<br/>Identifica tenant<br/>Injeta x-tenant-id]
+    authz[plugin-authz PEP<br/>Verifica permissões<br/>Consulta entitlements via PIP]
+    tipo{Tipo de App?}
+
+    subgraph native["Apps Nativos"]
+        pool[Worker Pool]
+        db[plugin-database<br/>LibSQL/SQLite/etc]
+    end
+
+    subgraph legacy["Apps Legados"]
+        proxy[plugin-proxy]
+        backend[Backend Externo<br/>PostgreSQL]
+    end
+
+    resp[Response]
+
+    req --> authn
+    authn --> authz
+    authz --> tipo
+    tipo -->|Nativo| pool
+    pool --> db
+    db --> resp
+    tipo -->|Legado| proxy
+    proxy --> backend
+    backend --> resp
+----
+
+NOTE: O `app-licenses` (worker) é um PIP consultado via HTTP pelo PDP do `plugin-authz`, não middleware na cadeia de request.
+
+== Multitenancy por Tipo
+
+=== Estratégia para Apps Nativos
+
+Apps nativos utilizam a infraestrutura de multitenancy do Buntime:
+
+[mermaid]
+----
+flowchart LR
+    subgraph Buntime
+        pk[plugin-keyval]
+        pd[plugin-database]
+    end
+
+    subgraph Database["Database (LibSQL/PG/MySQL/SQLite)"]
+        db1[(tenant: acme)]
+        db2[(tenant: globex)]
+    end
+
+    pk -->|usa| pd
+    pd -->|x-tenant-id: acme| db1
+    pd -->|x-tenant-id: globex| db2
+----
+
+O `plugin-database`:
+
+. Lê `x-tenant-id` do header
+. Roteia para o isolamento correspondente ao tipo de banco:
+  * LibSQL: namespace via subdomain
+  * PostgreSQL: schema dedicado
+  * MySQL: database dedicado
+  * SQLite: arquivo separado
+. Worker acessa apenas dados do seu tenant
+
+O `plugin-keyval`:
+
+. Depende do `plugin-database` para acesso ao banco
+. Aplica namespace automático baseado no tenant (prefixo nas chaves)
+. Isolamento garantido sem código adicional no worker
+
+=== Estratégia para Apps Legados
+
+Apps legados gerenciam multitenancy internamente, mas recebem contexto do Buntime:
+
+[mermaid]
+----
+flowchart LR
+    subgraph Buntime
+        proxy[plugin-proxy]
+    end
+
+    subgraph Backend
+        app[App Legado]
+        jwt[Extração JWT]
+        conn[Connection Pool]
+    end
+
+    subgraph PostgreSQL
+        pg1[(acme_db)]
+        pg2[(globex_db)]
+    end
+
+    proxy -->|x-tenant-id<br/>x-user-id| app
+    app --> jwt
+    jwt --> conn
+    conn --> pg1
+    conn --> pg2
+----
+
+O `plugin-proxy`:
+
+. Recebe `x-tenant-id` do `plugin-authn`
+. Encaminha para backend com headers adicionais
+. Pode injetar credenciais do `plugin-secrets`
+
+O backend legado:
+
+. Extrai tenant do JWT ou headers
+. Seleciona banco/schema via resource-tenant
+. Aplica filtros de segurança
+. Registra auditoria
+
+=== Headers Passados para Legados
+
+O `plugin-proxy` injeta os seguintes headers:
+
+[cols="1,2"]
+|===
+| Header | Descrição
+
+| x-tenant-id
+| UUID do tenant identificado
+
+| x-user-id
+| Usuário autenticado (se houver)
+
+| x-db-host
+| Host do banco (via plugin-secrets)
+
+| x-db-port
+| Porta do banco
+
+| x-db-password
+| Senha descriptografada
+|===
+
+== Resource-Tenant
+
+Para apps legados que precisam de recursos específicos (banco PostgreSQL, Minio, Elasticsearch), o `plugin-authn` gerencia configurações por tenant.
+
+=== Tipos de Recursos
+
+[cols="1,2"]
+|===
+| Tipo | Campos
+
+| DATABASE
+| host, port, database, username, password, pool config
+
+| OBJECT_STORAGE
+| endpoint, accessKey, secretKey, bucket, region
+
+| ELASTIC_INDEX
+| host, port, index, username, password
+|===
+
+=== Fluxo de Acesso
+
+[mermaid]
+----
+sequenceDiagram
+    participant Backend as Backend Legado
+    participant Proxy as plugin-proxy
+    participant Authn as plugin-authn
+    participant Secrets as plugin-secrets
+
+    Backend->>Proxy: Request
+    Note over Proxy: Tem x-tenant-id
+    Proxy->>Authn: GET /authn/api/resources
+    Authn->>Secrets: Busca credenciais
+    Secrets-->>Authn: Config descriptografada
+    Authn-->>Proxy: Resources do tenant
+    Proxy->>Backend: Request + headers de config
+    Backend->>Backend: Conecta ao PostgreSQL
+----
+
+== Migração Gradual
+
+O modelo híbrido permite migração gradual de sistemas legados:
+
+=== Fase 1: Proxy
+
+Aplicação legada continua rodando em servidor próprio, Buntime atua apenas como gateway.
+
+* Zero modificação no código legado
+* Ganho: autenticação centralizada, rate limiting
+
+=== Fase 2: Modernização
+
+Novas funcionalidades são desenvolvidas como apps nativos.
+
+* Backend legado para core existente
+* Workers para novas features
+* Ambos compartilham o mesmo tenant
+
+=== Fase 3: Migração
+
+Funcionalidades do legado são gradualmente portadas para workers.
+
+* Módulo por módulo
+* Dados migrados para banco gerenciado pelo plugin-database
+* Entitlement atualizado quando módulo é portado
+
+== Considerações
+
+=== Performance
+
+Apps nativos tendem a ter menor latência por não haver hop de rede adicional. Apps legados adicionam latência do proxy, mas permitem escalar backend independentemente.
+
+=== Complexidade
+
+Apps nativos são mais simples de operar (tudo no Buntime). Apps legados requerem gestão de infraestrutura separada, mas permitem usar tecnologias específicas.
+
+=== Consistência de Dados
+
+Quando um tenant usa apps de ambos os tipos, é importante garantir consistência. Eventos podem ser sincronizados via:
+
+* Filas KeyVal
+* Webhooks entre sistemas
+* CDC (Change Data Capture) do PostgreSQL

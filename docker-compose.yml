@@ -1,23 +1,23 @@
 services:
-  buntime:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8001:8000"
-    volumes:
-      - ./tmp:/app/apps
-    environment:
-      CONFIG_DIR: /app/data
-      LOG_LEVEL: debug
-      PLUGIN_DIRS: /app/plugins
-      POOL_SIZE: "100"
-      PORT: "8000"
-      WORKER_DIRS: /app/apps
-    depends_on:
-      libsql:
-        condition: service_healthy
-    restart: unless-stopped
+  # buntime:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "8001:8000"
+  #   volumes:
+  #     - ./tmp:/app/apps
+  #   environment:
+  #     LIBSQL_URL: http://libsql:8080
+  #     LOG_LEVEL: debug
+  #     PLUGIN_DIRS: /app/plugins
+  #     POOL_SIZE: "100"
+  #     PORT: "8000"
+  #     WORKER_DIRS: /app/apps
+  #   depends_on:
+  #     libsql:
+  #       condition: service_healthy
+  #   restart: unless-stopped
   libsql:
     image: ghcr.io/tursodatabase/libsql-server:latest
     ports:
@@ -37,26 +37,26 @@ services:
       timeout: 5s
       retries: 3
     restart: unless-stopped
-  libsql-replica:
-    image: ghcr.io/tursodatabase/libsql-server:latest
-    ports:
-      - "8882:8080" # HTTP API (replica)
-    volumes:
-      - libsql-replica-data:/var/lib/sqld
-    environment:
-      SQLD_NODE: replica
-      SQLD_PRIMARY_URL: http://libsql:5001
-      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
-      SQLD_DISABLE_AUTH: "true"
-    depends_on:
-      libsql:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    restart: unless-stopped
+  # libsql-replica:
+  #   image: ghcr.io/tursodatabase/libsql-server:latest
+  #   ports:
+  #     - "8882:8080" # HTTP API (replica)
+  #   volumes:
+  #     - libsql-replica-data:/var/lib/sqld
+  #   environment:
+  #     SQLD_NODE: replica
+  #     SQLD_PRIMARY_URL: http://libsql:5001
+  #     SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+  #     SQLD_DISABLE_AUTH: "true"
+  #   depends_on:
+  #     libsql:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 3
+  #   restart: unless-stopped
 volumes:
   libsql-data:
-  libsql-replica-data:
+  # libsql-replica-data:

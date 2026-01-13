@@ -168,13 +168,17 @@ export interface BuntimeConfig {
   };
 
   /**
-   * Directory for runtime configuration database (SQLite)
-   * Used for storing plugin versions and runtime config
-   * Supports ${ENV_VAR} syntax
-   * @default "./data"
-   * @example "${CONFIG_DIR}" or "/data/config"
+   * LibSQL database URL (required)
+   * Used for storing plugin state, API keys, and audit logs
+   * @example "http://localhost:8880" (dev) or "http://libsql:8080" (prod)
    */
-  configDir?: string;
+  libsqlUrl?: string;
+
+  /**
+   * LibSQL authentication token (optional)
+   * Required if the libSQL server has authentication enabled
+   */
+  libsqlAuthToken?: string;
 
   /**
    * Homepage configuration

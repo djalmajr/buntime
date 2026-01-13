@@ -1,0 +1,582 @@
+= Aplicações Worker do Marketplace
+
+Este documento descreve as seis aplicações worker que compõem a interface de usuário do marketplace. Cada worker é uma SPA independente servida pelo runtime do Buntime e acessada através de caminhos base dedicados.
+
+== Visão Geral dos Workers
+
+[cols="1,2,1,1"]
+|===
+| Worker | Propósito | Caminho Base | Nível de Acesso
+
+| app-admin
+| Gestão de tenants, configuração do sistema
+| `/admin/*`
+| Apenas root
+
+| app-billing
+| Portal de pagamentos, gestão de assinaturas
+| `/billing/*`
+| Admins de tenant
+
+| app-store
+| Catálogo de produtos, loja do marketplace
+| `/store/*`
+| Todos os usuários
+
+| app-vendor
+| Portal de vendedores, publicação de produtos
+| `/vendor/*`
+| Vendedores
+
+| app-onboarding
+| Assistente de configuração inicial
+| `/onboarding/*`
+| Novos tenants
+
+| app-tenant
+| Organograma, gestão de equipe
+| `/tenant/*`
+| Admins de tenant
+|===
+
+== Arquitetura das Aplicações
+
+[mermaid]
+----
+flowchart TB
+    subgraph Runtime["Buntime Runtime"]
+        POOL[Worker Pool]
+        ROUTER[Request Router]
+    end
+
+    subgraph Workers["Aplicações Worker"]
+        ADMIN[app-admin]
+        BILLING[app-billing]
+        STORE[app-store]
+        VENDOR[app-vendor]
+        ONBOARD[app-onboarding]
+        TENANT[app-tenant]
+    end
+
+    subgraph Plugins["APIs dos Plugins"]
+        AUTHN[/authn/api]
+        LIC[/licenses/api]
+        BILL[/billing/api]
+        SEC[/secrets/api]
+    end
+
+    ROUTER --> POOL
+    POOL --> ADMIN
+    POOL --> BILLING
+    POOL --> STORE
+    POOL --> VENDOR
+    POOL --> ONBOARD
+    POOL --> TENANT
+
+    ADMIN --> AUTHN
+    BILLING --> BILL
+    STORE --> LIC
+    VENDOR --> AUTHN
+    ONBOARD --> AUTHN
+    TENANT --> AUTHN
+----
+
+== app-admin
+
+A aplicação admin fornece capacidades de gestão em nível de sistema acessíveis apenas a administradores root. Ela gerencia provisionamento de tenants, monitoramento do sistema e configuração da plataforma.
+
+=== Funcionalidades
+
+* **Gestão de Tenants**: Criar, suspender e remover tenants
+* **Configuração de Planos**: Definir planos de assinatura e recursos
+* **Monitoramento do Sistema**: Visualizar métricas e logs da plataforma
+* **Feature Flags**: Alternar recursos em toda a plataforma
+* **Logs de Auditoria**: Revisar trilha de auditoria do sistema
+
+=== Rotas
+
+[cols="1,2"]
+|===
+| Rota | Descrição
+
+| `/admin/`
+| Dashboard com visão geral do sistema
+
+| `/admin/tenants`
+| Lista e gestão de tenants
+
+| `/admin/tenants/:id`
+| Detalhes de tenant individual
+
+| `/admin/plans`
+| Configuração de planos de assinatura
+
+| `/admin/features`
+| Gestão de feature flags
+
+| `/admin/audit`
+| Visualizador de log de auditoria
+
+| `/admin/settings`
+| Configuração da plataforma
+|===
+
+=== Controle de Acesso
+
+[source,typescript]
+----
+// Acesso apenas para root aplicado pelo plugin-authz
+const policy = {
+  resource: "admin:*",
+  action: "*",
+  condition: {
+    "user.role": { $eq: "root" }
+  }
+};
+----
+
+== app-billing
+
+A aplicação de billing fornece um portal de pagamentos onde administradores de tenant podem gerenciar suas assinaturas, visualizar faturas e atualizar métodos de pagamento.
+
+=== Funcionalidades
+
+* **Visão Geral da Assinatura**: Plano atual e uso
+* **Upgrade/Downgrade de Plano**: Alterar nível da assinatura
+* **Histórico de Faturas**: Visualizar e baixar faturas
+* **Métodos de Pagamento**: Gerenciar cartões de crédito e dados de cobrança
+* **Dashboard de Uso**: Acompanhar uso de recursos contra limites
+
+=== Rotas
+
+[cols="1,2"]
+|===
+| Rota | Descrição
+
+| `/billing/`
+| Dashboard de visão geral da assinatura
+
+| `/billing/plans`
+| Comparação de planos disponíveis
+
+| `/billing/checkout/:plan`
+| Checkout do Stripe para o plano
+
+| `/billing/invoices`
+| Histórico de faturas
+
+| `/billing/invoices/:id`
+| Detalhes da fatura e PDF
+
+| `/billing/payment`
+| Gestão de métodos de pagamento
+
+| `/billing/usage`
+| Métricas de uso e limites
+|===
+
+=== Integração com Stripe
+
+[mermaid]
+----
+sequenceDiagram
+    participant User
+    participant App as app-billing
+    participant API as /billing/api
+    participant Stripe
+
+    User->>App: Click "Upgrade Plan"
+    App->>API: POST /checkout
+    API->>Stripe: Create checkout session
+    Stripe-->>API: Session URL
+    API-->>App: Redirect URL
+    App->>Stripe: Redirect to checkout
+    Stripe->>User: Payment form
+    User->>Stripe: Complete payment
+    Stripe->>API: Webhook: subscription.created
+    API-->>App: Redirect to success
+    App->>User: Show confirmation
+----
+
+== app-store
+
+A aplicação store é o marketplace voltado ao público onde usuários podem navegar, pesquisar e comprar produtos de vendedores.
+
+=== Funcionalidades
+
+* **Catálogo de Produtos**: Navegar pelos produtos disponíveis
+* **Busca e Filtros**: Encontrar produtos por categoria, preço, vendedor
+* **Detalhes do Produto**: Visualizar especificações e avaliações
+* **Carrinho de Compras**: Gerenciar itens selecionados
+* **Fluxo de Checkout**: Comprar produtos
+
+=== Rotas
+
+[cols="1,2"]
+|===
+| Rota | Descrição
+
+| `/store/`
+| Homepage com produtos em destaque
+
+| `/store/browse`
+| Catálogo completo com filtros
+
+| `/store/search`
+| Resultados de busca
+
+| `/store/category/:slug`
+| Listagem por categoria
+
+| `/store/product/:id`
+| Página de detalhes do produto
+
+| `/store/vendor/:id`
+| Perfil do vendedor e produtos
+
+| `/store/cart`
+| Carrinho de compras
+
+| `/store/checkout`
+| Fluxo de checkout
+|===
+
+=== Descoberta de Produtos
+
+[mermaid]
+----
+flowchart LR
+    subgraph Discovery["Descoberta de Produtos"]
+        SEARCH[Busca]
+        BROWSE[Navegação]
+        FEATURED[Destaques]
+    end
+
+    subgraph Filters["Opções de Filtro"]
+        CAT[Categoria]
+        PRICE[Faixa de Preço]
+        RATING[Avaliação]
+        VENDOR[Vendedor]
+    end
+
+    subgraph Results["Resultados"]
+        LIST[Lista de Produtos]
+        DETAIL[Detalhe do Produto]
+        CART[Adicionar ao Carrinho]
+    end
+
+    SEARCH --> LIST
+    BROWSE --> LIST
+    FEATURED --> LIST
+
+    CAT --> LIST
+    PRICE --> LIST
+    RATING --> LIST
+    VENDOR --> LIST
+
+    LIST --> DETAIL
+    DETAIL --> CART
+----
+
+== app-vendor
+
+A aplicação vendor fornece um portal para vendedores gerenciarem seus produtos, acompanharem vendas e lidarem com consultas de clientes.
+
+=== Funcionalidades
+
+* **Gestão de Produtos**: Criar e editar listagens de produtos
+* **Controle de Estoque**: Acompanhar níveis de estoque
+* **Gestão de Pedidos**: Visualizar e processar pedidos
+* **Dashboard de Analytics**: Métricas de vendas e desempenho
+* **Suporte ao Cliente**: Gerenciar consultas e avaliações
+
+=== Rotas
+
+[cols="1,2"]
+|===
+| Rota | Descrição
+
+| `/vendor/`
+| Dashboard com visão geral de vendas
+
+| `/vendor/products`
+| Gestão de listagem de produtos
+
+| `/vendor/products/new`
+| Criar novo produto
+
+| `/vendor/products/:id`
+| Editar detalhes do produto
+
+| `/vendor/orders`
+| Gestão de pedidos
+
+| `/vendor/orders/:id`
+| Detalhes e processamento de pedido
+
+| `/vendor/analytics`
+| Métricas de vendas e desempenho
+
+| `/vendor/profile`
+| Configurações de perfil do vendedor
+
+| `/vendor/support`
+| Gestão de consultas de clientes
+|===
+
+=== Ciclo de Vida do Produto
+
+[mermaid]
+----
+stateDiagram-v2
+    [*] --> Draft: Create
+    Draft --> Review: Submit
+    Review --> Published: Approve
+    Review --> Draft: Reject
+    Published --> Unpublished: Disable
+    Unpublished --> Published: Enable
+    Published --> Archived: Archive
+    Archived --> [*]
+----
+
+== app-onboarding
+
+A aplicação de onboarding guia novos tenants através da configuração inicial, incluindo configuração da organização, convites de usuários e seleção de plano.
+
+=== Funcionalidades
+
+* **Fluxo de Boas-Vindas**: Introdução à plataforma
+* **Configuração da Organização**: Detalhes da empresa e branding
+* **Convites de Equipe**: Convidar membros iniciais da equipe
+* **Seleção de Plano**: Escolher nível de assinatura
+* **Configuração de Integrações**: Conectar serviços externos
+
+=== Rotas
+
+[cols="1,2"]
+|===
+| Rota | Descrição
+
+| `/onboarding/`
+| Boas-vindas e visão geral
+
+| `/onboarding/organization`
+| Formulário de detalhes da empresa
+
+| `/onboarding/branding`
+| Personalização de logo e tema
+
+| `/onboarding/team`
+| Convidar membros da equipe
+
+| `/onboarding/plan`
+| Seleção de assinatura
+
+| `/onboarding/integrations`
+| Conexões com serviços externos
+
+| `/onboarding/complete`
+| Confirmação de conclusão da configuração
+|===
+
+=== Fluxo do Assistente
+
+[mermaid]
+----
+flowchart LR
+    START[Boas-vindas] --> ORG[Organização]
+    ORG --> BRAND[Branding]
+    BRAND --> TEAM[Equipe]
+    TEAM --> PLAN[Plano]
+    PLAN --> INT[Integrações]
+    INT --> DONE[Concluído]
+
+    DONE --> DASH[Dashboard]
+----
+
+=== Rastreamento de Progresso
+
+O assistente de onboarding rastreia o status de conclusão e permite que usuários retomem de onde pararam:
+
+[source,typescript]
+----
+interface OnboardingProgress {
+  completedSteps: string[];
+  currentStep: string;
+  organizationId: string;
+  startedAt: number;
+  updatedAt: number;
+}
+----
+
+== app-tenant
+
+A aplicação tenant fornece capacidades de gestão organizacional, incluindo estrutura de equipe, atribuição de papéis e configuração de controle de acesso.
+
+=== Funcionalidades
+
+* **Organograma**: Hierarquia visual da equipe
+* **Gestão de Usuários**: Adicionar, editar e remover membros da equipe
+* **Atribuição de Papéis**: Atribuir roles e permissões
+* **Gestão de Departamentos**: Criar unidades organizacionais
+* **Políticas de Acesso**: Configurar regras de acesso customizadas
+
+=== Rotas
+
+[cols="1,2"]
+|===
+| Rota | Descrição
+
+| `/tenant/`
+| Visão geral da organização
+
+| `/tenant/chart`
+| Organograma visual
+
+| `/tenant/users`
+| Lista de membros da equipe
+
+| `/tenant/users/:id`
+| Perfil e permissões do usuário
+
+| `/tenant/users/invite`
+| Convidar novos membros
+
+| `/tenant/roles`
+| Definições de roles
+
+| `/tenant/departments`
+| Gestão de departamentos
+
+| `/tenant/settings`
+| Configurações da organização
+|===
+
+=== Estrutura Organizacional
+
+[mermaid]
+----
+flowchart TB
+    subgraph Org["Organização"]
+        CEO[CEO]
+    end
+
+    subgraph Depts["Departamentos"]
+        ENG[Engenharia]
+        SALES[Vendas]
+        OPS[Operações]
+    end
+
+    subgraph Teams["Equipes"]
+        FE[Frontend]
+        BE[Backend]
+        ENT[Enterprise]
+        SMB[SMB]
+        SUP[Suporte]
+        FIN[Financeiro]
+    end
+
+    CEO --> ENG
+    CEO --> SALES
+    CEO --> OPS
+
+    ENG --> FE
+    ENG --> BE
+    SALES --> ENT
+    SALES --> SMB
+    OPS --> SUP
+    OPS --> FIN
+----
+
+== Comunicação entre Workers
+
+Todas as aplicações worker se comunicam com plugins backend através da camada de API do runtime. O diagrama a seguir mostra o fluxo típico de requisição:
+
+[mermaid]
+----
+sequenceDiagram
+    participant Browser
+    participant Runtime
+    participant Worker
+    participant Plugin
+
+    Browser->>Runtime: GET /tenant/users
+    Runtime->>Worker: Route to app-tenant
+    Worker-->>Runtime: HTML + JS
+    Runtime-->>Browser: Render SPA
+
+    Browser->>Runtime: GET /authn/api/users
+    Runtime->>Plugin: Route to plugin-authn
+    Plugin-->>Runtime: JSON response
+    Runtime-->>Browser: User list data
+----
+
+== Configuração de Workers
+
+Cada worker é configurado através de seu arquivo de manifesto:
+
+[source,jsonc]
+----
+// apps/app-tenant/manifest.jsonc
+{
+  "name": "app-tenant",
+  "base": "/tenant",
+  "entrypoint": "dist/index.html",
+  "spa": true,
+  "maxBodySize": "10mb",
+  "env": {
+    "API_BASE": "/authn/api"
+  }
+}
+----
+
+== Matriz de Controle de Acesso
+
+[cols="1,1,1,1,1,1"]
+|===
+| Worker | Root | Admin Tenant | Vendedor | Membro | Visitante
+
+| app-admin
+| Sim
+| Não
+| Não
+| Não
+| Não
+
+| app-billing
+| Sim
+| Sim
+| Não
+| Não
+| Não
+
+| app-store
+| Sim
+| Sim
+| Sim
+| Sim
+| Sim
+
+| app-vendor
+| Sim
+| Não
+| Sim
+| Não
+| Não
+
+| app-onboarding
+| Sim
+| Sim
+| Não
+| Não
+| Não
+
+| app-tenant
+| Sim
+| Sim
+| Não
+| Não
+| Não
+|===
+
+Esta matriz é aplicada por políticas do plugin-authz que avaliam roles de usuário e associação ao tenant antes de conceder acesso às rotas dos workers.

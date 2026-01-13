@@ -8,7 +8,7 @@ import { rename as fsRename, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 /**
- * Package info extracted from package.json (only standard npm fields)
+ * Package info extracted from manifest.json
  */
 export interface PackageInfo {
   name: string;
@@ -125,38 +125,38 @@ async function extractZip(zipFile: Blob, destPath: string): Promise<void> {
 }
 
 /**
- * Read and validate package.json from extracted package
+ * Read and validate manifest.json from extracted package
  *
- * Only requires standard npm fields: name and version.
+ * Requires name and version fields in manifest.json.
  * The location (pluginDirs vs workerDirs) determines if it's a plugin or app.
  *
  * @param packagePath - Path to the extracted package directory
  * @returns Package info with name and version
  */
 export async function readPackageInfo(packagePath: string): Promise<PackageInfo> {
-  const pkgJsonPath = join(packagePath, "package.json");
-  const pkgFile = Bun.file(pkgJsonPath);
+  const manifestPath = join(packagePath, "manifest.json");
+  const manifestFile = Bun.file(manifestPath);
 
-  if (!(await pkgFile.exists())) {
-    throw new Error("package.json not found in uploaded package");
+  if (!(await manifestFile.exists())) {
+    throw new Error("manifest.json not found in uploaded package");
   }
 
-  const pkg = (await pkgFile.json()) as {
+  const manifest = (await manifestFile.json()) as {
     name?: string;
     version?: string;
   };
 
-  if (!pkg.name) {
-    throw new Error("package.json is missing 'name' field");
+  if (!manifest.name) {
+    throw new Error("manifest.json is missing 'name' field");
   }
 
-  if (!pkg.version) {
-    throw new Error("package.json is missing 'version' field");
+  if (!manifest.version) {
+    throw new Error("manifest.json is missing 'version' field");
   }
 
   return {
-    name: pkg.name,
-    version: pkg.version,
+    name: manifest.name,
+    version: manifest.version,
   };
 }
 

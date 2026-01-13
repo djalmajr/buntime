@@ -1,0 +1,572 @@
+= Endpoints da API
+
+A API do Marketplace fornece endpoints para navegação, instalação, publicação e gerenciamento de packages. Todos os endpoints usam JSON e requerem permissões apropriadas.
+
+== Autenticação
+
+Todos os endpoints autenticados requerem uma API key no header `Authorization`:
+
+[source]
+----
+Authorization: Bearer <api_key>
+----
+
+Endpoints públicos (navegação, busca) podem ser acessados sem autenticação, mas podem ter limites de taxa.
+
+== Catálogo Público
+
+=== Listar Packages
+
+[source]
+----
+GET /api/marketplace/packages
+----
+
+Parâmetros de consulta:
+
+[cols="1,1,2,1"]
+|===
+| Parâmetro | Tipo | Descrição | Padrão
+
+| q
+| string
+| Consulta de busca
+| -
+
+| type
+| string
+| Filtrar por tipo (plugin, app, template)
+| -
+
+| category
+| string
+| Filtrar por categoria
+| -
+
+| tags
+| string
+| Tags separadas por vírgula
+| -
+
+| vendor
+| string
+| Filtrar por slug do vendor
+| -
+
+| sort
+| string
+| Ordem de classificação (relevance, downloads, recent, rating)
+| relevance
+
+| page
+| number
+| Número da página
+| 1
+
+| limit
+| number
+| Resultados por página (max 100)
+| 20
+|===
+
+Resposta:
+
+[source,json]
+----
+{
+  "data": [
+    {
+      "id": "01HXYZ...",
+      "type": "plugin",
+      "name": "keyval",
+      "vendor": {
+        "slug": "buntime",
+        "name": "Buntime",
+        "verified": true
+      },
+      "description": "Deno KV-like key-value store",
+      "category": "database",
+      "tags": ["database", "kv", "cache"],
+      "rating": 4.8,
+      "downloads": 15420,
+      "latestVersion": "1.2.0"
+    }
+  ],
+  "meta": {
+    "total": 156,
+    "page": 1,
+    "limit": 20,
+    "pages": 8
+  }
+}
+----
+
+=== Obter Categorias
+
+[source]
+----
+GET /api/marketplace/categories
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "data": [
+    {
+      "slug": "database",
+      "name": "Database",
+      "description": "Data storage and retrieval plugins",
+      "count": 24,
+      "subcategories": [
+        { "slug": "sql", "name": "SQL", "count": 12 },
+        { "slug": "nosql", "name": "NoSQL", "count": 8 },
+        { "slug": "cache", "name": "Cache", "count": 4 }
+      ]
+    }
+  ]
+}
+----
+
+=== Obter Packages em Destaque
+
+[source]
+----
+GET /api/marketplace/featured
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "data": {
+    "hero": { ... },
+    "staffPicks": [ ... ],
+    "newReleases": [ ... ],
+    "topRated": [ ... ]
+  }
+}
+----
+
+=== Obter Packages em Alta
+
+[source]
+----
+GET /api/marketplace/trending
+----
+
+Parâmetros de consulta:
+
+[cols="1,1,2,1"]
+|===
+| Parâmetro | Tipo | Descrição | Padrão
+
+| period
+| string
+| Período de tempo (day, week, month)
+| week
+
+| type
+| string
+| Filtrar por tipo
+| -
+
+| limit
+| number
+| Número de resultados
+| 10
+|===
+
+== Instalação
+
+=== Instalar Package
+
+[source]
+----
+POST /api/marketplace/install
+----
+
+Corpo da requisição:
+
+[source,json]
+----
+{
+  "packageId": "01HXYZ...",
+  "version": "1.2.0"
+}
+----
+
+Resposta:
+
+[source,json]
+----
+{
+  "data": {
+    "installed": true,
+    "package": {
+      "id": "01HXYZ...",
+      "name": "keyval",
+      "version": "1.2.0"
+    },
+    "dependencies": [
+      { "name": "database", "version": "1.0.0", "status": "already_installed" }
+    ]
+  }
+}
+----
+
+=== Desinstalar Package
+
+[source]
+----
+POST /api/marketplace/uninstall
+----
+
+Corpo da requisição:
+
+[source,json]
+----
+{
+  "packageId": "01HXYZ..."
+}
+----
+
+== Publicação
+
+=== Criar Package
+
+[source]
+----
+POST /api/marketplace/packages
+----
+
+Corpo da requisição:
+
+[source,json]
+----
+{
+  "type": "plugin",
+  "name": "my-plugin",
+  "description": "A useful plugin",
+  "category": "utilities",
+  "tags": ["utility", "helper"],
+  "visibility": "public"
+}
+----
+
+=== Publicar Versão
+
+[source]
+----
+POST /api/marketplace/packages/:id/versions
+----
+
+Corpo da requisição (multipart/form-data):
+
+[cols="1,1,3"]
+|===
+| Campo | Tipo | Descrição
+
+| archive
+| file
+| Arquivo ZIP ou TAR.GZ do package
+
+| version
+| string
+| String de versão semântica
+
+| changelog
+| string
+| Notas de lançamento desta versão
+
+| buntimeCompat
+| string
+| Faixa de versão compatível do Buntime
+|===
+
+[mermaid]
+----
+sequenceDiagram
+    participant Publisher
+    participant API
+    participant Storage
+    participant Registry
+
+    Publisher->>API: POST /packages/:id/versions
+    API->>API: Validar manifest
+    API->>API: Calcular hash
+    API->>Storage: Enviar arquivo
+    Storage-->>API: URL do arquivo
+    API->>Registry: Criar registro de versão
+    Registry-->>API: Versão criada
+    API-->>Publisher: 201 Created
+----
+
+== Gerenciamento de Vendor
+
+=== Obter Perfil do Vendor
+
+[source]
+----
+GET /api/marketplace/vendor
+----
+
+Retorna o perfil do vendor para a API key autenticada.
+
+=== Atualizar Perfil do Vendor
+
+[source]
+----
+PUT /api/marketplace/vendor
+----
+
+Corpo da requisição:
+
+[source,json]
+----
+{
+  "name": "My Company",
+  "description": "We build great plugins",
+  "website": "https://example.com"
+}
+----
+
+=== Listar Membros do Vendor
+
+[source]
+----
+GET /api/marketplace/vendor/members
+----
+
+=== Adicionar Membro ao Vendor
+
+[source]
+----
+POST /api/marketplace/vendor/members
+----
+
+Corpo da requisição:
+
+[source,json]
+----
+{
+  "email": "developer@example.com",
+  "role": "publisher"
+}
+----
+
+== Avaliações
+
+=== Criar Avaliação
+
+[source]
+----
+POST /api/marketplace/packages/:id/reviews
+----
+
+Corpo da requisição:
+
+[source,json]
+----
+{
+  "rating": 5,
+  "title": "Excellent plugin",
+  "body": "Works perfectly for our use case..."
+}
+----
+
+=== Listar Avaliações
+
+[source]
+----
+GET /api/marketplace/packages/:id/reviews
+----
+
+Parâmetros de consulta:
+
+[cols="1,1,2,1"]
+|===
+| Parâmetro | Tipo | Descrição | Padrão
+
+| sort
+| string
+| Ordem de classificação (recent, helpful, rating)
+| recent
+
+| rating
+| number
+| Filtrar por nota
+| -
+
+| page
+| number
+| Número da página
+| 1
+|===
+
+== Permissões
+
+O marketplace usa um sistema de permissões granular integrado com API keys.
+
+=== Hierarquia de Permissões
+
+[mermaid]
+----
+flowchart TB
+    subgraph Permissões
+        B[marketplace:browse]
+        I[marketplace:install]
+        P[marketplace:publish]
+        M[marketplace:manage]
+        R[marketplace:review]
+        A[marketplace:admin]
+    end
+
+    A --> M
+    M --> P
+    P --> I
+    I --> B
+    R --> B
+----
+
+=== Referência de Permissões
+
+[cols="2,4"]
+|===
+| Permissão | Descrição
+
+| marketplace:browse
+| Visualizar packages públicos, buscar e ler avaliações
+
+| marketplace:install
+| Instalar e desinstalar packages
+
+| marketplace:publish
+| Criar packages e publicar versões
+
+| marketplace:manage
+| Gerenciar perfil do vendor e membros da equipe
+
+| marketplace:review
+| Criar e editar avaliações
+
+| marketplace:admin
+| Acesso administrativo completo
+|===
+
+== Mapeamento de Funções
+
+[cols="1,1,4"]
+|===
+| Função | Permissões | Caso de Uso
+
+| anonymous
+| marketplace:browse
+| Acesso público ao catálogo
+
+| user
+| marketplace:browse, marketplace:install, marketplace:review
+| Usuário autenticado padrão
+
+| publisher
+| marketplace:browse, marketplace:install, marketplace:review, marketplace:publish
+| Publicadores de packages
+
+| vendor_admin
+| marketplace:browse, marketplace:install, marketplace:review, marketplace:publish, marketplace:manage
+| Administradores de vendor
+
+| admin
+| marketplace:admin
+| Administradores da plataforma
+|===
+
+== Visão Geral do Fluxo da API
+
+[mermaid]
+----
+flowchart TB
+    subgraph Público["Endpoints Públicos"]
+        LP[GET /packages]
+        LC[GET /categories]
+        LF[GET /featured]
+        LT[GET /trending]
+        LR[GET /packages/:id/reviews]
+    end
+
+    subgraph Auth["Endpoints Autenticados"]
+        INS[POST /install]
+        UNI[POST /uninstall]
+        CR[POST /packages/:id/reviews]
+    end
+
+    subgraph Vendor["Endpoints de Vendor"]
+        CP[POST /packages]
+        PV[POST /packages/:id/versions]
+        GV[GET /vendor]
+        UV[PUT /vendor]
+        VM[CRUD de Membros do Vendor]
+    end
+
+    subgraph Admin["Endpoints de Admin"]
+        AP[Aprovar Packages]
+        AV[Gerenciar Vendors]
+        MO[Moderação]
+    end
+
+    LP --> Auth
+    Auth --> Vendor
+    Vendor --> Admin
+----
+
+== Respostas de Erro
+
+Todos os erros seguem um formato consistente:
+
+[source,json]
+----
+{
+  "error": {
+    "code": "PACKAGE_NOT_FOUND",
+    "message": "Package with ID '01HXYZ...' not found",
+    "details": {}
+  }
+}
+----
+
+=== Códigos de Erro Comuns
+
+[cols="2,1,3"]
+|===
+| Código | Status HTTP | Descrição
+
+| UNAUTHORIZED
+| 401
+| API key ausente ou inválida
+
+| FORBIDDEN
+| 403
+| Permissões insuficientes
+
+| PACKAGE_NOT_FOUND
+| 404
+| Package não existe
+
+| VERSION_EXISTS
+| 409
+| Versão já publicada
+
+| INVALID_MANIFEST
+| 422
+| Validação do manifest do package falhou
+
+| RATE_LIMITED
+| 429
+| Muitas requisições
+
+| VENDOR_SUSPENDED
+| 403
+| Conta do vendor está suspensa
+|===

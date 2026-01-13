@@ -1,0 +1,812 @@
+= Buntime Marketplace - PRD Executivo
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+
+ifdef::env-github[]
+:tip-caption: 💡
+:note-caption: ℹ️
+:important-caption: ⚠️
+:caution-caption: 🔥
+:warning-caption: ⚠️
+endif::[]
+
+toc::[]
+
+== Visão Geral
+
+=== Resumo Executivo
+
+Transformar o Buntime em uma plataforma SaaS multi-tenant que permite centralizar aplicações e controlar o acesso dos clientes através de licenças, eliminando a necessidade de instalações individuais e integrando cobrança automática.
+
+=== Problema Atual
+
+* Cada cliente precisa instalar aplicações individualmente em sua infraestrutura
+* Atualizações exigem deployment em cada instalação
+* Cobrança e gestão de licenças acontecem manualmente
+* Alto custo operacional de manter múltiplas instalações
+
+=== Solução Proposta
+
+Uma plataforma onde:
+
+* **Aplicações são implantadas uma única vez** e servem todos os clientes
+* **Acesso controlado via licenças/assinaturas** - cliente paga, acessa imediatamente
+* **Cobrança integrada** com Stripe - renovações e cancelamentos automáticos
+* **Atualizações centralizadas** - um deploy beneficia todos os clientes
+
+== Modelos de Negócio
+
+=== Freemium
+
+|===
+| Camada | Acesso | Monetização
+
+| **Gratuito**
+| Aplicações frontend-only (sem APIs)
+| Porta de entrada, sem custo
+
+| **Pago**
+| Aplicações completas (frontend + backend)
+| Primeira compra de app converte o usuário
+|===
+
+**Objetivo:** Capturar usuários com tier gratuito e converter para planos pagos ao usar apps mais robustos.
+
+=== À la Carte
+
+* Cliente compra **apps individuais** (R$19-49/mês por app)
+* Pode ter **múltiplas assinaturas** de apps diferentes
+* Ideal para **freelancers e pequenas equipes**
+
+**Exemplo:** Cliente assina "CRM" (R$29/mês) + "Projeto Manager" (R$39/mês) = R$68/mês
+
+=== Bundles
+
+* **Pacotes predefinidos** com conjunto de apps (Basic/Pro/Enterprise)
+* **Uma cobrança única** mensal cobrindo todos os apps do pacote
+* **Descontos por volume** - mais barato que comprar apps separados
+* Ideal para **empresas e equipes**
+
+**Exemplo:** Plano Pro (R$149/mês) inclui 5 apps que individuais custariam R$200/mês
+
+=== Modelos de Licenciamento
+
+|===
+| Tipo | Descrição | Caso de Uso
+
+| **NAMED**
+| Número fixo de usuários nomeados
+| Empresas com compliance rígido
+
+| **CONCURRENT**
+| Licenças flutuantes por uso simultâneo
+| Equipes com turnos/compartilhamento
+
+| **ACTIVE_USERS**
+| Usuários únicos em janela de 30 dias
+| SaaS B2B com pricing baseado em uso
+
+| **UNLIMITED**
+| Sem restrições (apenas métricas)
+| Tier gratuito, ferramentas internas
+|===
+
+== Funcionalidades Principais
+
+=== Experiência do Usuário (App Shell)
+
+A plataforma oferecerá uma experiência unificada através de um **App Shell estilo sistema operacional** (similar ao puter.com), onde todos os apps são executados dentro de um ambiente integrado.
+
+==== Interface Desktop Virtual
+
+* **Desktop com ícones:** Apps instalados aparecem como ícones na área de trabalho
+* **Dock/Taskbar:** Acesso rápido a apps frequentes e abertos
+* **Gerenciamento de janelas:** Abrir, fechar, minimizar, maximizar, redimensionar
+* **Múltiplos apps simultâneos:** Trabalhar com vários apps abertos ao mesmo tempo
+* **Sistema de notificações:** Alertas e mensagens do sistema integrados
+
+==== Personalização
+
+* **Temas:** Modo claro/escuro, temas customizados por tenant
+* **Layout:** Posição de dock (inferior, lateral), tamanho de ícones
+* **Papel de parede:** Branding personalizado por empresa
+
+==== Integração entre Apps
+
+* **Comunicação inter-apps (IPC):** Apps podem trocar dados entre si
+* **Clipboard compartilhado:** Copiar/colar entre apps
+* **Contexto unificado:** Tenant, usuário e permissões compartilhados automaticamente
+
+=== Para Clientes (Tenants)
+
+==== Catálogo de Apps
+* Descobrir apps disponíveis com descrição, preços e screenshots
+* Filtrar por categoria, preço, funcionalidade
+* Ver apps que já possui (ativados)
+
+==== Gestão de Assinaturas
+* Assinar/cancelar apps diretamente no dashboard
+* Visualizar apps ativos, usuários consumidos, quotas
+* Histórico de faturas e pagamentos
+
+==== Controle de Acesso
+* Atribuir/remover usuários de apps (modelo NAMED)
+* Visualizar uso de licenças concorrentes em tempo real
+* Gerenciar permissões internas (admin, usuário, viewer)
+
+==== Monitoramento de Uso
+* Dashboards com consumo de recursos (requisições, storage, etc.)
+* Alertas quando próximo de limites de quota
+* Histórico de uso para análise
+
+=== Para Administradores da Plataforma
+
+==== Gestão de Tenants
+* Criar/editar/suspender clientes
+* Visualizar apps ativos por cliente
+* Suporte: acessar contexto do cliente para troubleshooting
+
+==== Gestão de Apps
+* Registrar novos apps no marketplace
+* Definir preços, quotas padrão, modelos de licença
+* Ativar/desativar apps para manutenção
+
+==== Financeiro
+* Dashboard consolidado de receita (MRR, ARR, churn)
+* Relatórios de assinaturas ativas/canceladas
+* Integração com Stripe para gestão de pagamentos
+
+==== Observabilidade
+* Logs estruturados por tenant, app, usuário
+* Métricas de performance (latência, throughput, erros)
+* Alertas automáticos para anomalias
+
+=== Para Desenvolvedores de Apps
+
+==== Multi-Tenancy Automático
+* Framework injeta automaticamente contexto do tenant
+* Isolamento de dados transparente (banco, cache, arquivos)
+* API simples para consultar licenças/quotas do tenant
+
+==== Autorização em Dois Níveis
+* **Nível 1 (Runtime):** Plataforma valida se tenant tem licença do app
+* **Nível 2 (App):** App consulta permissões granulares do usuário via API
+
+==== Billing Hooks
+* Webhooks notificam app sobre mudanças de assinatura
+* API para consultar status de pagamento, limites, upgrades
+
+== Cronograma
+
+=== Resumo de Fases
+
+|===
+| Fase | Duração | Entregáveis | Dependências
+
+| **Fase 0: Infraestrutura**
+| 10 semanas
+| Logs, métricas, multi-tenancy, autorização, billing, rate limiting
+| Nenhuma
+
+| **Fase 1: Fundação Tenant**
+| 4 semanas
+| Modelo de dados de tenants, autenticação adaptada
+| Fase 0
+
+| **Fase 2: Sistema de Autorização**
+| 5 semanas
+| Entitlements, licenças, quotas, permissões
+| Fase 1
+
+| **Fase 3: Uso e Quotas**
+| 3 semanas
+| Medição de consumo, enforcement de limites
+| Fase 2
+
+| **Fase 4: Integração Billing**
+| 3 semanas
+| Stripe webhook, cobrança automática por uso
+| Fase 3
+
+| **Fase 4.5: App Shell (OS-like)**
+| 10 semanas
+| Desktop virtual estilo puter.com: window manager, dock/taskbar, desktop com ícones, gerenciamento de múltiplos apps, temas, IPC
+| Nenhuma (inicia em paralelo)
+
+| **Fase 5: App Admin Dashboard**
+| 14 semanas
+| Gestão de tenants, gestão de apps, dashboard financeiro, observabilidade
+| Fase 4.5
+
+| **Fase 6: App Catálogo/Loja**
+| 8 semanas
+| Catálogo visual de apps, flow de compra, gestão de assinaturas
+| Fase 4.5
+
+| **Fase 7: App Self-Service Tenant**
+| 10 semanas
+| Dashboard de uso, gestão de usuários, faturas, configurações de conta
+| Fases 4, 4.5, 5, 6
+
+| **Buffer**
+| 9 semanas
+| Contingência (12% do tempo total)
+| -
+|===
+
+=== Detalhamento das Fases
+
+==== Fase 0: Infraestrutura (10 semanas)
+
+**O que será feito:**
+
+* **0a - Multi-tenancy (3 sem):** Identificação de tenant via JWT/API key/subdomain, injeção de contexto (x-tenant-id), isolamento de dados por namespace
+* **0b - Autorização Engine (3 sem):** Implementação do PEP (Policy Enforcement Point), integração com PIPs, decisões de autorização (allow/deny)
+* **0c - Billing Plugin (4 sem):** Integração com Stripe (webhooks, subscriptions), gerenciamento de pagamentos, renovações automáticas
+* **0d - Observabilidade (2 sem):** Logs estruturados JSON, métricas Prometheus, audit trails
+* **0e - Gateway & Rate Limiting (3 sem):** Limitação de requisições por tenant, circuit breakers, proteção contra noisy neighbor
+
+**Justificativa do prazo:**
+
+Infraestrutura é a base crítica. Multi-tenancy e autorização precisam estar sólidos antes de qualquer app ser desenvolvido. Integração Stripe requer testes extensivos (webhooks, casos de falha, idempotência). Algumas sub-fases podem ocorrer em paralelo (0d pode começar junto com 0a).
+
+==== Fase 1: Fundação Tenant (4 semanas)
+
+**O que será feito:**
+
+* Modelo de dados de tenants (tabelas, schemas)
+* API CRUD para gestão de tenants
+* Adaptação do plugin-authn para suportar multi-tenancy
+* Registro de tenant root user
+
+**Justificativa do prazo:**
+
+Fase relativamente simples, mas essencial. Precisa garantir que toda a estrutura de dados está correta para evitar refatorações futuras. 4 semanas incluem: design de schema, implementação, testes de isolamento, validação de segurança.
+
+==== Fase 2: Sistema de Autorização (5 semanas)
+
+**O que será feito:**
+
+* **app-licenses (PIP):** Entitlements, controle de seats/concurrent users, quotas por tenant
+* **app-iam (PIP):** Sistema granular de roles e permissions (admin, user, viewer)
+* Integração com PDP (Policy Decision Point)
+* APIs HTTP para apps consultarem permissões
+
+**Justificativa do prazo:**
+
+Sistema de autorização é complexo - precisa lidar com diferentes modelos de licenciamento (NAMED, CONCURRENT, ACTIVE_USERS, UNLIMITED), controle de quotas, e permissões granulares. 5 semanas cobrem: modelagem, implementação, testes de casos de borda, documentação de APIs.
+
+==== Fase 3: Uso e Quotas (3 semanas)
+
+**O que será feito:**
+
+* Medição de consumo de recursos (requisições, storage, compute)
+* Enforcement de limites por tenant
+* Alertas quando próximo de quotas
+* Dashboard de métricas de uso
+
+**Justificativa do prazo:**
+
+Relativamente direto após Fase 2 estar pronta. 3 semanas para: instrumentação de métricas, implementação de enforcement, testes de limites, integração com observabilidade.
+
+==== Fase 4: Integração Billing (3 semanas)
+
+**O que será feito:**
+
+* Webhooks Stripe processando eventos (subscription.created, payment.succeeded, etc.)
+* Cobrança automática baseada em uso
+* Sincronização estado de assinaturas
+* Testes de retry e idempotência
+
+**Justificativa do prazo:**
+
+Billing é crítico mas bem definido. Stripe tem boa documentação. 3 semanas para: implementar webhooks, testes em sandbox Stripe, tratamento de falhas, validação de segurança.
+
+==== Fase 4.5: App Shell - OS-like (10 semanas)
+
+**O que será feito:**
+
+* **Window Manager (3 sem):** Sistema de janelas (abrir, fechar, minimizar, maximizar, redimensionar, drag), z-index management
+* **Desktop & Dock (2 sem):** Área de trabalho com ícones, taskbar/dock com apps ativos, drag-and-drop
+* **Sistema de Temas (1 sem):** Modo claro/escuro, personalização de cores, branding por tenant
+* **IPC (2 sem):** Comunicação entre apps, shared clipboard, eventos globais
+* **Integração e Testes (2 sem):** Integração com autorização, testes E2E, performance
+
+**Justificativa do prazo:**
+
+App Shell é a fundação visual mais complexa. Window management é não-trivial (estado de janelas, eventos de resize, focus management). IPC precisa ser bem arquitetado para segurança. 10 semanas permitem: prototipagem UI, implementação robusta, testes de usabilidade, performance tuning.
+
+IMPORTANT: **Esta fase inicia após Fase 4** (~mês 6), quando a infraestrutura já está sólida. App Shell é desenvolvido com integração real às APIs de autorização e multi-tenancy. Fica pronto no ~mês 9, fornecendo base para integração final com os apps de Produtos Digitais (que foram desenvolvidos em paralelo com mocks).
+
+==== Fase 5: App Admin Dashboard (14 semanas)
+
+**O que será feito:**
+
+* **Gestão de Tenants (3 sem):** CRUD completo, suspensão, reativação, contexto para troubleshooting
+* **Gestão de Apps (3 sem):** Registro de apps, definição de preços e quotas, ativação/desativação
+* **Dashboard Financeiro (4 sem):** Gráficos MRR/ARR/Churn, relatórios de assinaturas, integração com Stripe API, exportação de dados
+* **Observabilidade (3 sem):** Visualização de logs estruturados, dashboards de métricas, configuração de alertas
+* **Testes e Refinamento (1 sem):** Testes E2E, refinamento UX
+
+**Justificativa do prazo:**
+
+App mais complexo do projeto. Dashboard financeiro sozinho requer integração profunda com Stripe, visualizações de dados (charts), filtros complexos. Observabilidade precisa de queries eficientes e UI responsiva. 14 semanas são conservadoras mas realistas para app de produção completo.
+
+==== Fase 6: App Catálogo/Loja (8 semanas)
+
+**O que será feito:**
+
+* **Catálogo Visual (3 sem):** Listagem de apps, filtros (categoria, preço), busca, página de detalhes com screenshots
+* **Flow de Compra (3 sem):** Integração Stripe Checkout, confirmação de compra, ativação de app
+* **Gestão de Assinaturas (2 sem):** Upgrade/downgrade de planos, cancelamento, histórico de transações
+
+**Justificativa do prazo:**
+
+App mais simples que Admin Dashboard, mas requer integração crítica com Stripe. UX de compra precisa ser impecável. 8 semanas cobrem: UI do catálogo, testes de checkout, casos de erro (pagamento falha, etc.), refinamento da experiência.
+
+==== Fase 7: App Self-Service Tenant (10 semanas)
+
+**O que será feito:**
+
+* **Dashboard de Uso (3 sem):** Gráficos de consumo de recursos, quotas, histórico, projeções
+* **Gestão de Usuários (3 sem):** CRUD de usuários, atribuição de permissões, atribuição de apps (modelo NAMED)
+* **Faturas (2 sem):** Histórico de faturas, download de PDFs, gerenciamento de métodos de pagamento
+* **Configurações (2 sem):** Configurações de conta, branding, notificações
+
+**Justificativa do prazo:**
+
+App de média complexidade. Dashboard de uso requer visualizações de dados. Gestão de usuários precisa de UX intuitiva para permissões. Faturas integram com Stripe. 10 semanas para app completo e polido.
+
+==== Integração Backend+Frontend (20 semanas)
+
+**O que será feito:**
+
+* **Substituição de Mocks (8 sem):** Trocar mock server por APIs reais, ajustes de contratos, correções de divergências
+* **Testes de Integração (6 sem):** Testes E2E de todos os fluxos, testes de carga, testes de segurança
+* **Ajustes e Bugs (4 sem):** Correção de bugs encontrados, refinamentos de performance, ajustes de UX
+* **Documentação (2 sem):** Documentação de APIs, guias de usuário, runbooks operacionais
+
+**Justificativa do prazo:**
+
+Integração é sempre imprevisível. 20 semanas (~5 meses) é buffer realista para encontrar e corrigir problemas de integração, casos de borda não cobertos por mocks, ajustes de performance. Permite margem para descobertas inesperadas sem comprometer deadline.
+
+=== Prazo Total
+
+**ESTIMATIVA: ~52 semanas (aproximadamente 12 meses)**
+
+WARNING: Este é um prazo estimado baseado em premissas de complexidade e disponibilidade de recursos. Prazos reais podem variar significativamente.
+
+NOTE: As Fases 4.5, 5, 6 e 7 envolvem desenvolvimento de novos apps (frontend + backend + testes + docs). As fases 0-4 focam em plugins e infraestrutura do runtime.
+
+IMPORTANT: **A Fase 4.5 (App Shell) inicia no Dia 1 em paralelo** com o Backend, reduzindo o prazo total de 18 para 12 meses (33% mais rápido). App Shell estará pronto no mês 3, permitindo desenvolvimento dos apps de gestão com base sólida.
+
+TIP: Fases 5 e 6 podem ocorrer parcialmente em paralelo (início da Fase 6 após 6-8 semanas da Fase 5), potencialmente reduzindo 4-6 semanas do prazo total.
+
+=== Caminho Crítico
+
+[mermaid]
+----
+graph LR
+    subgraph Engenharia["Engenharia (7 meses)"]
+        B0[Fase 0<br/>Infraestrutura<br/>10 sem] --> B1[Fase 1<br/>Fundação<br/>4 sem]
+        B1 --> B2[Fase 2<br/>Autorização<br/>5 sem]
+        B2 --> B3[Fase 3<br/>Quotas<br/>3 sem]
+        B3 --> B4[Fase 4<br/>Billing<br/>3 sem]
+        B4 --> F45[Fase 4.5<br/>App Shell<br/>10 sem]
+    end
+
+    subgraph ProdutosDigitais["Produtos Digitais (7 meses - com mocks)"]
+        F5[Fase 5<br/>Admin<br/>14 sem] --> F6[Fase 6<br/>Catálogo<br/>8 sem]
+        F6 --> F7[Fase 7<br/>Self-Service<br/>10 sem]
+    end
+
+    F45 --> INT[Integração<br/>20 semanas]
+    F7 --> INT
+    INT --> MVP[MVP Produção<br/>jan/2027]
+
+    style F45 fill:#ff6b6b
+    style INT fill:#4ecdc4
+    style MVP fill:#95e1d3
+----
+
+**Vantagens do Desenvolvimento Paralelo:**
+
+* **App Shell na Engenharia:** Base técnica desenvolvida após infraestrutura estar sólida (mês 7)
+* **Produtos Digitais independentes:** Apps de gestão usam mocks desde Dia 1, não esperam backend terminar
+* **Ambas equipes trabalham simultaneamente:** Máxima paralelização de recursos
+* **Engenharia tem 7 meses** para amadurecer infraestrutura + App Shell antes da integração
+
+=== Modelo de Desenvolvimento Paralelo
+
+IMPORTANT: Como o Buntime é a infraestrutura e os apps rodam sobre ela, é possível **desenvolver apps em paralelo** usando mocks das APIs de infraestrutura enquanto os plugins reais estão sendo desenvolvidos.
+
+==== Estratégia de Paralelização
+
+**Desenvolvimento Simultâneo:**
+
+* **Engenharia:** Fases 0-4 (infraestrutura, plugins) + Fase 4.5 (App Shell)
+* **Produtos Digitais:** Fases 5-7 (apps de gestão) com **APIs mockadas**
+
+**Linha do tempo paralela (estimativa):**
+
+IMPORTANT: **Ambas equipes (Engenharia e Produtos Digitais) iniciam simultaneamente no Dia 1**. Engenharia desenvolve infraestrutura (Fases 0-4) seguida por App Shell (Fase 4.5). Produtos Digitais desenvolve apps de gestão (Fases 5-7) usando mocks da infraestrutura desde o início.
+
+WARNING: Prazos são estimativas. Podem variar conforme complexidade e descobertas durante o desenvolvimento.
+
+**Benefícios:**
+
+* **Foco da equipe:** Engenharia 100% em infraestrutura + App Shell, Produtos Digitais 100% em UX dos apps
+* **Validação antecipada:** Apps de gestão testáveis desde o início (com mocks)
+* **Riscos reduzidos:** Problemas de integração identificados em janela dedicada de 5 meses
+
+**Requisitos:**
+
+1. **Definição de contratos de API** clara no início (Semana 1-2)
+2. **Mock server** simulando comportamento dos plugins
+3. **Testes de contrato** para garantir que mocks refletem APIs reais
+4. **Janela de integração** de ~5 meses no final para ajustes
+
+**Prazo Total ESTIMADO:** ~7 meses de desenvolvimento paralelo + ~5 meses integração = **~12 meses total**
+
+== Viabilidade
+
+=== Riscos e Mitigações
+
+|===
+| Risco | Probabilidade | Impacto | Mitigação
+
+| **Quebra de isolamento entre tenants**
+| Média
+| CRÍTICO
+| Testes de segurança abrangentes, code review rigoroso, row-level security no banco
+
+| **Falhas na integração de pagamento**
+| Média
+| ALTO
+| Sandbox Stripe extensivo, filas de retry, webhooks resilientes, monitoramento 24/7
+
+| **Performance degradada em escala**
+| Alta
+| MÉDIO
+| Load testing em cada fase, design para escalonamento horizontal, cache agressivo
+
+| **Scope creep**
+| Alta
+| MÉDIO
+| MVP estrito por fase, comitê de mudanças, backlog separado para "v2"
+
+| **Dependências externas (Stripe)**
+| Baixa
+| ALTO
+| Múltiplos modos de fallback, retry exponencial, alertas proativos
+
+| **Complexidade de migração de apps existentes**
+| Alta
+| MÉDIO
+| Suporte híbrido (apps legados via proxy), migração gradual oportunística
+
+| **Divergência entre mocks e APIs reais**
+| Média
+| MÉDIO
+| Testes de contrato automatizados, definição rigorosa de contratos de API no início, sincronização semanal entre equipes Backend e Frontend
+|===
+
+=== Requisitos Técnicos
+
+==== Infraestrutura Mínima
+
+* **Compute:** 2-4 instâncias (redundância + load balancing)
+* **Database:** PostgreSQL ou LibSQL (multi-tenant)
+* **Cache:** Redis (opcional, recomendado)
+* **Payments:** Conta Stripe ativa
+* **Observability:** Prometheus + Grafana (ou similar)
+
+==== Dependências Externas
+
+* **Stripe:** Processamento de pagamentos, webhooks
+* **Banco de Dados:** LibSQL/PostgreSQL/MySQL (isolamento por namespace/schema)
+* **DNS/TLS:** Certificados válidos para subdomínios (tenant.buntime.app)
+
+=== Capacidade da Equipe
+
+|===
+| Papel | Dedicação | Habilidades Requeridas | Justificativa
+
+| **Backend Developer**
+| Tempo integral
+| TypeScript, Bun, Hono, PostgreSQL/LibSQL, Stripe
+| Infraestrutura, plugins, APIs
+
+| **Frontend Developer**
+| Tempo integral
+| React, TypeScript, Tailwind, TanStack Router, Charts
+| 3 novos apps (Admin, Catálogo, Self-Service)
+
+| **DevOps Engineer**
+| 30% do tempo
+| Docker, CI/CD, Prometheus, Grafana, K8s (opcional)
+| Infraestrutura, observabilidade, deploys
+
+| **Product Owner**
+| 20% do tempo
+| UX, requisitos, priorização, UAT
+| Definição de features, validação
+|===
+
+**Total:** ~2.5 pessoas em tempo integral (equivalente) ao longo do projeto
+
+NOTE: O projeto requer 1 desenvolvedor frontend em tempo integral devido ao desenvolvimento de 3 novos apps (Admin Dashboard, Catálogo, Self-Service).
+
+== Métricas de Sucesso
+
+=== Técnicas
+
+|===
+| Métrica | Meta | Monitoramento
+
+| **Incidentes de isolamento**
+| Zero
+| Auditoria mensal, pen-testing trimestral
+
+| **Latência de autorização (p95)**
+| <30ms
+| Prometheus, alertas em tempo real
+
+| **Uptime**
+| 99.9%
+| Status page, post-mortem de incidentes
+
+| **Entrega de webhooks de pagamento**
+| 99.95%
+| Logs de retry, dashboard Stripe
+|===
+
+=== Negócio
+
+|===
+| Métrica | Meta | Frequência
+
+| **Taxa de conversão freemium**
+| >5%
+| Mensal
+
+| **Churn rate**
+| <5%/mês
+| Mensal
+
+| **NPS (Net Promoter Score)**
+| >50
+| Trimestral
+
+| **Overhead operacional**
+| <2h/semana por 100 tenants
+| Semanal
+
+| **MRR (Monthly Recurring Revenue)**
+| Crescimento de 20%/mês após lançamento
+| Mensal
+
+| **CAC (Customer Acquisition Cost)**
+| Payback <6 meses
+| Trimestral
+|===
+
+== Benefícios Esperados
+
+=== Benefícios Quantificáveis
+
+* **Redução de custos operacionais:** 70% menos tempo gasto em deployments e manutenção
+* **Time-to-market:** Novos clientes ativos em <5 minutos (vs dias/semanas)
+* **Receita recorrente previsível:** MRR automático via Stripe
+* **Escala linear:** Custo por tenant decresce com volume
+
+=== Benefícios Qualitativos
+
+* **Experiência do cliente:** Onboarding instantâneo, sem fricção técnica
+* **Interface unificada:** Ambiente OS-like familiar reduz curva de aprendizado
+* **Produtividade:** Múltiplos apps abertos simultaneamente, contexto compartilhado
+* **Branding:** Personalização com temas e identidade visual do cliente
+* **Agilidade:** Atualizações e correções implantadas uma vez, beneficiam todos
+* **Flexibilidade comercial:** Múltiplos modelos de pricing testáveis rapidamente
+* **Insights de uso:** Dados consolidados para product analytics
+
+== Cronograma de Execução (Gantt)
+
+IMPORTANT: **Todos os prazos apresentados são estimativas** baseadas em premissas de complexidade e recursos. Podem variar conforme:
+
+* Mudanças de escopo durante o desenvolvimento
+* Complexidade técnica não prevista
+* Disponibilidade real da equipe
+* Priorização de features
+* Descobertas durante a implementação
+
+TIP: Recomenda-se revisões trimestrais do cronograma para ajustes baseados no progresso real.
+
+NOTE: O gráfico Gantt abaixo utiliza Mermaid. Visualize este documento no GitHub ou em editores que suportam Mermaid (VS Code, IntelliJ, etc).
+
+=== Cronograma de Desenvolvimento
+
+NOTE: Prazos estimados. Backend e Frontend desenvolvidos em paralelo usando mocks, seguido de integração.
+
+[mermaid]
+----
+gantt
+    title Cronograma de Execução (Estimativa)
+    dateFormat YYYY-MM-DD
+    axisFormat %b-%y
+
+    section Engenharia
+    Fase 0 - Infraestrutura (10 sem)       :b0, 2026-01-13, 70d
+    Fase 1 - Fundação Tenant (4 sem)       :b1, after b0, 28d
+    Fase 2 - Autorização (5 sem)           :b2, after b1, 35d
+    Fase 3 - Uso e Quotas (3 sem)          :b3, after b2, 21d
+    Fase 4 - Billing (3 sem)               :b4, after b3, 21d
+    Fase 4.5 - App Shell (10 sem)          :f45, after b4, 70d
+
+    section Produtos Digitais (com mocks desde Dia 1)
+    Fase 5 - Admin Dashboard (14 sem)      :f5, 2026-01-13, 98d
+    Fase 6 - Catálogo/Loja (8 sem)         :f6, after f5, 56d
+    Fase 7 - Self-Service (10 sem)         :f7, after f6, 70d
+
+    section Integração
+    Integração Backend + Frontend (20 sem)  :integ, after f45, 140d
+----
+
+**Vantagens da Abordagem:**
+
+* **Ambas equipes iniciam simultaneamente** no Dia 1 - máxima paralelização
+* **App Shell desenvolvido ao final da Engenharia** (mês 7) - base técnica sólida
+* **Produtos Digitais valida UX com mocks** enquanto Engenharia constrói infraestrutura
+* **Validação antecipada:** Stakeholders veem apps funcionais desde o início (mesmo sem backend real)
+* **Integração dedicada:** 5 meses para integração e testes completos após ambas trilhas
+
+**Prazo Total ESTIMADO:** ~12 meses (jan/2026 → jan/2027)
+
+=== Marcos Importantes
+
+NOTE: Marcos com prazos estimados. Datas reais serão ajustadas conforme progresso do projeto.
+
+|===
+| Marco | Mês (Est.) | Descrição
+
+| **M1: Contratos definidos**
+| ~0.5
+| APIs documentadas (OpenAPI), mock server rodando, App Shell iniciado
+
+| **M2: App Shell pronto**
+| ~3
+| Desktop virtual completo funcionando com apps de exemplo
+
+| **M3: Infraestrutura básica**
+| ~3
+| Multi-tenancy, autorização básica funcionando
+
+| **M4: Plugins completos**
+| ~7
+| Todos os plugins de engenharia prontos e testados
+
+| **M5: Apps de Produtos Digitais completos**
+| ~7
+| Todos os apps funcionando com mocks no App Shell
+
+| **M6: Integração concluída**
+| ~12
+| Apps integrados com infraestrutura real, testes E2E passando
+
+| **M7: MVP em produção**
+| ~12
+| Primeira versão implantada e disponível para clientes (jan/2027)
+|===
+
+NOTE: Todos os marcos acima são estimativas preliminares. Serão refinados durante o projeto.
+
+=== Equipe Necessária
+
+|===
+| Equipe | Papel | Dedicação | Responsabilidades
+
+.2+| **Engenharia**
+| Backend Developer
+| Tempo integral (~12 meses)
+| Fases 0-4 (infraestrutura, plugins, APIs) + Fase 4.5 (App Shell)
+
+| DevOps Engineer
+| 30% do tempo (~12 meses)
+| CI/CD, monitoramento, infraestrutura
+
+.2+| **Produtos Digitais**
+| Frontend Developer
+| Tempo integral (~12 meses)
+| Fases 5-7 (apps de gestão: Admin, Catálogo, Self-Service)
+
+| Product Owner
+| 20% do tempo (~12 meses)
+| Requisitos, validação, UX/UI dos apps
+|===
+
+**Custo de oportunidade:** Estimativa de 2.5 pessoas em tempo integral (equivalente) por ~12 meses não disponíveis para outros projetos.
+
+IMPORTANT: **Duas equipes trabalhando 100% em paralelo** desde o Dia 1:
+- **Engenharia:** Infraestrutura + App Shell
+- **Produtos Digitais:** Apps de gestão com mocks
+
+== Próximos Passos
+
+=== Decisões Necessárias
+
+1. **Alocação de equipe interna** (estimativa: 2.5 pessoas em tempo integral por ~12 meses - custo de oportunidade)
+2. **Aprovação de orçamento** (estimativa: R$15-25k infraestrutura + R$25k/mês operação pós-lançamento)
+3. **Definição de pricing** (valores por app, bundles, margens)
+4. **Escolha de banco de dados** (LibSQL vs PostgreSQL vs MySQL)
+5. **Estratégia de go-to-market** (quais apps oferecer primeiro)
+6. **MVP vs Full Feature Set** (versão reduzida ou completa)
+7. **Modelo de desenvolvimento:** Sequencial vs Paralelo (apps com mocks da infraestrutura)
+
+=== Kick-off
+
+**Semana 1-2: Setup e Definição de Contratos**
+
+* Setup de infraestrutura dev (repos, CI/CD, ambientes)
+* **Definição de contratos de API** (crítico para desenvolvimento paralelo):
+  - Schemas OpenAPI/JSON Schema para todas as APIs de plugins
+  - Estrutura de dados (tenant, user, entitlements, quotas, billing)
+  - Autenticação e autorização (headers, tokens, contexto)
+* Alinhamento das duas equipes (Engenharia e Produtos Digitais) e responsabilidades
+* Configuração de mock server para Produtos Digitais
+
+**Semana 3-4: Sprint 0 - Início Paralelo**
+
+* **Engenharia:** Início de Fase 0a (Multi-tenancy) + Fase 4.5 (App Shell)
+* **Produtos Digitais:** Preparação e familiarização com mocks (inicia Fase 5 após App Shell)
+* Definir KPIs e configurar monitoramento
+* Baseline de performance
+* Primeiro checkpoint de sincronização entre equipes
+
+IMPORTANT: Ambas as equipes (Engenharia e Produtos Digitais) iniciam simultaneamente na Semana 3, após contratos de API estarem definidos. Isso garante máxima paralelização e reduz prazo total para 12 meses.
+
+== Apêndice
+
+=== Glossário
+
+|===
+| Termo | Definição
+
+| **Tenant**
+| Cliente da plataforma (empresa ou usuário final)
+
+| **Entitlement**
+| Permissão para acessar um app específico (via licença/assinatura)
+
+| **MRR**
+| Monthly Recurring Revenue - receita recorrente mensal
+
+| **Churn**
+| Taxa de cancelamento de clientes
+
+| **Multi-tenancy**
+| Arquitetura onde múltiplos clientes compartilham mesma instância de software com dados isolados
+
+| **Rate Limiting**
+| Limitação de requisições por tenant para evitar abuso de recursos
+
+| **App Shell**
+| Camada de interface que envolve todos os apps, provendo funcionalidades comuns (window manager, dock, temas, autenticação). Similar a um sistema operacional no navegador
+
+| **IPC (Inter-Process Communication)**
+| Mecanismo que permite apps se comunicarem entre si dentro do App Shell, compartilhando dados e contexto
+
+| **Mock Server**
+| Servidor de desenvolvimento que simula comportamento de APIs reais, permitindo desenvolvimento frontend independente do backend
+
+| **Testes de Contrato**
+| Validação automatizada que garante que mocks e implementações reais seguem o mesmo contrato de API (schema, comportamento)
+|===
+
+=== Referências
+
+* link:./README.adoc[Documentação técnica completa]
+* link:./docs/roadmap/phases.adoc[Detalhamento de fases]
+* link:./docs/nfr/requirements.adoc[Requisitos não-funcionais]
+* link:./docs/concepts/overview.adoc[Visão conceitual da arquitetura]

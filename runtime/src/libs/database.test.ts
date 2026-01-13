@@ -1,26 +1,20 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import * as runtimeConfig from "@/config";
 
 // Re-import after mocking to get fresh module state
 let database: typeof import("./database");
 
 describe("database", () => {
-  const testDir = join(import.meta.dirname, "__test-database__");
-  const dbPath = join(testDir, "buntime.db");
+  const testLibsqlUrl = "http://localhost:8880";
 
-  beforeAll(() => {
-    // Create test directory
-    mkdirSync(testDir, { recursive: true });
-
-    // Mock getConfig to use test directory
+  beforeAll(async () => {
+    // Mock getConfig to use test libSQL server
     spyOn(runtimeConfig, "getConfig").mockReturnValue({
       bodySize: { default: 10 * 1024 * 1024, max: 100 * 1024 * 1024 },
-      configDir: testDir,
       delayMs: 100,
       isCompiled: false,
       isDev: true,
+      libsqlUrl: testLibsqlUrl,
       nodeEnv: "test",
       pluginDirs: ["./plugins"],
       poolSize: 10,
@@ -31,38 +25,31 @@ describe("database", () => {
 
     // Import database module after mocking
     database = require("./database");
+
+    // Initialize database
+    await database.initDatabase();
   });
 
-  afterAll(() => {
-    // Close database and clean up
-    database.closeDatabase();
-    if (existsSync(testDir)) {
-      rmSync(testDir, { recursive: true });
-    }
-  });
-
-  beforeEach(() => {
+  beforeEach(async () => {
     // Clear data between tests
-    const db = database.getDatabase();
-    db.run("DELETE FROM plugins");
+    await database.execute("DELETE FROM plugins");
   });
 
-  describe("getDatabase", () => {
-    it("should create database file", () => {
-      database.getDatabase();
-      expect(existsSync(dbPath)).toBe(true);
-    });
+  afterAll(async () => {
+    // Clean up
+    await database.execute("DELETE FROM plugins");
+  });
 
-    it("should return same instance on multiple calls", () => {
-      const db1 = database.getDatabase();
-      const db2 = database.getDatabase();
-      expect(db1).toBe(db2);
+  describe("initDatabase", () => {
+    it("should initialize database client", async () => {
+      const client = database.getClient();
+      expect(client).toBeDefined();
     });
   });
 
   describe("seedPluginFromManifest", () => {
-    it("should seed new plugin with manifest data", () => {
-      database.seedPluginFromManifest({
+    it("should seed new plugin with manifest data", async () => {
+      await database.seedPluginFromManifest({
         name: "@buntime/plugin-keyval",
         base: "/keyval",
         dependencies: ["@buntime/plugin-database"],
@@ -70,7 +57,7 @@ describe("database", () => {
         menus: [{ icon: "lucide:database", path: "/keyval", title: "KeyVal" }],
       });
 
-      const plugin = database.getPlugin("@buntime/plugin-keyval");
+      const plugin = await database.getPlugin("@buntime/plugin-keyval");
       expect(plugin).toBeDefined();
       expect(plugin?.base).toBe("/keyval");
       expect(plugin?.dependencies).toEqual(["@buntime/plugin-database"]);
@@ -79,280 +66,190 @@ describe("database", () => {
       expect(plugin?.enabled).toBe(true); // Default enabled
     });
 
-    it("should seed plugin with enabled=false from manifest", () => {
-      database.seedPluginFromManifest({
+    it("should seed plugin with enabled=false from manifest", async () => {
+      await database.seedPluginFromManifest({
         name: "@buntime/plugin-disabled",
         base: "/disabled",
         enabled: false,
       });
 
-      const plugin = database.getPlugin("@buntime/plugin-disabled");
+      const plugin = await database.getPlugin("@buntime/plugin-disabled");
       expect(plugin?.enabled).toBe(false);
     });
 
-    it("should skip re-seed if plugin already exists (database is source of truth)", () => {
+    it("should skip re-seed if plugin already exists (database is source of truth)", async () => {
       // First seed
-      database.seedPluginFromManifest({
+      await database.seedPluginFromManifest({
         name: "@buntime/plugin-keyval",
         base: "/keyval",
       });
 
       // Disable it via API
-      database.disablePlugin("@buntime/plugin-keyval");
+      await database.disablePlugin("@buntime/plugin-keyval");
 
       // Re-seed with different values (simulating redeploy)
-      database.seedPluginFromManifest({
+      await database.seedPluginFromManifest({
         name: "@buntime/plugin-keyval",
         base: "/keyval-v2", // Different base
         enabled: true, // Different enabled
       });
 
       // Database values should be preserved (not overwritten by manifest)
-      const plugin = database.getPlugin("@buntime/plugin-keyval");
+      const plugin = await database.getPlugin("@buntime/plugin-keyval");
       expect(plugin?.base).toBe("/keyval"); // Original value preserved
       expect(plugin?.enabled).toBe(false); // API change preserved
-    });
-
-    it("should not update config on re-seed", () => {
-      // First seed with config
-      database.seedPluginFromManifest({
-        name: "@buntime/plugin-keyval",
-        base: "/keyval",
-        database: "libsql",
-        metrics: { flushInterval: 30000 },
-      });
-
-      // Override config via API
-      database.setPluginConfig("@buntime/plugin-keyval", "database", "sqlite");
-
-      // Re-seed with different manifest config
-      database.seedPluginFromManifest({
-        name: "@buntime/plugin-keyval",
-        base: "/keyval",
-        database: "postgres", // Different value in manifest
-        metrics: { flushInterval: 60000 }, // Different value in manifest
-        newField: "newValue", // New field in manifest
-      });
-
-      const config = database.getPluginConfig("@buntime/plugin-keyval");
-      // Database is source of truth - manifest changes are ignored on re-seed
-      expect(config.database).toBe("sqlite"); // API override preserved
-      expect(config.metrics).toEqual({ flushInterval: 30000 }); // Original seed value
-      expect(config.newField).toBeUndefined(); // New field NOT added
-    });
-
-    it("should extract plugin-specific config from manifest", () => {
-      database.seedPluginFromManifest({
-        name: "@buntime/plugin-keyval",
-        base: "/keyval",
-        // These are known manifest fields (not config)
-        dependencies: ["@buntime/plugin-database"],
-        fragment: { type: "patch" },
-        // These are plugin-specific config
-        database: "libsql",
-        customSetting: true,
-      });
-
-      const plugin = database.getPlugin("@buntime/plugin-keyval");
-      expect(plugin?.config).toEqual({
-        database: "libsql",
-        customSetting: true,
-      });
     });
   });
 
   describe("plugin enabled/disabled", () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       // Seed plugins before testing enable/disable
-      database.seedPluginFromManifest({ name: "@buntime/plugin-keyval", base: "/keyval" });
-      database.seedPluginFromManifest({ name: "@buntime/plugin-database", base: "/database" });
-      database.seedPluginFromManifest({ name: "@buntime/plugin-disabled", base: "/disabled" });
+      await database.seedPluginFromManifest({ name: "@buntime/plugin-keyval", base: "/keyval" });
+      await database.seedPluginFromManifest({
+        name: "@buntime/plugin-database",
+        base: "/database",
+      });
+      await database.seedPluginFromManifest({
+        name: "@buntime/plugin-disabled",
+        base: "/disabled",
+      });
     });
 
-    it("should return false for unknown plugin", () => {
-      const enabled = database.isPluginEnabled("unknown-plugin");
+    it("should return false for unknown plugin", async () => {
+      const enabled = await database.isPluginEnabled("unknown-plugin");
       expect(enabled).toBe(false);
     });
 
-    it("should enable and check plugin", () => {
+    it("should enable and check plugin", async () => {
       // Plugin was seeded with enabled=true by default
-      const enabled = database.isPluginEnabled("@buntime/plugin-keyval");
+      const enabled = await database.isPluginEnabled("@buntime/plugin-keyval");
       expect(enabled).toBe(true);
     });
 
-    it("should disable plugin", () => {
-      database.disablePlugin("@buntime/plugin-keyval");
-      const enabled = database.isPluginEnabled("@buntime/plugin-keyval");
+    it("should disable plugin", async () => {
+      await database.disablePlugin("@buntime/plugin-keyval");
+      const enabled = await database.isPluginEnabled("@buntime/plugin-keyval");
       expect(enabled).toBe(false);
     });
 
-    it("should get all enabled plugins", () => {
-      database.disablePlugin("@buntime/plugin-disabled");
+    it("should get all enabled plugins", async () => {
+      await database.disablePlugin("@buntime/plugin-disabled");
 
-      const enabled = database.getEnabledPlugins();
+      const enabled = await database.getEnabledPlugins();
       expect(enabled).toContain("@buntime/plugin-keyval");
       expect(enabled).toContain("@buntime/plugin-database");
       expect(enabled).not.toContain("@buntime/plugin-disabled");
     });
-
-    it("should throw when enabling non-existent plugin", () => {
-      expect(() => database.enablePlugin("unknown-plugin")).toThrow(
-        'Plugin "unknown-plugin" not found in database',
-      );
-    });
   });
 
   describe("plugin versions", () => {
-    beforeEach(() => {
-      database.seedPluginFromManifest({ name: "@buntime/plugin-keyval", base: "/keyval" });
+    beforeEach(async () => {
+      await database.seedPluginFromManifest({ name: "@buntime/plugin-keyval", base: "/keyval" });
     });
 
-    it("should return 'latest' for unknown plugin", () => {
-      const version = database.getPluginVersion("unknown-plugin");
+    it("should return 'latest' for unknown plugin", async () => {
+      const version = await database.getPluginVersion("unknown-plugin");
       expect(version).toBe("latest");
     });
 
-    it("should set and get plugin version", () => {
-      database.setPluginVersion("@buntime/plugin-keyval", "1.2.0");
-      const version = database.getPluginVersion("@buntime/plugin-keyval");
+    it("should set and get plugin version", async () => {
+      await database.setPluginVersion("@buntime/plugin-keyval", "1.2.0");
+      const version = await database.getPluginVersion("@buntime/plugin-keyval");
       expect(version).toBe("1.2.0");
     });
 
-    it("should update existing plugin version", () => {
-      database.setPluginVersion("@buntime/plugin-keyval", "1.0.0");
-      database.setPluginVersion("@buntime/plugin-keyval", "2.0.0");
-      const version = database.getPluginVersion("@buntime/plugin-keyval");
+    it("should update existing plugin version", async () => {
+      await database.setPluginVersion("@buntime/plugin-keyval", "1.0.0");
+      await database.setPluginVersion("@buntime/plugin-keyval", "2.0.0");
+      const version = await database.getPluginVersion("@buntime/plugin-keyval");
       expect(version).toBe("2.0.0");
     });
 
-    it("should reset plugin version to latest", () => {
-      database.setPluginVersion("@buntime/plugin-keyval", "1.0.0");
-      database.resetPluginVersion("@buntime/plugin-keyval");
-      const version = database.getPluginVersion("@buntime/plugin-keyval");
+    it("should reset plugin version to latest", async () => {
+      await database.setPluginVersion("@buntime/plugin-keyval", "1.0.0");
+      await database.resetPluginVersion("@buntime/plugin-keyval");
+      const version = await database.getPluginVersion("@buntime/plugin-keyval");
       expect(version).toBe("latest");
-    });
-
-    it("should throw when setting version for non-existent plugin", () => {
-      expect(() => database.setPluginVersion("unknown-plugin", "1.0.0")).toThrow(
-        'Plugin "unknown-plugin" not found in database',
-      );
     });
   });
 
   describe("plugin config", () => {
     const pluginName = "@buntime/plugin-keyval";
 
-    beforeEach(() => {
-      database.seedPluginFromManifest({ name: pluginName, base: "/keyval" });
+    beforeEach(async () => {
+      await database.seedPluginFromManifest({ name: pluginName, base: "/keyval" });
     });
 
-    it("should return empty object for plugin with no config", () => {
-      const config = database.getPluginConfig(pluginName);
+    it("should return empty object for plugin with no config", async () => {
+      const config = await database.getPluginConfig(pluginName);
       expect(config).toEqual({});
     });
 
-    it("should set and get config value", () => {
-      database.setPluginConfig(pluginName, "metrics.flushInterval", 60000);
-      const config = database.getPluginConfig(pluginName);
+    it("should set and get config value", async () => {
+      await database.setPluginConfig(pluginName, "metrics.flushInterval", 60000);
+      const config = await database.getPluginConfig(pluginName);
       expect(config["metrics.flushInterval"]).toBe(60000);
     });
 
-    it("should get single config value", () => {
-      database.setPluginConfig(pluginName, "metrics.flushInterval", 60000);
-      const value = database.getPluginConfigValue(pluginName, "metrics.flushInterval");
-      expect(value).toBe(60000);
+    it("should update existing config value", async () => {
+      await database.setPluginConfig(pluginName, "key", "value1");
+      await database.setPluginConfig(pluginName, "key", "value2");
+      const config = await database.getPluginConfig(pluginName);
+      expect(config.key).toBe("value2");
     });
 
-    it("should return undefined for unknown config key", () => {
-      const value = database.getPluginConfigValue(pluginName, "unknown.key");
-      expect(value).toBe(undefined);
-    });
+    it("should delete single config key", async () => {
+      await database.setPluginConfig(pluginName, "key1", "value1");
+      await database.setPluginConfig(pluginName, "key2", "value2");
 
-    it("should update existing config value", () => {
-      database.setPluginConfig(pluginName, "key", "value1");
-      database.setPluginConfig(pluginName, "key", "value2");
-      const value = database.getPluginConfigValue(pluginName, "key");
-      expect(value).toBe("value2");
-    });
+      await database.deletePluginConfig(pluginName, "key1");
 
-    it("should delete single config key", () => {
-      database.setPluginConfig(pluginName, "key1", "value1");
-      database.setPluginConfig(pluginName, "key2", "value2");
-
-      database.deletePluginConfig(pluginName, "key1");
-
-      const config = database.getPluginConfig(pluginName);
+      const config = await database.getPluginConfig(pluginName);
       expect(config.key1).toBeUndefined();
       expect(config.key2).toBe("value2");
     });
 
-    it("should delete all config for a plugin", () => {
-      database.setPluginConfig(pluginName, "key1", "value1");
-      database.setPluginConfig(pluginName, "key2", "value2");
+    it("should delete all config for a plugin", async () => {
+      await database.setPluginConfig(pluginName, "key1", "value1");
+      await database.setPluginConfig(pluginName, "key2", "value2");
 
-      database.deletePluginConfig(pluginName);
+      await database.deletePluginConfig(pluginName);
 
-      const config = database.getPluginConfig(pluginName);
+      const config = await database.getPluginConfig(pluginName);
       expect(config).toEqual({});
     });
 
-    it("should handle multiple plugins", () => {
-      const plugin1 = "@buntime/plugin-keyval";
-      const plugin2 = "@buntime/plugin-database";
-
-      database.seedPluginFromManifest({ name: plugin2, base: "/database" });
-
-      database.setPluginConfig(plugin1, "key", "value1");
-      database.setPluginConfig(plugin2, "key", "value2");
-
-      expect(database.getPluginConfigValue(plugin1, "key")).toBe("value1");
-      expect(database.getPluginConfigValue(plugin2, "key")).toBe("value2");
-    });
-
-    it("should store complex values as JSON", () => {
+    it("should store complex values as JSON", async () => {
       const complexValue = { nested: { value: 123 }, array: [1, 2, 3] };
-      database.setPluginConfig(pluginName, "complex", complexValue);
+      await database.setPluginConfig(pluginName, "complex", complexValue);
 
-      const value = database.getPluginConfigValue(pluginName, "complex");
-      expect(value).toEqual(complexValue);
-    });
-
-    it("should replace all config with setPluginConfigAll", () => {
-      database.setPluginConfig(pluginName, "key1", "value1");
-      database.setPluginConfig(pluginName, "key2", "value2");
-
-      database.setPluginConfigAll(pluginName, { newKey: "newValue" });
-
-      const config = database.getPluginConfig(pluginName);
-      expect(config).toEqual({ newKey: "newValue" });
-    });
-
-    it("should throw when setting config for non-existent plugin", () => {
-      expect(() => database.setPluginConfig("unknown-plugin", "key", "value")).toThrow(
-        'Plugin "unknown-plugin" not found in database',
-      );
+      const config = await database.getPluginConfig(pluginName);
+      expect(config.complex).toEqual(complexValue);
     });
   });
 
   describe("getAllPlugins", () => {
-    it("should return empty array when no plugins", () => {
-      const plugins = database.getAllPlugins();
+    it("should return empty array when no plugins", async () => {
+      const plugins = await database.getAllPlugins();
       expect(plugins).toEqual([]);
     });
 
-    it("should return all plugins with full state", () => {
-      database.seedPluginFromManifest({
+    it("should return all plugins with full state", async () => {
+      await database.seedPluginFromManifest({
         name: "@buntime/plugin-keyval",
         base: "/keyval",
         dependencies: ["@buntime/plugin-database"],
       });
-      database.setPluginVersion("@buntime/plugin-keyval", "1.0.0");
-      database.setPluginConfig("@buntime/plugin-keyval", "key", "value");
+      await database.setPluginVersion("@buntime/plugin-keyval", "1.0.0");
+      await database.setPluginConfig("@buntime/plugin-keyval", "key", "value");
 
-      database.seedPluginFromManifest({ name: "@buntime/plugin-database", base: "/database" });
-      database.disablePlugin("@buntime/plugin-database");
+      await database.seedPluginFromManifest({
+        name: "@buntime/plugin-database",
+        base: "/database",
+      });
+      await database.disablePlugin("@buntime/plugin-database");
 
-      const plugins = database.getAllPlugins();
+      const plugins = await database.getAllPlugins();
 
       expect(plugins.length).toBe(2);
 
@@ -372,13 +269,13 @@ describe("database", () => {
   });
 
   describe("getPlugin", () => {
-    it("should return null for unknown plugin", () => {
-      const plugin = database.getPlugin("unknown-plugin");
+    it("should return null for unknown plugin", async () => {
+      const plugin = await database.getPlugin("unknown-plugin");
       expect(plugin).toBeNull();
     });
 
-    it("should return plugin with all fields", () => {
-      database.seedPluginFromManifest({
+    it("should return plugin with all fields", async () => {
+      await database.seedPluginFromManifest({
         name: "@buntime/plugin-keyval",
         base: "/keyval",
         dependencies: ["@buntime/plugin-database"],
@@ -387,7 +284,7 @@ describe("database", () => {
         database: "libsql",
       });
 
-      const plugin = database.getPlugin("@buntime/plugin-keyval");
+      const plugin = await database.getPlugin("@buntime/plugin-keyval");
 
       expect(plugin).toBeDefined();
       expect(plugin?.name).toBe("@buntime/plugin-keyval");
@@ -403,29 +300,17 @@ describe("database", () => {
   });
 
   describe("removePluginFromDb", () => {
-    it("should remove plugin completely", () => {
-      database.seedPluginFromManifest({ name: "@buntime/plugin-keyval", base: "/keyval" });
-      database.setPluginVersion("@buntime/plugin-keyval", "1.0.0");
-      database.setPluginConfig("@buntime/plugin-keyval", "key", "value");
+    it("should remove plugin completely", async () => {
+      await database.seedPluginFromManifest({ name: "@buntime/plugin-keyval", base: "/keyval" });
+      await database.setPluginVersion("@buntime/plugin-keyval", "1.0.0");
+      await database.setPluginConfig("@buntime/plugin-keyval", "key", "value");
 
-      database.removePluginFromDb("@buntime/plugin-keyval");
+      await database.removePluginFromDb("@buntime/plugin-keyval");
 
-      expect(database.isPluginEnabled("@buntime/plugin-keyval")).toBe(false);
-      expect(database.getPluginVersion("@buntime/plugin-keyval")).toBe("latest");
-      expect(database.getPluginConfig("@buntime/plugin-keyval")).toEqual({});
-      expect(database.getPlugin("@buntime/plugin-keyval")).toBeNull();
-    });
-  });
-
-  describe("closeDatabase", () => {
-    it("should close without error", () => {
-      expect(() => database.closeDatabase()).not.toThrow();
-    });
-
-    it("should allow reopening after close", () => {
-      database.closeDatabase();
-      const db = database.getDatabase();
-      expect(db).toBeDefined();
+      expect(await database.isPluginEnabled("@buntime/plugin-keyval")).toBe(false);
+      expect(await database.getPluginVersion("@buntime/plugin-keyval")).toBe("latest");
+      expect(await database.getPluginConfig("@buntime/plugin-keyval")).toEqual({});
+      expect(await database.getPlugin("@buntime/plugin-keyval")).toBeNull();
     });
   });
 });

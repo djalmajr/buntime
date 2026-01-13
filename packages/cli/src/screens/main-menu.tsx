@@ -15,6 +15,11 @@ const menuItems: MenuItem[] = [
     label: "Plugins",
     value: "plugins",
   },
+  {
+    description: "Manage authentication keys",
+    label: "API Keys",
+    value: "keys",
+  },
 ];
 
 export function MainMenuScreen() {
@@ -33,6 +38,9 @@ export function MainMenuScreen() {
         break;
       case "apps":
         navigate({ type: "app_list" });
+        break;
+      case "keys":
+        navigate({ type: "key_list" });
         break;
     }
   };

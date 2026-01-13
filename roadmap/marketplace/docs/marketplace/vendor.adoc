@@ -1,0 +1,323 @@
+= Sistema de Vendors
+
+O Sistema de Vendors gerencia organizações e indivíduos que publicam packages no marketplace. Ele lida com identidade, membros de equipe e agregação de avaliações.
+
+== Modelo de Dados
+
+=== Tabela de Vendors
+
+A tabela `marketplace_vendors` armazena os perfis de vendors.
+
+[source,sql]
+----
+CREATE TABLE marketplace_vendors (
+  id            TEXT PRIMARY KEY DEFAULT (uuid_v7()),
+  slug          TEXT NOT NULL UNIQUE,
+  name          TEXT NOT NULL,
+  description   TEXT,
+  website       TEXT,
+  logo_url      TEXT,
+  verified      INTEGER NOT NULL DEFAULT 0,
+  status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'banned')),
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX idx_vendors_slug ON marketplace_vendors(slug);
+CREATE INDEX idx_vendors_status ON marketplace_vendors(status);
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| id
+| TEXT
+| Chave primária UUID v7
+
+| slug
+| TEXT
+| Identificador único amigável para URL
+
+| name
+| TEXT
+| Nome de exibição
+
+| description
+| TEXT
+| Biografia do vendor ou descrição da empresa
+
+| website
+| TEXT
+| URL do site oficial
+
+| logo_url
+| TEXT
+| URL da imagem do logo do vendor
+
+| verified
+| INTEGER
+| Flag booleana para vendors verificados
+
+| status
+| TEXT
+| Status da conta (active, suspended, banned)
+|===
+
+=== Tabela de Membros do Vendor
+
+A tabela `marketplace_vendor_members` vincula API keys a vendors com funções.
+
+[source,sql]
+----
+CREATE TABLE marketplace_vendor_members (
+  vendor_id     TEXT NOT NULL REFERENCES marketplace_vendors(id) ON DELETE CASCADE,
+  api_key_id    TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+  role          TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'publisher')),
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (vendor_id, api_key_id)
+);
+
+CREATE INDEX idx_vendor_members_key ON marketplace_vendor_members(api_key_id);
+----
+
+== Funções de Vendor
+
+[mermaid]
+----
+flowchart TB
+    subgraph Funções
+        O[Owner]
+        A[Admin]
+        P[Publisher]
+    end
+
+    subgraph Capacidades
+        M[Gerenciar Perfil do Vendor]
+        T[Gerenciar Membros da Equipe]
+        PUB[Publicar Packages]
+        V[Visualizar Analytics]
+        D[Excluir Packages]
+        TRANSFER[Transferir Propriedade]
+    end
+
+    O --> M
+    O --> T
+    O --> PUB
+    O --> V
+    O --> D
+    O --> TRANSFER
+
+    A --> M
+    A --> T
+    A --> PUB
+    A --> V
+    A --> D
+
+    P --> PUB
+    P --> V
+----
+
+[cols="1,1,4"]
+|===
+| Função | Nível | Capacidades
+
+| owner
+| 1
+| Controle total incluindo exclusão do vendor e transferência de propriedade. Apenas um owner por vendor.
+
+| admin
+| 2
+| Gerenciar perfil, membros da equipe e packages. Não pode excluir o vendor ou transferir propriedade.
+
+| publisher
+| 3
+| Publicar e gerenciar seus próprios packages. Visualizar analytics dos packages que publica.
+|===
+
+== Avaliações e Notas
+
+=== Tabela de Avaliações
+
+A tabela `marketplace_reviews` armazena avaliações de usuários para packages.
+
+[source,sql]
+----
+CREATE TABLE marketplace_reviews (
+  id            TEXT PRIMARY KEY DEFAULT (uuid_v7()),
+  package_id    TEXT NOT NULL REFERENCES marketplace_packages(id) ON DELETE CASCADE,
+  api_key_id    TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+  rating        INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  title         TEXT,
+  body          TEXT,
+  helpful_count INTEGER NOT NULL DEFAULT 0,
+  status        TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('published', 'hidden', 'flagged')),
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(package_id, api_key_id)
+);
+
+CREATE INDEX idx_reviews_package ON marketplace_reviews(package_id);
+CREATE INDEX idx_reviews_rating ON marketplace_reviews(rating);
+CREATE INDEX idx_reviews_status ON marketplace_reviews(status);
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| id
+| TEXT
+| Chave primária UUID v7
+
+| package_id
+| TEXT
+| Chave estrangeira para o package avaliado
+
+| api_key_id
+| TEXT
+| Chave estrangeira para a API key do avaliador
+
+| rating
+| INTEGER
+| Avaliação em estrelas (1-5)
+
+| title
+| TEXT
+| Título opcional da avaliação
+
+| body
+| TEXT
+| Conteúdo da avaliação
+
+| helpful_count
+| INTEGER
+| Número de votos "útil"
+
+| status
+| TEXT
+| Status da avaliação (published, hidden, flagged)
+|===
+
+=== Agregação de Avaliações
+
+Estatísticas de avaliação dos packages são materializadas para melhor desempenho:
+
+[source,sql]
+----
+CREATE TABLE marketplace_package_stats (
+  package_id      TEXT PRIMARY KEY REFERENCES marketplace_packages(id) ON DELETE CASCADE,
+  rating_avg      REAL NOT NULL DEFAULT 0,
+  rating_count    INTEGER NOT NULL DEFAULT 0,
+  rating_1        INTEGER NOT NULL DEFAULT 0,
+  rating_2        INTEGER NOT NULL DEFAULT 0,
+  rating_3        INTEGER NOT NULL DEFAULT 0,
+  rating_4        INTEGER NOT NULL DEFAULT 0,
+  rating_5        INTEGER NOT NULL DEFAULT 0,
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Trigger para atualizar estatísticas ao inserir avaliação
+CREATE TRIGGER reviews_ai AFTER INSERT ON marketplace_reviews
+WHEN NEW.status = 'published'
+BEGIN
+  INSERT INTO marketplace_package_stats (package_id, rating_count, rating_avg)
+  VALUES (NEW.package_id, 1, NEW.rating)
+  ON CONFLICT(package_id) DO UPDATE SET
+    rating_count = rating_count + 1,
+    rating_avg = (rating_avg * rating_count + NEW.rating) / (rating_count + 1),
+    updated_at = datetime('now');
+
+  UPDATE marketplace_package_stats
+  SET rating_1 = rating_1 + CASE WHEN NEW.rating = 1 THEN 1 ELSE 0 END,
+      rating_2 = rating_2 + CASE WHEN NEW.rating = 2 THEN 1 ELSE 0 END,
+      rating_3 = rating_3 + CASE WHEN NEW.rating = 3 THEN 1 ELSE 0 END,
+      rating_4 = rating_4 + CASE WHEN NEW.rating = 4 THEN 1 ELSE 0 END,
+      rating_5 = rating_5 + CASE WHEN NEW.rating = 5 THEN 1 ELSE 0 END
+  WHERE package_id = NEW.package_id;
+END;
+----
+
+== Verificação de Vendor
+
+[mermaid]
+----
+flowchart LR
+    A[Solicitar Verificação] --> B{Revisar Solicitação}
+    B -->|Aprovado| C[Selo de Verificado]
+    B -->|Rejeitado| D[Feedback Fornecido]
+    D --> A
+    C --> E[Visibilidade Aprimorada]
+    C --> F[Suporte Prioritário]
+    C --> G[Elegibilidade para Destaque]
+----
+
+=== Requisitos de Verificação
+
+[cols="1,3"]
+|===
+| Requisito | Descrição
+
+| Identidade
+| Registro empresarial verificado ou identificação pessoal
+
+| Contato
+| E-mail de suporte válido e resposta em até 48 horas
+
+| Histórico
+| Pelo menos um package publicado com avaliações positivas
+
+| Conformidade
+| Concordância com as políticas e diretrizes do marketplace
+
+| Segurança
+| Práticas de desenvolvimento seguro e tratamento de vulnerabilidades
+|===
+
+== Ciclo de Vida do Vendor
+
+[mermaid]
+----
+stateDiagram-v2
+    [*] --> Active: Criar Vendor
+    Active --> Suspended: Violação de Política
+    Suspended --> Active: Recurso Aceito
+    Suspended --> Banned: Violações Repetidas
+    Banned --> [*]
+
+    note right of Suspended
+        Packages ocultos
+        Não pode publicar
+        Pode recorrer
+    end note
+
+    note right of Banned
+        Conta encerrada
+        Packages removidos
+        Sem recurso
+    end note
+----
+
+== Fluxo de Gerenciamento de Equipe
+
+[mermaid]
+----
+sequenceDiagram
+    participant Owner
+    participant API
+    participant Membro
+
+    Owner->>API: POST /vendor/members
+    Note over API: Validar função de owner
+    API->>Membro: E-mail de convite
+    Membro->>API: Aceitar convite
+    API-->>Owner: Notificação de membro adicionado
+
+    Owner->>API: PUT /vendor/members/:id
+    Note over API: Alterar função
+    API-->>Membro: Notificação de função alterada
+
+    Owner->>API: DELETE /vendor/members/:id
+    Note over API: Remover membro
+    API-->>Membro: Notificação de remoção
+----

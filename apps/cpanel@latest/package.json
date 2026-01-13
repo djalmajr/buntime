@@ -17,7 +17,6 @@
     "@buntime/piercing": "workspace:*",
     "@buntime/plugin-authn": "workspace:*",
     "@buntime/plugin-authz": "workspace:*",
-    "@buntime/plugin-durable": "workspace:*",
     "@buntime/plugin-gateway": "workspace:*",
     "@buntime/plugin-keyval": "workspace:*",
     "@buntime/plugin-metrics": "workspace:*",

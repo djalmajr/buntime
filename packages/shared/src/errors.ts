@@ -32,6 +32,18 @@ export class ValidationError extends AppError {
   }
 }
 
+export class UnauthorizedError extends AppError {
+  constructor(message: string, code: string = "UNAUTHORIZED") {
+    super(message, code, 401);
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(message: string, code: string = "FORBIDDEN") {
+    super(message, code, 403);
+  }
+}
+
 /**
  * Convert an error to an HTTP response
  * In production, internal error details are hidden to prevent information leakage

@@ -1,0 +1,205 @@
+= Visão Geral do Marketplace
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+O Buntime Marketplace transforma o runtime em um núcleo multitenant para distribuição de aplicações e plugins. Este documento apresenta os conceitos fundamentais que orientam a arquitetura.
+
+== Objetivo
+
+O marketplace permite que múltiplos tenants (clientes) acessem aplicações compartilhadas a partir de uma única instalação do Buntime. Diferente de modelos tradicionais onde cada cliente possui sua própria instância de cada aplicação, aqui todas as aplicações já estão disponíveis no runtime.
+
+== Modelo
+
+Aplicações são compartilhadas e o acesso é controlado por entitlements:
+
+[mermaid]
+----
+flowchart TB
+    subgraph buntime["Runtime"]
+        erp["App ERP"]
+        crm["App CRM"]
+        billing["App Billing"]
+    end
+
+    subgraph tenants["Tenants"]
+        ta["Tenant A"]
+        tb["Tenant B"]
+        tc["Tenant C"]
+    end
+
+    ta -->|entitlement| erp
+    ta -->|entitlement| crm
+    tb -->|entitlement| erp
+    tc -->|entitlement| crm
+    tc -->|entitlement| billing
+----
+
+Características:
+
+* Aplicações existem uma única vez no runtime
+* Entitlements controlam quem acessa o quê
+* Atualização centralizada de versões
+* Manutenção simplificada
+
+== Conceito de Entitlement
+
+O **entitlement** é o elemento central que vincula um tenant a uma aplicação. Não existe instalação "física": quando um tenant adquire acesso a um app, um entitlement é criado definindo os termos desse acesso.
+
+Um entitlement define:
+
+[cols="1,2"]
+|===
+| Atributo | Descrição
+
+| tenant_id
+| Identificador do tenant que possui o direito
+
+| app_id
+| Aplicação acessível
+
+| version
+| Versão permitida (`2.1.0`, `2.*`)
+
+| scope
+| Nível de acesso (`FULL`, `READ_ONLY`, `CUSTOM`)
+
+| license_mode
+| Modelo de licenciamento (`NAMED`, `CONCURRENT`, `UNLIMITED`)
+
+| quota
+| Limites de uso (usuários, requests, storage)
+
+| expires_at
+| Data de expiração (null para permanente)
+|===
+
+== Fluxo de Acesso
+
+O Buntime implementa o modelo XACML para controle de acesso no nível contratual. Dois plugins possuem hooks `onRequest` (middleware):
+
+* **plugin-authn**: Identifica tenant e valida credenciais
+* **plugin-authz**: PEP (Policy Enforcement Point) que intercepta e verifica entitlements contratuais
+
+O `app-licenses` é um PIP (Policy Information Point) executado como worker que fornece dados de entitlements contratuais quando consultado via HTTP pelo PDP.
+
+O `app-iam` é um worker que gerencia permissões granulares (roles, organograma, user plans) e é consultado diretamente pelos apps via HTTP quando necessário.
+
+Para garantir que `plugin-authn` execute antes de `plugin-authz`, o manifest declara:
+
+[source,jsonc]
+----
+{
+  "name": "@buntime/plugin-authz",
+  "dependencies": ["@buntime/plugin-authn"]
+}
+----
+
+Quando uma requisição chega ao Buntime:
+
+[mermaid]
+----
+sequenceDiagram
+    participant Client
+    participant Runtime
+    participant AUTHN as plugin-authn
+    participant PEP as plugin-authz PEP
+    participant PDP as plugin-authz PDP
+    participant LIC as app-licenses PIP
+    participant IAM as app-iam PIP
+    participant App
+
+    Client->>Runtime: Request
+    Runtime->>AUTHN: onRequest()
+    AUTHN->>AUTHN: Extrair tenant (API key/domain/header)
+    AUTHN->>AUTHN: Validar usuário
+    AUTHN->>AUTHN: Injetar x-tenant-id, x-user-id
+
+    AUTHN->>PEP: onRequest()
+    PEP->>PDP: evaluate(tenant, app)
+
+    PDP->>LIC: HTTP GET /licenses/api/entitlements/{appId}
+    LIC-->>PDP: {license_mode, seats, quotas}
+    PDP->>PDP: Avaliar entitlement contratual
+    PDP-->>PEP: PERMIT / DENY
+
+    alt Entitlement OK
+        PEP->>Runtime: Request autorizado
+        Runtime->>App: Encaminhar para worker
+
+        Note over App,IAM: App decide se precisa verificar permissões
+        opt Verificação granular necessária
+            App->>IAM: HTTP GET /iam/api/permissions?userId=...&permission=...
+            IAM-->>App: {has_permission: true/false}
+            App->>App: Permitir ou bloquear ação
+        end
+
+        App-->>Client: Response
+    else Entitlement negado
+        PEP-->>Client: 403 Forbidden (sem licença)
+    end
+----
+
+NOTE: Veja xref:../architecture/authz-integration.adoc[Integração de Autorização] para detalhes completos da arquitetura XACML com PAP, PIP, PDP e PEP.
+
+== O Que Controla o Acesso
+
+O acesso a uma aplicação não depende de instalação, mas sim de **dois níveis de verificação**:
+
+=== Nível 1: Verificação Contratual (Runtime)
+
+. **Identificação do tenant**: O `plugin-authn` identifica quem está fazendo a requisição através de API key, domínio ou header.
+
+. **Autorização pelo PEP**: O `plugin-authz` intercepta a requisição e consulta o PDP.
+
+. **Verificação de entitlement contratual**: O PDP consulta o `app-licenses` (PIP) via HTTP para verificar:
+   * Se o tenant possui licença para o app
+   * Se não excedeu limites de seats (NAMED/CONCURRENT)
+   * Se não expirou a validade
+   * Se as quotas contratuais não foram excedidas
+
+. **Decisão do PEP**: Se o entitlement contratual estiver OK, a requisição é encaminhada para o app. Caso contrário, retorna 403 Forbidden.
+
+=== Nível 2: Verificação Granular (App)
+
+Após passar pelo PEP, o **app decide** se precisa verificar permissões granulares:
+
+. **App identifica a ação**: O app conhece o contexto semântico da requisição (ex: "deletar arquivo", "enviar invoice")
+
+. **App consulta app-iam**: Via HTTP, o app verifica se o usuário tem a permissão específica:
+   * Se o usuário tem a permissão necessária (ex: `files:delete`)
+   * Se a role do usuário permite a ação
+   * Se não há restrições de departamento/organograma
+
+. **App decide**: Com base na resposta do `app-iam`, o app permite ou bloqueia a operação.
+
+[NOTE]
+====
+**Por que essa separação?**
+
+O PEP não consegue detectar automaticamente a "ação semântica" apenas olhando HTTP method + path. Por exemplo, `DELETE /files/123` pode ser `files:delete`, `files:trash`, ou `files:archive` dependendo do contexto do app.
+
+O contexto semântico pertence ao app, portanto a verificação granular é delegada a ele.
+
+**Futura evolução:** Explorar a possibilidade de apps declararem mapeamento de rotas → permissões via manifest, permitindo que o PEP faça a verificação automaticamente.
+====
+
+== Benefícios do Modelo
+
+Centralização de aplicações::
+Uma única instância de cada app serve todos os tenants, simplificando deploys e atualizações.
+
+Provisionamento instantâneo::
+Novos tenants ganham acesso imediato via criação de entitlement, sem necessidade de instalação.
+
+Gestão unificada de versões::
+Atualizações são aplicadas uma vez e todos os tenants se beneficiam (respeitando version pinning).
+
+Isolamento via contexto::
+Mesmo compartilhando código, cada tenant opera em seu próprio contexto de dados (banco, KeyVal namespace).
+
+Billing integrado::
+O mesmo sistema que controla acesso pode gerenciar cobrança baseada em uso real.

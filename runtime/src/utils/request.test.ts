@@ -16,10 +16,10 @@ describe("request utils", () => {
     beforeEach(() => {
       spyOn(configModule, "getConfig").mockReturnValue({
         bodySize: { default: 1024, max: 10240 },
-        configDir: "/tmp/test",
         delayMs: 100,
         isCompiled: false,
         isDev: true,
+        libsqlUrl: "http://localhost:8880",
         nodeEnv: "test",
         pluginDirs: ["./plugins"],
         poolSize: 10,

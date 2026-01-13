@@ -1,8 +1,8 @@
 /**
- * Runtime configuration database (SQLite)
+ * Runtime configuration database (LibSQL)
  *
  * Centralized storage for plugin state and configuration.
- * Uses SQLite with WAL mode for multi-process access (Kubernetes pods).
+ * Uses @libsql/client/http for both local SQLite and remote libSQL servers.
  *
  * Single table design with manifest fields as columns:
  * - Structural fields: name, base, entrypoint, dependencies, etc.
@@ -10,54 +10,110 @@
  * - Dynamic config: config (JSON for plugin-specific settings)
  */
 
-import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync } from "node:fs";
 import { getChildLogger } from "@buntime/shared/logger";
 import type { PluginManifest } from "@buntime/shared/types";
+import { type Client, createClient } from "@libsql/client/http";
 import { getConfig } from "@/config";
 
 const logger = getChildLogger("Database");
 
-let db: Database | null = null;
+let client: Client | null = null;
 
 /**
  * Initialize the runtime database
- * Creates the database file and runs migrations if needed
+ * Creates the database connection and runs migrations if needed
  */
-function initDatabase(): Database {
+export async function initDatabase(): Promise<void> {
   const config = getConfig();
-  const dbDir = config.configDir;
 
-  // Ensure directory exists
-  if (!existsSync(dbDir)) {
-    mkdirSync(dbDir, { recursive: true });
-    logger.info(`Created config directory: ${dbDir}`);
-  }
+  // For multi-tenant libsql servers, namespace is specified via Host header
+  // Set LIBSQL_NAMESPACE env var to use namespace-based routing
+  const namespace = config.libsqlNamespace;
 
-  const dbPath = `${dbDir}/buntime.db`;
-  const database = new Database(dbPath, { create: true });
+  // If namespace is specified, create a custom fetch that adds Host header
+  const customFetch = namespace
+    ? (input: RequestInfo | URL, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        headers.set("Host", namespace);
+        return fetch(input, { ...init, headers });
+      }
+    : undefined;
 
-  // Enable WAL mode for better concurrent access (multi-pod)
-  database.run("PRAGMA journal_mode = WAL");
+  client = createClient({
+    authToken: config.libsqlAuthToken,
+    fetch: customFetch,
+    url: config.libsqlUrl,
+  });
 
   // Run migrations
-  runMigrations(database);
+  await runMigrations();
 
-  logger.info(`Database initialized: ${dbPath}`);
-  return database;
+  logger.info(`Database initialized: ${config.libsqlUrl}${namespace ? ` (namespace: ${namespace})` : ""}`);
+}
+
+/**
+ * Get the database client
+ * @throws Error if database is not initialized
+ */
+export function getClient(): Client {
+  if (!client) {
+    throw new Error("Database not initialized. Call initDatabase() first.");
+  }
+  return client;
+}
+
+/**
+ * Execute a query and return all rows
+ */
+export async function query<T = unknown>(sql: string, args?: unknown[]): Promise<T[]> {
+  const result = await getClient().execute({
+    args: (args ?? []) as (string | number | boolean | null | Uint8Array | bigint)[],
+    sql,
+  });
+  return result.rows as T[];
+}
+
+/**
+ * Execute a query and return the first row or null
+ */
+export async function queryOne<T = unknown>(sql: string, args?: unknown[]): Promise<T | null> {
+  const rows = await query<T>(sql, args);
+  return rows[0] ?? null;
+}
+
+/**
+ * Execute a statement (INSERT, UPDATE, DELETE, etc.)
+ */
+export async function execute(sql: string, args?: unknown[]): Promise<void> {
+  await getClient().execute({
+    args: (args ?? []) as (string | number | boolean | null | Uint8Array | bigint)[],
+    sql,
+  });
+}
+
+/**
+ * Execute multiple statements in a batch
+ */
+export async function batch(statements: Array<{ args?: unknown[]; sql: string }>): Promise<void> {
+  await getClient().batch(
+    statements.map((s) => ({
+      args: (s.args ?? []) as (string | number | boolean | null | Uint8Array | bigint)[],
+      sql: s.sql,
+    })),
+  );
 }
 
 /**
  * Run database migrations
  */
-function runMigrations(database: Database): void {
+async function runMigrations(): Promise<void> {
   // Check if we need to migrate from old schema (name as PRIMARY KEY)
-  const tableInfo = database.query("PRAGMA table_info(plugins)").all() as Array<{
+  const tableInfo = await query<{
     cid: number;
     name: string;
     pk: number;
     type: string;
-  }>;
+  }>("PRAGMA table_info(plugins)");
 
   const hasOldSchema =
     tableInfo.length > 0 && tableInfo.some((c) => c.name === "name" && c.pk === 1);
@@ -65,9 +121,9 @@ function runMigrations(database: Database): void {
   if (hasOldSchema) {
     // Migrate: rename old table, create new, copy data, drop old
     logger.info("Migrating plugins table to new schema with id column...");
-    database.run("ALTER TABLE plugins RENAME TO plugins_old");
+    await execute("ALTER TABLE plugins RENAME TO plugins_old");
 
-    database.run(`
+    await execute(`
       CREATE TABLE plugins (
         id                    INTEGER PRIMARY KEY AUTOINCREMENT,
         name                  TEXT UNIQUE NOT NULL,
@@ -94,7 +150,7 @@ function runMigrations(database: Database): void {
     `);
 
     // Copy data from old table
-    database.run(`
+    await execute(`
       INSERT INTO plugins (name, enabled, version, base, entrypoint, dependencies,
                            optional_dependencies, fragment, menus, config, created_at, updated_at)
       SELECT name, enabled, version, base, entrypoint, dependencies,
@@ -102,11 +158,11 @@ function runMigrations(database: Database): void {
       FROM plugins_old
     `);
 
-    database.run("DROP TABLE plugins_old");
+    await execute("DROP TABLE plugins_old");
     logger.info("Migration complete");
   } else if (tableInfo.length === 0) {
     // Fresh install: create new schema
-    database.run(`
+    await execute(`
       CREATE TABLE IF NOT EXISTS plugins (
         id                    INTEGER PRIMARY KEY AUTOINCREMENT,
         name                  TEXT UNIQUE NOT NULL,
@@ -133,20 +189,64 @@ function runMigrations(database: Database): void {
     `);
   }
 
-  // Drop old tables if they exist (migration from 3-table schema)
-  database.run("DROP TABLE IF EXISTS plugin_versions");
-  database.run("DROP TABLE IF EXISTS plugin_config");
-}
+  // Create API keys table for hierarchical key management
+  await execute(`
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      name            TEXT NOT NULL,
+      key_hash        TEXT NOT NULL UNIQUE,    -- bcrypt hash of the key
+      key_prefix      TEXT NOT NULL,           -- first 12 chars for display (btk_xxxx...)
 
-/**
- * Get the runtime database instance
- * Initializes the database on first call
- */
-export function getDatabase(): Database {
-  if (!db) {
-    db = initDatabase();
-  }
-  return db;
+      -- Permissions
+      role            TEXT NOT NULL,           -- 'admin' | 'editor' | 'viewer' | 'custom'
+      permissions     TEXT DEFAULT '[]',       -- JSON array of permissions (used when role='custom')
+
+      -- Metadata
+      created_by      INTEGER,                 -- NULL = created by root, otherwise id of creating key
+      created_at      INTEGER DEFAULT (unixepoch()),
+      expires_at      INTEGER,                 -- NULL = never expires
+      last_used_at    INTEGER,
+      revoked_at      INTEGER,                 -- NULL = active, timestamp = revoked
+
+      -- Audit
+      description     TEXT,                    -- optional notes
+
+      FOREIGN KEY (created_by) REFERENCES api_keys(id) ON DELETE SET NULL
+    )
+  `);
+
+  // Indexes for API keys
+  await execute("CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix)");
+  await execute("CREATE INDEX IF NOT EXISTS idx_api_keys_role ON api_keys(role)");
+  await execute("CREATE INDEX IF NOT EXISTS idx_api_keys_created_by ON api_keys(created_by)");
+
+  // Create audit logs table for tracking all actions
+  await execute(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp       INTEGER DEFAULT (unixepoch()),
+
+      -- Who performed the action
+      actor_id        INTEGER,                 -- NULL = root, otherwise api_key id
+      actor_name      TEXT NOT NULL,           -- 'root' or key name
+
+      -- What was done
+      action          TEXT NOT NULL,           -- 'key.create' | 'key.revoke' | 'plugin.install' | etc
+      resource_type   TEXT,                    -- 'key' | 'plugin' | 'app'
+      resource_id     TEXT,                    -- id of the affected resource
+      resource_name   TEXT,                    -- name of the affected resource
+
+      -- Additional details
+      details         TEXT,                    -- JSON with extra data
+      ip_address      TEXT,                    -- IP of the request
+      user_agent      TEXT                     -- User-Agent of the request
+    )
+  `);
+
+  // Indexes for audit logs
+  await execute("CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp)");
+  await execute("CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_id)");
+  await execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action)");
 }
 
 /**
@@ -154,9 +254,9 @@ export function getDatabase(): Database {
  * Call this during shutdown
  */
 export function closeDatabase(): void {
-  if (db) {
-    db.close();
-    db = null;
+  if (client) {
+    client.close();
+    client = null;
     logger.debug("Database connection closed");
   }
 }
@@ -259,9 +359,7 @@ function extractPluginConfig(manifest: PluginManifest): Record<string, unknown> 
  * - If plugin doesn't exist: INSERT with all manifest data
  * - If plugin exists: UPDATE structural fields only, preserve state (enabled, config overrides)
  */
-export function seedPluginFromManifest(manifest: PluginManifest): void {
-  const database = getDatabase();
-
+export async function seedPluginFromManifest(manifest: PluginManifest): Promise<void> {
   const name = manifest.name;
   const base = manifest.base;
   const entrypoint = manifest.entrypoint ?? null;
@@ -273,14 +371,14 @@ export function seedPluginFromManifest(manifest: PluginManifest): void {
   const pluginConfig = extractPluginConfig(manifest);
 
   // Check if plugin exists
-  const existing = database.query("SELECT name, config FROM plugins WHERE name = ?").get(name) as {
-    config: string;
-    name: string;
-  } | null;
+  const existing = await queryOne<{ config: string; name: string }>(
+    "SELECT name, config FROM plugins WHERE name = ?",
+    [name],
+  );
 
   if (!existing) {
     // INSERT: New plugin - use manifest values including enabled and config
-    database.run(
+    await execute(
       `
       INSERT INTO plugins (
         name, enabled, version, base, entrypoint,
@@ -315,57 +413,53 @@ export function seedPluginFromManifest(manifest: PluginManifest): void {
 /**
  * Get a plugin row by name
  */
-function getPluginRow(name: string): PluginRow | null {
-  const database = getDatabase();
-  return database.query("SELECT * FROM plugins WHERE name = ?").get(name) as PluginRow | null;
+async function getPluginRow(name: string): Promise<PluginRow | null> {
+  return queryOne<PluginRow>("SELECT * FROM plugins WHERE name = ?", [name]);
 }
 
 /**
  * Check if a plugin is enabled
  * Returns false if plugin is not in the database or is disabled
  */
-export function isPluginEnabled(name: string): boolean {
-  const row = getPluginRow(name);
+export async function isPluginEnabled(name: string): Promise<boolean> {
+  const row = await getPluginRow(name);
   return row?.enabled === 1;
 }
 
 /**
  * Enable a plugin
  */
-export function enablePlugin(name: string): void {
-  const database = getDatabase();
-  const existing = getPluginRow(name);
+export async function enablePlugin(name: string): Promise<void> {
+  const existing = await getPluginRow(name);
 
   if (!existing) {
     // Plugin not in DB - can't enable something that wasn't seeded
     throw new Error(`Plugin "${name}" not found in database. Deploy the plugin first.`);
   }
 
-  database.run(`UPDATE plugins SET enabled = 1, updated_at = unixepoch() WHERE name = ?`, [name]);
+  await execute(`UPDATE plugins SET enabled = 1, updated_at = unixepoch() WHERE name = ?`, [name]);
   logger.info(`Plugin enabled: ${name}`);
 }
 
 /**
  * Disable a plugin
  */
-export function disablePlugin(name: string): void {
-  const database = getDatabase();
-  database.run(`UPDATE plugins SET enabled = 0, updated_at = unixepoch() WHERE name = ?`, [name]);
+export async function disablePlugin(name: string): Promise<void> {
+  await execute(`UPDATE plugins SET enabled = 0, updated_at = unixepoch() WHERE name = ?`, [name]);
   logger.info(`Plugin disabled: ${name}`);
 }
 
 /**
  * Enable a plugin by ID
  */
-export function enablePluginById(id: number): PluginData | null {
-  const database = getDatabase();
-  const existing = database.query("SELECT * FROM plugins WHERE id = ?").get(id) as PluginRow | null;
+export async function enablePluginById(id: number): Promise<PluginData | null> {
+  const existing = await queryOne<PluginRow>("SELECT * FROM plugins WHERE id = ?", [id]);
 
   if (!existing) {
     return null;
   }
 
-  database.run(`UPDATE plugins SET enabled = 1, updated_at = unixepoch() WHERE id = ?`, [id]);
+  await execute(`UPDATE plugins SET enabled = 1, updated_at = unixepoch() WHERE id = ?`, [id]);
   logger.info(`Plugin enabled: ${existing.name} (id: ${id})`);
 
   return getPluginById(id);
@@ -374,15 +468,14 @@ export function enablePluginById(id: number): PluginData | null {
 /**
  * Disable a plugin by ID
  */
-export function disablePluginById(id: number): PluginData | null {
-  const database = getDatabase();
-  const existing = database.query("SELECT * FROM plugins WHERE id = ?").get(id) as PluginRow | null;
+export async function disablePluginById(id: number): Promise<PluginData | null> {
+  const existing = await queryOne<PluginRow>("SELECT * FROM plugins WHERE id = ?", [id]);
 
   if (!existing) {
     return null;
   }
 
-  database.run(`UPDATE plugins SET enabled = 0, updated_at = unixepoch() WHERE id = ?`, [id]);
+  await execute(`UPDATE plugins SET enabled = 0, updated_at = unixepoch() WHERE id = ?`, [id]);
   logger.info(`Plugin disabled: ${existing.name} (id: ${id})`);
 
   return getPluginById(id);
@@ -391,17 +484,14 @@ export function disablePluginById(id: number): PluginData | null {
 /**
  * Remove a plugin by ID
  */
-export function removePluginById(id: number): boolean {
-  const database = getDatabase();
-  const existing = database.query("SELECT name FROM plugins WHERE id = ?").get(id) as {
-    name: string;
-  } | null;
+export async function removePluginById(id: number): Promise<boolean> {
+  const existing = await queryOne<{ name: string }>("SELECT name FROM plugins WHERE id = ?", [id]);
 
   if (!existing) {
     return false;
   }
 
-  database.run("DELETE FROM plugins WHERE id = ?", [id]);
+  await execute("DELETE FROM plugins WHERE id = ?", [id]);
   logger.info(`Plugin removed from database: ${existing.name} (id: ${id})`);
 
   return true;
@@ -410,11 +500,8 @@ export function removePluginById(id: number): boolean {
 /**
  * Get all enabled plugin names
  */
-export function getEnabledPlugins(): string[] {
-  const database = getDatabase();
-  const rows = database.query("SELECT name FROM plugins WHERE enabled = 1").all() as Array<{
-    name: string;
-  }>;
+export async function getEnabledPlugins(): Promise<string[]> {
+  const rows = await query<{ name: string }>("SELECT name FROM plugins WHERE enabled = 1");
   return rows.map((r) => r.name);
 }
 
@@ -426,23 +513,22 @@ export function getEnabledPlugins(): string[] {
  * Get the active version for a plugin
  * Returns "latest" if not set
  */
-export function getPluginVersion(name: string): string {
-  const row = getPluginRow(name);
+export async function getPluginVersion(name: string): Promise<string> {
+  const row = await getPluginRow(name);
   return row?.version ?? "latest";
 }
 
 /**
  * Set the active version for a plugin
  */
-export function setPluginVersion(name: string, version: string): void {
-  const database = getDatabase();
-  const existing = getPluginRow(name);
+export async function setPluginVersion(name: string, version: string): Promise<void> {
+  const existing = await getPluginRow(name);
 
   if (!existing) {
     throw new Error(`Plugin "${name}" not found in database`);
   }
 
-  database.run(`UPDATE plugins SET version = ?, updated_at = unixepoch() WHERE name = ?`, [
+  await execute(`UPDATE plugins SET version = ?, updated_at = unixepoch() WHERE name = ?`, [
     version,
     name,
   ]);
@@ -452,8 +538,8 @@ export function setPluginVersion(name: string, version: string): void {
 /**
  * Reset plugin version to "latest"
  */
-export function resetPluginVersion(name: string): void {
-  setPluginVersion(name, "latest");
+export async function resetPluginVersion(name: string): Promise<void> {
+  await setPluginVersion(name, "latest");
 }
 
 // ============================================================================
@@ -464,8 +550,8 @@ export function resetPluginVersion(name: string): void {
  * Get all configuration for a plugin
  * Returns parsed JSON object
  */
-export function getPluginConfig(name: string): Record<string, unknown> {
-  const row = getPluginRow(name);
+export async function getPluginConfig(name: string): Promise<Record<string, unknown>> {
+  const row = await getPluginRow(name);
   if (!row?.config) return {};
   try {
     return JSON.parse(row.config) as Record<string, unknown>;
@@ -477,8 +563,8 @@ export function getPluginConfig(name: string): Record<string, unknown> {
 /**
  * Get a single configuration value for a plugin
  */
-export function getPluginConfigValue(name: string, key: string): unknown {
-  const config = getPluginConfig(name);
+export async function getPluginConfigValue(name: string, key: string): Promise<unknown> {
+  const config = await getPluginConfig(name);
   return config[key];
 }
 
@@ -486,18 +572,17 @@ export function getPluginConfigValue(name: string, key: string): unknown {
  * Set a configuration value for a plugin
  * Merges with existing config
  */
-export function setPluginConfig(name: string, key: string, value: unknown): void {
-  const database = getDatabase();
-  const existing = getPluginRow(name);
+export async function setPluginConfig(name: string, key: string, value: unknown): Promise<void> {
+  const existing = await getPluginRow(name);
 
   if (!existing) {
     throw new Error(`Plugin "${name}" not found in database`);
   }
 
-  const config = getPluginConfig(name);
+  const config = await getPluginConfig(name);
   config[key] = value;
 
-  database.run(`UPDATE plugins SET config = ?, updated_at = unixepoch() WHERE name = ?`, [
+  await execute(`UPDATE plugins SET config = ?, updated_at = unixepoch() WHERE name = ?`, [
     JSON.stringify(config),
     name,
   ]);
@@ -507,15 +592,17 @@ export function setPluginConfig(name: string, key: string, value: unknown): void
 /**
  * Set all configuration for a plugin (replaces existing)
  */
-export function setPluginConfigAll(name: string, config: Record<string, unknown>): void {
-  const database = getDatabase();
-  const existing = getPluginRow(name);
+export async function setPluginConfigAll(
+  name: string,
+  config: Record<string, unknown>,
+): Promise<void> {
+  const existing = await getPluginRow(name);
 
   if (!existing) {
     throw new Error(`Plugin "${name}" not found in database`);
   }
 
-  database.run(`UPDATE plugins SET config = ?, updated_at = unixepoch() WHERE name = ?`, [
+  await execute(`UPDATE plugins SET config = ?, updated_at = unixepoch() WHERE name = ?`, [
     JSON.stringify(config),
     name,
   ]);
@@ -526,19 +613,17 @@ export function setPluginConfigAll(name: string, config: Record<string, unknown>
  * Delete a configuration key for a plugin
  * If key is not provided, clears all config
  */
-export function deletePluginConfig(name: string, key?: string): void {
-  const database = getDatabase();
-
+export async function deletePluginConfig(name: string, key?: string): Promise<void> {
   if (key) {
-    const config = getPluginConfig(name);
+    const config = await getPluginConfig(name);
     delete config[key];
-    database.run(`UPDATE plugins SET config = ?, updated_at = unixepoch() WHERE name = ?`, [
+    await execute(`UPDATE plugins SET config = ?, updated_at = unixepoch() WHERE name = ?`, [
       JSON.stringify(config),
       name,
     ]);
     logger.debug(`Plugin config deleted: ${name}.${key}`);
   } else {
-    database.run(`UPDATE plugins SET config = '{}', updated_at = unixepoch() WHERE name = ?`, [
+    await execute(`UPDATE plugins SET config = '{}', updated_at = unixepoch() WHERE name = ?`, [
       name,
     ]);
     logger.debug(`All plugin config cleared: ${name}`);
@@ -552,34 +637,31 @@ export function deletePluginConfig(name: string, key?: string): void {
 /**
  * Get a single plugin with its full data
  */
-export function getPlugin(name: string): PluginData | null {
-  const row = getPluginRow(name);
+export async function getPlugin(name: string): Promise<PluginData | null> {
+  const row = await getPluginRow(name);
   return row ? rowToPluginData(row) : null;
 }
 
 /**
  * Get a plugin by its database ID
  */
-export function getPluginById(id: number): PluginData | null {
-  const database = getDatabase();
-  const row = database.query("SELECT * FROM plugins WHERE id = ?").get(id) as PluginRow | null;
+export async function getPluginById(id: number): Promise<PluginData | null> {
+  const row = await queryOne<PluginRow>("SELECT * FROM plugins WHERE id = ?", [id]);
   return row ? rowToPluginData(row) : null;
 }
 
 /**
  * Get all plugins with their full state
  */
-export function getAllPlugins(): PluginData[] {
-  const database = getDatabase();
-  const rows = database.query("SELECT * FROM plugins ORDER BY name").all() as PluginRow[];
+export async function getAllPlugins(): Promise<PluginData[]> {
+  const rows = await query<PluginRow>("SELECT * FROM plugins ORDER BY name");
   return rows.map(rowToPluginData);
 }
 
 /**
  * Remove a plugin from the database completely
  */
-export function removePluginFromDb(name: string): void {
-  const database = getDatabase();
-  database.run("DELETE FROM plugins WHERE name = ?", [name]);
+export async function removePluginFromDb(name: string): Promise<void> {
+  await execute("DELETE FROM plugins WHERE name = ?", [name]);
   logger.info(`Plugin removed from database: ${name}`);
 }

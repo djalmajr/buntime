@@ -80,10 +80,15 @@ O runtime é configurado exclusivamente via variáveis de ambiente. Não há arq
 | `8000`
 | Porta do servidor
 
-| `CONFIG_DIR`
+| `LIBSQL_URL`
 | string
-| `./data`
-| Diretório para SQLite e configs persistentes
+| (obrigatória)
+| URL do servidor LibSQL (ex: `http://localhost:8880`)
+
+| `LIBSQL_AUTH_TOKEN`
+| string
+| (opcional)
+| Token de autenticação do LibSQL
 
 | `LOG_LEVEL`
 | string

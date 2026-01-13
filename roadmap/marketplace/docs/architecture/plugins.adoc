@@ -1,0 +1,1065 @@
+= Plugins do Marketplace
+
+Este documento descreve os plugins que sustentam a infraestrutura do marketplace, tanto os existentes que serão adaptados quanto os novos que serão criados.
+
+== Plugins Existentes e sua Participação
+
+O Buntime já possui plugins de infraestrutura que serão estendidos para suportar multitenancy:
+
+[cols="1,2,2"]
+|===
+| Plugin Existente | Função Atual | Adaptação para Marketplace
+
+| `plugin-database`
+| Conexões com LibSQL
+| Roteia conexões por tenant via subdomain HRANA (`{tenant}.libsql.infra`)
+
+| `plugin-keyval`
+| Storage key-value (Deno KV-like)
+| Aplica namespace automático por tenant nas chaves
+
+| `plugin-authz`
+| Autorização RBAC com PAP/PDP/PEP
+| Usa entitlements como PIP (Policy Information Point)
+
+| `plugin-authn`
+| Autenticação de usuários
+| Identifica tenant (subdomain, JWT claims, API key), autentica usuários, injeta `x-tenant-id`
+
+| `plugin-gateway`
+| Rate limiting
+| Aplica limites baseados em quotas do entitlement
+
+| `plugin-proxy`
+| Reverse proxy
+| Roteia para apps baseado em entitlements ativos
+
+| `plugin-vhosts`
+| Virtual hosts por domínio
+| Mapeia domínios customizados para tenants (identificação)
+
+| `plugin-metrics`
+| Coleta de métricas
+| Métricas por tenant para billing e quotas
+
+| `plugin-logs`
+| Agregação de logs
+| Logs segregados por tenant
+
+| `plugin-deployments`
+| Deploy de apps
+| Publica apps no registry do marketplace
+|===
+
+== Novos Componentes do Marketplace
+
+Quatro novos componentes serão criados para o marketplace:
+
+[cols="1,2,1,1"]
+|===
+| Componente | Propósito | Caminho Base | Dependências
+
+| app-licenses
+| PIP para entitlements contratuais (licenciamento, seats, concurrent, quotas)
+| `/licenses/api/*`
+| plugin-authn, plugin-database
+
+| app-iam
+| PIP para permissões granulares (roles, organograma, permissões por usuário)
+| `/iam/api/*`
+| plugin-authn, plugin-database
+
+| plugin-billing
+| Webhooks do Stripe, provisionamento de tenants, reconciliação
+| `/billing/api/*`
+| app-licenses, plugin-database
+
+| plugin-secrets
+| Cofre para secrets, criptografia, logs de auditoria
+| `/secrets/api/*`
+| plugin-authn, plugin-database
+|===
+
+NOTE: O provisionamento de tenants é feito pelo `plugin-billing` ao receber webhooks do Stripe. Dados de tenant são armazenados em uma tabela simples acessada pelos plugins que precisam.
+
+=== Tipos de API Keys
+
+O Buntime diferencia dois níveis de API keys:
+
+[cols="1,1,2"]
+|===
+| Prefixo | Gerenciado por | Propósito
+
+| `btk_`
+| Core runtime (`/api/core/keys`)
+| Administração do Buntime (deploy, config, plugins, restart de workers)
+
+| `apk_`
+| `plugin-authn`
+| Integrações M2M entre sistemas externos e apps (por tenant, por app, com scopes)
+|===
+
+NOTE: O `plugin-authn` gerencia API keys de apps (`apk_`) como parte de sua responsabilidade de autenticação. Cada key é associada a um tenant e um app específico, com scopes que definem as permissões. Os scopes são armazenados no banco de dados e carregados sob demanda pelo `plugin-authz`.
+
+== Dependências entre Plugins
+
+O diagrama a seguir ilustra como os novos plugins do marketplace se integram com a infraestrutura existente:
+
+[mermaid]
+----
+flowchart TB
+    subgraph Existing["Plugins Existentes (Infraestrutura)"]
+        DB[(plugin-database)]
+        KV[(plugin-keyval)]
+        AUTHZ[plugin-authz]
+        AUTHN[plugin-authn<br/>tenant + auth]
+        GW[plugin-gateway]
+        METRICS[plugin-metrics]
+    end
+
+    subgraph New["Novos Componentes (Marketplace)"]
+        LIC[app-licenses<br/>Worker PIP<br/>Entitlements]
+        IAM[app-iam<br/>Worker PIP<br/>Permissions]
+        BILL[plugin-billing]
+        SEC[plugin-secrets]
+    end
+
+    subgraph External["Serviços Externos"]
+        STRIPE[Stripe API]
+    end
+
+    %% Novos componentes usam infraestrutura existente
+    LIC --> AUTHN
+    LIC --> DB
+    IAM --> AUTHN
+    IAM --> DB
+    BILL --> LIC
+    BILL --> DB
+    BILL --> STRIPE
+    SEC --> AUTHN
+    SEC --> DB
+    SEC --> KV
+
+    %% Plugins existentes são adaptados
+    AUTHN -.->|"apk_ keys"| DB
+    AUTHN -.->|"tenants"| DB
+    AUTHZ -.->|"PIP entitlements"| LIC
+    AUTHZ -.->|"PIP permissions"| IAM
+    GW -.->|"quotas"| LIC
+    METRICS -.->|"uso"| LIC
+----
+
+NOTE: O Core runtime gerencia as `btk_` keys para administração. O `plugin-authn` identifica tenants e gerencia `apk_` keys para integrações M2M. O `plugin-billing` provisiona tenants via webhooks do Stripe.
+
+== plugin-authn (Adaptação para Marketplace)
+
+O plugin de autenticação existente será estendido para incluir identificação de tenant e gestão de API keys de apps.
+
+=== Novas Responsabilidades
+
+* **Identificação de Tenant**: Extrai tenant via subdomain, JWT claims ou API key lookup
+* **Gestão de API Keys**: Gerencia `apk_` keys para integrações M2M
+* **Injeção de Contexto**: Adiciona header `x-tenant-id` para plugins downstream
+
+=== Estratégias de Identificação de Tenant
+
+O plugin identifica o tenant em ordem de prioridade:
+
+[cols="1,2,2"]
+|===
+| Estratégia | Header/Método | Exemplo
+
+| JWT Claims
+| `Authorization: Bearer <jwt>`
+| Extrai `tenant_id` dos claims do token
+
+| API Key
+| `x-api-key: apk_...`
+| Lookup da key retorna `tenant_id` associado
+
+| Subdomínio
+| `Host: acme.example.com`
+| Extrai `acme` do pattern configurado
+
+| Header Explícito
+| `X-Tenant-ID: acme`
+| Usado em debug ou integrações internas
+|===
+
+WARNING: O header `X-Tenant-ID` é sobrescrito quando há autenticação válida. Não confiar em headers vindos de clientes externos.
+
+=== Fluxo de Requisição
+
+[mermaid]
+----
+sequenceDiagram
+    participant Client
+    participant AUTHN as plugin-authn
+    participant LIC as app-licenses
+    participant Handler as Route Handler
+
+    Client->>AUTHN: Request (JWT, API Key ou subdomain)
+    AUTHN->>AUTHN: Identifica tenant
+    AUTHN->>AUTHN: Valida credenciais (se houver)
+    AUTHN->>LIC: Request + x-tenant-id
+    LIC->>LIC: Verifica entitlements
+    LIC->>Handler: Request autorizado
+    Handler-->>Client: Response
+----
+
+=== Schema de Dados
+
+[source,sql]
+----
+-- Tabela de tenants (gerenciada pelo plugin-billing)
+CREATE TABLE tenants (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  status TEXT DEFAULT 'active',  -- active, suspended, pending
+  stripe_customer_id TEXT,
+  created_at INTEGER DEFAULT (unixepoch()),
+  settings TEXT  -- JSON com configurações customizadas
+);
+
+-- Tabela de domínios customizados
+CREATE TABLE tenant_domains (
+  id INTEGER PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  domain TEXT UNIQUE NOT NULL,
+  verified_at INTEGER,
+  created_at INTEGER DEFAULT (unixepoch())
+);
+
+-- Tabela de API keys de apps (gerenciada pelo plugin-authn)
+CREATE TABLE auth_api_keys (
+  id TEXT PRIMARY KEY,
+  key_hash TEXT NOT NULL,
+  key_prefix TEXT NOT NULL,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  app_id TEXT NOT NULL,
+  scopes TEXT NOT NULL DEFAULT '[]',
+  name TEXT NOT NULL,
+  created_by TEXT,
+  expires_at TEXT,
+  revoked_at TEXT,
+  last_used_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+----
+
+=== Configuração
+
+[source,jsonc]
+----
+// plugins/plugin-authn/manifest.jsonc
+{
+  "name": "@buntime/plugin-authn",
+  "enabled": true,
+  "base": "/authn",
+  "dependencies": ["@buntime/plugin-database"],
+  "tenant": {
+    "strategies": ["jwt", "apikey", "subdomain", "header"],
+    "subdomainPattern": "^([a-z0-9-]+)\\.example\\.com$"
+  },
+  "apiKeys": {
+    "prefix": "apk_",
+    "hashAlgorithm": "bcrypt"
+  }
+}
+----
+
+== app-licenses
+
+A aplicação de licenças gerencia **entitlements contratuais** - configurações fixas definidas por licença/assinatura. Ela executa como worker (thread separada) e atua como um Policy Information Point (PIP) no modelo XACML.
+
+IMPORTANT: O `app-licenses` gerencia entitlements de NÍVEL CONTRATUAL - o que foi adquirido por assinatura/compra (quais apps, quotas, seats, user plans). Permissões granulares de ações dentro dos apps (quem pode fazer o quê) são gerenciadas pelo `app-iam`.
+
+=== Responsabilidades
+
+**Entitlements Contratuais (B2B - Nível Tenant):**
+
+* **Planos de Tenant**: Quais apps/features o tenant pode acessar
+* **Modelos de Licenciamento**: NAMED, CONCURRENT, UNLIMITED, ACTIVE_USERS
+* **Controle de Seats**: Quantos usuários podem ser atribuídos (NAMED) ou logados simultaneamente (CONCURRENT)
+* **Quotas de Uso**: Limites contratuais (storage, requests, compute)
+* **Rastreamento de Sessões**: Monitora sessões ativas para enforcement de limites concorrentes
+
+**Entitlements Contratuais (B2C - Nível Usuário):**
+
+* **User Plans**: Planos individuais de usuários (basic, premium, enterprise) - define quais apps/features o usuário pode acessar
+* **Addons de Usuário**: Features adicionais compradas individualmente (storage extra, API access)
+* **Trials e Promoções**: Acesso temporário a features premium
+
+**Geral:**
+
+* **Cache**: Mantém cache (TTL 60s) para reduzir latência em consultas frequentes
+
+=== Modelo de Entitlements
+
+[mermaid]
+----
+erDiagram
+    TENANT ||--o{ LICENSE : has
+    LICENSE ||--o{ ENTITLEMENT : grants
+    LICENSE }o--|| PLAN : "based on"
+    PLAN ||--o{ FEATURE : includes
+    ENTITLEMENT }o--|| FEATURE : "grants access to"
+
+    TENANT {
+        string id PK
+        string name
+        string status
+    }
+
+    LICENSE {
+        string id PK
+        string tenant_id FK
+        string plan_id FK
+        date valid_from
+        date valid_until
+        int seat_count
+    }
+
+    ENTITLEMENT {
+        string id PK
+        string license_id FK
+        string feature_id FK
+        json limits
+    }
+
+    PLAN {
+        string id PK
+        string name
+        string tier
+    }
+
+    FEATURE {
+        string id PK
+        string code
+        string name
+    }
+----
+
+=== Estrutura de Entitlement Contratual
+
+==== B2B - Entitlements de Tenant
+
+[source,typescript]
+----
+interface TenantEntitlement {
+  tenant_id: string;
+  app_id: string;
+  license_id: string;
+
+  // MODELO DE LICENCIAMENTO
+  license_mode: "NAMED" | "CONCURRENT" | "UNLIMITED" | "ACTIVE_USERS";
+
+  // SEATS (NAMED/CONCURRENT)
+  seats?: {
+    total: number;        // Quantos usuários podem ser atribuídos
+    used: number;         // Quantos estão atribuídos atualmente
+  };
+
+  // SESSÕES CONCORRENTES
+  concurrent_sessions?: {
+    limit: number;        // Quantos podem estar logados ao mesmo tempo
+    active: number;       // Quantos estão logados agora
+  };
+
+  // VERSÕES PERMITIDAS
+  version_spec: string;   // "^2.0.0", ">=1.5.0 <2.0.0"
+
+  // FEATURES DO PLANO (não confundir com permissões de usuário)
+  plan_features: string[];  // ["export", "api_access", "webhooks"]
+
+  // QUOTAS CONTRATUAIS
+  quotas: {
+    max_storage_gb: number;
+    max_requests_per_day: number;
+    max_compute_hours: number;
+  };
+
+  expires_at: string | null;
+}
+----
+
+==== B2C - User Plans
+
+Para cenários B2C onde usuários individuais assinam planos, os entitlements são por usuário:
+
+[source,typescript]
+----
+interface UserPlanEntitlement {
+  tenant_id: string;
+  user_id: string;
+  app_id: string;
+
+  // PLANO DO USUÁRIO (define quais apps/features ele pode acessar)
+  plan: "free" | "basic" | "premium" | "enterprise";
+
+  // FEATURES DO PLANO
+  plan_features: string[];  // ["export:pdf", "storage:10gb", "api_access"]
+
+  // ADDONS (comprados à parte)
+  addons: Array<{
+    id: string;
+    name: string;
+    features: string[];  // ["export:advanced", "storage:+50gb"]
+  }>;
+
+  // TRIAL
+  trial?: {
+    plan: string;
+    expires_at: string;
+  };
+
+  // QUOTAS INDIVIDUAIS
+  quotas: {
+    max_storage_gb: number;
+    max_projects: number;
+    max_api_requests_per_day: number;
+  };
+
+  expires_at: string | null;
+}
+----
+
+=== Endpoints da API
+
+[cols="1,1,2"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/licenses/api/entitlements`
+| Lista entitlements contratuais do tenant
+
+| GET
+| `/licenses/api/entitlements/:appId`
+| Detalhes do entitlement de um app específico
+
+| GET
+| `/licenses/api/sessions/active`
+| Lista sessões ativas (para CONCURRENT)
+
+| POST
+| `/licenses/api/sessions`
+| Cria sessão de licença (valida limite CONCURRENT)
+
+| DELETE
+| `/licenses/api/sessions/:id`
+| Libera sessão de licença
+
+| GET
+| `/licenses/api/usage`
+| Retorna métricas de uso vs quotas contratuais
+
+| GET
+| `/licenses/api/user-plans/:userId`
+| Detalhes do user plan (B2C)
+
+| POST
+| `/licenses/api/user-plans`
+| Cria/atualiza user plan de um usuário
+
+| POST
+| `/licenses/api/user-plans/:userId/addons`
+| Adiciona addon ao plano do usuário
+|===
+
+=== Integração com plugin-authz
+
+O `app-licenses` é um **Policy Information Point (PIP)** no modelo XACML executado como worker. Ele **NÃO possui middleware próprio** - a verificação de entitlements é feita pelo `plugin-authz` (PEP/PDP), que consulta o PIP via HTTP:
+
+[source,typescript]
+----
+// PDP do plugin-authz consulta o PIP de licenses via HTTP
+const pdp = {
+  async evaluate(subject, resource, action) {
+    // Consulta PIP de entitlements contratuais (HTTP call ao worker)
+    const response = await fetch(
+      `/licenses/api/entitlements/${resource.appId}?tenantId=${subject.tenantId}`
+    );
+    const entitlement = await response.json();
+
+    // 1. Verifica se tenant tem entitlement para o app
+    if (!entitlement) {
+      return { decision: "DENY", reason: "No license for this app" };
+    }
+
+    // 2. Verifica se license não expirou
+    if (entitlement.expires_at && new Date(entitlement.expires_at) < new Date()) {
+      return { decision: "DENY", reason: "License expired" };
+    }
+
+    // 3. Para CONCURRENT: verifica limite de sessões
+    if (entitlement.license_mode === "CONCURRENT") {
+      if (entitlement.concurrent_sessions.active >= entitlement.concurrent_sessions.limit) {
+        return { decision: "DENY", reason: "Concurrent session limit reached" };
+      }
+    }
+
+    // 4. Continua avaliação com outros PIPs (app-iam para permissões)...
+  }
+};
+----
+
+**Performance:**
+
+* O `app-licenses` mantém cache de entitlements com TTL de 60s
+* HTTP loopback adiciona ~3ms de latência
+* Cache evita query ao banco de dados (~15ms) na maioria das consultas
+* Resultado: overhead de HTTP é compensado pelo ganho de cache
+
+NOTE: O `plugin-authz` é responsável pelo enforcement (middleware). O `app-licenses` apenas fornece dados de entitlements quando consultado via HTTP.
+
+== plugin-billing
+
+O plugin de billing gerencia processamento de pagamentos, gestão de assinaturas e reconciliação financeira através da integração com o Stripe.
+
+=== Responsabilidades
+
+* **Webhooks do Stripe**: Processa eventos do ciclo de vida de assinaturas
+* **Provisionamento**: Cria licenças quando assinaturas são ativadas
+* **Reconciliação**: Sincroniza estado da assinatura com estado da licença
+* **Gestão de Faturas**: Rastreia faturas e status de pagamento
+
+=== Fluxo de Webhooks
+
+[mermaid]
+----
+sequenceDiagram
+    participant Stripe
+    participant Webhook as plugin-billing
+    participant Licenses as app-licenses
+    participant DB as Database
+
+    Stripe->>Webhook: customer.subscription.created
+    Webhook->>Webhook: Verify signature
+    Webhook->>DB: Store subscription
+    Webhook->>Licenses: Provision license
+    Licenses->>DB: Create license + entitlements
+    Webhook-->>Stripe: 200 OK
+
+    Stripe->>Webhook: invoice.paid
+    Webhook->>DB: Update payment status
+    Webhook->>Licenses: Extend license validity
+    Webhook-->>Stripe: 200 OK
+
+    Stripe->>Webhook: customer.subscription.deleted
+    Webhook->>Licenses: Revoke license
+    Licenses->>DB: Deactivate entitlements
+    Webhook-->>Stripe: 200 OK
+----
+
+=== Endpoints da API
+
+[cols="1,1,2"]
+|===
+| Método | Endpoint | Descrição
+
+| POST
+| `/billing/api/webhooks/stripe`
+| Recebe eventos de webhook do Stripe
+
+| GET
+| `/billing/api/subscriptions`
+| Lista assinaturas do tenant
+
+| POST
+| `/billing/api/checkout`
+| Cria sessão de checkout do Stripe
+
+| GET
+| `/billing/api/invoices`
+| Lista faturas do tenant
+
+| POST
+| `/billing/api/portal`
+| Cria sessão do portal de billing do Stripe
+|===
+
+=== Configuração
+
+[source,jsonc]
+----
+// plugins/plugin-billing/manifest.jsonc
+{
+  "name": "@buntime/plugin-billing",
+  "enabled": true,
+  "base": "/billing",
+  "stripe": {
+    "webhookPath": "/webhooks/stripe",
+    "portalReturnUrl": "/billing"
+  },
+  "provisioning": {
+    "syncInterval": 3600000,
+    "gracePeriodDays": 3
+  }
+}
+----
+
+== app-iam
+
+A aplicação de IAM (Identity and Access Management) gerencia **permissões granulares** - controle dinâmico de quem pode fazer o quê dentro dos apps aos quais já tem acesso. Ela executa como worker (thread separada) e é consultada diretamente pelos apps via HTTP quando necessário.
+
+IMPORTANT: O `app-iam` gerencia permissões de AÇÕES configuradas pelo administrador do tenant (organograma, roles). Entitlements de NÍVEL CONTRATUAL (quais apps o tenant/usuário pode acessar, user plans B2C) são gerenciados pelo `app-licenses`.
+
+=== Responsabilidades
+
+* **Organograma (B2B)**: Estrutura de departamentos e hierarquia organizacional
+* **Roles e Permissões**: Definição de papéis (admin, editor, viewer) e suas permissões de ações
+* **Atribuição de Usuários**: Mapeia usuários → roles → permissões efetivas
+* **Permissões Explícitas**: Overrides de permissões específicas por usuário (grants/revokes)
+* **Consulta de Permissões**: API para apps consultarem se usuário pode executar ação específica
+* **Cache**: Mantém cache (TTL 60s) para reduzir latência em consultas frequentes
+
+=== Modelo de Dados
+
+[mermaid]
+----
+erDiagram
+    TENANT ||--o{ DEPARTMENT : has
+    TENANT ||--o{ ROLE : defines
+    TENANT ||--o{ USER_ROLE : assigns
+    TENANT ||--o{ USER_PERMISSION : grants
+
+    DEPARTMENT ||--o{ DEPARTMENT : "parent/child"
+    ROLE ||--o{ USER_ROLE : "assigned to"
+
+    TENANT {
+        string id PK
+        string name
+    }
+
+    DEPARTMENT {
+        string id PK
+        string tenant_id FK
+        string name
+        string parent_id FK
+    }
+
+    ROLE {
+        string id PK
+        string tenant_id FK
+        string app_id FK
+        string name
+        json permissions
+    }
+
+    USER_ROLE {
+        string tenant_id FK
+        string user_id FK
+        string app_id FK
+        string role_id FK
+        string department_id FK
+    }
+
+    USER_PERMISSION {
+        string tenant_id FK
+        string user_id FK
+        string app_id FK
+        string permission
+        boolean granted
+    }
+----
+
+=== Estrutura de Permissões
+
+[source,typescript]
+----
+// Permissões de Ações (B2B - via Role + Organograma)
+interface UserPermissions {
+  tenant_id: string;
+  user_id: string;
+  app_id: string;
+
+  // Departamento do usuário (organograma)
+  department?: {
+    id: string;
+    name: string;
+    path: string[];  // Hierarquia: ["sales", "sales-br", "sales-br-sp"]
+  };
+
+  // Role atribuída
+  role?: {
+    id: string;
+    name: string;          // "admin", "editor", "viewer"
+    permissions: string[]; // ["files:create", "files:read", "files:delete"]
+  };
+
+  // Overrides explícitos (grants/revokes)
+  explicit_grants: string[];   // Permissões adicionadas manualmente
+  explicit_revokes: string[];  // Permissões removidas manualmente
+
+  // Resultado final (role + overrides)
+  effective_permissions: string[];
+}
+----
+
+NOTE: User plans (B2C) definem QUAIS apps/features o usuário pode acessar (entitlements em `app-licenses`). O `app-iam` gerencia O QUE o usuário pode FAZER dentro desses apps (permissões de ações).
+
+=== Endpoints da API
+
+[cols="1,1,2"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/iam/api/permissions`
+| Permissões efetivas do usuário para um app (usado pelo PDP)
+
+| GET
+| `/iam/api/departments`
+| Lista departamentos do tenant (organograma)
+
+| POST
+| `/iam/api/departments`
+| Cria novo departamento
+
+| GET
+| `/iam/api/roles`
+| Lista roles do tenant para um app
+
+| POST
+| `/iam/api/roles`
+| Cria nova role
+
+| PATCH
+| `/iam/api/roles/:id`
+| Atualiza permissões de uma role
+
+| POST
+| `/iam/api/users/:userId/roles`
+| Atribui role a um usuário
+
+| DELETE
+| `/iam/api/users/:userId/roles/:roleId`
+| Remove role de um usuário
+
+| POST
+| `/iam/api/users/:userId/permissions`
+| Concede permissão explícita a um usuário
+
+| DELETE
+| `/iam/api/users/:userId/permissions/:permission`
+| Revoga permissão explícita de um usuário
+
+| GET
+| `/iam/api/users/:userId/plan`
+| Plano individual do usuário (B2C)
+
+| PUT
+| `/iam/api/users/:userId/plan`
+| Atualiza plano do usuário (B2C)
+|===
+
+=== Integração com plugin-authz
+
+O `app-iam` é um **Policy Information Point (PIP)** no modelo XACML executado como worker. Ele **NÃO possui middleware próprio** - a verificação de permissões é feita pelo `plugin-authz` (PEP/PDP), que consulta o PIP via HTTP:
+
+[source,typescript]
+----
+// PDP do plugin-authz consulta o PIP de IAM via HTTP
+const pdp = {
+  async evaluate(subject, resource, action) {
+    // Consulta PIP de permissões do usuário (HTTP call ao worker)
+    const response = await fetch(
+      `/iam/api/permissions?tenantId=${subject.tenantId}&userId=${subject.userId}&appId=${resource.appId}`
+    );
+    const permissions = await response.json();
+
+    // 1. Verifica se usuário tem permissão específica
+    const requiredPermission = `${resource.type}:${action.toLowerCase()}`;
+    if (!permissions.effective_permissions.includes(requiredPermission)) {
+      return { decision: "DENY", reason: `Missing permission: ${requiredPermission}` };
+    }
+
+    // 2. Verifica condições adicionais (ex: departamento)
+    if (policy.conditions.includes("same_department")) {
+      if (permissions.department.id !== resource.department_id) {
+        return { decision: "DENY", reason: "Cross-department access denied" };
+      }
+    }
+
+    return { decision: "ALLOW" };
+  }
+};
+----
+
+**Performance:**
+
+* O `app-iam` mantém cache de permissões efetivas com TTL de 60s
+* HTTP loopback adiciona ~3ms de latência
+* Cache evita cálculo de permissões efetivas (role + overrides) a cada request
+* Resultado: overhead de HTTP é compensado pelo ganho de cache
+
+NOTE: O `plugin-authz` é responsável pelo enforcement (middleware). O `app-iam` apenas fornece dados de permissões quando consultado via HTTP.
+
+=== Schema de Dados
+
+[source,sql]
+----
+-- Organograma (B2B)
+CREATE TABLE iam_departments (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  parent_id TEXT REFERENCES iam_departments(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (tenant_id, name)
+);
+
+CREATE INDEX idx_iam_departments_parent ON iam_departments(parent_id);
+
+-- Roles do tenant
+CREATE TABLE iam_roles (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  app_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  permissions TEXT NOT NULL DEFAULT '[]', -- JSON array
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (tenant_id, app_id, name)
+);
+
+CREATE INDEX idx_iam_roles_app ON iam_roles(tenant_id, app_id);
+
+-- Atribuição usuário → role
+CREATE TABLE iam_user_roles (
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  app_id TEXT NOT NULL,
+  role_id TEXT NOT NULL REFERENCES iam_roles(id) ON DELETE CASCADE,
+  department_id TEXT REFERENCES iam_departments(id),
+  assigned_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (tenant_id, user_id, app_id)
+);
+
+CREATE INDEX idx_iam_user_roles_user ON iam_user_roles(user_id);
+CREATE INDEX idx_iam_user_roles_dept ON iam_user_roles(tenant_id, department_id)
+  WHERE department_id IS NOT NULL;
+
+-- Permissões explícitas (override)
+CREATE TABLE iam_user_permissions (
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  app_id TEXT NOT NULL,
+  permission TEXT NOT NULL,
+  granted INTEGER NOT NULL, -- 1 = grant, 0 = revoke
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (tenant_id, user_id, app_id, permission)
+);
+
+CREATE INDEX idx_iam_user_perms_user ON iam_user_permissions(tenant_id, user_id, app_id);
+
+-- Pacotes para B2C
+CREATE TABLE iam_user_plans (
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  app_id TEXT NOT NULL,
+  plan TEXT NOT NULL CHECK (plan IN ('basic', 'premium', 'enterprise')),
+  addons TEXT NOT NULL DEFAULT '[]', -- JSON array de features adicionais
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (tenant_id, user_id, app_id)
+);
+
+CREATE INDEX idx_iam_user_plans_user ON iam_user_plans(tenant_id, user_id);
+----
+
+=== Exemplo de Cálculo de Permissões Efetivas
+
+[source,typescript]
+----
+async function getEffectivePermissions(tenantId: string, userId: string, appId: string) {
+  // 1. Busca role do usuário
+  const userRole = await db.query(`
+    SELECT r.permissions, ur.department_id
+    FROM iam_user_roles ur
+    JOIN iam_roles r ON r.id = ur.role_id
+    WHERE ur.tenant_id = ? AND ur.user_id = ? AND ur.app_id = ?
+  `, [tenantId, userId, appId]);
+
+  let permissions = JSON.parse(userRole.permissions); // ["files:read", "files:write"]
+
+  // 2. Aplica overrides explícitos
+  const overrides = await db.query(`
+    SELECT permission, granted
+    FROM iam_user_permissions
+    WHERE tenant_id = ? AND user_id = ? AND app_id = ?
+  `, [tenantId, userId, appId]);
+
+  for (const override of overrides) {
+    if (override.granted) {
+      permissions.push(override.permission); // Grant
+    } else {
+      permissions = permissions.filter(p => p !== override.permission); // Revoke
+    }
+  }
+
+  // 3. Remove duplicatas
+  return [...new Set(permissions)];
+}
+----
+
+== plugin-secrets
+
+O plugin de secrets fornece um cofre seguro para armazenar configurações sensíveis como chaves de API, credenciais de banco de dados e chaves de criptografia.
+
+=== Responsabilidades
+
+* **Armazenamento de Secrets**: Armazenamento criptografado usando AES-256-GCM
+* **Controle de Acesso**: Acesso com escopo por tenant e aplicação
+* **Logs de Auditoria**: Registra todos os acessos e modificações de secrets
+* **Rotação de Chaves**: Suporta rotação de chaves sem downtime
+
+=== Arquitetura de Criptografia
+
+[mermaid]
+----
+flowchart LR
+    subgraph Input
+        PLAIN[Plaintext Secret]
+    end
+
+    subgraph Encryption["Camada de Criptografia"]
+        DEK[Data Encryption Key]
+        KEK[Key Encryption Key]
+        AES[AES-256-GCM]
+    end
+
+    subgraph Storage
+        ENC[Encrypted Secret]
+        EDEK[Encrypted DEK]
+        AUDIT[Audit Log]
+    end
+
+    PLAIN --> AES
+    DEK --> AES
+    AES --> ENC
+    DEK --> KEK
+    KEK --> EDEK
+    AES --> AUDIT
+----
+
+=== Modelo de Segurança
+
+Cada secret é criptografado com uma Data Encryption Key (DEK) única, que por sua vez é criptografada com uma Key Encryption Key (KEK). Esta criptografia em envelope permite a rotação de chaves sem re-criptografar todos os secrets.
+
+[cols="1,2"]
+|===
+| Componente | Descrição
+
+| DEK (Data Encryption Key)
+| Única por secret, armazenada criptografada junto com o ciphertext
+
+| KEK (Key Encryption Key)
+| Chave mestra, rotacionada periodicamente, armazenada em variável de ambiente
+
+| Nonce
+| Valor aleatório de 12 bytes, único por operação de criptografia
+
+| Auth Tag
+| Tag de autenticação de 16 bytes para verificação de integridade
+|===
+
+=== Endpoints da API
+
+[cols="1,1,2"]
+|===
+| Método | Endpoint | Descrição
+
+| GET
+| `/secrets/api`
+| Lista metadados de secrets (não os valores)
+
+| GET
+| `/secrets/api/:key`
+| Recupera valor descriptografado do secret
+
+| POST
+| `/secrets/api`
+| Cria novo secret
+
+| PUT
+| `/secrets/api/:key`
+| Atualiza valor do secret
+
+| DELETE
+| `/secrets/api/:key`
+| Remove secret
+
+| GET
+| `/secrets/api/:key/audit`
+| Retorna log de auditoria de acesso
+|===
+
+=== Entrada de Log de Auditoria
+
+Todo acesso a secrets gera uma entrada no log de auditoria:
+
+[source,typescript]
+----
+interface SecretAuditEntry {
+  action: "read" | "write" | "delete" | "list";
+  key: string;
+  maskedValue?: string;  // Apenas primeiros 4 caracteres para writes
+  requestedBy: string;   // Identidade do usuário ou serviço
+  tenantId: string;
+  timestamp: number;
+  userAgent: string;
+}
+----
+
+== Resumo da Interação entre Plugins
+
+O diagrama abaixo ilustra o modelo XACML unificado usado pelo Buntime:
+
+[mermaid]
+----
+flowchart TB
+    REQ[Requisição] --> AUTHN
+
+    subgraph Middleware["Cadeia de Middleware"]
+        AUTHN[plugin-authn<br/>Identifica tenant<br/>Valida credenciais]
+        AUTHZ_PEP[plugin-authz PEP<br/>Intercepta request]
+    end
+
+    subgraph PDP["Policy Decision Point"]
+        AUTHZ_PDP[plugin-authz PDP<br/>Avalia políticas]
+    end
+
+    subgraph PIPs["Policy Information Points"]
+        LIC[app-licenses<br/>Worker PIP<br/>Entitlements Contratuais]
+        IAM[app-iam<br/>Worker PIP<br/>Permissões Granulares]
+        DB[(Database<br/>API key scopes)]
+    end
+
+    subgraph Support["Serviços de Suporte"]
+        BILL[plugin-billing]
+        SEC[plugin-secrets]
+    end
+
+    AUTHN -->|x-tenant-id<br/>x-key-id<br/>x-user-id| AUTHZ_PEP
+    AUTHZ_PEP -->|evaluate| AUTHZ_PDP
+    AUTHZ_PDP -->|HTTP: getEntitlements| LIC
+    AUTHZ_PDP -->|HTTP: getPermissions| IAM
+    AUTHZ_PDP -->|getScopes| DB
+    AUTHZ_PEP -->|allowed| HANDLER[Route Handler]
+
+    HANDLER --> SEC
+    BILL -->|provision| LIC
+----
+
+**Fluxo XACML:**
+
+. `plugin-authn` (middleware) identifica o tenant e valida credenciais
+. `plugin-authz` PEP (middleware) intercepta a requisição
+. PEP chama PDP para avaliar a política
+. PDP consulta PIPs via HTTP: `app-licenses` (entitlements contratuais) e `app-iam` (permissões granulares)
+. PDP também consulta database (scopes de API keys) quando necessário
+. PEP permite ou nega a requisição baseado na decisão do PDP
+
+Esta arquitetura garante separação clara de responsabilidades enquanto permite que os plugins colaborem através de interfaces bem definidas.

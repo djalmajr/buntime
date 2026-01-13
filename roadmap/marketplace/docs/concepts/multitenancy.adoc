@@ -1,0 +1,431 @@
+= Multitenancy
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 5
+:icons: font
+:source-highlighter: highlightjs
+
+O Buntime implementa multitenancy como conceito de primeira classe, permitindo que múltiplos clientes (tenants) compartilhem a mesma infraestrutura de forma isolada e segura.
+
+== Identificação de Tenant
+
+A identificação do tenant ocorre no início de cada requisição. Existem três fontes possíveis:
+
+=== Autenticação (JWT/API Key)
+
+Quando o usuário está autenticado via `plugin-authn`, o tenant é extraído do token:
+
+[source]
+----
+Authorization: Bearer <jwt_com_tenant_id>
+----
+
+O JWT contém claims que incluem o `tenant_id` do usuário. Para integrações M2M (machine-to-machine), apps podem usar API keys gerenciadas pelo `plugin-authn`, que também contêm a associação com o tenant.
+
+=== Domain
+
+Para aplicações web, o domínio de origem pode identificar o tenant:
+
+[source]
+----
+Host: acme.buntime.app
+----
+
+O `plugin-authn` mantém um mapeamento de domínios para tenants na tabela `tenant_domains`.
+
+=== Header Explícito
+
+Em cenários de debug ou integrações internas, um header direto pode ser usado:
+
+[source]
+----
+X-Tenant-ID: acme-corp
+----
+
+WARNING: Este header é sobrescrito pelo `plugin-authn` quando há autenticação válida. Não confiar em headers vindos de clientes externos.
+
+== API Keys no Buntime
+
+O sistema possui dois níveis de API keys:
+
+=== Runtime Keys (Core)
+
+Gerenciadas pelo Core para administração do runtime:
+
+[cols="1,2"]
+|===
+| Prefixo | `btk_`
+
+| Propósito
+| Deploy de apps/plugins, configuração do runtime, restart de workers
+
+| Gerenciado por
+| Core (`/api/core/keys`)
+
+| Escopo
+| Plataforma (sem contexto de tenant)
+|===
+
+[source]
+----
+x-api-key: btk_<32 caracteres>
+----
+
+=== App API Keys (plugin-authn)
+
+Para integrações M2M entre sistemas externos e apps do marketplace:
+
+[cols="1,2"]
+|===
+| Prefixo | `apk_`
+
+| Propósito
+| Integrações programáticas com apps específicos
+
+| Gerenciado por
+| `plugin-authn`
+
+| Escopo
+| Por tenant, por app, com scopes específicos
+|===
+
+[source]
+----
+x-api-key: apk_<32 caracteres>
+----
+
+**Características:**
+
+* Keys são sempre associadas a um tenant e um app
+* Scopes definem quais permissões a key possui
+* Scopes são subconjunto das permissões definidas no `plugin-authz`
+* Scopes ficam no banco de dados (lazy loading), não no token
+
+=== Estrutura de API Keys de App
+
+[source,sql]
+----
+-- Gerenciada pelo plugin-authn
+CREATE TABLE auth_api_keys (
+  id TEXT PRIMARY KEY,
+  key_hash TEXT NOT NULL,
+  key_prefix TEXT NOT NULL,        -- apk_xxxx... (para display)
+
+  tenant_id TEXT NOT NULL,         -- contexto do tenant
+  app_id TEXT NOT NULL,            -- qual app esta key acessa
+
+  scopes TEXT NOT NULL DEFAULT '[]', -- JSON array de permissões
+
+  name TEXT NOT NULL,
+  created_by TEXT,                 -- user_id que criou
+  expires_at TEXT,
+  revoked_at TEXT,
+  last_used_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+----
+
+== Fluxo de Identificação
+
+[mermaid]
+----
+flowchart TD
+    req[Request recebido]
+    auth{Tem Authorization/API Key?}
+    authn[plugin-authn valida]
+    extract{Extrai tenant_id}
+    domain{Domain mapeado?}
+    header{Header X-Tenant-ID?}
+    inject[plugin-authn injeta x-tenant-id]
+    reject[401 Unauthorized]
+
+    req --> auth
+    auth -->|Sim| authn
+    authn -->|Válido| extract
+    authn -->|Inválido| reject
+    extract --> inject
+    auth -->|Não| domain
+    domain -->|Sim| inject
+    domain -->|Não| header
+    header -->|Sim| inject
+    header -->|Não| reject
+----
+
+== Injeção de Contexto
+
+Após identificar o tenant, o `plugin-authn` injeta o header `x-tenant-id` em todas as requisições subsequentes. Este header é:
+
+* Usado pelo `plugin-database` para rotear conexões
+* Usado pelo `plugin-keyval` para aplicar namespace
+* Usado pelo `app-licenses` (worker PIP) para verificar entitlements via HTTP
+* Passado para workers e backends legados
+
+[mermaid]
+----
+sequenceDiagram
+    participant Client
+    participant AUTHN as plugin-authn
+    participant PEP as plugin-authz PEP
+    participant PDP as plugin-authz PDP
+    participant LIC as app-licenses PIP
+    participant App
+
+    Client->>AUTHN: Request (JWT, API Key ou subdomain)
+    AUTHN->>AUTHN: Identifica tenant
+    AUTHN->>AUTHN: Valida credenciais
+    AUTHN->>PEP: Request + x-tenant-id + x-key-id
+
+    PEP->>PDP: evaluate(subject, resource, action)
+    PDP->>LIC: HTTP GET /licenses/api/entitlements?tenantId=...
+    LIC-->>PDP: [app1, app2, ...]
+    PDP-->>PEP: PERMIT / DENY
+
+    alt Permitido
+        PEP->>App: Request autorizada
+        App-->>Client: Response
+    else Negado
+        PEP-->>Client: 403 Forbidden
+    end
+----
+
+== Isolamento de Banco de Dados
+
+O `plugin-database` suporta múltiplos adapters de banco de dados, cada um com sua estratégia de isolamento por tenant:
+
+[cols="1,2,2"]
+|===
+| Adapter | Estratégia de Isolamento | Exemplo
+
+| libsql
+| Namespace via subdomain (HRANA)
+| `{tenant}.libsql.home`
+
+| postgres
+| Schema por tenant
+| `tenant_acme.users`
+
+| mysql
+| Database por tenant
+| `tenant_acme.users`
+
+| sqlite
+| Arquivo separado por tenant
+| `./data/{tenant}.db`
+|===
+
+=== Configuração de Adapters
+
+[source,jsonc]
+----
+// manifest.jsonc
+{
+  "adapters": [
+    {
+      "type": "libsql",
+      "urls": ["http://libsql.home"],
+      "default": true
+    },
+    {
+      "type": "postgres",
+      "url": "postgres://user:pass@localhost:5432/db"
+    }
+  ],
+  "tenancy": {
+    "enabled": true,
+    "header": "x-tenant-id",
+    "defaultTenant": "default",
+    "autoCreate": true
+  }
+}
+----
+
+=== Fluxo de Roteamento (LibSQL)
+
+[mermaid]
+----
+flowchart LR
+    subgraph Buntime
+        pd[plugin-database]
+    end
+
+    subgraph "LibSQL Infrastructure"
+        acme[acme.libsql.home]
+        globex[globex.libsql.home]
+        umbrella[umbrella.libsql.home]
+    end
+
+    pd -->|Host: acme| acme
+    pd -->|Host: globex| globex
+    pd -->|Host: umbrella| umbrella
+----
+
+O `plugin-database`:
+
+. Lê o header `x-tenant-id` da requisição
+. Obtém ou cria o adapter para o tenant
+. Executa queries no banco isolado do tenant
+
+== Isolamento KeyVal
+
+O `plugin-keyval` implementa isolamento automático de namespace baseado no tenant.
+
+=== Namespace Automático
+
+Quando um worker acessa o KeyVal, as chaves são automaticamente prefixadas com o tenant:
+
+[source,typescript]
+----
+// Código do worker (sem prefixo explícito)
+await kv.set(["users", 123], { name: "Alice" });
+
+// Chave real armazenada
+// ["acme-corp", "users", 123]
+----
+
+Isso garante que:
+
+* Tenants não acessam dados uns dos outros
+* O código da aplicação não precisa conhecer o tenant
+* A separação é transparente e automática
+
+=== Fluxo de Operação
+
+[mermaid]
+----
+sequenceDiagram
+    participant Worker
+    participant plugin-keyval
+    participant Storage
+
+    Worker->>plugin-keyval: set(["users", 123], data)
+    Note over plugin-keyval: Lê x-tenant-id: acme
+    plugin-keyval->>Storage: set(["acme", "users", 123], data)
+    Storage-->>plugin-keyval: OK
+    plugin-keyval-->>Worker: OK
+----
+
+== Resumo da Arquitetura
+
+[cols="1,2,2"]
+|===
+| Componente | Responsabilidade | Mecanismo
+
+| plugin-authn
+| Autenticar usuários e API keys
+| JWT, OAuth, API keys (`apk_`)
+
+| plugin-authn
+| Identificar e enriquecer contexto de tenant
+| Domain, header, claims do JWT
+
+| plugin-authn
+| Propagar contexto
+| Header x-tenant-id
+
+| plugin-authz (PEP)
+| Verificar entitlements contratuais via PDP
+| Consulta app-licenses (PIP) e scopes de API keys
+
+| app-licenses (worker PIP)
+| Fornece entitlements contratuais ao PDP via HTTP
+| Licenças, seats, quotas, user plans
+
+| app-iam (worker)
+| Fornece permissões granulares aos apps via HTTP
+| Roles, permissions, organograma (consultado pelos apps, não pelo PDP)
+
+| plugin-database
+| Isolar dados SQL
+| Subdomains LibSQL (HRANA)
+
+| plugin-keyval
+| Isolar dados KeyVal
+| Namespace automático
+|===
+
+== Autorização com API Keys
+
+Quando uma API key é usada, o PEP verifica apenas entitlements contratuais. Verificação granular é feita pelo app quando necessário:
+
+[mermaid]
+----
+sequenceDiagram
+    participant Client
+    participant AUTHN as plugin-authn
+    participant PEP as plugin-authz PEP
+    participant PDP as plugin-authz PDP
+    participant LIC as app-licenses PIP
+    participant DB as Database
+    participant App
+    participant IAM as app-iam
+
+    Client->>AUTHN: Request + API Key
+    AUTHN->>DB: Valida key (hash)
+    DB-->>AUTHN: key_id, tenant_id, app_id
+    Note over AUTHN: NÃO carrega scopes aqui
+
+    AUTHN->>PEP: Request + x-tenant-id + x-key-id
+    PEP->>PDP: evaluate(tenant, app)
+
+    par Consulta 2 PIPs
+        PDP->>LIC: HTTP GET /licenses/api/entitlements?tenantId=...
+        LIC-->>PDP: {has_license, seats, quotas}
+    and
+        PDP->>DB: getScopes(key_id)
+        DB-->>PDP: ["contacts:read", "contacts:write"]
+    end
+
+    Note over LIC: Cache TTL 60s
+    Note over PDP: Cache por request
+
+    PDP-->>PEP: PERMIT / DENY
+
+    alt Entitlement OK
+        PEP->>App: Request autorizada
+
+        opt Verificação granular
+            App->>IAM: HTTP GET /iam/api/permissions?userId=...&permission=...
+            IAM-->>App: {has_permission: true/false}
+            Note over IAM: Cache TTL 60s
+            App->>App: Permitir ou bloquear ação
+        end
+
+        App-->>Client: Response
+    else Entitlement negado
+        PEP-->>Client: 403 Forbidden
+    end
+----
+
+**Características do modelo:**
+
+* **PEP automático**: Intercepta TODAS as requisições, verifica apenas entitlements contratuais
+* **2 PIPs consultados pelo PDP**:
+  - `app-licenses` (HTTP): Entitlements contratuais (licenças, seats, quotas, user plans)
+  - Database: Scopes de API keys
+* **Verificação granular delegada aos apps**:
+  - Apps consultam `app-iam` (HTTP) diretamente quando necessário
+  - App conhece o contexto semântico da ação (ex: "deletar arquivo" vs "mover para lixeira")
+* **Lazy loading**: Scopes e permissões só carregados quando necessário
+* **Cache por request no PDP**: Uma query por PIP por request
+* **Cache TTL 60s nos workers**: app-licenses e app-iam mantêm cache próprio
+* Escala para centenas de apps, roles e scopes
+
+== Considerações de Segurança
+
+=== Headers Internos
+
+O header `x-tenant-id` é considerado interno e:
+
+* Não deve ser confiável quando vindo diretamente do cliente
+* É sempre sobrescrito pelo `plugin-authn` após identificação
+* Deve ser stripped de requests externos antes do processamento
+
+=== Isolamento de Dados
+
+O isolamento é enforçado em múltiplas camadas:
+
+. **Gateway**: `plugin-authn` identifica e injeta contexto
+. **Banco**: Subdomain LibSQL garante separação física
+. **KeyVal**: Namespace automático impede vazamento entre tenants
+. **Aplicação**: Workers recebem apenas dados do seu tenant

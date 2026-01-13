@@ -21,6 +21,9 @@ export type Screen =
   | { type: "app_remove" }
   | { type: "apps" }
   | { type: "connection_error"; error: string; errorType: string }
+  | { type: "key_create" }
+  | { type: "key_list" }
+  | { keyId: number; keyName: string; type: "key_revoke" }
   | { type: "main_menu" }
   | { type: "plugin_install" }
   | { type: "plugin_list" }
@@ -214,6 +217,12 @@ export function getBreadcrumb(screen: Screen): string[] {
       return ["Apps"];
     case "connection_error":
       return [];
+    case "key_create":
+      return ["API Keys", "Create"];
+    case "key_list":
+      return ["API Keys", "List"];
+    case "key_revoke":
+      return ["API Keys", "Revoke"];
     case "main_menu":
       return [];
     case "plugin_install":

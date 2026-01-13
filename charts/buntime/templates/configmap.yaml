@@ -5,8 +5,12 @@ metadata:
   labels:
     {{- include "buntime.labels" . | nindent 4 }}
 data:
-  CONFIG_DIR: {{ .Values.buntime.configDir | quote }}
+  {{- if .Values.buntime.homepage }}
+  HOMEPAGE_APP: {{ .Values.buntime.homepage | quote }}
+  {{- end }}
+  LIBSQL_URL: {{ .Values.buntime.libsqlUrl | quote }}
   LOG_LEVEL: {{ .Values.buntime.logLevel | quote }}
+  NODE_ENV: "production"
   PLUGIN_DIRS: {{ .Values.buntime.pluginDirs | quote }}
   POOL_SIZE: {{ .Values.buntime.poolSize | quote }}
   PORT: {{ .Values.buntime.port | quote }}

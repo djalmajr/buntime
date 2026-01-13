@@ -1,0 +1,361 @@
+= Modos de Licenciamento
+
+O marketplace Buntime suporta quatro modelos distintos de licenciamento, cada um com mecanismos de enforcement específicos e casos de uso. O modo de licença determina como o acesso é controlado e medido para cada entitlement.
+
+== Visão Geral dos Modos de Licença
+
+[cols="1,2,2,1"]
+|===
+| Modo | Descrição | Ponto de Enforcement | Ideal Para
+
+| NAMED
+| Usuários específicos atribuídos a licenças
+| Atribuição de usuário
+| Software enterprise, precificação por assento
+
+| CONCURRENT
+| Sessões simultâneas limitadas
+| Login/início de sessão
+| Estações compartilhadas, licenças flutuantes
+
+| ACTIVE_USERS
+| Usuários únicos em janela temporal
+| Login
+| Precificação baseada em uso, SaaS
+
+| UNLIMITED
+| Sem restrições, apenas rastreamento
+| Nenhum (monitoramento)
+| Ferramentas internas, planos gratuitos
+|===
+
+[mermaid]
+----
+stateDiagram-v2
+    state "Verificação de Licença" as check
+    state "Modo NAMED" as named
+    state "Modo CONCURRENT" as concurrent
+    state "Modo ACTIVE_USERS" as active
+    state "Modo UNLIMITED" as unlimited
+
+    [*] --> check: Requisição de Acesso
+
+    check --> named: mode = NAMED
+    check --> concurrent: mode = CONCURRENT
+    check --> active: mode = ACTIVE_USERS
+    check --> unlimited: mode = UNLIMITED
+
+    named --> AssignmentCheck: Verifica atribuição
+    concurrent --> SessionCheck: Verifica sessões ativas
+    active --> WindowCheck: Verifica janela 30 dias
+    unlimited --> TrackOnly: Registra acesso
+
+    AssignmentCheck --> Granted: Usuário atribuído
+    AssignmentCheck --> Denied: Não atribuído
+    SessionCheck --> Granted: Abaixo do limite
+    SessionCheck --> Denied: Capacidade máxima
+    WindowCheck --> Granted: Abaixo do limite
+    WindowCheck --> Denied: Excedido
+    TrackOnly --> Granted: Sempre
+----
+
+== Licenciamento NAMED
+
+Licenciamento NAMED atribui usuários específicos a slots de licença disponíveis. Cada usuário deve ser explicitamente concedido uma licença antes de acessar a aplicação.
+
+=== Características
+
+- Contagem de licenças é fixa na criação do entitlement
+- Usuários devem ser atribuídos antes de acessar o app
+- Reatribuição é possível (sujeita a períodos de carência)
+- Ideal para ambientes com requisitos de compliance
+
+=== Enforcement
+
+O enforcement ocorre no momento da atribuição do usuário, não no login:
+
+[mermaid]
+----
+flowchart TD
+    A[Admin atribui usuário] --> B{Conta licenças atribuídas}
+    B --> C{atribuídas < limite?}
+    C -->|Sim| D[Atribuição bem-sucedida]
+    C -->|Não| E[Atribuição negada]
+    D --> F[Usuário pode fazer login]
+
+    subgraph Alertas
+        G{atribuídas >= 80% limite?}
+        G -->|Sim| H[Envia alerta de capacidade]
+    end
+
+    D --> G
+----
+
+=== Modelo de Dados
+
+[source,json]
+----
+{
+  "license_mode": "NAMED",
+  "license_limit": 50,
+  "assigned_users": [
+    { "user_id": "u_123", "assigned_at": "2024-01-15T10:00:00Z" },
+    { "user_id": "u_456", "assigned_at": "2024-01-16T14:30:00Z" }
+  ],
+  "reassignment_cooldown_days": 30
+}
+----
+
+=== Limites de Alerta
+
+[cols="1,2"]
+|===
+| Limite | Ação
+
+| 80% capacidade
+| Notificação de aviso para admins
+
+| 95% capacidade
+| Notificação urgente, sugerir upgrade
+
+| 100% capacidade
+| Bloquear novas atribuições, alerta de escalação
+|===
+
+== Licenciamento CONCURRENT
+
+Licenciamento CONCURRENT limita o número de sessões ativas simultâneas entre todos os usuários. Este modelo permite que qualquer número de usuários tenha cadastro, mas apenas um número limitado pode estar ativo ao mesmo tempo.
+
+=== Características
+
+- Usuários ilimitados podem ter contas
+- Número fixo de sessões simultâneas
+- Sessões são rastreadas e expiradas por timeout
+- Ideal para trabalho em turnos, recursos compartilhados
+
+=== Enforcement
+
+O enforcement ocorre no login/início de sessão:
+
+[mermaid]
+----
+flowchart TD
+    A[Usuário tenta login] --> B{Conta sessões ativas}
+    B --> C{ativas < limite?}
+    C -->|Sim| D[Cria sessão]
+    C -->|Não| E{Desconexão forçada habilitada?}
+    E -->|Sim| F[Desconecta sessão mais antiga]
+    E -->|Não| G[Login negado]
+    F --> D
+    D --> H[Usuário recebe acesso]
+
+    subgraph Alertas
+        I{ativas >= 90% limite?}
+        I -->|Sim| J[Envia alerta de capacidade]
+    end
+
+    D --> I
+----
+
+=== Gerenciamento de Sessão
+
+[source,json]
+----
+{
+  "license_mode": "CONCURRENT",
+  "concurrent_limit": 25,
+  "active_sessions": [
+    {
+      "session_id": "sess_abc",
+      "user_id": "u_123",
+      "started_at": "2024-01-20T09:00:00Z",
+      "last_activity": "2024-01-20T09:45:00Z"
+    }
+  ],
+  "session_timeout_minutes": 30,
+  "force_disconnect_oldest": false
+}
+----
+
+=== Limites de Alerta
+
+[cols="1,2"]
+|===
+| Limite | Ação
+
+| 90% capacidade
+| Notificação de aviso para admins
+
+| 100% capacidade
+| Enfileirar usuários ou negar acesso (configurável)
+|===
+
+== Licenciamento ACTIVE_USERS
+
+Licenciamento ACTIVE_USERS conta usuários únicos que acessaram a aplicação dentro de uma janela temporal (tipicamente 30 dias). Este modelo alinha custos com uso real.
+
+=== Características
+
+- Mede usuários únicos, não sessões
+- Janela móvel (padrão 30 dias)
+- Usuário contado uma vez por janela independente de frequência de login
+- Ideal para SaaS, precificação baseada em consumo
+
+=== Enforcement
+
+O enforcement ocorre no login:
+
+[mermaid]
+----
+flowchart TD
+    A[Usuário tenta login] --> B{Usuário ativo na janela?}
+    B -->|Sim| C[Login permitido - já contado]
+    B -->|Não| D{Conta usuários únicos na janela}
+    D --> E{únicos < limite?}
+    E -->|Sim| F[Adiciona usuário ao conjunto ativo]
+    E -->|Não| G[Login negado]
+    F --> H[Login permitido]
+
+    subgraph Cálculo da Janela
+        I[Tempo atual - 30 dias]
+        J[COUNT DISTINCT user_ids]
+    end
+----
+
+=== Modelo de Dados
+
+[source,json]
+----
+{
+  "license_mode": "ACTIVE_USERS",
+  "active_user_limit": 100,
+  "window_days": 30,
+  "current_window_users": [
+    { "user_id": "u_123", "first_access": "2024-01-05T10:00:00Z" },
+    { "user_id": "u_456", "first_access": "2024-01-10T14:30:00Z" }
+  ],
+  "current_count": 45
+}
+----
+
+=== Comportamento da Janela
+
+[cols="1,3"]
+|===
+| Cenário | Comportamento
+
+| Usuário faz login pela primeira vez
+| Adicionado ao conjunto ativo, contagem incrementada
+
+| Usuário faz login novamente (dentro da janela)
+| Sem mudança na contagem
+
+| Janela avança
+| Usuários que não acessaram saem
+
+| Usuário retorna após sair
+| Contado como novo usuário ativo
+|===
+
+== Licenciamento UNLIMITED
+
+Licenciamento UNLIMITED não coloca restrições de acesso. Todos os usuários podem acessar a aplicação a qualquer momento. O uso ainda é rastreado para analytics e planejamento de capacidade.
+
+=== Características
+
+- Sem restrições de acesso
+- Rastreamento completo de uso e métricas
+- Ideal para ferramentas internas, planos gratuitos, trials
+- Frequentemente combinado com outras quotas (compute, storage)
+
+=== Enforcement
+
+Sem enforcement - todas as requisições de acesso são concedidas:
+
+[mermaid]
+----
+flowchart TD
+    A[Usuário tenta login] --> B[Registra evento de acesso]
+    B --> C[Login concedido]
+    C --> D[Rastreia métricas de uso]
+----
+
+=== Modelo de Dados
+
+[source,json]
+----
+{
+  "license_mode": "UNLIMITED",
+  "tracking": {
+    "total_users": 1250,
+    "total_sessions": 45000,
+    "peak_concurrent": 89,
+    "period": "2024-01"
+  }
+}
+----
+
+== Comparação de Modos de Licença
+
+[mermaid]
+----
+flowchart LR
+    subgraph "NAMED"
+        N1[Assentos fixos]
+        N2[Atribuição requerida]
+        N3[Enforcement na atribuição]
+    end
+
+    subgraph "CONCURRENT"
+        C1[Assentos flutuantes]
+        C2[Limite de sessões]
+        C3[Enforcement no login]
+    end
+
+    subgraph "ACTIVE_USERS"
+        A1[Janela móvel]
+        A2[Usuários únicos]
+        A3[Enforcement no login]
+    end
+
+    subgraph "UNLIMITED"
+        U1[Sem limites]
+        U2[Apenas rastreamento]
+        U3[Sem enforcement]
+    end
+----
+
+== Escolhendo o Modo Correto
+
+[cols="1,3"]
+|===
+| Requisito | Modo Recomendado
+
+| Compliance requer saber exatamente quem tem acesso
+| NAMED
+
+| Usuários compartilham estações ou trabalham em turnos
+| CONCURRENT
+
+| Precificação baseada em uso real
+| ACTIVE_USERS
+
+| Ferramenta interna ou plano gratuito
+| UNLIMITED
+|===
+
+== Regra Especial: NAMED Ignora Limite CONCURRENT
+
+Usuários com licença NAMED sempre obtêm sessões, mesmo que o limite CONCURRENT seja atingido. Isso garante que colaboradores críticos nunca sejam bloqueados.
+
+[mermaid]
+----
+flowchart TD
+    A[Tentativa de login] --> B{Usuário tem licença NAMED?}
+    B -->|Sim| C[IGNORA: Sempre permite]
+    B -->|Não| D{Verifica limite CONCURRENT}
+    D --> E{ativas < limite?}
+    E -->|Sim| F[Cria sessão]
+    E -->|Não| G[Login negado]
+    C --> F
+----

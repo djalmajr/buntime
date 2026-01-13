@@ -21,7 +21,7 @@ export function usePlugins() {
   return useQuery({
     queryKey: ["plugins"],
     queryFn: async () => {
-      const res = await api.plugins.index.$get();
+      const res = await api.plugins.loaded.$get();
       if (!res.ok) throw new Error("Failed to fetch plugins");
       return res.json() as Promise<PluginInfo[]>;
     },

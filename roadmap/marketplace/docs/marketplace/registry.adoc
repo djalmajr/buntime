@@ -1,0 +1,361 @@
+= Serviço de Registro
+
+O Serviço de Registro gerencia metadados de packages, versionamento e descoberta para o marketplace. Ele oferece busca full-text, categorização e recursos de filtragem.
+
+== Modelo de Dados
+
+=== Tabela de Packages
+
+A tabela `marketplace_packages` armazena os metadados principais dos packages.
+
+[source,sql]
+----
+CREATE TABLE marketplace_packages (
+  id            TEXT PRIMARY KEY DEFAULT (uuid_v7()),
+  type          TEXT NOT NULL CHECK (type IN ('plugin', 'app', 'template')),
+  name          TEXT NOT NULL,
+  vendor_id     TEXT NOT NULL REFERENCES marketplace_vendors(id),
+  description   TEXT,
+  readme        TEXT,
+  tags          TEXT,  -- JSON array
+  category      TEXT NOT NULL,
+  visibility    TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private', 'unlisted')),
+  status        TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'pending', 'published', 'suspended', 'archived')),
+  downloads     INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(vendor_id, name)
+);
+
+CREATE INDEX idx_packages_type ON marketplace_packages(type);
+CREATE INDEX idx_packages_category ON marketplace_packages(category);
+CREATE INDEX idx_packages_status ON marketplace_packages(status);
+CREATE INDEX idx_packages_vendor ON marketplace_packages(vendor_id);
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| id
+| TEXT
+| Chave primária UUID v7
+
+| type
+| TEXT
+| Tipo do package: plugin, app ou template
+
+| name
+| TEXT
+| Nome do package (único por vendor)
+
+| vendor_id
+| TEXT
+| Chave estrangeira para o vendor
+
+| description
+| TEXT
+| Descrição curta para listagens
+
+| readme
+| TEXT
+| Conteúdo completo do README (Markdown)
+
+| tags
+| TEXT
+| Array JSON de tags pesquisáveis
+
+| category
+| TEXT
+| Categoria principal para filtragem
+
+| visibility
+| TEXT
+| public, private ou unlisted
+
+| status
+| TEXT
+| Status do ciclo de vida (draft, pending, published, suspended, archived)
+|===
+
+=== Tabela de Versões
+
+A tabela `marketplace_versions` rastreia todas as versões publicadas de um package.
+
+[source,sql]
+----
+CREATE TABLE marketplace_versions (
+  id              TEXT PRIMARY KEY DEFAULT (uuid_v7()),
+  package_id      TEXT NOT NULL REFERENCES marketplace_packages(id) ON DELETE CASCADE,
+  version         TEXT NOT NULL,
+  changelog       TEXT,
+  archive_url     TEXT NOT NULL,
+  archive_hash    TEXT NOT NULL,
+  manifest        TEXT NOT NULL,  -- JSON manifest content
+  buntime_compat  TEXT NOT NULL,  -- Semver range (e.g., ">=1.0.0")
+  dependencies    TEXT,           -- JSON object of dependencies
+  status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'published', 'yanked')),
+  downloads       INTEGER NOT NULL DEFAULT 0,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(package_id, version)
+);
+
+CREATE INDEX idx_versions_package ON marketplace_versions(package_id);
+CREATE INDEX idx_versions_status ON marketplace_versions(status);
+----
+
+[cols="1,1,3"]
+|===
+| Coluna | Tipo | Descrição
+
+| id
+| TEXT
+| Chave primária UUID v7
+
+| package_id
+| TEXT
+| Chave estrangeira para o package
+
+| version
+| TEXT
+| String de versão semântica
+
+| changelog
+| TEXT
+| Notas de lançamento desta versão
+
+| archive_url
+| TEXT
+| URL para download do arquivo do package
+
+| archive_hash
+| TEXT
+| Hash SHA-256 para verificação de integridade
+
+| manifest
+| TEXT
+| Conteúdo JSON do manifest do package
+
+| buntime_compat
+| TEXT
+| Faixa de versão compatível do Buntime
+
+| dependencies
+| TEXT
+| Objeto JSON mapeando nomes de packages para faixas de versão
+
+| status
+| TEXT
+| Status da versão (pending, published, yanked)
+|===
+
+== Índice de Busca
+
+A tabela `marketplace_search_index` oferece busca full-text usando SQLite FTS5.
+
+[source,sql]
+----
+CREATE VIRTUAL TABLE marketplace_search_index USING fts5(
+  package_id,
+  name,
+  description,
+  readme,
+  tags,
+  category,
+  vendor_name,
+  content='',
+  tokenize='unicode61'
+);
+
+-- Triggers para manter o índice sincronizado
+CREATE TRIGGER packages_ai AFTER INSERT ON marketplace_packages BEGIN
+  INSERT INTO marketplace_search_index(
+    package_id, name, description, readme, tags, category, vendor_name
+  )
+  SELECT
+    NEW.id,
+    NEW.name,
+    NEW.description,
+    NEW.readme,
+    NEW.tags,
+    NEW.category,
+    v.name
+  FROM marketplace_vendors v WHERE v.id = NEW.vendor_id;
+END;
+
+CREATE TRIGGER packages_ad AFTER DELETE ON marketplace_packages BEGIN
+  INSERT INTO marketplace_search_index(
+    marketplace_search_index, package_id, name, description, readme, tags, category, vendor_name
+  ) VALUES('delete', OLD.id, OLD.name, OLD.description, OLD.readme, OLD.tags, OLD.category, '');
+END;
+
+CREATE TRIGGER packages_au AFTER UPDATE ON marketplace_packages BEGIN
+  INSERT INTO marketplace_search_index(
+    marketplace_search_index, package_id, name, description, readme, tags, category, vendor_name
+  ) VALUES('delete', OLD.id, OLD.name, OLD.description, OLD.readme, OLD.tags, OLD.category, '');
+  INSERT INTO marketplace_search_index(
+    package_id, name, description, readme, tags, category, vendor_name
+  )
+  SELECT
+    NEW.id,
+    NEW.name,
+    NEW.description,
+    NEW.readme,
+    NEW.tags,
+    NEW.category,
+    v.name
+  FROM marketplace_vendors v WHERE v.id = NEW.vendor_id;
+END;
+----
+
+== Recursos de Descoberta
+
+=== Fluxo de Busca
+
+[mermaid]
+----
+flowchart LR
+    A[Consulta do Usuário] --> B[Analisar Consulta]
+    B --> C[Busca FTS5]
+    C --> D[Aplicar Filtros]
+    D --> E[Ordenar Resultados]
+    E --> F[Paginar]
+    F --> G[Retornar Resultados]
+----
+
+=== Busca Full-Text
+
+O sistema de busca suporta:
+
+- **Consultas em linguagem natural**: "authentication plugin oauth"
+- **Correspondência de frases**: `"user management"`
+- **Busca por campo específico**: `name:keyval`
+- **Operadores booleanos**: `auth AND NOT oauth`
+- **Correspondência de prefixo**: `auth*`
+
+Exemplo de consulta:
+
+[source,sql]
+----
+SELECT p.*, bm25(marketplace_search_index) as rank
+FROM marketplace_search_index s
+JOIN marketplace_packages p ON s.package_id = p.id
+WHERE marketplace_search_index MATCH 'authentication plugin'
+  AND p.status = 'published'
+  AND p.visibility = 'public'
+ORDER BY rank
+LIMIT 20 OFFSET 0;
+----
+
+=== Filtros
+
+[cols="1,2,2"]
+|===
+| Filtro | Valores | Exemplo
+
+| type
+| plugin, app, template
+| `?type=plugin`
+
+| category
+| Qualquer slug de categoria
+| `?category=database`
+
+| visibility
+| public, private, unlisted
+| `?visibility=public`
+
+| vendor
+| Slug do vendor
+| `?vendor=buntime`
+
+| tags
+| Tags separadas por vírgula
+| `?tags=auth,oauth`
+
+| buntime
+| String de versão
+| `?buntime=1.2.0`
+|===
+
+=== Opções de Ordenação
+
+[cols="1,2"]
+|===
+| Ordenação | Descrição
+
+| relevance
+| Ranking BM25 do FTS5 (padrão para busca)
+
+| downloads
+| Contagem total de downloads
+
+| recent
+| Atualizados mais recentemente
+
+| name
+| Alfabético por nome
+
+| rating
+| Média de avaliação
+|===
+
+=== Estrutura de Categorias
+
+[mermaid]
+----
+mindmap
+  root((Categorias))
+    Database
+      SQL
+      NoSQL
+      Cache
+    Authentication
+      OAuth
+      SAML
+      Passwordless
+    Monitoring
+      Metrics
+      Logging
+      Tracing
+    Communication
+      Email
+      SMS
+      Push
+    Storage
+      Files
+      CDN
+      Backup
+    Utilities
+      Scheduling
+      Queues
+      Validation
+----
+
+== Ciclo de Vida do Package
+
+[mermaid]
+----
+stateDiagram-v2
+    [*] --> Draft: Criar Package
+    Draft --> Pending: Enviar para Revisão
+    Pending --> Published: Aprovar
+    Pending --> Draft: Rejeitar
+    Published --> Suspended: Violação de Política
+    Suspended --> Published: Reinstaurar
+    Published --> Archived: Depreciar
+    Archived --> [*]
+----
+
+== Ciclo de Vida da Versão
+
+[mermaid]
+----
+stateDiagram-v2
+    [*] --> Pending: Enviar Versão
+    Pending --> Published: Aprovar
+    Published --> Yanked: Problema de Segurança
+    Yanked --> Published: Reinstaurar
+----
+
+NOTE: Versões com status yanked permanecem disponíveis para download em instalações existentes, mas ficam ocultas na busca e para novas instalações.

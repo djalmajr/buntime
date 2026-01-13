@@ -60,10 +60,10 @@ describe("loadWorkerConfig", () => {
   beforeEach(() => {
     spyOn(runtimeConfig, "getConfig").mockReturnValue({
       bodySize: { default: 10 * 1024 * 1024, max: 100 * 1024 * 1024 },
-      configDir: "/tmp/test",
       delayMs: 100,
       isCompiled: false,
       isDev: true,
+      libsqlUrl: "http://localhost:8880",
       nodeEnv: "test",
       pluginDirs: ["./plugins"],
       poolSize: 10,

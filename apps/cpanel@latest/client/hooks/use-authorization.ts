@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "~/contexts/auth-context";
+import { getPluginBase } from "~/helpers/api-client";
 
 interface UseAuthorizationOptions {
   action?: string;
@@ -88,7 +89,7 @@ export function useAuthorization({
         },
       };
 
-      const res = await fetch("/authz/api/evaluate", {
+      const res = await fetch(`${getPluginBase("authz")}/api/evaluate`, {
         body: JSON.stringify(context),
         headers: { "Content-Type": "application/json" },
         method: "POST",

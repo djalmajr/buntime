@@ -24,6 +24,74 @@ export interface InstallResult {
 }
 
 /**
+ * API key roles
+ */
+export type KeyRole = "admin" | "custom" | "editor" | "viewer";
+
+/**
+ * Permission types
+ */
+export type Permission =
+  | "apps:install"
+  | "apps:read"
+  | "apps:remove"
+  | "keys:create"
+  | "keys:read"
+  | "keys:revoke"
+  | "plugins:config"
+  | "plugins:install"
+  | "plugins:read"
+  | "plugins:remove"
+  | "workers:read"
+  | "workers:restart";
+
+/**
+ * API Key info returned from list endpoint
+ */
+export interface ApiKeyInfo {
+  createdAt: number;
+  createdBy: number | null;
+  description: string | null;
+  expiresAt: number | null;
+  id: number;
+  keyPrefix: string;
+  lastUsedAt: number | null;
+  name: string;
+  permissions: Permission[];
+  role: KeyRole;
+}
+
+/**
+ * API Key metadata response
+ */
+export interface KeyMetaInfo {
+  permissions: Permission[];
+  roles: KeyRole[];
+}
+
+/**
+ * Create key input
+ */
+export interface CreateKeyInput {
+  description?: string;
+  expiresIn?: string;
+  name: string;
+  permissions?: Permission[];
+  role: KeyRole;
+}
+
+/**
+ * Create key result (includes full key only once)
+ */
+export interface CreateKeyResult {
+  id: number;
+  key: string;
+  keyPrefix: string;
+  name: string;
+  role: KeyRole;
+}
+
+/**
  * Connection configuration
  */
 export interface ConnectionConfig {
@@ -320,6 +388,86 @@ export class ApiClient {
     if (!response.ok) {
       throw new ApiError(
         `Failed to remove app: ${response.status} ${response.statusText}`,
+        "server_error",
+        response.status,
+      );
+    }
+  }
+
+  // ============================================================================
+  // API Keys
+  // ============================================================================
+
+  /**
+   * List all API keys
+   */
+  async listKeys(): Promise<ApiKeyInfo[]> {
+    const response = await this.fetch("/api/core/keys");
+
+    if (!response.ok) {
+      throw new ApiError(
+        `Failed to fetch keys: ${response.status} ${response.statusText}`,
+        "server_error",
+        response.status,
+      );
+    }
+
+    const data = (await response.json()) as { keys: ApiKeyInfo[] };
+    return data.keys;
+  }
+
+  /**
+   * Get available roles and permissions
+   */
+  async getKeyMeta(): Promise<KeyMetaInfo> {
+    const response = await this.fetch("/api/core/keys/meta");
+
+    if (!response.ok) {
+      throw new ApiError(
+        `Failed to fetch key metadata: ${response.status} ${response.statusText}`,
+        "server_error",
+        response.status,
+      );
+    }
+
+    return (await response.json()) as KeyMetaInfo;
+  }
+
+  /**
+   * Create a new API key
+   */
+  async createKey(input: CreateKeyInput): Promise<CreateKeyResult> {
+    const response = await this.fetch("/api/core/keys", {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      const data = (await response.json()) as { code?: string; message?: string };
+      throw new ApiError(
+        data.message ?? `Failed to create key: ${response.status}`,
+        "server_error",
+        response.status,
+      );
+    }
+
+    const result = (await response.json()) as { data: CreateKeyResult };
+    return result.data;
+  }
+
+  /**
+   * Revoke an API key
+   */
+  async revokeKey(id: number): Promise<void> {
+    const response = await this.fetch(`/api/core/keys/${id}`, {
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      const data = (await response.json()) as { code?: string; message?: string };
+      throw new ApiError(
+        data.message ?? `Failed to revoke key: ${response.status}`,
         "server_error",
         response.status,
       );

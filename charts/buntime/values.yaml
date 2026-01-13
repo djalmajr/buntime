@@ -35,11 +35,21 @@ route:
 
 # Buntime configuration
 buntime:
-  configDir: "/data/config"
+  # Homepage redirect or app-shell config (optional)
+  # String: redirect path (e.g., "/cpanel")
+  # Empty: no homepage redirect
+  homepage: ""
+  # LibSQL database connection
+  # URL format: http://host:port or http://host:port/namespace (for multi-tenant servers)
+  libsqlAuthToken: ""  # optional: auth token if libSQL server requires it
+  libsqlUrl: "http://libsql:8080"
   logLevel: "info"
   pluginDirs: "/data/plugins"
   poolSize: 100
   port: 8000
+  # Root API key (required for first access, use Secret in production)
+  # Generate with: openssl rand -hex 32
+  rootKey: ""
   workerDirs: "/data/apps"
 
 # Persistent storage

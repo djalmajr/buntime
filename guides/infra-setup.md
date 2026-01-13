@@ -524,6 +524,35 @@ spec:
 EOF
 ```
 
+#### Criar Namespaces (Multi-tenancy)
+
+O Admin API do libSQL roda na porta 9090 e é **interno ao cluster** (sem Ingress) por segurança. Para criar namespaces, use `kubectl port-forward`:
+
+```bash
+# Terminal 1: Forward da porta admin
+kubectl port-forward -n libsql svc/libsql-primary 9090:9090
+
+# Terminal 2: Criar namespace
+curl -X POST http://localhost:9090/v1/namespaces/meu-app/create \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+Após criar, o namespace fica acessível via wildcard Ingress:
+- URL: `https://meu-app.libsql.home`
+
+**Outros comandos do Admin API:**
+
+```bash
+# Deletar namespace
+curl -X DELETE http://localhost:9090/v1/namespaces/meu-app
+
+# Fork namespace (clonar)
+curl -X POST http://localhost:9090/v1/namespaces/origem/fork/destino
+```
+
+> **Nota:** O Admin API não possui autenticação própria. A segurança é garantida por estar acessível apenas via `kubectl`, que requer credenciais do cluster.
+
 #### Conectar via DBeaver
 
 O DBeaver possui driver nativo para libSQL. Para conectar:

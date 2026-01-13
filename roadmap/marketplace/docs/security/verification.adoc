@@ -1,0 +1,601 @@
+= Verificação de Packages
+
+Este documento descreve o processo de verificação para packages do marketplace, garantindo integridade, segurança e compatibilidade antes do deploy.
+
+== Visão Geral da Verificação
+
+[mermaid]
+----
+flowchart TB
+    subgraph Upload["Upload do Package"]
+        Pkg[Package Archive]
+    end
+
+    subgraph Verification["Pipeline de Verificação"]
+        Integrity[Verificação de Integridade]
+        Static[Análise Estática]
+        Compat[Verificação de Compatibilidade]
+        Vendor[Verificação de Vendor]
+    end
+
+    subgraph Results["Resultados da Verificação"]
+        Pass[Aprovado]
+        Fail[Rejeitado]
+    end
+
+    Pkg --> Integrity
+    Integrity -->|Válido| Static
+    Integrity -->|Inválido| Fail
+
+    Static -->|Limpo| Compat
+    Static -->|Problemas| Fail
+
+    Compat -->|Compatível| Vendor
+    Compat -->|Incompatível| Fail
+
+    Vendor --> Pass
+----
+
+== Verificações Realizadas
+
+[cols="1,1,3"]
+|===
+| Categoria | Verificação | Descrição
+
+| Integridade
+| hashValid
+| Hash SHA-256 corresponde ao valor declarado
+
+| Integridade
+| signatureValid
+| Assinatura criptográfica da chave do vendor
+
+| Análise Estática
+| noDynamicCodeExec
+| Nenhum padrão de execução de código dinâmico
+
+| Análise Estática
+| noDangerousAPIs
+| Nenhum uso de fs.*, child_process ou bypasses de rede
+
+| Análise Estática
+| dependenciesKnown
+| Todas as dependências estão na allowlist
+
+| Compatibilidade
+| buntimeCompatible
+| Compatível com a versão declarada do Buntime
+
+| Compatibilidade
+| dependenciesSatisfied
+| Todas as peer dependencies estão disponíveis
+|===
+
+== Verificação de Integridade
+
+=== Verificação de Hash
+
+Cada package inclui um hash SHA-256 de seu conteúdo:
+
+[mermaid]
+----
+flowchart LR
+    A[Package Archive] --> B[Calcular SHA-256]
+    B --> C{Hash Corresponde?}
+    C -->|Sim| D[Continuar]
+    C -->|Não| E[Rejeitar: Adulterado]
+----
+
+[source,typescript]
+----
+const verifyHash = async (archive: Uint8Array, declaredHash: string): Promise<boolean> => {
+  const hash = await crypto.subtle.digest("SHA-256", archive);
+  const calculatedHash = base64Encode(new Uint8Array(hash));
+  return calculatedHash === declaredHash;
+};
+----
+
+=== Verificação de Assinatura
+
+Packages devem ser assinados com a chave privada do vendor:
+
+[mermaid]
+----
+sequenceDiagram
+    participant Vendor
+    participant Registry
+    participant Verifier
+
+    Vendor->>Vendor: Assinar package com chave privada
+    Vendor->>Registry: Upload package + assinatura
+    Registry->>Verifier: Verificar assinatura
+    Verifier->>Registry: Buscar chave pública do vendor
+    Verifier->>Verifier: Verificar se assinatura corresponde
+    Verifier-->>Registry: Resultado da verificação
+----
+
+[source,typescript]
+----
+const verifySignature = async (
+  archive: Uint8Array,
+  signature: Uint8Array,
+  vendorPublicKey: CryptoKey
+): Promise<boolean> => {
+  return await crypto.subtle.verify(
+    { name: "ECDSA", hash: "SHA-256" },
+    vendorPublicKey,
+    signature,
+    archive
+  );
+};
+----
+
+=== Manifest do Package
+
+[source,json]
+----
+{
+  "name": "@vendor/app-name",
+  "version": "2.1.0",
+  "integrity": {
+    "algorithm": "sha256",
+    "hash": "bWFya2V0cGxhY2UtcGFja2FnZS1oYXNo..."
+  },
+  "signature": {
+    "algorithm": "ecdsa-p256-sha256",
+    "value": "MEUCIQDt5J8...",
+    "keyId": "vendor-key-2024"
+  }
+}
+----
+
+== Análise Estática
+
+=== Detecção de Padrões Perigosos
+
+O analisador estático escaneia padrões de código potencialmente perigosos:
+
+[mermaid]
+----
+flowchart TB
+    subgraph Patterns["Padrões Detectados"]
+        P1["Execução de string como código"]
+        P2["Criação dinâmica de funções"]
+        P3["Carregamento dinâmico de módulos"]
+        P4["Acesso ao sistema de arquivos"]
+        P5["Criação de processos"]
+        P6["Acesso de rede raw"]
+        P7["Criação de worker threads"]
+    end
+
+    subgraph Analysis["Analisador Estático"]
+        AST[AST Parser]
+        Rules[Rule Engine]
+    end
+
+    AST --> Rules
+    Rules --> P1
+    Rules --> P2
+    Rules --> P3
+    Rules --> P4
+    Rules --> P5
+    Rules --> P6
+    Rules --> P7
+----
+
+=== noDynamicCodeExec
+
+Detecta padrões de execução de código dinâmico:
+
+[cols="1,3,1"]
+|===
+| Padrão | Descrição | Severidade
+
+| Execução de string como código
+| Executar strings como código JavaScript
+| Crítico
+
+| Criação dinâmica de funções
+| Criar funções a partir de strings em runtime
+| Crítico
+
+| Carregamento dinâmico de módulos
+| Usar import() ou require() com caminhos variáveis
+| Alto
+
+| Strings de código em timers
+| Passar strings de código para setTimeout/setInterval
+| Alto
+|===
+
+O analisador usa parsing de AST para detectar esses padrões no código fonte, rejeitando packages que contenham qualquer um deles.
+
+=== noDangerousAPIs
+
+Detecta uso de APIs restritas:
+
+[cols="1,3"]
+|===
+| Categoria de API | Padrões Bloqueados
+
+| File System
+| Métodos fs.*, Bun.file() fora do sandbox, Bun.write() fora do sandbox
+
+| Process
+| Métodos child_process.*, Bun.spawn(), Bun.spawnSync()
+
+| Network
+| Métodos net.*, métodos dgram.*, acesso a raw socket
+
+| System
+| os.platform(), os.hostname(), enumeração de variáveis de ambiente
+|===
+
+=== dependenciesKnown
+
+Todas as dependências devem estar na allowlist aprovada:
+
+[mermaid]
+----
+flowchart LR
+    A[Dependências do Package] --> B{Na Allowlist?}
+    B -->|Todas Sim| C[Continuar]
+    B -->|Alguma Não| D[Revisão Manual Necessária]
+----
+
+Categorias da allowlist:
+
+[cols="1,3"]
+|===
+| Categoria | Exemplos
+
+| Runtime Provided
+| @buntime/keyval, @buntime/secrets, hono
+
+| Approved Libraries
+| zod, date-fns, lodash-es
+
+| Vendor Specific
+| Packages publicados pelo próprio vendor
+
+| Pending Review
+| Requer aprovação manual
+|===
+
+== Verificação de Compatibilidade
+
+=== buntimeCompatible
+
+Verifica compatibilidade do package com o runtime Buntime:
+
+[source,typescript]
+----
+interface CompatibilityResult {
+  compatible: boolean;
+  issues: CompatibilityIssue[];
+  installedVersion: string;
+  requiredVersion: string;
+}
+
+const checkBuntimeCompatibility = (
+  manifest: PackageManifest,
+  runtimeVersion: string
+): CompatibilityResult => {
+  const required = manifest.engines?.buntime || "*";
+  const satisfied = semver.satisfies(runtimeVersion, required);
+
+  return {
+    compatible: satisfied,
+    installedVersion: runtimeVersion,
+    issues: satisfied ? [] : [{
+      message: `Requer Buntime ${required}, mas ${runtimeVersion} está instalado`,
+      type: "version_mismatch"
+    }],
+    requiredVersion: required
+  };
+};
+----
+
+=== dependenciesSatisfied
+
+Garante que todas as peer dependencies estão disponíveis:
+
+[mermaid]
+----
+flowchart TB
+    A[Peer Deps do Package] --> B[Verificar Cada Dependência]
+    B --> C{Disponível?}
+    C -->|Sim| D{Versão Corresponde?}
+    C -->|Não| E[Dependência Ausente]
+    D -->|Sim| F[Satisfeita]
+    D -->|Não| G[Conflito de Versão]
+----
+
+[source,json]
+----
+{
+  "peerDependencies": {
+    "@buntime/keyval": "^2.0.0",
+    "@buntime/plugin-database": "^1.5.0"
+  }
+}
+----
+
+== Níveis de Verificação de Vendor
+
+[mermaid]
+----
+flowchart LR
+    subgraph Levels["Níveis de Verificação"]
+        L1["Unverified<br/>Apenas verificações básicas"]
+        L2["Verified<br/>Identidade confirmada"]
+        L3["Official<br/>Equipe Buntime"]
+    end
+
+    L1 --> L2 --> L3
+----
+
+=== Comparação de Níveis de Verificação
+
+[cols="1,1,1,1"]
+|===
+| Recurso | Unverified | Verified | Official
+
+| Verificação de Identidade
+| Nenhuma
+| Domínio/GitHub verificado
+| Funcionário Buntime
+
+| Revisão de Código
+| Apenas automatizada
+| Automatizada + spot check
+| Revisão manual completa
+
+| Signing Key
+| Auto-assinada
+| Certificado assinado por CA
+| Root CA do Buntime
+
+| Suporte
+| Comunidade
+| Fornecido pelo vendor
+| Suporte Buntime
+
+| Exibição de Badge
+| Nenhum
+| Checkmark
+| Badge oficial
+
+| Posição no Marketplace
+| Listagem padrão
+| Elegível para destaque
+| Promovido
+|===
+
+=== Unverified
+
+Packages de vendors sem verificação de identidade:
+
+- Apenas scans de segurança automatizados
+- Packages auto-assinados aceitos
+- Aviso exibido aos usuários
+- Não pode acessar APIs sensíveis
+
+[source,json]
+----
+{
+  "vendor": {
+    "name": "unknown-dev",
+    "verification": "unverified",
+    "warnings": [
+      "Identidade do vendor não foi verificada",
+      "Use por sua conta e risco"
+    ]
+  }
+}
+----
+
+=== Verified
+
+Vendors que completaram a verificação de identidade:
+
+- Propriedade de domínio verificada via registro TXT de DNS
+- Ou propriedade de organização GitHub verificada
+- Certificado de assinatura emitido por CA confiável
+- Elegível para destaque no marketplace
+
+[mermaid]
+----
+sequenceDiagram
+    participant Vendor
+    participant Registry
+    participant CA as Certificate Authority
+
+    Vendor->>Registry: Solicitar verificação
+    Registry->>Vendor: Fornecer desafio DNS
+    Vendor->>Vendor: Adicionar registro TXT
+    Registry->>Registry: Verificar registro DNS
+    Registry->>CA: Solicitar certificado de assinatura
+    CA-->>Registry: Emitir certificado
+    Registry-->>Vendor: Status verificado + certificado
+----
+
+=== Official
+
+Packages desenvolvidos ou revisados pela equipe Buntime:
+
+- Revisão de código manual completa
+- Assinado com Root CA do Buntime
+- Suporte direto do Buntime
+- Destaque no marketplace
+- Acesso a todas as APIs da plataforma
+
+[source,json]
+----
+{
+  "vendor": {
+    "name": "buntime",
+    "verification": "official",
+    "badge": "official",
+    "support": "https://buntime.dev/support"
+  }
+}
+----
+
+== Pipeline de Verificação
+
+=== Fluxo Completo de Verificação
+
+[mermaid]
+----
+flowchart TB
+    Upload[Upload do Package] --> Queue[Fila de Verificação]
+
+    Queue --> Hash[Verificação de Hash]
+    Hash -->|Falha| Reject1[Rejeitar: Hash Não Corresponde]
+    Hash -->|Passou| Sig[Verificação de Assinatura]
+
+    Sig -->|Falha| Reject2[Rejeitar: Assinatura Inválida]
+    Sig -->|Passou| Extract[Extrair Package]
+
+    Extract --> AST[Parse AST]
+    AST --> Dynamic[Verificar Código Dinâmico]
+    Dynamic -->|Encontrado| Reject3[Rejeitar: Código Dinâmico]
+    Dynamic -->|Limpo| APIs[Verificar APIs Perigosas]
+
+    APIs -->|Encontrado| Reject4[Rejeitar: APIs Perigosas]
+    APIs -->|Limpo| Deps[Verificar Dependências]
+
+    Deps -->|Desconhecidas| Review[Fila de Revisão Manual]
+    Deps -->|Conhecidas| Compat[Verificação de Compatibilidade]
+
+    Compat -->|Incompatível| Reject5[Rejeitar: Incompatível]
+    Compat -->|Compatível| Vendor[Verificação de Nível do Vendor]
+
+    Vendor --> Publish[Publicar no Registry]
+
+    Review -->|Aprovado| Compat
+    Review -->|Rejeitado| Reject6[Rejeitar: Deps Não Permitidas]
+----
+
+=== Resultado da Verificação
+
+[source,typescript]
+----
+interface VerificationResult {
+  checks: {
+    compatibility: {
+      buntimeCompatible: boolean;
+      dependenciesSatisfied: boolean;
+      requiredVersion: string;
+    };
+    integrity: {
+      hashValid: boolean;
+      signatureValid: boolean;
+    };
+    staticAnalysis: {
+      dependenciesKnown: boolean;
+      issues: AnalysisIssue[];
+      noDangerousAPIs: boolean;
+      noDynamicCodeExec: boolean;
+    };
+    vendor: {
+      keyId: string;
+      level: "unverified" | "verified" | "official";
+      verifiedAt?: string;
+    };
+  };
+  package: string;
+  reviewedAt: string;
+  reviewedBy: string;
+  status: "approved" | "rejected" | "pending_review";
+  version: string;
+}
+----
+
+=== Exemplo de Resultado
+
+[source,json]
+----
+{
+  "package": "@acme/crm-integration",
+  "version": "1.2.0",
+  "status": "approved",
+  "checks": {
+    "integrity": {
+      "hashValid": true,
+      "signatureValid": true
+    },
+    "staticAnalysis": {
+      "noDynamicCodeExec": true,
+      "noDangerousAPIs": true,
+      "dependenciesKnown": true,
+      "issues": []
+    },
+    "compatibility": {
+      "buntimeCompatible": true,
+      "dependenciesSatisfied": true,
+      "requiredVersion": ">=2.0.0"
+    },
+    "vendor": {
+      "level": "verified",
+      "keyId": "acme-prod-2024",
+      "verifiedAt": "2024-01-15T10:00:00Z"
+    }
+  },
+  "reviewedAt": "2024-03-20T14:30:00Z",
+  "reviewedBy": "automated-pipeline"
+}
+----
+
+== Considerações de Segurança
+
+=== Sandboxing
+
+Mesmo packages verificados rodam em ambientes sandboxed:
+
+[mermaid]
+----
+flowchart TB
+    subgraph Sandbox["Worker Sandbox"]
+        App[Código do Package]
+        API[APIs Permitidas]
+        Block[APIs Bloqueadas]
+    end
+
+    App --> API
+    App -.->|Bloqueado| Block
+
+    subgraph Allowed["Permitidas"]
+        KV[KeyVal]
+        Secrets[Secrets Read]
+        HTTP[HTTP Fetch]
+    end
+
+    subgraph Blocked["Bloqueadas"]
+        FS[File System]
+        Proc[Processes]
+        Net[Raw Network]
+    end
+
+    API --> Allowed
+----
+
+=== Monitoramento Contínuo
+
+Packages são re-verificados quando:
+
+- Nova vulnerabilidade descoberta em dependência
+- Status de verificação do vendor muda
+- Upgrade de versão major do runtime
+- Re-scan periódico (mensal)
+
+[source,typescript]
+----
+const monitoringSchedule = {
+  dependencyVulnerabilities: "realtime",  // Webhooks do banco de CVE
+  periodicRescan: "monthly",              // Re-verificação completa
+  runtimeUpgrade: "on_release",           // Verificações de versão major
+  vendorStatusChanges: "realtime"         // Webhook da CA
+};
+----

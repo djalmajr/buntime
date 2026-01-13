@@ -8,6 +8,8 @@ import type {
 import type { Hono } from "hono";
 import { Hono as HonoApp } from "hono";
 import { APP_NAME_PATTERN, Headers } from "@/constants";
+import { type ValidatedKey, validateApiKey } from "@/libs/api-keys";
+import type { AppEnv } from "@/libs/hono-context";
 import type { WorkerConfig } from "@/libs/pool/config";
 import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
@@ -22,10 +24,8 @@ import {
 const logger = getChildLogger("App");
 
 export interface AppDeps {
-  /** Apps core routes for /api/core/apps */
-  appsCore: Hono;
-  /** Config core routes for /api/core/config */
-  configCore: Hono;
+  /** API routes mounted at /api/* */
+  coreRoutes: Hono;
   getWorkerDir: (appName: string) => string | undefined;
   /**
    * Homepage configuration from HOMEPAGE_APP env var
@@ -33,9 +33,6 @@ export interface AppDeps {
    * Object: app-shell mode (e.g., { app: "cpanel", shell: true })
    */
   homepage?: string | HomepageConfig;
-  /** Plugins core routes for /api/core/plugins */
-  pluginsCore: Hono;
-  pluginsInfo: Hono;
   pool: WorkerPool;
   registry: PluginRegistry;
   workers: Hono;
@@ -265,11 +262,8 @@ function createShellRequest({
  */
 interface RoutingContext {
   appInfo?: AppInfo;
-  appsCore: Hono;
-  configCore: Hono;
   method: string;
   pathname: string;
-  pluginsCore: Hono;
   pool: WorkerPool;
   processedReq: Request;
   registry: PluginRegistry;
@@ -279,6 +273,8 @@ interface RoutingContext {
   resolved?: ResolvedApp;
   shell?: ResolvedShell;
   url: string;
+  /** Validated API key (null if no valid key) */
+  validatedKey: ValidatedKey | null;
 }
 
 /**
@@ -293,68 +289,6 @@ function createProcessedRequest(ctx: RoutingContext, newUrl?: URL): Request {
     headers,
     method: ctx.method,
   });
-}
-
-/**
- * Handle /api/core/plugins route
- */
-async function handlePluginsCoreRoute(ctx: RoutingContext): Promise<Response | null> {
-  const prefix = "/api/core/plugins";
-  if (ctx.pathname !== prefix && !ctx.pathname.startsWith(`${prefix}/`)) {
-    return null;
-  }
-
-  const originalUrl = new URL(ctx.url);
-  const newUrl = rewriteUrl(originalUrl, prefix);
-  const req = createProcessedRequest(ctx, newUrl);
-  return ctx.pluginsCore.fetch(req);
-}
-
-/**
- * Handle /api/core/apps route
- */
-async function handleAppsCoreRoute(ctx: RoutingContext): Promise<Response | null> {
-  const prefix = "/api/core/apps";
-  if (ctx.pathname !== prefix && !ctx.pathname.startsWith(`${prefix}/`)) {
-    return null;
-  }
-
-  const originalUrl = new URL(ctx.url);
-  const newUrl = rewriteUrl(originalUrl, prefix);
-  const req = createProcessedRequest(ctx, newUrl);
-  return ctx.appsCore.fetch(req);
-}
-
-/**
- * Handle /api/core/config route
- */
-async function handleConfigCoreRoute(ctx: RoutingContext): Promise<Response | null> {
-  const prefix = "/api/core/config";
-  if (ctx.pathname !== prefix && !ctx.pathname.startsWith(`${prefix}/`)) {
-    return null;
-  }
-
-  const originalUrl = new URL(ctx.url);
-  const newUrl = rewriteUrl(originalUrl, prefix);
-  const req = createProcessedRequest(ctx, newUrl);
-  return ctx.configCore.fetch(req);
-}
-
-/**
- * Handle /api/plugins route
- */
-async function handlePluginsInfoRoute(
-  ctx: RoutingContext,
-  pluginsInfo: Hono,
-): Promise<Response | null> {
-  if (ctx.pathname !== "/api/plugins" && !ctx.pathname.startsWith("/api/plugins/")) {
-    return null;
-  }
-
-  const originalUrl = new URL(ctx.url);
-  const newUrl = rewriteUrl(originalUrl, "/api/plugins");
-  const req = createProcessedRequest(ctx, newUrl);
-  return pluginsInfo.fetch(req);
 }
 
 /**
@@ -431,17 +365,79 @@ async function handle404WithShell(ctx: RoutingContext, response: Response): Prom
  * Create the main Hono app with unified routing
  */
 export function createApp({
-  appsCore,
-  configCore,
+  coreRoutes,
   getWorkerDir,
   homepage,
-  pluginsCore,
-  pluginsInfo,
   pool,
   registry,
   workers,
 }: AppDeps) {
-  const app = new HonoApp();
+  const app = new HonoApp<AppEnv>();
+
+  // Middleware for /api/* routes to validate API key and set context
+  // This uses Hono's native context passing - more efficient than headers
+  app.use("/api/*", async (c, next) => {
+    const method = c.req.method;
+    const pathname = c.req.path;
+
+    // Generate or use existing correlation ID for request tracing
+    const requestId = c.req.header(Headers.REQUEST_ID) ?? crypto.randomUUID();
+    c.set("requestId", requestId);
+
+    // Check for API key authentication (CLI requests)
+    const apiKeyHeader = c.req.header(Headers.API_KEY);
+    let validatedKey: ValidatedKey | null = null;
+
+    if (apiKeyHeader) {
+      validatedKey = await validateApiKey(apiKeyHeader);
+    }
+    c.set("validatedKey", validatedKey);
+
+    const isApiKeyValid = validatedKey !== null;
+
+    // Security: CSRF protection for state-changing requests
+    const isStateChanging = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+    if (isStateChanging && !isApiKeyValid) {
+      const origin = c.req.header("origin");
+      const host = c.req.header("host");
+      const isInternal = c.req.header(Headers.INTERNAL) === "true";
+
+      if (!origin && !isInternal) {
+        logger.warn("Missing Origin on state-changing request", { method, pathname, requestId });
+        return new Response("Forbidden - Origin required", { status: 403 });
+      }
+
+      if (origin && host) {
+        try {
+          const url = new URL(origin);
+          if (url.username || url.password) {
+            logger.warn("CSRF blocked: Origin contains credentials", {
+              method,
+              origin,
+              pathname,
+              requestId,
+            });
+            return new Response("Forbidden", { status: 403 });
+          }
+          if (!["http:", "https:"].includes(url.protocol) || url.host !== host) {
+            logger.warn("CSRF validation failed", { host, method, origin, pathname, requestId });
+            return new Response("Forbidden", { status: 403 });
+          }
+        } catch {
+          logger.warn("CSRF blocked: Invalid Origin URL", { method, origin, pathname, requestId });
+          return new Response("Forbidden", { status: 403 });
+        }
+      }
+    }
+
+    await next();
+
+    // Add correlation ID to response headers
+    c.header(Headers.REQUEST_ID, requestId);
+  });
+
+  // Mount API routes at /api
+  app.route("/api", coreRoutes);
 
   // Resolve shell worker early (will be used in routing)
   // Catch errors to prevent rejected promise from blocking all requests
@@ -479,10 +475,24 @@ export function createApp({
     // Generate or use existing correlation ID for request tracing
     const requestId = honoCtx.req.header(Headers.REQUEST_ID) ?? crypto.randomUUID();
 
+    // Check for API key authentication (CLI requests)
+    // Validates root key (env var) or database API keys
+    // Valid API keys bypass CSRF protection
+    const apiKeyHeader = honoCtx.req.header(Headers.API_KEY);
+    let validatedKey: ValidatedKey | null = null;
+
+    if (apiKeyHeader) {
+      // Try to validate the API key (checks root key first, then database)
+      validatedKey = await validateApiKey(apiKeyHeader);
+    }
+
+    const isApiKeyValid = validatedKey !== null;
+
     // Security: CSRF protection for state-changing requests
     // Validates Origin header matches the request Host
+    // Bypass if valid API key is provided (root or database)
     const isStateChanging = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
-    if (isStateChanging) {
+    if (isStateChanging && !isApiKeyValid) {
       const origin = honoCtx.req.header("origin");
       const host = honoCtx.req.header("host");
 
@@ -582,11 +592,8 @@ export function createApp({
     // Build routing context
     const ctx: RoutingContext = {
       appInfo,
-      appsCore,
-      configCore,
       method: honoCtx.req.method,
       pathname,
-      pluginsCore,
       pool,
       processedReq,
       registry,
@@ -595,21 +602,11 @@ export function createApp({
       resolved,
       shell,
       url: honoCtx.req.url,
+      validatedKey,
     };
 
-    // Route through handlers in priority order
-    // Core APIs first (always available, solves bootstrap problem)
-    const pluginsCoreResponse = await handlePluginsCoreRoute(ctx);
-    if (pluginsCoreResponse) return runOnResponse(pluginsCoreResponse);
-
-    const appsCoreResponse = await handleAppsCoreRoute(ctx);
-    if (appsCoreResponse) return runOnResponse(appsCoreResponse);
-
-    const configCoreResponse = await handleConfigCoreRoute(ctx);
-    if (configCoreResponse) return runOnResponse(configCoreResponse);
-
-    const pluginsInfoResponse = await handlePluginsInfoRoute(ctx, pluginsInfo);
-    if (pluginsInfoResponse) return runOnResponse(pluginsInfoResponse);
+    // API routes (/api/*) are handled by mounted coreRoutes above
+    // Route through other handlers in priority order
 
     const serverFetchResponse = await handlePluginServerFetch(ctx);
     if (serverFetchResponse) return runOnResponse(serverFetchResponse);

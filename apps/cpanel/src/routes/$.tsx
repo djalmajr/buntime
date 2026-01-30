@@ -40,6 +40,10 @@ function FragmentRouter() {
   const frameRef = useRef<HTMLElement>(null);
   const segment = getSegment(pathname);
 
+  // Use ref to always have current segment value in event handler (avoids stale closure)
+  const segmentRef = useRef(segment);
+  segmentRef.current = segment;
+
   // Update pathname prop and emit route-change event when route changes
   useEffect(() => {
     const frame = frameRef.current as HTMLElement & ZFrameAttributes;
@@ -50,15 +54,19 @@ function FragmentRouter() {
     }
   }, [pathname, segment]);
 
-  // Listen for frame events
+  // Listen for frame events - only re-attach when frame changes, not segment
+  // Use segmentRef to always get current segment value
   useEffect(() => {
     const frame = frameRef.current;
-    if (!frame || !segment) return;
+    if (!frame) return;
 
     const handleNavigate = (event: Event) => {
+      const currentSegment = segmentRef.current;
+      if (!currentSegment) return;
+
       const { path, replace } = (event as CustomEvent<FrameNavigateDetail>).detail;
       // Frame emits relative path, shell needs full path with segment prefix
-      const fullPath = `/${segment}${path.startsWith("/") ? path : `/${path}`}`;
+      const fullPath = `/${currentSegment}${path.startsWith("/") ? path : `/${path}`}`;
       navigate({ to: fullPath, replace });
     };
 
@@ -78,7 +86,7 @@ function FragmentRouter() {
       frame.removeEventListener("navigate", handleNavigate);
       frame.removeEventListener("error", handleError);
     };
-  }, [navigate, segment]);
+  }, [navigate]); // Removed segment from deps - use segmentRef instead
 
   if (!segment) {
     throw notFound();

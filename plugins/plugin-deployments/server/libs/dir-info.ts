@@ -506,6 +506,13 @@ export class DirInfo {
       return readVisibility(versionDir);
     }
 
+    // For app folder without version (depth 1, e.g., "cpanel"), read from current folder
+    // This allows children to inherit visibility from apps that don't follow versioning pattern
+    if (pathInfo.depth === 1 && parts[0]) {
+      const appDir = join(this.basePath, parts[0]);
+      return readVisibility(appDir);
+    }
+
     // For simple apps without version (app/src, app/dist), inherit from app folder
     if (pathInfo.depth >= 2 && parts[0]) {
       const appDir = join(this.basePath, parts[0]);

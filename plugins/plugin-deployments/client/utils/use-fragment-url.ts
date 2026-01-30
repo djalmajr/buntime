@@ -23,8 +23,9 @@ export function useFragmentUrl(rootDirs: string[]) {
   const isNavigatingFromShell = useRef(false);
 
   // Watch for pathname changes from shell (via Frame SDK props)
+  // Note: props can be received even when sdkAvailable is false (via z-frame attributes)
   useEffect(() => {
-    if (!sdkAvailable || !props.pathname) return;
+    if (!props.pathname) return;
 
     const parsed = parsePathname(props.pathname, rootDirs);
 
@@ -32,7 +33,7 @@ export function useFragmentUrl(rootDirs: string[]) {
     isNavigatingFromShell.current = true;
     setState(parsed);
     lastEmittedPath.current = props.pathname;
-  }, [props.pathname, rootDirs, sdkAvailable]);
+  }, [props.pathname, rootDirs]);
 
   // Listen for route-change events from shell
   useEffect(() => {
@@ -87,7 +88,10 @@ export function useFragmentUrl(rootDirs: string[]) {
   }, [state]);
 
   // Set initial root when rootDirs loads and redirect to first workerDir
+  // Only run on initial load (when state.selectedRoot is empty)
   useEffect(() => {
+    // Skip if we already have a selectedRoot (either from props or previous state)
+    if (state.selectedRoot) return;
     if (rootDirs.length === 0) return;
 
     const parsed = parseUrlPath(rootDirs);
@@ -105,7 +109,7 @@ export function useFragmentUrl(rootDirs: string[]) {
       const newState = { selectedRoot: rootDirs[0], path: "" };
       setState(newState);
       navigateToPath(newState, lastEmittedPath);
-    } else if (parsed.selectedRoot && parsed.selectedRoot !== state.selectedRoot) {
+    } else if (parsed.selectedRoot) {
       setState(parsed);
     }
   }, [rootDirs, state.selectedRoot]);
@@ -158,10 +162,7 @@ function parsePathname(pathname: string, rootDirs: string[]): UrlPathState {
   return { selectedRoot, path };
 }
 
-function navigateToPath(
-  state: UrlPathState,
-  lastEmittedPath: MutableRefObject<string | null>,
-) {
+function navigateToPath(state: UrlPathState, lastEmittedPath: MutableRefObject<string | null>) {
   // Build URL path
   const url = state.path ? `/${state.selectedRoot}/${state.path}` : `/${state.selectedRoot}`;
 
@@ -174,9 +175,12 @@ function navigateToPath(
   lastEmittedPath.current = url;
   frameSDK.emit("navigate", { path: url, replace: false, state: {} });
 
-  // Also update local history for standalone mode
-  const fullPath = `/deployments${url}`;
-  if (window.location.pathname !== fullPath) {
-    history.pushState({}, "", fullPath);
+  // Also update local history for standalone mode (only when not in iframe)
+  // Skip if we're in an iframe to avoid interference with shell navigation
+  if (window.self === window.top) {
+    const fullPath = `/deployments${url}`;
+    if (window.location.pathname !== fullPath) {
+      history.pushState({}, "", fullPath);
+    }
   }
 }

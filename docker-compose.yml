@@ -8,7 +8,6 @@ services:
   #   volumes:
   #     - ./tmp:/app/apps
   #   environment:
-  #     LIBSQL_URL: http://libsql:8080
   #     LOG_LEVEL: debug
   #     PLUGIN_DIRS: /app/plugins
   #     POOL_SIZE: "100"

@@ -168,19 +168,6 @@ export interface BuntimeConfig {
   };
 
   /**
-   * LibSQL database URL (required)
-   * Used for storing plugin state, API keys, and audit logs
-   * @example "http://localhost:8880" (dev) or "http://libsql:8080" (prod)
-   */
-  libsqlUrl?: string;
-
-  /**
-   * LibSQL authentication token (optional)
-   * Required if the libSQL server has authentication enabled
-   */
-  libsqlAuthToken?: string;
-
-  /**
    * Homepage configuration
    *
    * String format (redirect mode):

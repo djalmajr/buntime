@@ -1,3 +1,4 @@
+import type { ColumnDef } from "@tanstack/react-table";
 import {
   Button,
   DataTable,
@@ -12,7 +13,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@zomme/shadcn-react";
-import type { ColumnDef } from "@tanstack/react-table";
 import { useState } from "react";
 import {
   type ProxyRule,

@@ -1,1 +1,1 @@
-Leia todo os arquivos *.md dentro de [rules](.claude/rules) e nas suas subpastas para contexto e regras.
+Read all *.md files inside [rules](.claude/rules) and its subfolders for context and rules.

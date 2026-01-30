@@ -1,6 +1,6 @@
 import { registry } from "virtual:icons";
-import { IconProvider } from "@zomme/shadcn-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { IconProvider } from "@zomme/shadcn-react";
 import i18n from "i18next";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

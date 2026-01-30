@@ -722,7 +722,8 @@ export default function createDatabase(config: DbConfig): PluginImpl {
 
   return {
     async onInit(ctx) {
-      adapter = new DatabaseAdapter(config.libsqlUrl);
+      // Adapter configurado via manifest.jsonc do plugin
+      adapter = new DatabaseAdapter(config.adapters);
       await adapter.connect();
 
       // Registrar serviço

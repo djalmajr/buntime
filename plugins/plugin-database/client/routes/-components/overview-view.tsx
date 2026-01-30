@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import {
   Badge,
   Button,
@@ -8,7 +9,6 @@ import {
   CardTitle,
   Icon,
 } from "@zomme/shadcn-react";
-import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../helpers/api";
 

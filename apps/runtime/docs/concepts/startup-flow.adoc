@@ -98,14 +98,10 @@ export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): Runti
   // 2. Expande pluginDirs (PLUGIN_DIRS ou default "./plugins")
   const pluginDirs = expandDirs(pluginDirConfig, baseDir);
 
-  // 3. Valida LIBSQL_URL (obrigatória)
-  const libsqlUrl = options.libsqlUrl ?? Bun.env.LIBSQL_URL;
-  if (!libsqlUrl) throw new Error("LIBSQL_URL is required");
-
-  // 4. Define poolSize por ambiente
+  // 3. Define poolSize por ambiente
   const poolSize = poolDefaults[NODE_ENV];  // dev: 10, prod: 500
 
-  return { workerDirs, pluginDirs, libsqlUrl, poolSize, ... };
+  return { workerDirs, pluginDirs, poolSize, ... };
 }
 ----
 
@@ -128,28 +124,10 @@ export function initConfig(buntimeConfig: BuntimeConfig, baseDir: string): Runti
 | 5
 |===
 
-== Passo 3: Database (database.ts)
+== Passo 3: Plugin System
 
-O banco de dados LibSQL é inicializado no startup:
-
-[source,typescript]
-----
-// runtime/src/libs/database.ts
-async function initDatabase(): Promise<void> {
-  const config = getConfig();
-
-  // Conecta ao servidor LibSQL
-  client = createClient({
-    url: config.libsqlUrl,      // LIBSQL_URL (obrigatória)
-    authToken: config.libsqlAuthToken,  // LIBSQL_AUTH_TOKEN (opcional)
-  });
-
-  // Roda migrations
-  await runMigrations();
-
-  return database;
-}
-----
+Os plugins são carregados a partir dos diretórios configurados em `PLUGIN_DIRS`.
+Cada plugin pode definir seu próprio adapter de banco de dados via manifest.
 
 === Estrutura da Tabela
 

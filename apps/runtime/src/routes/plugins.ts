@@ -35,7 +35,6 @@ import type { PluginRegistry } from "@/plugins/registry";
 interface PluginInfo {
   name: string;
   path: string;
-  versions: string[];
 }
 
 /**
@@ -57,65 +56,28 @@ async function listInstalledPlugins(): Promise<PluginInfo[]> {
       const fullPath = join(pluginDir, name);
 
       if (name.startsWith("@")) {
-        // Scoped package: @scope/name/version
-        const scopeDir = fullPath;
-        const scopeEntries = await readdir(scopeDir, { withFileTypes: true });
+        // Scoped package: @scope/name
+        const scopeEntries = await readdir(fullPath, { withFileTypes: true });
 
         for (const scopeEntry of scopeEntries) {
           if (!scopeEntry.isDirectory()) continue;
 
-          const packagePath = join(scopeDir, scopeEntry.name);
-          const versions = await getVersions(packagePath);
-
-          if (versions.length > 0) {
-            plugins.push({
-              name: `${name}/${scopeEntry.name}`,
-              path: packagePath,
-              versions,
-            });
-          }
+          plugins.push({
+            name: `${name}/${scopeEntry.name}`,
+            path: join(fullPath, scopeEntry.name),
+          });
         }
       } else {
-        // Unscoped package: name/version or flat structure
-        const versions = await getVersions(fullPath);
-
-        if (versions.length > 0) {
-          plugins.push({
-            name,
-            path: fullPath,
-            versions,
-          });
-        } else {
-          // Check if it's a flat plugin structure (has manifest.jsonc directly)
-          const hasManifest = await Bun.file(join(fullPath, "manifest.jsonc")).exists();
-          if (hasManifest) {
-            plugins.push({
-              name,
-              path: fullPath,
-              versions: ["latest"],
-            });
-          }
-        }
+        // Unscoped package
+        plugins.push({
+          name,
+          path: fullPath,
+        });
       }
     }
   }
 
   return plugins;
-}
-
-/**
- * Get version directories from a package path
- */
-async function getVersions(packagePath: string): Promise<string[]> {
-  try {
-    const entries = await readdir(packagePath, { withFileTypes: true });
-    return entries
-      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
-      .map((e) => e.name)
-      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true })); // Latest first
-  } catch {
-    return [];
-  }
 }
 
 interface PluginsRoutesDeps {
@@ -187,7 +149,6 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
                       properties: {
                         name: { type: "string" },
                         path: { type: "string" },
-                        versions: { type: "array", items: { type: "string" } },
                       },
                     },
                   },

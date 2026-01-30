@@ -148,8 +148,6 @@ interface RuntimeConfig {
   homepage?: string | HomepageConfig;  // App ou config de homepage
   isCompiled: boolean;     // Se é binário compilado
   isDev: boolean;          // Se está em modo dev
-  libsqlUrl: string;       // URL do servidor LibSQL (obrigatória)
-  libsqlAuthToken?: string; // Token de autenticação do LibSQL
   nodeEnv: string;         // development|production|staging|test
   pluginDirs: string[];    // Diretórios de plugins externos
   poolSize: number;        // Tamanho do pool de workers

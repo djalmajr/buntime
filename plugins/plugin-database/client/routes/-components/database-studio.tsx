@@ -1,4 +1,16 @@
 import {
+  type ColumnDef,
+  type ColumnPinningState,
+  type ColumnSizingState,
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  type Header,
+  type SortingState,
+  useReactTable,
+  type VisibilityState,
+} from "@tanstack/react-table";
+import {
   Badge,
   Button,
   Checkbox,
@@ -25,18 +37,6 @@ import {
   Skeleton,
   TooltipProvider,
 } from "@zomme/shadcn-react";
-import {
-  type ColumnDef,
-  type ColumnPinningState,
-  type ColumnSizingState,
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  type Header,
-  type SortingState,
-  useReactTable,
-  type VisibilityState,
-} from "@tanstack/react-table";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ColumnInfo, type TableInfo } from "../../helpers/api";
 import { type CellVariant, cellRegistry, type DatabaseType, type RowHeight } from "./cell-variants";

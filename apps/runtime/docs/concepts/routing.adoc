@@ -12,7 +12,7 @@ Ordem de resolução de rotas (conforme implementado em `app.ts`):
 4. **Runtime APIs** - `/api/*` (plugins, apps, config, health, keys, docs)
 5. **Plugin server.fetch** - Handlers de requisição de plugins com `server.fetch`
 6. **Plugin Routes** - Rotas Hono montadas por plugins (ex: `/keyval/*`, `/metrics/*`)
-7. **Plugin Apps** - Apps de plugins servidos via worker pool (fragmentos)
+7. **Plugin Apps** - Apps de plugins servidos via worker pool (z-frame iframes)
 8. **Worker Routes** - Apps nos workerDirs (ex: `/my-app/*`)
 9. **404 with Shell** - Fallback para shell exibir página 404 consistente
 
@@ -158,9 +158,6 @@ Entrypoints podem ser customizados em `manifest.jsonc`:
 
 | `x-base`
 | Base path injetado pelo runtime para assets (ex: `/my-app`)
-
-| `x-fragment-route`
-| Rota do fragment para modo app-shell (ex: `/metrics`)
 
 | `x-buntime-internal`
 | Marca request como interno (worker-to-runtime), bypassa CSRF

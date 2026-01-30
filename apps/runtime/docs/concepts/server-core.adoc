@@ -115,7 +115,7 @@ Além das variáveis de ambiente, o módulo exporta constantes para uso interno:
 | Constante | Descrição
 
 | `Headers`
-| Headers HTTP customizados (x-base, x-fragment-route, x-buntime-internal, x-not-found, x-request-id, sec-fetch-dest, sec-fetch-mode)
+| Headers HTTP customizados (x-base, x-buntime-internal, x-not-found, x-request-id, sec-fetch-dest, sec-fetch-mode)
 
 | `MessageTypes`
 | Tipos de mensagem IPC (READY, REQUEST, RESPONSE, ERROR, IDLE, TERMINATE)
@@ -405,17 +405,15 @@ Limites configuráveis por worker (veja <<../deployment/configuration.adoc#body-
 
 === App-Shell Mode
 
-O runtime suporta arquitetura micro-frontend onde um "shell" envolve múltiplos fragmentos.
+O runtime suporta arquitetura micro-frontend onde um "shell" (cpanel) carrega plugins via `<z-frame>` (iframes com comunicacao bidirecional).
 
-==== Configuração
+==== Configuracao
 
 [source,bash]
 ----
 # .env
 HOMEPAGE_APP=cpanel
 ----
-
-NOTE: O modo app-shell é determinado automaticamente quando o homepage app contém um `fragment-outlet`.
 
 ==== Fluxo
 
@@ -425,25 +423,27 @@ sequenceDiagram
     participant B as Browser
     participant R as Runtime
     participant S as Shell Worker
-    participant F as Fragment Worker
+    participant P as Plugin Worker
 
     B->>R: GET /metrics (navigate)
     Note over R: Sec-Fetch-Mode: navigate
-    R->>S: Request com x-fragment-route: /metrics
-    S->>B: HTML com fragment-outlet
+    R->>S: Request para shell
+    S->>B: HTML com z-frame
 
-    B->>R: GET /fragment/metrics/
-    R->>F: Request para plugin-metrics
-    F->>B: Fragment HTML
+    Note over B: z-frame cria iframe
+    B->>R: GET /metrics/ (iframe src)
+    R->>P: Request para plugin-metrics
+    P->>B: Plugin HTML
+    Note over B: MessageChannel estabelecido
 ----
 
-==== Decisão de Roteamento
+==== Decisao de Roteamento
 
-A função `shouldRouteToShell` determina se uma request vai para o shell:
+A funcao `shouldRouteToShell` determina se uma request vai para o shell:
 
 [cols="2,1,2"]
 |===
-| Condição | Shell? | Motivo
+| Condicao | Shell? | Motivo
 
 | `Sec-Fetch-Mode: navigate` + path `/`
 | Sim
@@ -453,25 +453,22 @@ A função `shouldRouteToShell` determina se uma request vai para o shell:
 | Sim
 | Plugin base match
 
-| Path contém `/api/`
-| Não
-| APIs não passam pelo shell
+| Path contem `/api/`
+| Nao
+| APIs nao passam pelo shell
 
-| `Sec-Fetch-Mode: cors` (fetch interno)
-| Não
-| Fragment outlet carrega diretamente
+| Request de iframe (Sec-Fetch-Dest: iframe)
+| Nao
+| Plugin carrega diretamente
 |===
 
 ==== Headers Injetados
 
-O shell recebe headers especiais para renderizar o fragment correto:
+O shell recebe headers especiais:
 
 [cols="1,2"]
 |===
-| Header | Descrição
-
-| `x-fragment-route`
-| Path original (ex: `/metrics/workers`)
+| Header | Descricao
 
 | `x-not-found`
 | `true` se nenhum app foi resolvido (shell decide como exibir 404)
@@ -712,35 +709,39 @@ const router = createRouter({ basepath: base, ... });
 
 === Fragments
 
-Micro-frontends são servidos através do mecanismo de app-shell. Quando uma navegação ocorre para um path de plugin (ex: `/metrics`), o runtime:
+Micro-frontends sao servidos atraves do mecanismo de app-shell usando `<z-frame>` (pacote `@zomme/frame`). Quando uma navegacao ocorre para um path de plugin (ex: `/metrics`), o runtime:
 
-1. Detecta `Sec-Fetch-Mode: navigate` indicando navegação do browser
+1. Detecta `Sec-Fetch-Mode: navigate` indicando navegacao do browser
 2. Roteia para o shell worker com headers especiais
-3. O shell renderiza o layout com `fragment-outlet`
-4. O `fragment-outlet` faz fetch para o path do fragment diretamente
+3. O shell renderiza o layout com `<z-frame>` apontando para o plugin
+4. O `<z-frame>` cria um iframe e estabelece comunicacao via MessageChannel
 
 Exemplo:
 
 [source,html]
 ----
-<!-- Shell recebe navegação para /metrics -->
-<!-- Headers injetados: x-fragment-route: /metrics, x-base: /cpanel -->
+<!-- Shell recebe navegacao para /metrics -->
+<!-- Headers injetados: x-base: /cpanel -->
 
 <!-- Shell HTML -->
-<fragment-outlet fragment-path="/metrics" />
+<z-frame
+  name="metrics"
+  base="/metrics"
+  src="http://localhost:8000/metrics"
+  pathname="/"
+></z-frame>
 
-<!-- Fragment outlet faz fetch interno -->
-GET /metrics/ (Sec-Fetch-Mode: cors)
-
-<!-- Plugin @buntime/plugin-metrics responde com HTML -->
-<div>Metrics dashboard UI</div>
+<!-- z-frame cria iframe com src -->
+<!-- Iframe carrega plugin @buntime/plugin-metrics -->
+<!-- MessageChannel estabelecido para comunicacao bidirecional -->
 ----
 
-O fragment-outlet é um web component que:
+O `<z-frame>` e um web component que:
 
-1. Lê o atributo `fragment-path` ou `window.__FRAGMENT_ROUTE__`
-2. Faz fetch do conteúdo com `Sec-Fetch-Mode: cors` (evita loop de shell)
-3. Injeta o HTML retornado no DOM
+1. Cria um iframe sandbox com o src do plugin
+2. Estabelece MessageChannel para comunicacao bidirecional
+3. Sincroniza props e eventos entre shell e plugin
+4. Permite chamadas RPC de funcoes registradas
 
 === Plugin Routes Priority
 

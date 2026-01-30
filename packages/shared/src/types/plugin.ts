@@ -28,45 +28,6 @@ export interface MenuItem {
 }
 
 /**
- * Sandbox strategy for fragment isolation
- *
- * - "none": No sandbox, fragment shares context with shell (default for internal plugins)
- * - "patch": Intercepts History API, prevents URL changes (lightweight)
- * - "iframe": Full isolation via iframe (for untrusted external apps)
- */
-export type SandboxStrategy = "none" | "patch" | "iframe";
-
-/**
- * Fragment sandbox type (excludes "none" - if no sandbox needed, don't define fragment)
- */
-export type FragmentType = "patch" | "iframe";
-
-/**
- * Fragment configuration for plugins that can be embedded in the shell
- */
-export interface FragmentOptions {
-  /**
-   * Sandbox type for isolating the fragment
-   * - "patch": Intercepts History API (lightweight, recommended for most cases)
-   * - "iframe": Full isolation via iframe (for untrusted external apps)
-   */
-  type: FragmentType;
-
-  /**
-   * External origin for iframe type
-   * Required when type is "iframe"
-   * @example "https://legacy-app.company.com"
-   */
-  origin?: string;
-
-  /**
-   * Custom styles to inject before fragment loads (reduces flash)
-   * @example "body { opacity: 0; transition: opacity 0.2s; }"
-   */
-  preloadStyles?: string;
-}
-
-/**
  * Plugin server configuration
  * Allows plugins to serve static files and API routes directly in main process
  */
@@ -143,7 +104,6 @@ export interface HomepageConfig {
   /**
    * Enable app-shell mode
    * When true, the worker intercepts navigation to plugin base paths
-   * and renders fragments within its layout
    * @default false
    */
   shell?: boolean;
@@ -416,14 +376,6 @@ export interface PluginManifest {
    * Does not throw if dependency is not configured
    */
   optionalDependencies?: string[];
-
-  /**
-   * Fragment configuration for embedding this plugin in the shell (C-Panel)
-   * The plugin's UI is served from its base path and "pierced" into the shell
-   *
-   * If not defined, the plugin has no fragment (API-only plugin)
-   */
-  fragment?: FragmentOptions;
 
   /**
    * Menu items for the shell navigation (C-Panel sidebar)

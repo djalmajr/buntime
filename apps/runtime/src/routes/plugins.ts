@@ -96,7 +96,7 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
         "/loaded",
         describeRoute({
           description:
-            "Returns information about all loaded plugins including their menus, fragments, and dependencies",
+            "Returns information about all loaded plugins including their menus and dependencies",
           responses: {
             200: {
               content: {
@@ -114,14 +114,6 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
           const plugins = registry.getAll().map((plugin) => ({
             base: plugin.base,
             dependencies: plugin.dependencies ?? [],
-            fragment: plugin.fragment
-              ? {
-                  enabled: true,
-                  origin: plugin.fragment.origin,
-                  preloadStyles: plugin.fragment.preloadStyles,
-                  type: plugin.fragment.type,
-                }
-              : { enabled: false },
             menus: plugin.menus ?? [],
             name: plugin.name,
             optionalDependencies: plugin.optionalDependencies ?? [],

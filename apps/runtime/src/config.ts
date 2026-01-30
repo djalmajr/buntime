@@ -26,6 +26,7 @@ interface RuntimeConfig {
     default: number;
     max: number;
   };
+  corsOrigins: string[];
   delayMs: number;
   homepage?: string | HomepageConfig;
   isCompiled: boolean;
@@ -119,11 +120,21 @@ export function initConfig(options: InitConfigOptions = {}): RuntimeConfig {
   // Get homepage from env var (string redirect format)
   const homepage: string | HomepageConfig | undefined = Bun.env.HOMEPAGE_APP;
 
+  // Parse CORS_ORIGINS - comma-separated list of allowed origins
+  // If not set and IS_DEV, defaults to ["*"] for development convenience
+  const corsOriginsEnv = Bun.env.CORS_ORIGINS;
+  const corsOrigins = corsOriginsEnv
+    ? [...new Set(corsOriginsEnv.split(",").map((o) => o.trim()).filter(Boolean))]
+    : IS_DEV
+      ? ["*"]
+      : [];
+
   const config: RuntimeConfig = {
     bodySize: {
       default: BodySizeLimits.DEFAULT,
       max: BodySizeLimits.MAX,
     },
+    corsOrigins,
     delayMs: DELAY_MS,
     homepage,
     isCompiled: IS_COMPILED,

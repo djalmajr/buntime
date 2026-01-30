@@ -176,7 +176,6 @@ export class PluginLoader {
         "entrypoint",
         "dependencies",
         "optionalDependencies",
-        "fragment",
       ]);
 
       // Filter optional dependencies to only those available

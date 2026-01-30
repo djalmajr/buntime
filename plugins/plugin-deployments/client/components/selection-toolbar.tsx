@@ -1,5 +1,6 @@
-import { Button, Icon } from "@zomme/shadcn-react";
 import { useTranslation } from "react-i18next";
+import { Button } from "./ui/button";
+import { Icon } from "./ui/icon";
 
 interface SelectionToolbarProps {
   count: number;

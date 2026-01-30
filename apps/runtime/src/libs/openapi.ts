@@ -39,15 +39,6 @@ export const PluginInfoSchema = {
       items: { type: "string" as const },
       example: ["@buntime/plugin-database"],
     },
-    fragment: {
-      type: "object" as const,
-      properties: {
-        enabled: { type: "boolean" as const },
-        origin: { type: "string" as const },
-        preloadStyles: { type: "array" as const, items: { type: "string" as const } },
-        type: { type: "string" as const, enum: ["patch", "iframe"] },
-      },
-    },
     menus: {
       type: "array" as const,
       items: {

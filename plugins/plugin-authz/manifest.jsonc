@@ -6,10 +6,6 @@
   "entrypoint": "dist/client/index.html",
   // Required plugins
   "dependencies": ["@buntime/plugin-authn"],
-  // Fragment configuration
-  "fragment": {
-    "type": "patch"
-  },
   // Menu items for shell navigation
   "menus": [
     {

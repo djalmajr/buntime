@@ -1,15 +1,15 @@
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Button } from "./ui/button";
 import {
-  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Input,
-} from "@zomme/shadcn-react";
-import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
+} from "./ui/dialog";
+import { Input } from "./ui/input";
 
 interface MoveDialogProps {
   currentPath: string;
@@ -62,7 +62,7 @@ export function MoveDialog({ currentPath, onClose, onMove, open }: MoveDialogPro
   return (
     <Dialog
       open={open}
-      onOpenChange={(isOpen) => {
+      onOpenChange={(isOpen: boolean) => {
         if (!isOpen) {
           onClose();
         }

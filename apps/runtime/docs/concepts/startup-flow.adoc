@@ -144,12 +144,11 @@ CREATE TABLE plugins (
   enabled               INTEGER DEFAULT 0,     -- 0=disabled, 1=enabled
   version               TEXT DEFAULT 'latest', -- Versão ativa
 
-  -- Estrutural (do manifest, imutável via API)
+  -- Estrutural (do manifest, imutavel via API)
   base                  TEXT NOT NULL DEFAULT '/',
   entrypoint            TEXT,
   dependencies          TEXT DEFAULT '[]',     -- JSON array
   optional_dependencies TEXT DEFAULT '[]',     -- JSON array
-  fragment              TEXT,                  -- JSON object
   menus                 TEXT DEFAULT '[]',     -- JSON array
 
   -- Config dinâmica (específica do plugin, mutável via API)
@@ -188,10 +187,6 @@ CREATE TABLE plugins (
 | `dependencies`
 | Estrutural
 | Plugins requeridos (JSON array)
-
-| `fragment`
-| Estrutural
-| Config do micro-frontend (JSON)
 
 | `menus`
 | Estrutural

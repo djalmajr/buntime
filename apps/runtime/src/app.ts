@@ -7,6 +7,8 @@ import type {
 } from "@buntime/shared/types";
 import type { Hono } from "hono";
 import { Hono as HonoApp } from "hono";
+import { cors } from "hono/cors";
+import { getConfig } from "@/config";
 import { APP_NAME_PATTERN, Headers } from "@/constants";
 import type { WorkerConfig } from "@/libs/pool/config";
 import { loadWorkerConfig } from "@/libs/pool/config";
@@ -144,7 +146,6 @@ async function servePluginApp(
   const pathname = url.pathname.slice(resolved.basePath.length) || "/";
 
   // x-base is always the plugin's basePath where assets are served
-  // Router basepath is handled client-side via fragment-outlet's base attribute
   const newReq = createWorkerRequest({
     base: resolved.basePath,
     originalRequest: req,
@@ -202,7 +203,7 @@ async function resolveShell(
  * - Any path starting with a plugin base (e.g., "/metrics", "/metrics/workers")
  *
  * Returns false for:
- * - Non-navigation requests (e.g., fetch from fragment-outlet)
+ * - Non-navigation requests (e.g., fetch requests)
  * - API routes (paths containing "/api/")
  *
  * Note: Public routes are checked separately before calling this function
@@ -213,7 +214,7 @@ function shouldRouteToShell(
   secFetchMode: string | undefined,
   pluginBases: Set<string>,
 ): boolean {
-  // Only intercept top-level navigation (not fetch from fragment-outlet)
+  // Only intercept top-level navigation
   if (secFetchMode && secFetchMode !== "navigate") return false;
 
   // Don't intercept API routes
@@ -227,7 +228,6 @@ function shouldRouteToShell(
 }
 
 interface ShellRequestParams {
-  fragmentRoute: string;
   notFound?: boolean;
   req: Request;
   shell: ResolvedShell;
@@ -235,20 +235,13 @@ interface ShellRequestParams {
 
 /**
  * Create a request for the shell app with proper headers
- * Handles URL rewriting and header injection for fragment routing
  */
-function createShellRequest({
-  fragmentRoute,
-  notFound = false,
-  req,
-  shell,
-}: ShellRequestParams): Request {
+function createShellRequest({ notFound = false, req, shell }: ShellRequestParams): Request {
   // Shell always serves from root, so pathname is "/"
   // x-base must be the shell's actual base path so assets load correctly
   // e.g., shell at /cpanel -> <base href="/cpanel/"> -> /cpanel/index.js
   return createWorkerRequest({
     base: shell.base,
-    fragmentRoute,
     notFound,
     originalRequest: req,
     targetPath: "/",
@@ -349,7 +342,6 @@ async function handle404WithShell(ctx: RoutingContext, response: Response): Prom
 
   const shellReq = createProcessedRequest(ctx);
   const shellRequest = createShellRequest({
-    fragmentRoute: ctx.pathname,
     notFound: true,
     req: shellReq,
     shell: ctx.shell,
@@ -422,6 +414,14 @@ export function createApp({
   workers,
 }: AppDeps) {
   const app = new HonoApp();
+
+  // CORS middleware - configurable via CORS_ORIGINS env var
+  // Falls back to "*" in development if not set
+  const { corsOrigins } = getConfig();
+  if (corsOrigins.length > 0) {
+    const origin = corsOrigins.includes("*") ? "*" : corsOrigins;
+    app.use("/api/*", cors({ origin }));
+  }
 
   // Middleware for /api/* routes - CSRF protection
   app.use("/api/*", async (c, next) => {
@@ -526,7 +526,7 @@ export function createApp({
         headers: shellHeaders,
         method: honoCtx.req.method,
       });
-      const shellRequest = createShellRequest({ fragmentRoute: pathname, req: shellReq, shell });
+      const shellRequest = createShellRequest({ req: shellReq, shell });
       const response = await pool.fetch(shell.dir, shell.config, shellRequest, requestBody);
       return runOnResponse(response);
     }

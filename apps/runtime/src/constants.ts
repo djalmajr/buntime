@@ -53,15 +53,13 @@ export const APP_NAME_PATTERN = /^\/([^/]+)/;
 export const RESERVED_PATHS = ["/api", "/health", "/.well-known"];
 
 /**
- * HTTP headers used by Buntime for request routing and fragment rendering
+ * HTTP headers used by Buntime for request routing
  */
 export const Headers = {
   /** API key for CLI authentication (bypasses CSRF and other auth) */
   API_KEY: "x-api-key",
   /** Base path for asset loading (injected into HTML as <base href>) */
   BASE: "x-base",
-  /** Fragment route for app-shell mode */
-  FRAGMENT_ROUTE: "x-fragment-route",
   /** Marks request as internal (worker-to-runtime), bypasses CSRF Origin check */
   INTERNAL: "x-buntime-internal",
   /** Indicates 404 should be rendered by shell */

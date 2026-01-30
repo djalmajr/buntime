@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "build": "bun run --filter '*' build",
-    "dev": "bun run --filter '*' dev",
+    "dev": "bun run --filter '@buntime/plugin-*' dev & bun run --filter '@buntime/runtime' dev",
     "lint:format": "bun run --filter '*' lint:format",
     "lint:types": "bun run --filter '*' lint:types",
     "lint": "bun run --filter '*' lint",
@@ -20,11 +20,13 @@
     "test": "bun run --filter '*' test"
   },
   "overrides": {
-    "hono": "^4.10.8"
+    "hono": "^4.10.8",
+    "@zomme/frame": "^1.2.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.8",
     "@types/bun": "^1.3.3",
+    "@zomme/frame": "^1.2.0",
     "react-devtools-core": "^7.0.1",
     "typescript": "^5.9.3"
   }

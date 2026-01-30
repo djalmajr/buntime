@@ -1,16 +1,16 @@
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { valid } from "semver";
+import { Button } from "./ui/button";
 import {
-  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Input,
-} from "@zomme/shadcn-react";
-import { useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { valid } from "semver";
+} from "./ui/dialog";
+import { Input } from "./ui/input";
 
 // kebab-case: lowercase letters, numbers, hyphens (not at start/end)
 const KEBAB_CASE_REGEX = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;

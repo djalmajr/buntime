@@ -23,23 +23,6 @@ export const api = new Hono()
     return ctx.json(rules);
   })
 
-  // List only rules with fragment configuration (for piercing)
-  .get("/fragments", (ctx) => {
-    const fragments = getAllRules()
-      .filter((r) => r.fragment)
-      .map((r) => ({
-        allowMessageBus: r.fragment?.allowMessageBus ?? true,
-        base: r.base,
-        id: r.id,
-        name: r.name,
-        origin: r.target,
-        pattern: r.pattern,
-        preloadStyles: r.fragment?.preloadStyles,
-        sandbox: r.fragment?.sandbox ?? "patch",
-      }));
-    return ctx.json(fragments);
-  })
-
   // Get a single rule by ID
   .get("/rules/:id", (ctx) => {
     const { id } = ctx.req.param();

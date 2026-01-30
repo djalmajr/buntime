@@ -106,13 +106,12 @@ Cada plugin deve ter um `manifest.jsonc` na raiz do diretório com metadata e co
 ----
 // plugins/plugin-keyval/manifest.jsonc
 {
-  "name": "@buntime/plugin-keyval",  // Identificador único (obrigatório)
+  "name": "@buntime/plugin-keyval",  // Identificador unico (obrigatorio)
   "enabled": true,                    // Habilita/desabilita o plugin
-  "base": "/keyval",                  // Base path para rotas (obrigatório)
+  "base": "/keyval",                  // Base path para rotas (obrigatorio)
   "entrypoint": "dist/client/index.html",  // Entrypoint do cliente (se houver)
-  "dependencies": ["@buntime/plugin-database"],  // Dependências obrigatórias
-  "optionalDependencies": [],         // Dependências opcionais
-  "fragment": { "type": "patch" },    // Configuração de fragment
+  "dependencies": ["@buntime/plugin-database"],  // Dependencias obrigatorias
+  "optionalDependencies": [],         // Dependencias opcionais
   "menus": [{ "title": "KeyVal", "icon": "lucide:database", "path": "/keyval" }]
 }
 ----
@@ -149,12 +148,7 @@ Cada plugin deve ter um `manifest.jsonc` na raiz do diretório com metadata e co
 | `optionalDependencies`
 | string[]
 | []
-| Plugins opcionais (carregados se disponíveis)
-
-| `fragment`
-| object
-| -
-| Configuração de fragment UI (`{ type: "patch" \| "iframe" }`)
+| Plugins opcionais (carregados se disponiveis)
 
 | `menus`
 | MenuItem[]
@@ -164,7 +158,7 @@ Cada plugin deve ter um `manifest.jsonc` na raiz do diretório com metadata e co
 
 IMPORTANT: Plugins com `enabled: false` são ignorados pelo loader e pelo sistema de build. Isso permite ter plugins no diretório sem carregá-los.
 
-Lista completa de plugins builtin: authn, authz, database, deployments, durable, gateway, health, keyval, logs, metrics, piercing, proxy, vhosts.
+Lista completa de plugins builtin: authn, authz, database, deployments, durable, gateway, health, keyval, logs, metrics, proxy, vhosts.
 
 *2. External Plugins (./plugins/)*:
 
@@ -997,26 +991,27 @@ export default function createPlugin(): PluginImpl {
 | Executado antes do Hono app
 |===
 
-== Fragment Support
+== Micro-Frontend Support
 
-Plugins podem fornecer UI embeddable no shell (C-Panel) via `fragment`.
+Plugins com UI sao carregados no shell (C-Panel) via `<z-frame>` do pacote `@zomme/frame`.
 
-== Fragment Options
+=== Como Funciona
 
-[source,typescript]
+O shell usa o web component `<z-frame>` para carregar plugins em iframes isolados com comunicacao bidirecional via MessageChannel.
+
+[source,tsx]
 ----
-interface FragmentOptions {
-  type: "patch" | "iframe";
-  origin?: string;              // Obrigatório para iframe
-  preloadStyles?: string;       // CSS para reduzir flash
-}
+// Shell carrega plugin
+<z-frame
+  name="keyval"
+  base="/keyval"
+  src="http://localhost:8000/keyval"
+/>
 ----
 
-== Tipos de Fragment
+=== Configuracao do Plugin
 
-*Patch (Recomendado)*:
-
-Intercepta History API, previne mudanças de URL. Ideal para plugins internos.
+Plugins com UI precisam apenas de um `entrypoint` no manifest:
 
 [source,jsonc]
 ----
@@ -1024,48 +1019,40 @@ Intercepta History API, previne mudanças de URL. Ideal para plugins internos.
 {
   "name": "@buntime/plugin-keyval",
   "base": "/keyval",
-  "fragment": { "type": "patch" },
+  "entrypoint": "dist/client/index.html",
   "menus": [
     { "title": "KeyVal", "icon": "lucide:database", "path": "/keyval" }
   ]
 }
 ----
 
-*Iframe (Full Isolation)*:
+=== Inicializando o SDK no Plugin
 
-Carrega app externo em iframe com isolamento completo. Ideal para aplicações de terceiros não confiáveis.
+O client do plugin deve inicializar o `frameSDK`:
 
-[source,jsonc]
+[source,tsx]
 ----
-// plugins/external-app/manifest.jsonc
-{
-  "name": "@company/external-app",
-  "base": "/external",
-  "fragment": {
-    "type": "iframe",
-    "origin": "https://external-app.company.com"
-  }
-}
+// plugins/plugin-keyval/client/index.tsx
+import { frameSDK } from "@zomme/frame/sdk";
+
+await frameSDK.initialize();
+
+// Acessar props do shell
+console.log(frameSDK.props.base); // "/keyval"
+
+// Emitir eventos para o shell
+frameSDK.emit("navigate", { path: "/keyval/details" });
+
+// Registrar funcoes para o shell chamar
+frameSDK.register("refresh", () => loadData());
 ----
 
-*Comparação dos Tipos*:
+=== Beneficios
 
-[cols="1,1,1,1"]
-|===
-| Tipo | Isolamento | Compartilha Estilos | Caso de Uso
-
-| patch
-| Baixo
-| Sim
-| Plugins internos
-
-| iframe
-| Alto
-| Não
-| Apps não confiáveis
-|===
-
-NOTE: A propriedade `origin` é obrigatória para o tipo `iframe`.
+- **Isolamento**: Iframes sandbox impedem acesso ao DOM do shell
+- **Seguranca**: Cada plugin roda em contexto isolado
+- **Comunicacao Tipada**: Props e eventos com TypeScript
+- **RPC**: Funcoes podem ser chamadas entre shell e plugin
 
 == Menu Items
 
@@ -1285,7 +1272,7 @@ export default function createRateLimiter(config: RateLimitConfig): PluginImpl {
   "name": "@company/custom-logger",
   "base": "/logs",
   "enabled": true,
-  "fragment": { "type": "patch" },
+  "entrypoint": "dist/client/index.html",
   "menus": [
     { "title": "Logs", "icon": "lucide:scroll-text", "path": "/logs" }
   ]

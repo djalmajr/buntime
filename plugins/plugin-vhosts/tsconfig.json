@@ -7,5 +7,5 @@
     "skipLibCheck": true
   },
   "include": ["plugin.ts", "server/**/*"],
-  "exclude": ["node_modules", "dist", "../../runtime/**/*"]
+  "exclude": ["node_modules", "dist", "../../apps/runtime/**/*"]
 }

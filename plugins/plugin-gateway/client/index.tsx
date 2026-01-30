@@ -11,8 +11,3 @@ root.render(
     <GatewayPage />
   </StrictMode>,
 );
-
-// Cleanup when fragment is unmounted
-rootElement
-  .getRootNode()
-  .addEventListener("piercing-unmount", () => root.unmount(), { once: true });

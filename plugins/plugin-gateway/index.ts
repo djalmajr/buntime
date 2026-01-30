@@ -4,7 +4,7 @@ import { createGatewayApi } from "./server/api";
 import type { GatewayConfig } from "./server/types";
 
 // Worker entrypoint - Bun.serve format
-// This serves both the API and the client fragment
+// This serves both the API and the client UI
 
 const config: GatewayConfig = {};
 

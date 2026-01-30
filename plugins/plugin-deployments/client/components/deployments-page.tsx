@@ -2,10 +2,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { apiRequest, getApiBase, uploadFiles } from "~/utils/api";
+import { apiRequest, uploadFiles } from "~/utils/api";
 import { cn } from "~/utils/cn";
 import { isValidUploadDestination, parseDeploymentPath } from "~/utils/path-utils";
 import { useFragmentUrl } from "~/utils/use-fragment-url";
+import manifest from "../../manifest.jsonc";
 import { FileRow } from "./file-row";
 import { MoveDialog } from "./move-dialog";
 import { NewFolderDialog } from "./new-folder-dialog";
@@ -184,8 +185,7 @@ export function DeploymentsPage() {
   };
 
   const handleDownload = (entry: FileEntry) => {
-    const basePath = getApiBase();
-    window.open(`${basePath}/api/download?path=${encodeURIComponent(entry.path)}`, "_blank");
+    window.open(`${manifest.base}/api/download?path=${encodeURIComponent(entry.path)}`, "_blank");
   };
 
   const handleMove = async (destPath: string) => {
@@ -268,11 +268,10 @@ export function DeploymentsPage() {
 
   const handleBatchDownload = () => {
     if (selectedPaths.size === 0) return;
-    const basePath = getApiBase();
     const paths = Array.from(selectedPaths)
       .map((p) => encodeURIComponent(p))
       .join(",");
-    window.open(`${basePath}/api/download-batch?paths=${paths}`, "_blank");
+    window.open(`${manifest.base}/api/download-batch?paths=${paths}`, "_blank");
   };
 
   const handleBatchMove = async (destPath: string) => {

@@ -1,13 +1,9 @@
-import {
-  Button,
-  cn,
-  Icon,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  Textarea,
-} from "@zomme/shadcn-react";
 import { useEffect, useRef, useState } from "react";
+import { Button } from "~/components/ui/button";
+import { Icon } from "~/components/ui/icon";
+import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
+import { Textarea } from "~/components/ui/textarea";
+import { cn } from "~/utils/cn";
 import type { CellVariantProps } from "../types";
 
 function formatJson(value: unknown): string {

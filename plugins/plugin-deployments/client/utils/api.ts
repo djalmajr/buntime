@@ -1,16 +1,4 @@
-/**
- * Get the base path for API calls.
- * Uses the base tag or defaults to /deployments.
- */
-export function getApiBase(): string {
-  // Read from base tag (set by runtime or standalone)
-  const base = document.querySelector("base");
-  if (base) {
-    const href = base.getAttribute("href") || "";
-    return href.replace(/\/$/, "") || "/deployments";
-  }
-  return "/deployments";
-}
+import manifest from "../../manifest.jsonc";
 
 /**
  * Make API requests to the deployments API
@@ -19,8 +7,7 @@ export async function apiRequest<T>(
   endpoint: string,
   options?: RequestInit,
 ): Promise<{ success: boolean; data?: T; error?: string }> {
-  const basePath = getApiBase();
-  const url = `${basePath}/api${endpoint}`;
+  const url = `${manifest.base}/api${endpoint}`;
 
   try {
     const res = await fetch(url, {
@@ -49,8 +36,7 @@ export async function uploadFiles(
   files: File[],
   paths: string[],
 ): Promise<{ success: boolean; error?: string }> {
-  const basePath = getApiBase();
-  const url = `${basePath}/api/upload`;
+  const url = `${manifest.base}/api/upload`;
 
   const formData = new FormData();
   formData.append("path", path);
@@ -81,15 +67,13 @@ export async function uploadFiles(
  * Get download URL for a file
  */
 export function getDownloadUrl(path: string): string {
-  const basePath = getApiBase();
-  return `${basePath}/api/download?path=${encodeURIComponent(path)}`;
+  return `${manifest.base}/api/download?path=${encodeURIComponent(path)}`;
 }
 
 /**
  * Get batch download URL
  */
 export function getBatchDownloadUrl(paths: string[]): string {
-  const basePath = getApiBase();
   const pathsParam = paths.map((p) => encodeURIComponent(p)).join(",");
-  return `${basePath}/api/download-batch?paths=${pathsParam}`;
+  return `${manifest.base}/api/download-batch?paths=${pathsParam}`;
 }

@@ -12,19 +12,8 @@ function getViewFromPath(pathname: string): View {
 }
 
 function getBasePath(): string {
-  const outlet = document.querySelector("fragment-outlet[data-fragment-base]");
-  if (outlet) {
-    const fragmentBase = outlet.getAttribute("data-fragment-base");
-    if (fragmentBase) {
-      return fragmentBase.replace(/\/$/, "");
-    }
-  }
-  const base = document.querySelector("base");
-  if (base) {
-    const href = base.getAttribute("href") || "";
-    return href.replace(/\/$/, "");
-  }
-  return "";
+  const baseHref = document.querySelector("base")?.getAttribute("href") || "/";
+  return baseHref.replace(/\/$/, "") || "/authz";
 }
 
 export function AuthzPage() {

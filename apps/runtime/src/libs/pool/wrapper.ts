@@ -157,27 +157,12 @@ self.onmessage = async ({ data }) => {
 
     let body = await response.arrayBuffer();
     const base = req.headers[Headers.BASE];
-    const fragmentRoute = req.headers[Headers.FRAGMENT_ROUTE];
-    const notFound = req.headers[Headers.NOT_FOUND] === "true";
     const isHtml = headers["content-type"]?.includes("text/html");
 
     if (isHtml && base) {
       const text = new TextDecoder().decode(body);
       const baseHref = escapeHtml(base === "/" ? "/" : `${base}/`);
-
-      // Build injection: base tag + optional shell state
-      let injection = `<base href="${baseHref}" />`;
-
-      // Inject fragment route and not-found state for app-shell mode
-      // __ROUTER_BASEPATH__ tells the shell's router to use "/" as basepath
-      // while <base> tag keeps assets loading from the shell's actual path (e.g., /cpanel)
-      if (fragmentRoute !== undefined) {
-        const safeRoute = escapeHtml(fragmentRoute);
-        // Security: notFound must be a boolean literal to prevent XSS injection
-        const safeNotFound = notFound === true ? "true" : "false";
-        injection += `<script>window.__FRAGMENT_ROUTE__="${safeRoute}";window.__NOT_FOUND__=${safeNotFound};window.__ROUTER_BASEPATH__="/";</script>`;
-      }
-
+      const injection = `<base href="${baseHref}" />`;
       const html = text.replace("<head>", `<head>${injection}`);
       body = new TextEncoder().encode(html).buffer;
     }

@@ -1,4 +1,4 @@
-import { Checkbox } from "@zomme/shadcn-react";
+import { Checkbox } from "~/components/ui/checkbox";
 import type { CellVariantProps } from "../types";
 
 export function CheckboxCell({ isEditable, value, onSave }: CellVariantProps) {

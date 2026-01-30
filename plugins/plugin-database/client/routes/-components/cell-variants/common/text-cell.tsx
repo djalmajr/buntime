@@ -1,5 +1,5 @@
-import { cn } from "@zomme/shadcn-react";
 import { useEffect, useRef } from "react";
+import { cn } from "~/utils/cn";
 import type { CellVariantProps } from "../types";
 
 function formatValue(value: unknown): string {

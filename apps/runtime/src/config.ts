@@ -124,7 +124,14 @@ export function initConfig(options: InitConfigOptions = {}): RuntimeConfig {
   // If not set and IS_DEV, defaults to ["*"] for development convenience
   const corsOriginsEnv = Bun.env.CORS_ORIGINS;
   const corsOrigins = corsOriginsEnv
-    ? [...new Set(corsOriginsEnv.split(",").map((o) => o.trim()).filter(Boolean))]
+    ? [
+        ...new Set(
+          corsOriginsEnv
+            .split(",")
+            .map((o) => o.trim())
+            .filter(Boolean),
+        ),
+      ]
     : IS_DEV
       ? ["*"]
       : [];

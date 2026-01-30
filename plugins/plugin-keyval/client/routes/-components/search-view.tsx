@@ -1,36 +1,37 @@
 import type { KvEntry, KvIndex, KvKey } from "@buntime/keyval";
+import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { kv } from "~/helpers/kv";
+import { PageHeader } from "../../components/page-header";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
 import {
-  Badge,
-  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-  Icon,
-  Input,
-  Label,
+} from "../../components/ui/card";
+import { Icon } from "../../components/ui/icon";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
+import { ScrollArea } from "../../components/ui/scroll-area";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
+} from "../../components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@zomme/shadcn-react";
-import { useCallback, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { kv } from "~/helpers/kv";
-import { PageHeader } from "../../components/page-header";
-import { ScrollArea } from "../../components/scroll-area";
+} from "../../components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 
 type Tokenizer = "ascii" | "porter" | "unicode61";
 

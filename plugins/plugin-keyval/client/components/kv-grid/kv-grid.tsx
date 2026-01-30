@@ -9,8 +9,10 @@ import DataEditor, {
   type Item,
 } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
+import { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Button } from "../ui/button";
 import {
-  Button,
   Dialog,
   DialogClose,
   DialogContent,
@@ -18,11 +20,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Icon,
-  Skeleton,
-} from "@zomme/shadcn-react";
-import { useCallback, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
+} from "../ui/dialog";
+import { Icon } from "../ui/icon";
+import { Skeleton } from "../ui/skeleton";
 
 import type { KvGridProps } from "./kv-grid.types";
 

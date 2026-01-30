@@ -1,15 +1,9 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  cn,
-  Icon,
-  ScrollArea,
-} from "@zomme/shadcn-react";
 import { useEffect, useState } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
+import { Icon } from "~/components/ui/icon";
+import { ScrollArea } from "~/components/ui/scroll-area";
 import { createMetricsSSE, type MetricsSSEData } from "~/helpers/sse";
+import { cn } from "~/utils/cn";
 
 function formatUptime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);

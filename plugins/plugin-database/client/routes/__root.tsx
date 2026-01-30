@@ -1,6 +1,6 @@
 import { registry } from "virtual:icons";
 import { createRootRoute, Outlet } from "@tanstack/react-router";
-import { IconProvider } from "@zomme/shadcn-react";
+import { IconProvider } from "~/components/ui/icon";
 
 export const Route = createRootRoute({
   component: () => (

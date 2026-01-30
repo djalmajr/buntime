@@ -1,5 +1,8 @@
-import { Button, cn, Icon, Tooltip, TooltipContent, TooltipTrigger } from "@zomme/shadcn-react";
 import { useEffect, useRef, useState } from "react";
+import { Button } from "~/components/ui/button";
+import { Icon } from "~/components/ui/icon";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
+import { cn } from "~/utils/cn";
 import type { CellVariantProps } from "../types";
 
 // UUID regex for validation

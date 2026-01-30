@@ -33,7 +33,7 @@ export interface DeploymentsConfig extends BasePluginConfig {
  * Deployments plugin for Buntime
  *
  * Provides:
- * - Fragment UI for deployments management
+ * - UI for deployments management
  * - API endpoints for file operations (list, upload, download, etc.)
  */
 export default function deploymentsPlugin(pluginConfig: DeploymentsConfig = {}): PluginImpl {

@@ -22,12 +22,17 @@
   "dependencies": {
     "@buntime/shared": "file:../../packages/shared",
     "@iconify-icon/react": "^2.1.0",
+    "@radix-ui/react-scroll-area": "^1.2.9",
+    "@radix-ui/react-slot": "^1.2.0",
     "@tanstack/react-router": "^1.134.15",
-    "@zomme/shadcn-react": "file:../../../shadcn-react",
+    "@tanstack/react-table": "^8.21.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "lucide-react": "^0.561.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "recharts": "2.15.4",
+    "tailwind-merge": "^3.0.0",
     "tw-animate-css": "^1.3.4",
     "vaul": "^1.1.2"
   },
@@ -38,6 +43,7 @@
   "devDependencies": {
     "@types/react": "^19.2.6",
     "@types/react-dom": "^19.2.3",
+    "@zomme/bun-plugin-iconify": "^0.1.2",
     "@zomme/bun-plugin-tsr": "^0.1.1",
     "bun-plugin-tailwind": "^0.1.2",
     "tailwindcss": "^4.1.17"

@@ -1,11 +1,5 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Icon,
-} from "@zomme/shadcn-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import { Icon } from "./ui/icon";
 
 interface OverviewViewProps {
   onNavigate: (path: string) => void;

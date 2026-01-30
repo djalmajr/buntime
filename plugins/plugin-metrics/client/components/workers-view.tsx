@@ -1,7 +1,7 @@
+import { useEffect, useMemo, useState } from "react";
+import { Badge } from "~/components/ui/badge";
+import { type ColumnDef, DataTable, useDataTable } from "~/components/ui/data-table";
 import {
-  Badge,
-  type ColumnDef,
-  DataTable,
   Drawer,
   DrawerClose,
   DrawerContent,
@@ -9,10 +9,8 @@ import {
   DrawerFooter,
   DrawerHeader,
   DrawerTitle,
-  ScrollArea,
-  useDataTable,
-} from "@zomme/shadcn-react";
-import { useEffect, useMemo, useState } from "react";
+} from "~/components/ui/drawer";
+import { ScrollArea } from "~/components/ui/scroll-area";
 import { createMetricsSSE, type MetricsSSEData, type WorkerData } from "~/helpers/sse";
 
 const statusVariant = {

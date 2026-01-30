@@ -21,7 +21,7 @@ export interface LogsConfig extends BasePluginConfig {
  *
  * Provides:
  * - In-memory log collection
- * - React UI for viewing logs (fragment)
+ * - React UI for viewing logs
  * - API endpoints for fetching and managing logs
  * - SSE for real-time log streaming
  */

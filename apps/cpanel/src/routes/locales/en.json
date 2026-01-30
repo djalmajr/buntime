@@ -1,0 +1,28 @@
+{
+  "auth": {
+    "accessDenied": "Access Denied",
+    "accessDeniedDescription": "You don't have permission to access this resource. Please contact your administrator if you believe this is an error.",
+    "goHome": "Go to Home",
+    "logout": "Sign Out"
+  },
+  "nav": {
+    "appDescription": "Worker Pool Runtime",
+    "appName": "Buntime",
+    "authz": "Authorization",
+    "database": "Database",
+    "deployments": "Deployments",
+    "durable": "Durable",
+    "gateway": "Gateway",
+    "health": "Health",
+    "keyval": "KeyVal",
+    "logout": "Sign Out",
+    "logs": "Logs",
+    "metrics": "Metrics",
+    "platform": "Platform",
+    "redirects": "Redirects"
+  },
+  "validation": {
+    "invalidJson": "Invalid JSON format",
+    "required": "This field is required"
+  }
+}

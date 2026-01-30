@@ -1,14 +1,14 @@
+import { useTranslation } from "react-i18next";
+import { PageHeader } from "../../components/page-header";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-  Icon,
-} from "@zomme/shadcn-react";
-import { useTranslation } from "react-i18next";
-import { PageHeader } from "../../components/page-header";
-import { ScrollArea } from "../../components/scroll-area";
+} from "../../components/ui/card";
+import { Icon } from "../../components/ui/icon";
+import { ScrollArea } from "../../components/ui/scroll-area";
 
 const features = [
   {

@@ -1,8 +1,11 @@
 import type { KvEntry, KvKey } from "@buntime/keyval";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { kv } from "~/helpers/kv";
+import { cn } from "~/utils/cn";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
 import {
-  Badge,
-  Button,
-  cn,
   Dialog,
   DialogClose,
   DialogContent,
@@ -10,16 +13,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Icon,
-  Input,
-  Label,
-  ScrollArea,
-  Separator,
-  Skeleton,
-} from "@zomme/shadcn-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { kv } from "~/helpers/kv";
+} from "../../components/ui/dialog";
+import { Icon } from "../../components/ui/icon";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
+import { ScrollArea } from "../../components/ui/scroll-area";
+import { Separator } from "../../components/ui/separator";
+import { Skeleton } from "../../components/ui/skeleton";
 
 interface TreeNode {
   children: Map<string, TreeNode>;

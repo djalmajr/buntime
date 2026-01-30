@@ -1,22 +1,19 @@
+import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { kv } from "~/helpers/kv";
+import { PageHeader } from "../../components/page-header";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
 import {
-  Badge,
-  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-  Icon,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@zomme/shadcn-react";
-import { useCallback, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { kv } from "~/helpers/kv";
-import { PageHeader } from "../../components/page-header";
-import { ScrollArea } from "../../components/scroll-area";
+} from "../../components/ui/card";
+import { Icon } from "../../components/ui/icon";
+import { ScrollArea } from "../../components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 
 interface KvOperationMetrics {
   avgLatencyMs: number;

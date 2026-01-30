@@ -232,19 +232,20 @@ export class PluginLoader {
       const allDeps = [...plugin.dependencies, ...plugin.optionalDependencies];
 
       for (const dep of allDeps) {
-        // Only consider deps that are configured
-        if (configuredNames.has(dep)) {
+        // Only consider deps that are enabled (in pluginMap), not just configured
+        if (pluginMap.has(dep)) {
           graph.get(dep)?.push(plugin.name);
           inDegree.set(plugin.name, (inDegree.get(plugin.name) || 0) + 1);
         }
       }
 
-      // Validate required dependencies are configured
+      // Validate required dependencies are enabled
       for (const dep of plugin.dependencies) {
-        if (!configuredNames.has(dep)) {
+        if (!pluginMap.has(dep)) {
+          const isDisabled = configuredNames.has(dep);
           throw new Error(
-            `Plugin "${plugin.name}" requires "${dep}" which is not available. ` +
-              `Ensure "${dep}" is installed in pluginDirs.`,
+            `Plugin "${plugin.name}" requires "${dep}" which is ${isDisabled ? "disabled" : "not installed"}. ` +
+              `${isDisabled ? `Enable "${dep}" in its manifest.jsonc.` : `Ensure "${dep}" is installed in pluginDirs.`}`,
           );
         }
       }

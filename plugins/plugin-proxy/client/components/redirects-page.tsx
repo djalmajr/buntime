@@ -1,18 +1,3 @@
-import type { ColumnDef } from "@tanstack/react-table";
-import {
-  Button,
-  DataTable,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Icon,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@zomme/shadcn-react";
 import { useState } from "react";
 import {
   type ProxyRule,
@@ -22,6 +7,18 @@ import {
   useUpdateProxyRule,
 } from "~/hooks/use-proxy-rules";
 import { type RedirectData, RedirectDrawer } from "./redirect-drawer";
+import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { Icon } from "./ui/icon";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 export function RedirectsPage() {
   const [deleteTarget, setDeleteTarget] = useState<ProxyRule | null>(null);
@@ -64,76 +61,44 @@ export function RedirectsPage() {
     }
   };
 
-  const columns: ColumnDef<ProxyRule>[] = [
-    {
-      accessorKey: "name",
-      cell: ({ row }) => (
-        <div className="flex items-center gap-2">
-          <span className="font-medium">{row.original.name || row.original.pattern}</span>
-          {row.original.readonly && (
-            <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-              Fixed
-            </span>
-          )}
-        </div>
-      ),
-      header: "Name",
-    },
-    {
-      accessorKey: "pattern",
-      cell: ({ row }) => (
-        <code className="rounded bg-muted px-1.5 py-0.5">{row.original.pattern}</code>
-      ),
-      header: "Pattern",
-    },
-    {
-      accessorKey: "target",
-      cell: ({ row }) => <span className="max-w-[200px] truncate">{row.original.target}</span>,
-      header: "Target",
-    },
-    {
-      cell: ({ row }) => {
-        const isReadonly = row.original.readonly;
+  const renderActionCell = (redirect: ProxyRule) => {
+    const isReadonly = redirect.readonly;
 
-        const deleteButton = (
-          <Button
-            className="size-8"
-            disabled={isReadonly}
-            size="icon"
-            variant="ghost"
-            onClick={() => handleDeleteClick(row.original)}
-          >
-            <Icon className="size-4.5" icon="lucide:trash-2" />
-          </Button>
-        );
+    const deleteButton = (
+      <Button
+        className="size-8"
+        disabled={isReadonly}
+        size="icon"
+        variant="ghost"
+        onClick={() => handleDeleteClick(redirect)}
+      >
+        <Icon className="size-4.5" icon="lucide:trash-2" />
+      </Button>
+    );
 
-        return (
-          <div className="flex items-center justify-end gap-1">
-            <Button
-              className="size-8"
-              size="icon"
-              variant="ghost"
-              onClick={() => handleEditClick(row.original)}
-            >
-              <Icon className="size-4.5" icon={isReadonly ? "lucide:eye" : "lucide:pencil"} />
-            </Button>
-            {isReadonly ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="cursor-not-allowed">{deleteButton}</span>
-                </TooltipTrigger>
-                <TooltipContent>This redirect is read-only (defined in config)</TooltipContent>
-              </Tooltip>
-            ) : (
-              deleteButton
-            )}
-          </div>
-        );
-      },
-      header: () => <div className="text-right">Actions</div>,
-      id: "actions",
-    },
-  ];
+    return (
+      <div className="flex items-center justify-end gap-1">
+        <Button
+          className="size-8"
+          size="icon"
+          variant="ghost"
+          onClick={() => handleEditClick(redirect)}
+        >
+          <Icon className="size-4.5" icon={isReadonly ? "lucide:eye" : "lucide:pencil"} />
+        </Button>
+        {isReadonly ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-not-allowed">{deleteButton}</span>
+            </TooltipTrigger>
+            <TooltipContent>This redirect is read-only (defined in config)</TooltipContent>
+          </Tooltip>
+        ) : (
+          deleteButton
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6">
@@ -150,12 +115,51 @@ export function RedirectsPage() {
         </Button>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={redirects}
-        emptyText="No redirects configured yet."
-        isLoading={rules$.isLoading}
-      />
+      <div className="flex-1 overflow-auto rounded-md border">
+        {rules$.isLoading ? (
+          <div className="flex h-32 items-center justify-center">
+            <Icon className="size-6 animate-spin" icon="lucide:loader-2" />
+          </div>
+        ) : redirects.length === 0 ? (
+          <div className="flex h-32 items-center justify-center text-muted-foreground">
+            No redirects configured yet.
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Pattern</TableHead>
+                <TableHead>Target</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {redirects.map((redirect) => (
+                <TableRow key={redirect.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{redirect.name || redirect.pattern}</span>
+                      {redirect.readonly && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                          Fixed
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <code className="rounded bg-muted px-1.5 py-0.5">{redirect.pattern}</code>
+                  </TableCell>
+                  <TableCell>
+                    <span className="max-w-[200px] truncate">{redirect.target}</span>
+                  </TableCell>
+                  <TableCell>{renderActionCell(redirect)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
 
       <RedirectDrawer
         open={drawerOpen}
@@ -165,7 +169,10 @@ export function RedirectsPage() {
         onSave={handleSave}
       />
 
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open: boolean) => !open && setDeleteTarget(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Redirect</DialogTitle>

@@ -10,34 +10,32 @@ import {
   useReactTable,
   type VisibilityState,
 } from "@tanstack/react-table";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import { Checkbox } from "~/components/ui/checkbox";
 import {
-  Badge,
-  Button,
-  Checkbox,
-  cn,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Icon,
-  Input,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-  ScrollArea,
+} from "~/components/ui/dropdown-menu";
+import { Icon } from "~/components/ui/icon";
+import { Input } from "~/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "~/components/ui/resizable";
+import { ScrollArea } from "~/components/ui/scroll-area";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Skeleton,
-  TooltipProvider,
-} from "@zomme/shadcn-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+} from "~/components/ui/select";
+import { Skeleton } from "~/components/ui/skeleton";
+import { TooltipProvider } from "~/components/ui/tooltip";
+import { cn } from "~/utils/cn";
 import { api, type ColumnInfo, type TableInfo } from "../../helpers/api";
 import { type CellVariant, cellRegistry, type DatabaseType, type RowHeight } from "./cell-variants";
 

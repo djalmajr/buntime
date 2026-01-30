@@ -1,15 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Icon,
-} from "@zomme/shadcn-react";
 import { useCallback, useEffect, useState } from "react";
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
+import { Icon } from "~/components/ui/icon";
 import { api } from "../../helpers/api";
 
 interface AdapterHealth {

@@ -1,5 +1,6 @@
+import { useEffect, useState } from "react";
+import { Button } from "./ui/button";
 import {
-  Button,
   Drawer,
   DrawerClose,
   DrawerContent,
@@ -7,12 +8,11 @@ import {
   DrawerFooter,
   DrawerHeader,
   DrawerTitle,
-  Icon,
-  Input,
-  Label,
-  Switch,
-} from "@zomme/shadcn-react";
-import { useEffect, useState } from "react";
+} from "./ui/drawer";
+import { Icon } from "./ui/icon";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Switch } from "./ui/switch";
 
 export interface RedirectData {
   base?: string;
@@ -225,7 +225,7 @@ export function RedirectDrawer({
               checked={formData.relativePaths ?? false}
               disabled={isViewMode}
               id="relativePaths"
-              onCheckedChange={(checked) => setField("relativePaths", checked)}
+              onCheckedChange={(checked: boolean) => setField("relativePaths", checked)}
             />
           </div>
           <div className="space-y-4">
@@ -240,7 +240,7 @@ export function RedirectDrawer({
                 checked={hasHeaders}
                 disabled={isViewMode}
                 id="hasHeaders"
-                onCheckedChange={(checked) => {
+                onCheckedChange={(checked: boolean) => {
                   setHasHeaders(checked);
                   if (!checked) setField("headers", {});
                 }}
@@ -308,7 +308,7 @@ export function RedirectDrawer({
               checked={formData.changeOrigin ?? false}
               disabled={isViewMode}
               id="changeOrigin"
-              onCheckedChange={(checked) => setField("changeOrigin", checked)}
+              onCheckedChange={(checked: boolean) => setField("changeOrigin", checked)}
             />
           </div>
           <div className="flex items-center justify-between">
@@ -322,7 +322,7 @@ export function RedirectDrawer({
               checked={formData.secure ?? false}
               disabled={isViewMode}
               id="secure"
-              onCheckedChange={(checked) => setField("secure", checked)}
+              onCheckedChange={(checked: boolean) => setField("secure", checked)}
             />
           </div>
           <div className="flex items-center justify-between">
@@ -336,7 +336,7 @@ export function RedirectDrawer({
               checked={formData.ws ?? true}
               disabled={isViewMode}
               id="ws"
-              onCheckedChange={(checked) => setField("ws", checked)}
+              onCheckedChange={(checked: boolean) => setField("ws", checked)}
             />
           </div>
         </div>

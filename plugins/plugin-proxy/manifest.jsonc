@@ -1,11 +1,11 @@
 {
   // Plugin metadata
   "name": "@buntime/plugin-proxy",
-  "base": "/proxy",
+  "base": "/redirects",
   "optionalDependencies": ["@buntime/plugin-keyval"],
 
   // Plugin state
-  "enabled": false,
+  "enabled": true,
 
   // Client entrypoint (compiled files)
   "entrypoint": "dist/client/index.html",

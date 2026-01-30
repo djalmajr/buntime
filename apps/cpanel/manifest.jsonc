@@ -1,0 +1,7 @@
+{
+  "entrypoint": "dist/index.js",
+  "visibility": "protected",
+  "publicRoutes": {
+    "GET": ["/*.js", "/*.css", "/*.woff2", "/*.png", "/*.svg", "/*.ico"]
+  }
+}

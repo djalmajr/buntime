@@ -1,17 +1,11 @@
-import {
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Icon,
-  Input,
-  Label,
-} from "@zomme/shadcn-react";
 import { genericOAuthClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { useEffect, useState } from "react";
+import { Button } from "~/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
+import { Icon } from "~/components/ui/icon";
+import { Input } from "~/components/ui/input";
+import { Label } from "~/components/ui/label";
 
 interface ProviderInfo {
   displayName: string;

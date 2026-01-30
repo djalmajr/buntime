@@ -3,15 +3,9 @@ import { MetricsView } from "./metrics-view";
 import { WorkersView } from "./workers-view";
 
 function getFragmentUrl(): string {
-  const outlet = document.querySelector("fragment-outlet[data-fragment-url]");
-  if (outlet) {
-    return outlet.getAttribute("data-fragment-url") || "/";
-  }
-
-  // Strip shell base path (e.g., /cpanel) from pathname
   const pathname = window.location.pathname;
   const baseHref = document.querySelector("base")?.getAttribute("href") || "/";
-  const basePath = baseHref.replace(/\/$/, ""); // Remove trailing slash
+  const basePath = baseHref.replace(/\/$/, "");
 
   if (basePath && pathname.startsWith(basePath)) {
     return pathname.slice(basePath.length) || "/";

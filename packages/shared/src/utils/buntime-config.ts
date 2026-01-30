@@ -50,8 +50,10 @@ export function loadManifestConfigSync(dir: string): ManifestConfig | undefined 
  * Load manifest config from directory (async version for runtime)
  *
  * Tries in order:
- * 1. manifest.jsonc (uses Bun's native JSONC support via import)
+ * 1. manifest.jsonc
  * 2. manifest.json
+ *
+ * Note: Uses file.text() + parseJsonc() instead of import() to avoid Bun's import cache
  *
  * @returns undefined if no config found, throws on parse errors
  */
@@ -60,12 +62,10 @@ export async function loadManifestConfig(dir: string): Promise<ManifestConfig | 
     const filePath = join(dir, filename);
     const file = Bun.file(filePath);
     if (await file.exists()) {
-      if (filename.endsWith(".jsonc")) {
-        // Use Bun's native import for JSONC support
-        const mod = await import(filePath);
-        return (mod.default ?? mod) as ManifestConfig;
-      }
-      return (await file.json()) as ManifestConfig;
+      const content = await file.text();
+      return filename.endsWith(".jsonc")
+        ? (parseJsonc(content) as ManifestConfig)
+        : (JSON.parse(content) as ManifestConfig);
     }
   }
 

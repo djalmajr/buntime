@@ -20,10 +20,9 @@
     "test:watch": "bun test --watch"
   },
   "dependencies": {
-    "@buntime/plugin-database": "file:../plugin-database",
-    "@buntime/shared": "file:../../packages/shared",
+    "@buntime/plugin-database": "workspace:*",
+    "@buntime/shared": "workspace:*",
     "@libsql/client": "^0.15.0",
-    "@zomme/shadcn-react": "file:../../../shadcn-react",
     "better-auth": "^1.4.6",
     "drizzle-orm": "^0.38.3",
     "react": "^19.2.0",

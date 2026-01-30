@@ -45,7 +45,7 @@
  *
  * // App with extra external dependencies
  * createAppBuilder({
- *   name: "papiros",
+ *   name: "cpanel",
  *   external: ["asciidoctor"],
  * }).run();
  * ```
@@ -151,12 +151,10 @@ export function createPluginBuilder(config: PluginBuildConfig): PluginBuilder {
       const bunfigPath = join(cwd, "bunfig.toml");
 
       if (existsSync(bunfigPath)) {
-        const { parse } = await import("smol-toml");
-        const bunfigContent = await Bun.file(bunfigPath).text();
-        const bunfig = parse(bunfigContent) as {
-          serve?: { static?: { plugins?: string[] } };
+        const bunfig = (await import(bunfigPath)) as {
+          default: { serve?: { static?: { plugins?: string[] } } };
         };
-        const pluginNames = bunfig?.serve?.static?.plugins ?? [];
+        const pluginNames = bunfig.default?.serve?.static?.plugins ?? [];
 
         for (const name of pluginNames) {
           try {
@@ -254,11 +252,15 @@ export function inferPluginName(): string {
 // =============================================================================
 
 export interface AppBuildConfig {
-  /** App name for logging (e.g., "papiros", "cpanel") */
+  /** App name for logging (e.g., "cpanel") */
   name: string;
+  /** Client-only mode: no server build (default: false) */
+  clientOnly?: boolean;
   /** Extra external dependencies to exclude (added to @buntime/*) */
   external?: string[];
-  /** Additional watch directories (defaults to ["./client", "./server", "."]) */
+  /** Source directory for clientOnly mode (default: "./src") */
+  srcDir?: string;
+  /** Additional watch directories (defaults to ["./client", "./server", "."] or ["./src"] for clientOnly) */
   watchDirs?: string[];
 }
 
@@ -268,7 +270,7 @@ export interface AppBuilder {
 
 /**
  * Create an app builder with watch mode support
- * Apps always have server + client, with parallel builds
+ * Apps can be server + client (default) or client-only (clientOnly: true)
  */
 export function createAppBuilder(config: AppBuildConfig): AppBuilder {
   const isWatch = process.argv.includes("--watch");
@@ -276,7 +278,9 @@ export function createAppBuilder(config: AppBuildConfig): AppBuilder {
 
   // @buntime/shared is provided by runtime, @buntime/database is bundled (HTTP client)
   const external = ["@buntime/shared", "@buntime/shadcn-ui", ...(config.external ?? [])];
-  const watchDirs = config.watchDirs ?? ["./client", "./server", "."];
+  const srcDir = config.srcDir ?? "./src";
+  const watchDirs =
+    config.watchDirs ?? (config.clientOnly ? [srcDir] : ["./client", "./server", "."]);
   const watchExtensions = /\.(ts|tsx|css|html|json)$/;
 
   async function loadPlugins(): Promise<BunPlugin[]> {
@@ -284,12 +288,10 @@ export function createAppBuilder(config: AppBuildConfig): AppBuilder {
     const bunfigPath = join(cwd, "bunfig.toml");
 
     if (existsSync(bunfigPath)) {
-      const { parse } = await import("smol-toml");
-      const bunfigContent = await Bun.file(bunfigPath).text();
-      const bunfig = parse(bunfigContent) as {
-        serve?: { static?: { plugins?: string[] } };
+      const bunfig = (await import(bunfigPath)) as {
+        default: { serve?: { static?: { plugins?: string[] } } };
       };
-      const pluginNames = bunfig?.serve?.static?.plugins ?? [];
+      const pluginNames = bunfig.default?.serve?.static?.plugins ?? [];
 
       for (const name of pluginNames) {
         try {
@@ -332,33 +334,60 @@ export function createAppBuilder(config: AppBuildConfig): AppBuilder {
     // Load client plugins
     const plugins = await loadPlugins();
 
-    // Build server and client in parallel
-    const [serverResult, clientResult] = await Promise.all([
-      Bun.build({
-        entrypoints: ["./index.ts"],
-        external,
-        minify: !isWatch,
-        outdir: "./dist",
-        splitting: true,
-        target: "bun",
-      }),
-      Bun.build({
-        entrypoints: ["./client/index.html"],
+    if (config.clientOnly) {
+      // Client-only build
+      const entrypoint = `${srcDir}/index.html`;
+
+      if (!existsSync(join(cwd, entrypoint))) {
+        console.error(`Entry not found: ${entrypoint}`);
+        if (!isWatch) process.exit(1);
+        return false;
+      }
+
+      const result = await Bun.build({
+        entrypoints: [entrypoint],
         minify: !isWatch,
         outdir: "./dist",
         plugins,
         publicPath: "./",
         splitting: true,
         target: "browser",
-      }),
-    ]);
+      });
 
-    if (!serverResult.success || !clientResult.success) {
-      console.error("Build failed:");
-      if (!serverResult.success) console.error("Server:", serverResult.logs);
-      if (!clientResult.success) console.error("Client:", clientResult.logs);
-      if (!isWatch) process.exit(1);
-      return false;
+      if (!result.success) {
+        console.error("Build failed:", result.logs);
+        if (!isWatch) process.exit(1);
+        return false;
+      }
+    } else {
+      // Build server and client in parallel
+      const [serverResult, clientResult] = await Promise.all([
+        Bun.build({
+          entrypoints: ["./index.ts"],
+          external,
+          minify: !isWatch,
+          outdir: "./dist",
+          splitting: true,
+          target: "bun",
+        }),
+        Bun.build({
+          entrypoints: ["./client/index.html"],
+          minify: !isWatch,
+          outdir: "./dist",
+          plugins,
+          publicPath: "./",
+          splitting: true,
+          target: "browser",
+        }),
+      ]);
+
+      if (!serverResult.success || !clientResult.success) {
+        console.error("Build failed:");
+        if (!serverResult.success) console.error("Server:", serverResult.logs);
+        if (!clientResult.success) console.error("Client:", clientResult.logs);
+        if (!isWatch) process.exit(1);
+        return false;
+      }
     }
 
     console.log("Build completed successfully");

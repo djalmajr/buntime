@@ -485,32 +485,34 @@ export class DirInfo {
   }
 
   /**
-   * Get visibility from ancestor version folder (for inheritance to children)
-   * Walks up the path to find the nearest version folder with visibility
+   * Get visibility from ancestor folder (for inheritance to children)
+   * Supports both versioned apps (app/1.0.0) and simple apps (app without version)
    */
   private async getAncestorVisibility(): Promise<Visibility | undefined> {
     if (!this.dirPath) return undefined;
 
     const pathInfo = parseDeploymentPath(this.dirPath);
-
-    // Only inherit if we're inside a version folder
-    if (!pathInfo.isInsideVersion) return undefined;
-
-    // Find the version folder path
     const parts = this.dirPath.split("/");
-    let versionFolderPath: string;
 
+    // For flat format (app@version), always inherit
     if (pathInfo.format === "flat") {
-      // Flat format: first part is app@version
-      versionFolderPath = parts[0]!;
-    } else {
-      // Nested format: first two parts are app/version
-      versionFolderPath = parts.slice(0, 2).join("/");
+      const versionDir = join(this.basePath, parts[0]!);
+      return readVisibility(versionDir);
     }
 
-    // Read visibility from version folder
-    const versionDir = join(this.basePath, versionFolderPath);
-    return readVisibility(versionDir);
+    // For nested format with version (app/1.0.0/...), inherit from version folder
+    if (pathInfo.isInsideVersion && pathInfo.depth >= 2) {
+      const versionDir = join(this.basePath, parts.slice(0, 2).join("/"));
+      return readVisibility(versionDir);
+    }
+
+    // For simple apps without version (app/src, app/dist), inherit from app folder
+    if (pathInfo.depth >= 2 && parts[0]) {
+      const appDir = join(this.basePath, parts[0]);
+      return readVisibility(appDir);
+    }
+
+    return undefined;
   }
 
   /**

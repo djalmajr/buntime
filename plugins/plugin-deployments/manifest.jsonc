@@ -16,5 +16,5 @@
   // Directories containing deployable apps (default: globalConfig.workerDirs)
   // "workerDirs": [],
   // Folder patterns to exclude from listing (merged with defaults: [".git", "node_modules"])
-  "excludes": [".cache", "dist"]
+  "excludes": [".cache", "cli", "runtime"]
 }

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun ./src/index.html --console",
+    "dev": "bun scripts/build.ts --watch",
     "build": "bun scripts/build.ts",
     "lint": "bun run lint:format && bun run lint:types",
     "lint:format": "biome check --write",
@@ -91,6 +91,7 @@
     "zod": "^3.25.30"
   },
   "devDependencies": {
+    "@buntime/shared": "workspace:*",
     "@types/react": "^19.2.6",
     "@types/react-dom": "^19.2.3",
     "@zomme/bun-plugin-i18next": "^0.1.1",

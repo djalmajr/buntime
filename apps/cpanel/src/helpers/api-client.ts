@@ -1,7 +1,5 @@
 // Simple API client for fetching plugin information
 
-import { BUNTIME_URL } from "./config";
-
 export interface MenuItemInfo {
   icon: string;
   items?: MenuItemInfo[];
@@ -22,6 +20,6 @@ export interface PluginInfo {
  * Fetch list of loaded plugins from the runtime API.
  */
 export async function fetchLoadedPlugins(): Promise<PluginInfo[]> {
-  const res = await fetch(`${BUNTIME_URL}/api/plugins/loaded`);
+  const res = await fetch("/api/plugins/loaded");
   return res.json();
 }

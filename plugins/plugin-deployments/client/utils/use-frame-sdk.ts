@@ -93,14 +93,12 @@ export function useFrameSDK<T = Record<string, unknown>>() {
       });
   }, []);
 
-  const emit = useCallback(
-    (event: string, data?: unknown) => {
-      if (sdkAvailable) {
-        frameSDK.emit(event, data);
-      }
-    },
-    [sdkAvailable],
-  );
+  const emit = useCallback((event: string, data?: unknown) => {
+    // Check directly on SDK to avoid stale closure issues
+    if (frameSDK.isInitialized) {
+      frameSDK.emit(event, data);
+    }
+  }, []);
 
   const on = useCallback((event: string, handler: (data: unknown) => void) => {
     return frameSDK.on(event, handler);

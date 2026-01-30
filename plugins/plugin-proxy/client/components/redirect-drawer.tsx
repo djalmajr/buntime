@@ -11,7 +11,7 @@ import {
   Input,
   Label,
   Switch,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import { useEffect, useState } from "react";
 
 export interface RedirectData {

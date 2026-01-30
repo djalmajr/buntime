@@ -5,27 +5,15 @@
  * - Listing installed apps
  * - Uploading new apps (tarball or zip)
  * - Removing apps
- *
- * This API is always available in the runtime (solves bootstrap problem).
- * Apps are identified by being in workerDirs (not by manifest content).
- *
- * Authorization:
- * - apps:read permission: Can list installed apps
- * - apps:install permission: Can upload new apps
- * - apps:remove permission: Can delete apps
  */
 
 import { readdir, rename } from "node:fs/promises";
 import { join } from "node:path";
-import { ForbiddenError, NotFoundError, ValidationError } from "@buntime/shared/errors";
-import type { Context } from "hono";
+import { NotFoundError, ValidationError } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { getConfig } from "@/config";
-import { hasPermission, type Permission, type ValidatedKey } from "@/libs/api-keys";
-import { logAppInstall, logAppRemove } from "@/libs/audit";
-import type { AppEnv } from "@/libs/hono-context";
-import { AppInfoSchema, AuthHeader, CommonErrors, SuccessResponse } from "@/libs/openapi";
+import { AppInfoSchema, SuccessResponse } from "@/libs/openapi";
 import {
   createTempDir,
   detectArchiveFormat,
@@ -163,30 +151,6 @@ async function getVersions(packagePath: string): Promise<string[]> {
 }
 
 /**
- * Get validated key from Hono context
- */
-function getValidatedKey(ctx: Context): ValidatedKey | null {
-  return (ctx as Context<AppEnv>).get("validatedKey");
-}
-
-/**
- * Require a validated key with specific permission
- */
-function requirePermission(c: Context, permission: Permission): ValidatedKey {
-  const key = getValidatedKey(c);
-
-  if (!key) {
-    throw new ForbiddenError("Authentication required", "AUTH_REQUIRED");
-  }
-
-  if (!hasPermission(key, permission)) {
-    throw new ForbiddenError(`Permission denied: ${permission}`, "PERMISSION_DENIED");
-  }
-
-  return key;
-}
-
-/**
  * Create apps core routes
  */
 export function createAppsRoutes() {
@@ -197,7 +161,6 @@ export function createAppsRoutes() {
         tags: ["Apps"],
         summary: "List installed apps",
         description: "Returns all apps installed in workerDirs",
-        parameters: [AuthHeader],
         responses: {
           200: {
             description: "List of installed apps",
@@ -207,11 +170,9 @@ export function createAppsRoutes() {
               },
             },
           },
-          ...CommonErrors,
         },
       }),
       async (ctx) => {
-        requirePermission(ctx, "apps:read");
         const apps = await listInstalledApps();
         return ctx.json(apps);
       },
@@ -222,7 +183,6 @@ export function createAppsRoutes() {
         tags: ["Apps"],
         summary: "Upload app",
         description: "Upload a new app (tarball or zip)",
-        parameters: [AuthHeader],
         requestBody: {
           required: true,
           content: {
@@ -268,11 +228,9 @@ export function createAppsRoutes() {
               },
             },
           },
-          ...CommonErrors,
         },
       }),
       async (ctx) => {
-        const actor = requirePermission(ctx, "apps:install");
         const { workerDirs } = getConfig();
 
         if (workerDirs.length === 0) {
@@ -319,15 +277,6 @@ export function createAppsRoutes() {
           // Move from temp to install path
           await rename(tempDir, installPath);
 
-          // Log the installation
-          await logAppInstall(
-            actor,
-            packageInfo.name,
-            packageInfo.version,
-            ctx.req.header("x-forwarded-for") ?? ctx.req.header("x-real-ip"),
-            ctx.req.header("user-agent"),
-          );
-
           return ctx.json({
             data: {
               app: {
@@ -352,7 +301,6 @@ export function createAppsRoutes() {
         summary: "Delete app",
         description: "Remove an app (all versions)",
         parameters: [
-          AuthHeader,
           {
             name: "scope",
             in: "path",
@@ -373,11 +321,9 @@ export function createAppsRoutes() {
             description: "App deleted successfully",
             content: { "application/json": { schema: SuccessResponse } },
           },
-          ...CommonErrors,
         },
       }),
       async (ctx) => {
-        const actor = requirePermission(ctx, "apps:remove");
         const { workerDirs } = getConfig();
         const scope = ctx.req.param("scope");
         const name = ctx.req.param("name");
@@ -405,14 +351,6 @@ export function createAppsRoutes() {
           throw new NotFoundError(`App not found: ${fullName}`, "APP_NOT_FOUND");
         }
 
-        // Log the removal
-        await logAppRemove(
-          actor,
-          fullName,
-          ctx.req.header("x-forwarded-for") ?? ctx.req.header("x-real-ip"),
-          ctx.req.header("user-agent"),
-        );
-
         return ctx.json({ success: true });
       },
     )
@@ -423,7 +361,6 @@ export function createAppsRoutes() {
         summary: "Delete app version",
         description: "Remove a specific version of an app",
         parameters: [
-          AuthHeader,
           {
             name: "scope",
             in: "path",
@@ -451,11 +388,9 @@ export function createAppsRoutes() {
             description: "Version deleted successfully",
             content: { "application/json": { schema: SuccessResponse } },
           },
-          ...CommonErrors,
         },
       }),
       async (ctx) => {
-        const actor = requirePermission(ctx, "apps:remove");
         const { workerDirs } = getConfig();
         const scope = ctx.req.param("scope");
         const name = ctx.req.param("name");
@@ -488,14 +423,6 @@ export function createAppsRoutes() {
             "VERSION_NOT_FOUND",
           );
         }
-
-        // Log the removal
-        await logAppRemove(
-          actor,
-          `${fullName}@${version}`,
-          ctx.req.header("x-forwarded-for") ?? ctx.req.header("x-real-ip"),
-          ctx.req.header("user-agent"),
-        );
 
         return ctx.json({ success: true });
       },

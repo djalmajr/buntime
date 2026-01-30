@@ -24,7 +24,7 @@ import {
   SelectValue,
   Skeleton,
   TooltipProvider,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import {
   type ColumnDef,
   type ColumnPinningState,

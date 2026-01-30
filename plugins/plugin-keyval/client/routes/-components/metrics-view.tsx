@@ -11,7 +11,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { kv } from "~/helpers/kv";

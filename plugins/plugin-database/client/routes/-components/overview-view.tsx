@@ -7,7 +7,7 @@ import {
   CardHeader,
   CardTitle,
   Icon,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../helpers/api";

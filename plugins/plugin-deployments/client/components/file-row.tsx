@@ -10,7 +10,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import { useTranslation } from "react-i18next";
 
 interface ConfigValidation {

@@ -5,7 +5,7 @@ import {
   CardHeader,
   CardTitle,
   Icon,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 
 interface OverviewViewProps {
   onNavigate: (path: string) => void;

@@ -20,7 +20,7 @@
     "test:watch": "bun test --watch"
   },
   "dependencies": {
-    "@buntime/shared": "workspace:*"
+    "@buntime/shared": "file:../../packages/shared"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

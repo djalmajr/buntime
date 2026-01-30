@@ -8,8 +8,6 @@ import type {
 import type { Hono } from "hono";
 import { Hono as HonoApp } from "hono";
 import { APP_NAME_PATTERN, Headers } from "@/constants";
-import { type ValidatedKey, validateApiKey } from "@/libs/api-keys";
-import type { AppEnv } from "@/libs/hono-context";
 import type { WorkerConfig } from "@/libs/pool/config";
 import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
@@ -273,8 +271,6 @@ interface RoutingContext {
   resolved?: ResolvedApp;
   shell?: ResolvedShell;
   url: string;
-  /** Validated API key (null if no valid key) */
-  validatedKey: ValidatedKey | null;
 }
 
 /**
@@ -362,6 +358,59 @@ async function handle404WithShell(ctx: RoutingContext, response: Response): Prom
 }
 
 /**
+ * Validate CSRF for state-changing requests
+ * Returns Response if blocked, undefined if allowed
+ */
+function validateCsrf(
+  method: string,
+  pathname: string,
+  requestId: string,
+  origin: string | undefined,
+  host: string | undefined,
+  isInternal: boolean,
+): Response | undefined {
+  // Only check state-changing requests
+  const isStateChanging = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+  if (!isStateChanging) return undefined;
+
+  // Allow internal requests (worker-to-runtime) marked with X-Buntime-Internal
+  if (isInternal) return undefined;
+
+  // Require Origin header for state-changing requests from browsers
+  if (!origin) {
+    logger.warn("Missing Origin on state-changing request", { method, pathname, requestId });
+    return new Response("Forbidden - Origin required", { status: 403 });
+  }
+
+  // If Origin is present, validate it
+  if (host) {
+    try {
+      const url = new URL(origin);
+      // Block malformed URLs with credentials (user:pass@host format)
+      if (url.username || url.password) {
+        logger.warn("CSRF blocked: Origin contains credentials", {
+          method,
+          origin,
+          pathname,
+          requestId,
+        });
+        return new Response("Forbidden", { status: 403 });
+      }
+      // Validate protocol and host match
+      if (!["http:", "https:"].includes(url.protocol) || url.host !== host) {
+        logger.warn("CSRF validation failed", { host, method, origin, pathname, requestId });
+        return new Response("Forbidden", { status: 403 });
+      }
+    } catch {
+      logger.warn("CSRF blocked: Invalid Origin URL", { method, origin, pathname, requestId });
+      return new Response("Forbidden", { status: 403 });
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Create the main Hono app with unified routing
  */
 export function createApp({
@@ -372,67 +421,22 @@ export function createApp({
   registry,
   workers,
 }: AppDeps) {
-  const app = new HonoApp<AppEnv>();
+  const app = new HonoApp();
 
-  // Middleware for /api/* routes to validate API key and set context
-  // This uses Hono's native context passing - more efficient than headers
+  // Middleware for /api/* routes - CSRF protection
   app.use("/api/*", async (c, next) => {
-    const method = c.req.method;
-    const pathname = c.req.path;
-
-    // Generate or use existing correlation ID for request tracing
     const requestId = c.req.header(Headers.REQUEST_ID) ?? crypto.randomUUID();
-    c.set("requestId", requestId);
-
-    // Check for API key authentication (CLI requests)
-    const apiKeyHeader = c.req.header(Headers.API_KEY);
-    let validatedKey: ValidatedKey | null = null;
-
-    if (apiKeyHeader) {
-      validatedKey = await validateApiKey(apiKeyHeader);
-    }
-    c.set("validatedKey", validatedKey);
-
-    const isApiKeyValid = validatedKey !== null;
-
-    // Security: CSRF protection for state-changing requests
-    const isStateChanging = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
-    if (isStateChanging && !isApiKeyValid) {
-      const origin = c.req.header("origin");
-      const host = c.req.header("host");
-      const isInternal = c.req.header(Headers.INTERNAL) === "true";
-
-      if (!origin && !isInternal) {
-        logger.warn("Missing Origin on state-changing request", { method, pathname, requestId });
-        return new Response("Forbidden - Origin required", { status: 403 });
-      }
-
-      if (origin && host) {
-        try {
-          const url = new URL(origin);
-          if (url.username || url.password) {
-            logger.warn("CSRF blocked: Origin contains credentials", {
-              method,
-              origin,
-              pathname,
-              requestId,
-            });
-            return new Response("Forbidden", { status: 403 });
-          }
-          if (!["http:", "https:"].includes(url.protocol) || url.host !== host) {
-            logger.warn("CSRF validation failed", { host, method, origin, pathname, requestId });
-            return new Response("Forbidden", { status: 403 });
-          }
-        } catch {
-          logger.warn("CSRF blocked: Invalid Origin URL", { method, origin, pathname, requestId });
-          return new Response("Forbidden", { status: 403 });
-        }
-      }
-    }
+    const csrfResponse = validateCsrf(
+      c.req.method,
+      c.req.path,
+      requestId,
+      c.req.header("origin"),
+      c.req.header("host"),
+      c.req.header(Headers.INTERNAL) === "true",
+    );
+    if (csrfResponse) return csrfResponse;
 
     await next();
-
-    // Add correlation ID to response headers
     c.header(Headers.REQUEST_ID, requestId);
   });
 
@@ -470,67 +474,9 @@ export function createApp({
   // Main request handler
   app.all("*", async (honoCtx) => {
     const pathname = honoCtx.req.path;
-    const method = honoCtx.req.method;
 
     // Generate or use existing correlation ID for request tracing
     const requestId = honoCtx.req.header(Headers.REQUEST_ID) ?? crypto.randomUUID();
-
-    // Check for API key authentication (CLI requests)
-    // Validates root key (env var) or database API keys
-    // Valid API keys bypass CSRF protection
-    const apiKeyHeader = honoCtx.req.header(Headers.API_KEY);
-    let validatedKey: ValidatedKey | null = null;
-
-    if (apiKeyHeader) {
-      // Try to validate the API key (checks root key first, then database)
-      validatedKey = await validateApiKey(apiKeyHeader);
-    }
-
-    const isApiKeyValid = validatedKey !== null;
-
-    // Security: CSRF protection for state-changing requests
-    // Validates Origin header matches the request Host
-    // Bypass if valid API key is provided (root or database)
-    const isStateChanging = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
-    if (isStateChanging && !isApiKeyValid) {
-      const origin = honoCtx.req.header("origin");
-      const host = honoCtx.req.header("host");
-
-      // Security: Require Origin header for state-changing requests from browsers
-      // Missing Origin on state-changing requests is suspicious (potential CSRF)
-      // Exception: Allow internal requests (worker-to-runtime) marked with X-Buntime-Internal
-      const isInternal = honoCtx.req.header(Headers.INTERNAL) === "true";
-      if (!origin && !isInternal) {
-        logger.warn("Missing Origin on state-changing request", { method, pathname, requestId });
-        return new Response("Forbidden - Origin required", { status: 403 });
-      }
-
-      // If Origin is present, it must match the Host
-      // Security: Validate origin safely to prevent URL parsing attacks
-      if (origin && host) {
-        try {
-          const url = new URL(origin);
-          // Block malformed URLs with credentials (user:pass@host format)
-          if (url.username || url.password) {
-            logger.warn("CSRF blocked: Origin contains credentials", {
-              method,
-              origin,
-              pathname,
-              requestId,
-            });
-            return new Response("Forbidden", { status: 403 });
-          }
-          // Validate protocol and host match
-          if (!["http:", "https:"].includes(url.protocol) || url.host !== host) {
-            logger.warn("CSRF validation failed", { host, method, origin, pathname, requestId });
-            return new Response("Forbidden", { status: 403 });
-          }
-        } catch {
-          logger.warn("CSRF blocked: Invalid Origin URL", { method, origin, pathname, requestId });
-          return new Response("Forbidden", { status: 403 });
-        }
-      }
-    }
 
     const shell = shellPromise ? await shellPromise : undefined;
     const resolved = await resolveTargetApp(pathname, registry, getWorkerDir);
@@ -602,7 +548,6 @@ export function createApp({
       resolved,
       shell,
       url: honoCtx.req.url,
-      validatedKey,
     };
 
     // API routes (/api/*) are handled by mounted coreRoutes above

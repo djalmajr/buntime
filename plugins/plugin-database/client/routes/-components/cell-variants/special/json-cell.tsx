@@ -6,7 +6,7 @@ import {
   PopoverContent,
   PopoverTrigger,
   Textarea,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import { useEffect, useRef, useState } from "react";
 import type { CellVariantProps } from "../types";
 

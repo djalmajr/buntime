@@ -16,7 +16,7 @@ const TEST_DIR = join(import.meta.dir, ".test-app");
 // Initialize config once before all tests
 beforeAll(() => {
   mkdirSync(TEST_DIR, { recursive: true });
-  initConfig({ baseDir: TEST_DIR, libsqlUrl: "http://localhost:8880", workerDirs: [TEST_DIR] });
+  initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
 });
 
 // Clean up after tests

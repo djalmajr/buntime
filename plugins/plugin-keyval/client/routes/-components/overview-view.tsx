@@ -5,7 +5,7 @@ import {
   CardHeader,
   CardTitle,
   Icon,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "../../components/page-header";
 import { ScrollArea } from "../../components/scroll-area";

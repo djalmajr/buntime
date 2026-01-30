@@ -19,7 +19,7 @@
     "test:watch": "bun test --watch"
   },
   "dependencies": {
-    "@buntime/shared": "workspace:*"
+    "@buntime/shared": "file:../../packages/shared"
   },
   "peerDependencies": {
     "hono": "^4.0.0",

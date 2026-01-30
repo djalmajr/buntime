@@ -5,7 +5,7 @@
  * Plugin manifests are auto-discovered from PLUGIN_DIRS.
  */
 import { existsSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { getChildLogger } from "@buntime/shared/logger";
 import type { HomepageConfig } from "@buntime/shared/types";
 import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
@@ -30,45 +30,13 @@ interface RuntimeConfig {
   homepage?: string | HomepageConfig;
   isCompiled: boolean;
   isDev: boolean;
-  /** LibSQL auth token (optional, for remote servers with auth) */
-  libsqlAuthToken?: string;
-  /** LibSQL namespace (optional, extracted from URL path for multi-tenant servers) */
-  libsqlNamespace?: string;
-  /** LibSQL server URL (required) - e.g., http://localhost:8880 or http://localhost:8880/namespace */
-  libsqlUrl: string;
   nodeEnv: string;
   pluginDirs: string[];
   poolSize: number;
   port: number;
-  /** Root API key from env var ROOT_KEY (full access, can create other keys) */
-  rootKey?: string;
   version: string;
   workerDirs: string[];
 }
-
-// Default values (libsqlUrl is required, not defaulted)
-const defaults: Omit<RuntimeConfig, "libsqlUrl" | "pluginDirs" | "workerDirs"> & {
-  pluginDirs?: string[];
-  workerDirs?: string[];
-} = {
-  bodySize: {
-    default: BodySizeLimits.DEFAULT,
-    max: BodySizeLimits.MAX,
-  },
-  delayMs: DELAY_MS,
-  homepage: undefined,
-  isCompiled: IS_COMPILED,
-  isDev: IS_DEV,
-  libsqlAuthToken: undefined,
-  libsqlNamespace: undefined,
-  nodeEnv: NODE_ENV,
-  pluginDirs: undefined,
-  poolSize: 100,
-  port: PORT,
-  rootKey: undefined,
-  version: VERSION,
-  workerDirs: undefined,
-};
 
 // Pool size defaults by environment
 const poolDefaults: Record<string, number> = {
@@ -110,37 +78,9 @@ function expandDirs(dirs: string[], baseDir: string): string[] {
   });
 }
 
-/**
- * Parse libSQL URL to extract namespace from path
- * Supports: http://host:port/namespace -> { url: http://host:port, namespace: "namespace" }
- */
-function parseLibsqlUrl(urlString: string): { namespace?: string; url: string } {
-  try {
-    const url = new URL(urlString);
-    const pathParts = url.pathname.split("/").filter(Boolean);
-
-    if (pathParts.length > 0) {
-      // First path segment is the namespace
-      const namespace = pathParts[0];
-      url.pathname = "/";
-      // Remove trailing slash from base URL
-      return { namespace, url: url.toString().replace(/\/$/, "") };
-    }
-
-    return { url: urlString };
-  } catch {
-    // If URL parsing fails, return as-is
-    return { url: urlString };
-  }
-}
-
 interface InitConfigOptions {
   /** Base directory for resolving relative paths (default: process.cwd()) */
   baseDir?: string;
-  /** LibSQL auth token (default: LIBSQL_AUTH_TOKEN env) */
-  libsqlAuthToken?: string;
-  /** LibSQL server URL (default: LIBSQL_URL env, required) */
-  libsqlUrl?: string;
   /** Worker directories (default: WORKER_DIRS env) */
   workerDirs?: string[];
 }
@@ -149,7 +89,7 @@ interface InitConfigOptions {
  * Initialize runtime configuration from environment variables
  */
 export function initConfig(options: InitConfigOptions = {}): RuntimeConfig {
-  const baseDir = options.baseDir ?? process.cwd();
+  const baseDir = options.baseDir ?? (IS_COMPILED ? dirname(process.execPath) : process.cwd());
 
   // Get workerDirs from env var (comma-separated or JSON array)
   // Relative paths are resolved against the base directory
@@ -172,19 +112,6 @@ export function initConfig(options: InitConfigOptions = {}): RuntimeConfig {
   const pluginDirConfig = Bun.env.PLUGIN_DIRS ? [Bun.env.PLUGIN_DIRS] : ["./plugins"];
   const pluginDirs = expandDirs(pluginDirConfig, baseDir);
 
-  // Get libSQL URL from env var (required)
-  // Supports namespace in path: http://host:port/namespace
-  const rawLibsqlUrl = options.libsqlUrl ?? Bun.env.LIBSQL_URL;
-  if (!rawLibsqlUrl) {
-    throw new Error("LIBSQL_URL environment variable is required");
-  }
-
-  // Parse URL to extract namespace from path (e.g., http://libsql:8080/buntime)
-  const { namespace: libsqlNamespace, url: libsqlUrl } = parseLibsqlUrl(rawLibsqlUrl);
-
-  // Get libSQL auth token from env var (optional)
-  const libsqlAuthToken = options.libsqlAuthToken ?? Bun.env.LIBSQL_AUTH_TOKEN;
-
   // Get poolSize from env var or default by environment
   const envFallback = poolDefaults[NODE_ENV] ?? 100;
   const poolSize = parsePoolSize(Bun.env.POOL_SIZE, envFallback);
@@ -192,22 +119,20 @@ export function initConfig(options: InitConfigOptions = {}): RuntimeConfig {
   // Get homepage from env var (string redirect format)
   const homepage: string | HomepageConfig | undefined = Bun.env.HOMEPAGE_APP;
 
-  // Get root API key from env var (for CLI authentication, full access)
-  const rootKey = Bun.env.ROOT_KEY;
-
   const config: RuntimeConfig = {
-    ...defaults,
     bodySize: {
       default: BodySizeLimits.DEFAULT,
       max: BodySizeLimits.MAX,
     },
+    delayMs: DELAY_MS,
     homepage,
-    libsqlAuthToken,
-    libsqlNamespace,
-    libsqlUrl,
+    isCompiled: IS_COMPILED,
+    isDev: IS_DEV,
+    nodeEnv: NODE_ENV,
     pluginDirs,
     poolSize,
-    rootKey,
+    port: PORT,
+    version: VERSION,
     workerDirs,
   };
 

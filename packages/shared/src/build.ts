@@ -15,7 +15,6 @@
  * createPluginBuilder({
  *   name: "plugin-health",
  *   client: true,
- *   external: ["@buntime/shared"],
  * }).run();
  * ```
  *
@@ -86,7 +85,8 @@ export function createPluginBuilder(config: PluginBuildConfig): PluginBuilder {
   const isWatch = process.argv.includes("--watch");
   const cwd = process.cwd();
 
-  const external = config.external ?? ["@buntime/shared"];
+  // Bundle everything by default - plugins should be self-contained
+  const external = config.external ?? [];
   const watchDirs =
     config.watchDirs ?? (config.client ? ["./client", "./server", "."] : ["./server", "."]);
   const watchExtensions = config.client ? /\.(ts|tsx|css|html|json)$/ : /\.(ts|tsx)$/;

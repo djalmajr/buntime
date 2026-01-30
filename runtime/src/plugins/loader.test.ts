@@ -2,21 +2,17 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { initConfig } from "@/config";
-import { closeDatabase, initDatabase } from "@/libs/database";
 import { PluginLoader } from "./loader";
 
 const TEST_DIR = join(import.meta.dir, ".test-loader");
-const TEST_DATA_DIR = join(TEST_DIR, "data");
 
 describe("PluginLoader", () => {
-  beforeAll(async () => {
+  beforeAll(() => {
     mkdirSync(TEST_DIR, { recursive: true });
-    initConfig({ baseDir: TEST_DIR, libsqlUrl: "http://localhost:8880", workerDirs: [TEST_DIR] });
-    await initDatabase();
+    initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
   });
 
   afterAll(() => {
-    closeDatabase();
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
@@ -36,24 +32,19 @@ describe("PluginLoader", () => {
   describe("loadPlugin validation", () => {
     const PLUGINS_TEST_DIR = join(TEST_DIR, "plugins-validation");
 
-    beforeEach(async () => {
+    beforeEach(() => {
       mkdirSync(join(PLUGINS_TEST_DIR, "plugins"), { recursive: true });
       // Reinitialize config with the test directory as baseDir
       initConfig({
         baseDir: PLUGINS_TEST_DIR,
-        libsqlUrl: "http://localhost:8880",
         workerDirs: [PLUGINS_TEST_DIR],
       });
-      await initDatabase();
     });
 
-    afterEach(async () => {
-      // Close database before removing directory
-      closeDatabase();
+    afterEach(() => {
       rmSync(PLUGINS_TEST_DIR, { recursive: true, force: true });
       // Restore original config
-      initConfig({ baseDir: TEST_DIR, libsqlUrl: "http://localhost:8880", workerDirs: [TEST_DIR] });
-      await initDatabase();
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
     });
 
     it("should ignore plugin with empty name field in manifest", async () => {
@@ -69,17 +60,16 @@ describe("PluginLoader", () => {
       expect(registry.size).toBe(0);
     });
 
-    it("should skip plugin with missing base field in manifest", async () => {
+    it("should load plugin without base field (hooks-only plugin)", async () => {
       const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "no-base");
       mkdirSync(pluginDir, { recursive: true });
       writeFileSync(join(pluginDir, "manifest.jsonc"), JSON.stringify({ name: "no-base" }));
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      // Plugins with invalid manifest (missing base) are silently skipped during scan
-      // because seedPluginFromManifest throws on NOT NULL constraint violation
+      // Plugins without base are valid (they have only hooks, no routes)
       const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
       const registry = await loader.load();
-      expect(registry.has("no-base")).toBe(false);
+      expect(registry.has("no-base")).toBe(true);
     });
 
     it("should throw for invalid base path format", async () => {
@@ -91,7 +81,7 @@ describe("PluginLoader", () => {
       );
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      // Plugin is enabled by default when seeded, validation happens during loadPlugin
+      // Plugin is enabled by default, validation happens during loadPlugin
       const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
       await expect(loader.load()).rejects.toThrow(/invalid base path/);
     });
@@ -105,7 +95,7 @@ describe("PluginLoader", () => {
       );
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      // Plugin is enabled by default when seeded, validation happens during loadPlugin
+      // Plugin is enabled by default, validation happens during loadPlugin
       const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
       await expect(loader.load()).rejects.toThrow(/cannot use reserved path/);
     });
@@ -119,7 +109,7 @@ describe("PluginLoader", () => {
       );
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      // Plugin is enabled by default when seeded, validation happens during loadPlugin
+      // Plugin is enabled by default, validation happens during loadPlugin
       const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
       await expect(loader.load()).rejects.toThrow(/cannot use reserved path/);
     });
@@ -133,7 +123,7 @@ describe("PluginLoader", () => {
       );
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      // Plugin is enabled by default when seeded during scan
+      // Plugin is enabled by default during scan
       const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
       const _registry = await loader.load();
       // Try to load the same plugin again
@@ -154,7 +144,7 @@ describe("PluginLoader", () => {
         });`,
       );
 
-      // Plugin is enabled by default when seeded during scan
+      // Plugin is enabled by default during scan
       const loader = new PluginLoader({
         pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")],
       });
@@ -192,7 +182,7 @@ describe("PluginLoader", () => {
         };`,
       );
 
-      // Plugin is enabled by default when seeded during scan
+      // Plugin is enabled by default during scan
       const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
       const registry = await loader.load();
       expect(registry.has("with-init")).toBe(true);
@@ -207,7 +197,7 @@ describe("PluginLoader", () => {
       );
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      // Plugin seeded with enabled=false from manifest should not be loaded
+      // Plugin with enabled=false from manifest should not be loaded
       const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
       const registry = await loader.load();
       expect(registry.has("disabled-plugin")).toBe(false);
@@ -217,24 +207,19 @@ describe("PluginLoader", () => {
   describe("scanPluginDirs", () => {
     const EXT_TEST_DIR = join(TEST_DIR, "external-plugins");
 
-    beforeEach(async () => {
+    beforeEach(() => {
       mkdirSync(join(EXT_TEST_DIR, "plugins"), { recursive: true });
       // Reinitialize config with the test directory as baseDir
       initConfig({
         baseDir: EXT_TEST_DIR,
-        libsqlUrl: "http://localhost:8880",
         workerDirs: [EXT_TEST_DIR],
       });
-      await initDatabase();
     });
 
-    afterEach(async () => {
-      // Close database before removing directory
-      closeDatabase();
+    afterEach(() => {
       rmSync(EXT_TEST_DIR, { recursive: true, force: true });
       // Restore original config
-      initConfig({ baseDir: TEST_DIR, libsqlUrl: "http://localhost:8880", workerDirs: [TEST_DIR] });
-      await initDatabase();
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
     });
 
     it("should resolve plugin from ./plugins/name/plugin.ts with manifest", async () => {
@@ -246,7 +231,7 @@ describe("PluginLoader", () => {
       );
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      // Plugin is enabled by default when seeded during scan
+      // Plugin is enabled by default during scan
       const loader = new PluginLoader({ pluginDirs: [join(EXT_TEST_DIR, "plugins")] });
       const registry = await loader.load();
       expect(registry.has("my-plugin")).toBe(true);
@@ -261,7 +246,7 @@ describe("PluginLoader", () => {
       );
       writeFileSync(join(pluginDir, "index.ts"), `export default {};`);
 
-      // Plugin is enabled by default when seeded during scan
+      // Plugin is enabled by default during scan
       const loader = new PluginLoader({ pluginDirs: [join(EXT_TEST_DIR, "plugins")] });
       const registry = await loader.load();
       expect(registry.has("nested-plugin")).toBe(true);
@@ -277,7 +262,7 @@ describe("PluginLoader", () => {
       );
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      // Plugin is enabled by default when seeded during scan
+      // Plugin is enabled by default during scan
       const loader = new PluginLoader({ pluginDirs: [join(EXT_TEST_DIR, "plugins")] });
       const registry = await loader.load();
       expect(registry.has("@buntime/plugin-metrics")).toBe(true);
@@ -293,7 +278,7 @@ describe("PluginLoader", () => {
       );
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      // Plugin is enabled by default when seeded during scan
+      // Plugin is enabled by default during scan
       const loader = new PluginLoader({ pluginDirs: [join(EXT_TEST_DIR, "plugins")] });
       const registry = await loader.load();
       expect(registry.has("my-awesome-plugin")).toBe(true);
@@ -303,24 +288,19 @@ describe("PluginLoader", () => {
   describe("topological sort with dependencies", () => {
     const DEP_TEST_DIR = join(TEST_DIR, "deps-plugins");
 
-    beforeEach(async () => {
+    beforeEach(() => {
       mkdirSync(join(DEP_TEST_DIR, "plugins"), { recursive: true });
       // Reinitialize config with the test directory as baseDir
       initConfig({
         baseDir: DEP_TEST_DIR,
-        libsqlUrl: "http://localhost:8880",
         workerDirs: [DEP_TEST_DIR],
       });
-      await initDatabase();
     });
 
-    afterEach(async () => {
-      // Close database before removing directory
-      closeDatabase();
+    afterEach(() => {
       rmSync(DEP_TEST_DIR, { recursive: true, force: true });
       // Restore original config
-      initConfig({ baseDir: TEST_DIR, libsqlUrl: "http://localhost:8880", workerDirs: [TEST_DIR] });
-      await initDatabase();
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
     });
 
     it("should load plugins in dependency order", async () => {
@@ -342,7 +322,7 @@ describe("PluginLoader", () => {
       );
       writeFileSync(join(pluginBDir, "plugin.ts"), `export default {};`);
 
-      // Both plugins enabled by default when seeded during scan
+      // Both plugins enabled by default during scan
       const loader = new PluginLoader({
         pluginDirs: [join(DEP_TEST_DIR, "plugins")],
       });
@@ -361,7 +341,7 @@ describe("PluginLoader", () => {
       );
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      // Plugin is enabled by default when seeded, validation happens during load
+      // Plugin is enabled by default, validation happens during load
       const loader = new PluginLoader({ pluginDirs: [join(DEP_TEST_DIR, "plugins")] });
       await expect(loader.load()).rejects.toThrow(/requires.*missing-dep.*not available/);
     });
@@ -384,7 +364,7 @@ describe("PluginLoader", () => {
       );
       writeFileSync(join(cycleBDir, "plugin.ts"), `export default {};`);
 
-      // Both plugins enabled by default when seeded, validation happens during load
+      // Both plugins enabled by default, validation happens during load
       const loader = new PluginLoader({
         pluginDirs: [join(DEP_TEST_DIR, "plugins")],
       });
@@ -413,7 +393,7 @@ describe("PluginLoader", () => {
       );
       writeFileSync(join(withOptDir, "plugin.ts"), `export default {};`);
 
-      // Both plugins enabled by default when seeded during scan
+      // Both plugins enabled by default during scan
       const loader = new PluginLoader({
         pluginDirs: [join(DEP_TEST_DIR, "plugins")],
       });
@@ -427,24 +407,19 @@ describe("PluginLoader", () => {
   describe("resolvePlugin with default export", () => {
     const DEFAULT_TEST_DIR = join(TEST_DIR, "default-export");
 
-    beforeEach(async () => {
+    beforeEach(() => {
       mkdirSync(join(DEFAULT_TEST_DIR, "plugins"), { recursive: true });
       // Reinitialize config with the test directory as baseDir
       initConfig({
         baseDir: DEFAULT_TEST_DIR,
-        libsqlUrl: "http://localhost:8880",
         workerDirs: [DEFAULT_TEST_DIR],
       });
-      await initDatabase();
     });
 
-    afterEach(async () => {
-      // Close database before removing directory
-      closeDatabase();
+    afterEach(() => {
       rmSync(DEFAULT_TEST_DIR, { recursive: true, force: true });
       // Restore original config
-      initConfig({ baseDir: TEST_DIR, libsqlUrl: "http://localhost:8880", workerDirs: [TEST_DIR] });
-      await initDatabase();
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
     });
 
     it("should resolve plugin with default export", async () => {
@@ -460,41 +435,10 @@ describe("PluginLoader", () => {
          export default plugin;`,
       );
 
-      // Plugin is enabled by default when seeded during scan
+      // Plugin is enabled by default during scan
       const loader = new PluginLoader({ pluginDirs: [join(DEFAULT_TEST_DIR, "plugins")] });
       const registry = await loader.load();
       expect(registry.has("with-default")).toBe(true);
-    });
-
-    it("should seed plugin manifest to database during scan", async () => {
-      const pluginDir = join(DEFAULT_TEST_DIR, "plugins", "test-seed");
-      mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({
-          name: "test-seed",
-          base: "/seed",
-          dependencies: ["dep-a"],
-          fragment: { type: "patch" },
-        }),
-      );
-      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
-
-      const loader = new PluginLoader({ pluginDirs: [join(DEFAULT_TEST_DIR, "plugins")] });
-      // Load will fail because dep-a doesn't exist, but the seed should still happen
-      try {
-        await loader.load();
-      } catch {
-        // Expected to fail due to missing dependency
-      }
-
-      // Verify the plugin was seeded to database
-      const { getPlugin } = await import("@/libs/database");
-      const plugin = await getPlugin("test-seed");
-      expect(plugin).toBeDefined();
-      expect(plugin?.base).toBe("/seed");
-      expect(plugin?.dependencies).toEqual(["dep-a"]);
-      expect(plugin?.fragment).toEqual({ type: "patch" });
     });
   });
 });

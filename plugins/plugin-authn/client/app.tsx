@@ -8,7 +8,7 @@ import {
   Icon,
   Input,
   Label,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import { genericOAuthClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { useEffect, useState } from "react";

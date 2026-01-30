@@ -66,8 +66,6 @@ export function rewriteUrl(url: URL, basePath: string): URL {
 export interface WorkerRequestOptions {
   /** Base path for asset loading */
   base: string;
-  /** Fragment route for app-shell mode */
-  fragmentRoute?: string;
   /** Indicates 404 should be rendered by shell */
   notFound?: boolean;
   /** Original request to clone headers/method from */
@@ -82,7 +80,6 @@ export interface WorkerRequestOptions {
  */
 export function createWorkerRequest({
   base,
-  fragmentRoute,
   notFound,
   originalRequest,
   targetPath,
@@ -93,7 +90,6 @@ export function createWorkerRequest({
   const req = new Request(newUrl.href, originalRequest);
   req.headers.set(Headers.BASE, base);
 
-  if (fragmentRoute) req.headers.set(Headers.FRAGMENT_ROUTE, fragmentRoute);
   if (notFound) req.headers.set(Headers.NOT_FOUND, "true");
 
   return req;

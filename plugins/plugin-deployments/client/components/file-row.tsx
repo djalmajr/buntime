@@ -1,17 +1,15 @@
+import { useTranslation } from "react-i18next";
+import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
 import {
-  Button,
-  Checkbox,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Icon,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@zomme/shadcn-react";
-import { useTranslation } from "react-i18next";
+} from "./ui/dropdown-menu";
+import { Icon } from "./ui/icon";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 interface ConfigValidation {
   errors: string[];

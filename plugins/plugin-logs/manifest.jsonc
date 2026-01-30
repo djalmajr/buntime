@@ -11,11 +11,6 @@
   // Client entrypoint (compiled files)
   "entrypoint": "dist/client/index.html",
 
-  // Fragment with patch sandbox (internal plugin)
-  "fragment": {
-    "type": "patch"
-  },
-
   // Menu items for C-Panel sidebar
   "menus": [
     {

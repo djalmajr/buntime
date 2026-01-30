@@ -1,14 +1,20 @@
 import { registry } from "virtual:icons";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { IconProvider } from "@zomme/shadcn-react";
+import { frameSDK } from "@zomme/frame/sdk";
 import i18n from "i18next";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { initReactI18next } from "react-i18next";
 import { Toaster } from "sonner";
 import { DeploymentsPage } from "./components/deployments-page";
+import { IconProvider } from "./components/ui/icon";
 import en from "./locales/en.json";
 import pt from "./locales/pt.json";
+
+// Initialize Frame SDK (connects to parent shell if available)
+frameSDK.initialize().catch(() => {
+  // Running standalone - SDK not available
+});
 
 // Initialize i18n
 i18n.use(initReactI18next).init({
@@ -33,7 +39,6 @@ const queryClient = new QueryClient({
   },
 });
 
-// Use a unique ID to avoid conflict with shell's #root when running as a fragment
 const rootElement = document.getElementById("plugin-deployments-root");
 if (!rootElement) throw new Error("Root element not found");
 
@@ -48,8 +53,3 @@ root.render(
     </IconProvider>
   </StrictMode>,
 );
-
-// Cleanup when fragment is unmounted
-rootElement
-  .getRootNode()
-  .addEventListener("piercing-unmount", () => root.unmount(), { once: true });

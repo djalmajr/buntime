@@ -151,18 +151,6 @@ describe("request utils", () => {
       expect(req.url).toBe("http://localhost/page?q=test");
     });
 
-    it("should set fragment route header when provided", () => {
-      const original = new Request("http://localhost/app/route");
-      const req = createWorkerRequest({
-        base: "/app",
-        fragmentRoute: "/dashboard",
-        originalRequest: original,
-        targetPath: "/",
-      });
-
-      expect(req.headers.get(Headers.FRAGMENT_ROUTE)).toBe("/dashboard");
-    });
-
     it("should set not found header when true", () => {
       const original = new Request("http://localhost/app/unknown");
       const req = createWorkerRequest({
@@ -183,7 +171,6 @@ describe("request utils", () => {
         targetPath: "/page",
       });
 
-      expect(req.headers.get(Headers.FRAGMENT_ROUTE)).toBeNull();
       expect(req.headers.get(Headers.NOT_FOUND)).toBeNull();
     });
 

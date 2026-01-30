@@ -51,10 +51,7 @@ O runtime auto-descobre plugins de `pluginDirs`. Plugins disponíveis:
 | Logs em memória com SSE streaming
 
 | `@buntime/plugin-metrics`
-| Métricas Prometheus e SSE
-
-| `@buntime/plugin-piercing`
-| Fragment piercing (micro-frontends)
+| Metricas Prometheus e SSE
 
 | `@buntime/plugin-proxy`
 | Proxy reverso com regras dinâmicas
@@ -135,7 +132,7 @@ Request -> Hono Router -> Resolve?
   |-- /api/plugins -> Plugin Info API
   |-- Plugin server.fetch handlers
   |-- Plugin Routes (Hono)
-  |-- Plugin Apps (fragments)
+  |-- Plugin Apps (via z-frame)
   +-- /:app/* -> Worker Pool -> Worker Thread
   +-- 404 com Shell (se configurado)
 ----

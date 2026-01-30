@@ -25,23 +25,7 @@ export interface MetricsSSEData {
 }
 
 function getApiBase(): string {
-  const rootElement = document.getElementById("plugin-metrics-root");
-  if (!rootElement) return "/metrics";
-
-  // Fragment content is inside Shadow DOM, host is the fragment-outlet
-  const rootNode = rootElement.getRootNode();
-  if (rootNode instanceof ShadowRoot) {
-    // Get the src attribute from fragment-outlet (this is where APIs are served)
-    const outlet = rootNode.host;
-    const src = outlet?.getAttribute("src");
-    if (src) {
-      // Extract the plugin path from src (e.g., "/metrics" from "/metrics/workers")
-      const match = src.match(/^(\/[^/]+)/);
-      return match?.[1] || "/metrics";
-    }
-  }
-
-  // Fallback: read from base tag (standalone mode)
+  // Read from base tag
   const base = document.querySelector("base");
   if (base) {
     const href = base.getAttribute("href") || "";

@@ -618,29 +618,6 @@ describe("ruleToResponse", () => {
     }
   });
 
-  it("should include fragment config if present", () => {
-    const rule = compileRule(
-      createRule({
-        fragment: {
-          allowMessageBus: true,
-          sandbox: "patch",
-        },
-        pattern: "^/fragment/(.*)$",
-      }),
-      false,
-    );
-
-    expect(rule).not.toBeNull();
-    if (rule) {
-      const response = ruleToResponse(rule);
-
-      expect(response.fragment).toEqual({
-        allowMessageBus: true,
-        sandbox: "patch",
-      });
-    }
-  });
-
   it("should handle undefined optional fields", () => {
     const rule = compileRule(createRule({ pattern: "^/minimal$" }), false);
 

@@ -10,11 +10,6 @@
   // Client entrypoint (compiled files)
   "entrypoint": "dist/client/index.html",
 
-  // Fragment configuration for embedding in C-Panel
-  "fragment": {
-    "type": "patch"
-  },
-
   // Menu items for C-Panel sidebar
   "menus": [
     {
@@ -41,10 +36,6 @@
     //   "relativePaths": false,
     //   "headers": {
     //     "X-Custom-Header": "value"
-    //   },
-    //   "fragment": {
-    //     "sandbox": "patch",
-    //     "allowMessageBus": true
     //   }
     // }
   ]

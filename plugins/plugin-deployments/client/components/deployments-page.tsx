@@ -1,22 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Button,
-  Checkbox,
-  cn,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Icon,
-  Input,
-  Skeleton,
-} from "@zomme/shadcn-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { apiRequest, getApiBase, uploadFiles } from "~/utils/api";
+import { cn } from "~/utils/cn";
 import { isValidUploadDestination, parseDeploymentPath } from "~/utils/path-utils";
 import { useFragmentUrl } from "~/utils/use-fragment-url";
 import { FileRow } from "./file-row";
@@ -24,6 +11,19 @@ import { MoveDialog } from "./move-dialog";
 import { NewFolderDialog } from "./new-folder-dialog";
 import { RenameDialog } from "./rename-dialog";
 import { SelectionToolbar } from "./selection-toolbar";
+import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { Icon } from "./ui/icon";
+import { Input } from "./ui/input";
+import { Skeleton } from "./ui/skeleton";
 
 interface FileEntry {
   isDirectory: boolean;

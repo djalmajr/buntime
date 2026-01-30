@@ -4,9 +4,6 @@
   "enabled": false,
   "optionalDependencies": ["@buntime/plugin-authn"],
   "entrypoint": "dist/client/index.html",
-  "fragment": {
-    "type": "patch"
-  },
   "menus": [
     {
       "icon": "lucide:shield",

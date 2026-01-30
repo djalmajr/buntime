@@ -299,25 +299,6 @@ describe("ProxyConfig", () => {
     const plugin = proxyPlugin(config);
     expect(plugin.routes).toBeDefined();
   });
-
-  it("should accept fragment configuration in rules", () => {
-    const config: ProxyConfig = {
-      rules: [
-        {
-          fragment: {
-            allowMessageBus: true,
-            preloadStyles: "body { opacity: 0 }",
-            sandbox: "patch",
-          },
-          pattern: "^/fragment-app/(.*)$",
-          target: "http://fragment:3000",
-        },
-      ],
-    };
-
-    const plugin = proxyPlugin(config);
-    expect(plugin.routes).toBeDefined();
-  });
 });
 
 describe("ProxyRule type", () => {
@@ -335,11 +316,6 @@ describe("ProxyRule type", () => {
     const rule: ProxyRule = {
       base: "/app",
       changeOrigin: true,
-      fragment: {
-        allowMessageBus: true,
-        preloadStyles: "body { opacity: 0 }",
-        sandbox: "iframe",
-      },
       headers: { "X-Custom": "value" },
       id: "custom-id",
       name: "Custom Rule",
@@ -360,8 +336,5 @@ describe("ProxyRule type", () => {
     expect(rule.ws).toBe(false);
     expect(rule.base).toBe("/app");
     expect(rule.relativePaths).toBe(true);
-    expect(rule.fragment?.sandbox).toBe("iframe");
-    expect(rule.fragment?.allowMessageBus).toBe(true);
-    expect(rule.fragment?.preloadStyles).toBe("body { opacity: 0 }");
   });
 });

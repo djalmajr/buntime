@@ -11,11 +11,6 @@
   // Client entrypoint (compiled files)
   "entrypoint": "dist/client/index.html",
 
-  // Fragment configuration for embedding in the shell
-  "fragment": {
-    "type": "patch"
-  },
-
   // Menu items for shell navigation
   "menus": [
     {

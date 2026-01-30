@@ -1,32 +1,7 @@
 import type { Kv } from "@buntime/plugin-keyval";
-import type { PluginContext, SandboxStrategy } from "@buntime/shared/types";
+import type { PluginContext } from "@buntime/shared/types";
 import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
 import type { Server, ServerWebSocket } from "bun";
-
-/**
- * Fragment piercing configuration for proxied apps
- */
-export interface ProxyFragmentConfig {
-  /**
-   * Sandbox strategy for the fragment
-   * - "none": No isolation (internal plugins only)
-   * - "patch": Intercepts History API (lightweight)
-   * - "iframe": Full isolation via iframe (untrusted apps)
-   * @default "patch"
-   */
-  sandbox?: SandboxStrategy;
-
-  /**
-   * Allow MessageBus communication with shell
-   * @default true
-   */
-  allowMessageBus?: boolean;
-
-  /**
-   * CSS to inject before fragment loads (for loading states)
-   */
-  preloadStyles?: string;
-}
 
 export interface ProxyRule {
   /**
@@ -98,12 +73,6 @@ export interface ProxyRule {
    * @default false
    */
   relativePaths?: boolean;
-
-  /**
-   * Fragment piercing configuration for this proxied app
-   * When set, the shell can embed this app as a fragment with the specified sandbox
-   */
-  fragment?: ProxyFragmentConfig;
 }
 
 export interface CompiledRule extends ProxyRule {
@@ -416,7 +385,6 @@ export function ruleToResponse(rule: CompiledRule) {
   return {
     base: rule.base,
     changeOrigin: rule.changeOrigin,
-    fragment: rule.fragment,
     headers: rule.headers,
     id: rule.id,
     name: rule.name,

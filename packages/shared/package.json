@@ -35,7 +35,6 @@
     "@types/ms": "^2.1.0"
   },
   "peerDependencies": {
-    "@buntime/piercing": "file:../piercing",
     "hono": "^4.0.0",
     "typescript": "^5.0.0",
     "zod": "^4.0.0"

@@ -6,122 +6,231 @@
 :icons: font
 :source-highlighter: highlightjs
 
-== Visão Geral
+== Visao Geral
 
-Este documento descreve a arquitetura micro-frontend para plugins do Buntime, inspirada na estratégia de arquitetura Fragment da Cloudflare:
-
-- https://blog.cloudflare.com/fragment-piercing/
+Este documento descreve a arquitetura micro-frontend para plugins do Buntime, utilizando o pacote `@zomme/frame` para comunicacao shell-frame via iframes.
 
 === Objetivos
 
-- **Modularidade**: Cada plugin pode fornecer sua própria UI como um worker separado
-- **Independência**: UIs de plugins são desenvolvidas, construídas e implantadas de forma independente
-- **Agnóstico de Framework**: Plugins podem usar React, Solid, Qwik, Vue, etc.
-- **SSR First**: Server-side rendering para carregamento inicial rápido
-- **Integração Transparente**: Fragments se integram ao shell principal do dashboard
+- **Modularidade**: Cada plugin pode fornecer sua propria UI como um worker separado
+- **Independencia**: UIs de plugins sao desenvolvidas, construidas e implantadas de forma independente
+- **Agnostico de Framework**: Plugins podem usar React, Solid, Qwik, Vue, etc.
+- **Isolamento de Seguranca**: Iframes com sandbox garantem isolamento completo
+- **Comunicacao Bidirecional**: MessageChannel para comunicacao eficiente shell<->frame
 
 === Diagrama da Arquitetura
 
 [mermaid]
 ----
 flowchart TB
-    subgraph Runner["Buntime Runner (Port 8000)"]
-        subgraph Gateway["FragmentGateway (Hono Middleware)"]
-            G1["Intercepts HTML requests"]
-            G2["Routes /fragment/:id to plugin workers"]
-            G3["Routes /_fragment/:id/* to plugin assets"]
-            G4["Combines fragment streams with shell HTML"]
+    subgraph Runtime["Buntime Runtime (Port 8000)"]
+        subgraph Shell["Shell (C-Panel)"]
+            S1["Layout"]
+            S2["Nav"]
+            S3["z-frame elements"]
         end
 
-        Gateway --> Dashboard
-        Gateway --> Deployments
-        Gateway --> MetricsFrag
+        Shell --> Deployments
+        Shell --> MetricsFrag
+        Shell --> LogsFrag
 
-        subgraph Dashboard["Dashboard (Shell)"]
-            D1["Layout"]
-            D2["Nav"]
-            D3["Outlets"]
-        end
-
-        subgraph Deployments["Deployments (Fragment)"]
+        subgraph Deployments["Deployments (Worker)"]
             DF1["File Mgmt"]
             DF2["Upload"]
             DF3["Deploy"]
         end
 
-        subgraph MetricsFrag["Metrics (Fragment)"]
+        subgraph MetricsFrag["Metrics (Worker)"]
             MF1["Charts"]
             MF2["Stats"]
             MF3["SSE"]
         end
 
-        Dashboard --> MessageBus
-        Deployments --> MessageBus
-        MetricsFrag --> MessageBus
+        subgraph LogsFrag["Logs (Worker)"]
+            LF1["Log Stream"]
+            LF2["Filters"]
+        end
 
-        subgraph MessageBus["MessageBus (Shared State)"]
-            MB1["dispatch('auth', { user: '...' })"]
-            MB2["listen('theme', (value) => ...)"]
-            MB3["SSR state hydration"]
+        Shell <--> MessageChannel
+        Deployments <--> MessageChannel
+        MetricsFrag <--> MessageChannel
+        LogsFrag <--> MessageChannel
+
+        subgraph MessageChannel["MessageChannel (Comunicacao)"]
+            MC1["Props sync"]
+            MC2["Function calls (RPC)"]
+            MC3["Custom events"]
         end
     end
 ----
 
+== @zomme/frame
+
+O pacote `@zomme/frame` fornece:
+
+- **`<z-frame>`**: Web component para embeddar iframes com comunicacao bidirecional
+- **`frameSDK`**: SDK para o app dentro do iframe se comunicar com o shell
+- **`@zomme/frame-react`**: Bindings React com hooks (`useFrameSDK`, `useRouteSync`)
+
+=== z-frame Web Component
+
+Container que carrega um iframe com comunicacao via MessageChannel.
+
+[source,html]
+----
+<z-frame
+  name="deployments"
+  base="/deployments"
+  src="http://localhost:8000/deployments"
+  pathname="/files"
+  theme="dark"
+></z-frame>
+----
+
+==== Atributos
+
+[cols="1,1,2"]
+|===
+| Atributo | Tipo | Descricao
+
+| `name`
+| string
+| Nome identificador do frame (obrigatorio)
+
+| `src`
+| string
+| URL do app iframe (obrigatorio)
+
+| `base`
+| string
+| Base path para routing (default: `/<name>`)
+
+| `pathname`
+| string
+| Path inicial para o frame (default: `/`)
+
+| `sandbox`
+| string
+| Permissoes do iframe sandbox
+|===
+
+==== API JavaScript
+
+[source,typescript]
+----
+const frame = document.querySelector('z-frame');
+
+// Propriedades dinamicas - sincronizadas automaticamente
+frame.theme = 'dark';
+frame.user = currentUser;
+frame.apiUrl = 'https://api.example.com';
+
+// Emitir eventos para o frame
+frame.emit('route-change', { path: '/settings' });
+frame.emit('data-refresh', { force: true });
+
+// Chamar funcoes registradas pelo frame (RPC)
+const stats = await frame.getStats();
+await frame.refreshData();
+
+// Escutar eventos do frame
+frame.addEventListener('ready', () => console.log('Frame ready'));
+frame.addEventListener('navigate', (e) => router.push(e.detail.path));
+----
+
+=== frameSDK
+
+SDK para apps dentro do iframe se comunicarem com o shell.
+
+[source,typescript]
+----
+import { frameSDK } from '@zomme/frame/sdk';
+
+// Inicializar SDK (obrigatorio antes de usar)
+await frameSDK.initialize();
+
+// Acessar props do shell
+console.log(frameSDK.props.name);      // 'deployments'
+console.log(frameSDK.props.base);      // '/deployments'
+console.log(frameSDK.props.theme);     // 'dark'
+
+// Chamar funcoes passadas pelo shell
+await frameSDK.props.onSuccess({ status: 'ok' });
+
+// Emitir eventos para o shell
+frameSDK.emit('navigate', { path: '/settings' });
+frameSDK.emit('task-created', { id: 123 });
+
+// Escutar eventos do shell
+frameSDK.on('route-change', ({ path }) => {
+  router.navigate(path);
+});
+
+// Registrar funcoes para o shell chamar
+frameSDK.register('refreshData', async () => {
+  await loadData();
+});
+
+frameSDK.register({
+  getStats: () => ({ count: 42 }),
+  export: async (format) => generateExport(format)
+});
+
+// Watch para mudancas de props
+frameSDK.watch(['theme'], (changes) => {
+  if ('theme' in changes) {
+    const [newTheme, oldTheme] = changes.theme;
+    applyTheme(newTheme);
+  }
+});
+----
+
+=== @zomme/frame-react
+
+Bindings React para facilitar uso do frameSDK.
+
+[source,tsx]
+----
+import { useFrameSDK, useRouteSync } from '@zomme/frame-react';
+import { frameSDK } from '@zomme/frame/sdk';
+
+function App() {
+  // Hook que retorna props e estado de inicializacao
+  const { props, isReady } = useFrameSDK();
+
+  // Sincronizar rota com o shell
+  useRouteSync({
+    onRouteChange: (path) => router.navigate(path),
+    getCurrentPath: () => router.currentPath
+  });
+
+  if (!isReady) {
+    return <Loading />;
+  }
+
+  return (
+    <div>
+      <h1>Theme: {props.theme}</h1>
+      <button onClick={() => frameSDK.emit('navigate', { path: '/' })}>
+        Go Home
+      </button>
+    </div>
+  );
+}
+----
+
 == Registro de UI de Plugin
 
-=== Extensão da Interface de Plugin
+=== Extensao da Interface de Plugin
 
-*Manifesto (PluginManifest):*
-
-[source,typescript]
-----
-interface PluginManifest {
-  name: string;
-  base: string;
-  dependencies?: string[];
-  optionalDependencies?: string[];
-
-  // Micro-frontend UI configuration
-  fragment?: {
-    /** Fragment sandbox type */
-    type: "patch" | "iframe";
-    /** Origin for iframe type (required for iframe) */
-    origin?: string;
-    /** Styles to apply before loading (for seamless transitions) */
-    preloadStyles?: string;
-  };
-
-  // Navigation items for sidebar
-  menus?: MenuItem[];
-}
-----
-
-*Implementação (PluginImpl):*
-
-[source,typescript]
-----
-interface PluginImpl {
-  routes?: Hono;
-  middleware?: MiddlewareHandler;
-  server?: PluginServer;
-  onInit?: (ctx: PluginContext) => Promise<void> | void;
-  onShutdown?: () => Promise<void> | void;
-  // ... other lifecycle hooks
-}
-----
-
-=== Exemplo de Plugin com Fragment
-
-*manifest.jsonc:*
+*Manifesto (manifest.jsonc)*:
 
 [source,jsonc]
 ----
-// plugins/plugin-deployments/manifest.jsonc
 {
   "name": "@buntime/plugin-deployments",
   "base": "/deployments",
   "entrypoint": "dist/client/index.html",
-  "fragment": { "type": "patch" },
   "menus": [
     {
       "title": "Deployments",
@@ -133,380 +242,259 @@ interface PluginImpl {
 }
 ----
 
-*plugin.ts:*
+NOTE: O campo `fragment` foi removido. Plugins com `entrypoint` automaticamente tem UI disponivel.
 
-[source,typescript]
-----
-// plugins/plugin-deployments/plugin.ts
-export default function createPlugin(config: DeploymentsConfig): PluginImpl {
-  return {
-    routes: createDeploymentRoutes(),
-
-    async onInit(ctx) {
-      ctx.logger.info("Deployments plugin initialized");
-    },
-  };
-}
-----
-
-== Componentes Principais
-
-=== FragmentGateway para Bun
-
-Adaptado da implementação da Cloudflare para o runtime do Bun.
-
-[source,typescript]
-----
-// packages/piercing/src/gateway/fragment-gateway.ts
-import type { Hono } from "hono";
-import type { MessageBusState } from "./message-bus";
-
-interface FragmentConfig {
-  fragmentId: string;
-  framework?: "react" | "qwik" | "solid" | "vue";
-  preLoadStyles?: string;
-  preLoadRoutes?: string[];
-  assetsDir: string;
-  ssrFetch: (req: Request) => Promise<Response>;
-}
-
-interface FragmentGatewayConfig {
-  getShellHtml: (req: Request) => Promise<string>;
-  generateMessageBusState: (
-    requestState: MessageBusState,
-    req: Request
-  ) => MessageBusState | Promise<MessageBusState>;
-}
-
-export class FragmentGateway {
-  private fragments = new Map<string, FragmentConfig>();
-
-  constructor(private config: FragmentGatewayConfig) {}
-
-  registerFragment(config: FragmentConfig): void {
-    this.fragments.set(config.fragmentId, config);
-  }
-
-  middleware(): MiddlewareHandler {
-    return async (ctx, next) => {
-      // 1. Handle fragment SSR requests: /fragment/:id
-      // 2. Handle fragment asset requests: /_fragment/:id/*
-      // 3. For HTML requests, inject pre-loaded fragments
-      // 4. Otherwise, pass to next handler
-    };
-  }
-}
-----
-
-=== Web Component Fragment Host
-
-Container para conteúdo do fragmento (usado internamente e no pre-piercing).
-
-[source,typescript]
-----
-// packages/piercing/src/client/fragment-host.ts
-export class PiercingFragmentHost extends HTMLElement {
-  private messageBus = new FragmentMessageBus();
-  fragmentId!: string;
-
-  connectedCallback(): void {
-    const src = this.getAttribute("src");
-    if (!src) throw new Error("PiercingFragmentHost requires a src attribute");
-
-    // Derive fragmentId from src
-    this.fragmentId = src.split("/").pop() || "fragment";
-
-    // If not pierced yet, observe for styles to embed
-    if (!this.isPierced) {
-      this.setupStylesObserver();
-    }
-  }
-
-  pierceInto(target: Element | ShadowRoot): void {
-    // Move this fragment into the outlet
-    target.appendChild(this);
-    this.removeStylesObserver();
-  }
-}
-----
-
-=== Web Component Fragment Outlet
-
-Placeholder que carrega e renderiza um fragmento. Usa Shadow DOM para isolamento de CSS.
-
-[source,typescript]
-----
-// packages/piercing/src/client/fragment-host.ts
-export class PiercingFragmentOutlet extends HTMLElement {
-  private shadow: ShadowRoot;
-
-  constructor() {
-    super();
-    this.shadow = this.attachShadow({ mode: "open" });
-  }
-
-  async connectedCallback(): Promise<void> {
-    const src = this.getAttribute("src");
-    const history = this.getAttribute("history") as "patch" | "isolate" | null;
-
-    if (!src) throw new Error("PiercingFragmentOutlet requires a src attribute");
-
-    // Check for pre-pierced fragment
-    const host = document.querySelector(`fragment-host[src="${src}"]`);
-
-    if (host) {
-      host.pierceInto(this.shadow);
-    } else {
-      // Fetch and stream fragment
-      const stream = await this.fetchFragment(src);
-      await this.streamFragmentInto(stream);
-    }
-  }
-
-  private async fetchFragment(url: string): Promise<ReadableStream> {
-    const response = await fetch(url, {
-      headers: { "x-message-bus-state": JSON.stringify(getBus().state) },
-    });
-    return response.body!;
-  }
-}
-----
-
-=== MessageBus para Comunicação Entre Fragments
-
-[source,typescript]
-----
-// packages/piercing/src/message-bus/message-bus.ts
-export interface MessageBus {
-  state: MessageBusState;
-  dispatch(event: string, value: JSONValue): void;
-  listen<T>(event: string, callback: (value: T) => void): () => void;
-  latestValue<T>(event: string): T | undefined;
-}
-
-// Usage in fragments:
-const bus = getBus();
-
-// Listen for auth changes
-bus.listen("auth", (user) => {
-  console.log("User changed:", user);
-});
-
-// Dispatch navigation event
-bus.dispatch("navigate", { path: "/deployments" });
-----
-
-== Plugin Dashboard (Shell)
-
-O plugin dashboard fornece o shell que orquestra todos os plugins fragment.
-
-=== Estrutura
+=== Estrutura do Plugin com UI
 
 [source]
 ----
-plugins/plugin-dashboard/
-├── package.json
-├── src/
-│   ├── index.ts           # Plugin entry
-│   ├── server/
-│   │   └── index.ts       # SSR shell
-│   └── client/
-│       ├── index.tsx      # Client entry
-│       ├── components/
-│       │   ├── layout.tsx # Main layout with outlets
-│       │   └── nav.tsx    # Navigation (from plugin registry)
-│       └── routes/
-│           └── index.tsx  # Dashboard home
+plugins/plugin-deployments/
+├── manifest.jsonc
+├── plugin.ts                 # Plugin entry (server)
+├── server/
+│   ├── api.ts               # API routes
+│   └── services.ts          # Business logic
+├── client/
+│   ├── index.tsx            # Client entry
+│   ├── index.html           # HTML shell
+│   └── components/
+│       └── deployments-page.tsx
 └── dist/
+    └── client/
+        └── index.html       # Built entrypoint
 ----
 
-=== Layout do Shell com Outlets
+=== Exemplo de Plugin Client
+
+*client/index.tsx:*
 
 [source,tsx]
 ----
-// plugin-dashboard/src/client/components/layout.tsx
-import { useNavigationItems } from "../hooks/use-navigation";
+import { createRoot } from "react-dom/client";
+import { frameSDK } from "@zomme/frame/sdk";
+import { DeploymentsPage } from "./components/deployments-page";
 
-export function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const navItems = useNavigationItems(); // From MessageBus
+// Inicializar SDK
+await frameSDK.initialize();
+
+// Registrar funcoes para o shell
+frameSDK.register({
+  refresh: () => window.location.reload(),
+});
+
+// Renderizar app
+const root = createRoot(document.getElementById("root")!);
+root.render(<DeploymentsPage />);
+----
+
+*client/components/deployments-page.tsx:*
+
+[source,tsx]
+----
+import { useFrameSDK } from "@zomme/frame-react";
+
+export function DeploymentsPage() {
+  const { props, isReady } = useFrameSDK();
+
+  if (!isReady) {
+    return <div>Loading...</div>;
+  }
 
   return (
-    <div className="dashboard">
-      <aside className="sidebar">
-        <nav>
-          {navItems.map((item) => (
-            <NavLink key={item.path} to={item.path}>
-              <Icon icon={item.icon} />
-              {item.title}
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
-
-      <main className="content">
-        {children}
-      </main>
+    <div>
+      <h1>Deployments</h1>
+      <p>Base path: {props.base}</p>
     </div>
   );
 }
 ----
 
-=== Rotas Dinâmicas de Fragment
+== Integracao com o Shell (C-Panel)
+
+O shell principal (cpanel) usa `<z-frame>` para carregar plugins:
 
 [source,tsx]
 ----
-// plugin-dashboard/src/client/routes/deployments.tsx
-export function DeploymentsPage() {
+// cpanel/client/components/plugin-frame.tsx
+import { useEffect, useRef } from "react";
+import "@zomme/frame"; // Registra <z-frame>
+
+interface PluginFrameProps {
+  base: string;
+  name: string;
+  pathname?: string;
+}
+
+export function PluginFrame({ name, base, pathname = "/" }: PluginFrameProps) {
+  const frameRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+
+    // Escutar eventos de navegacao
+    const handleNavigate = (e: CustomEvent) => {
+      window.history.pushState({}, "", e.detail.path);
+    };
+
+    frame.addEventListener("navigate", handleNavigate);
+    return () => frame.removeEventListener("navigate", handleNavigate);
+  }, []);
+
   return (
-    <DashboardLayout>
-      {/* Fragment outlet - will load deployments fragment */}
-      <fragment-outlet src="/deployments" base="/cpanel" />
-    </DashboardLayout>
+    <z-frame
+      ref={frameRef}
+      name={name}
+      base={base}
+      src={`${window.location.origin}${base}`}
+      pathname={pathname}
+    />
   );
 }
 ----
 
-== Integração com o Buntime Runner
-
-=== Coleta de Fragments no Registry
-
-[source,typescript]
+[source,tsx]
 ----
-// runtime/src/plugins/registry.ts
-export class PluginRegistry {
-  // ... existing methods ...
+// cpanel/client/routes/plugin.tsx
+import { useParams } from "react-router";
+import { PluginFrame } from "../components/plugin-frame";
 
-  /**
-   * Get all plugins that have fragment UIs
-   */
-  getFragmentPlugins(): Array<{
-    plugin: LoadedPlugin;
-    config: FragmentConfig;
-  }> {
-    return this.plugins
-      .filter((p) => p.fragment)
-      .map((p) => ({
-        plugin: p,
-        config: {
-          fragmentId: p.fragment!.fragmentId ?? this.getFragmentId(p.name),
-          ...p.fragment!,
-        },
-      }));
-  }
+export function PluginPage() {
+  const { pluginName, "*": subpath } = useParams();
 
-  /**
-   * Get navigation items from all fragment plugins
-   */
-  getNavigationItems(): NavigationItem[] {
-    return this.getFragmentPlugins()
-      .filter((p) => p.config.navigation)
-      .map((p) => p.config.navigation!)
-      .sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50));
-  }
-
-  private getFragmentId(pluginName: string): string {
-    // @buntime/plugin-deployments -> deployments
-    return pluginName.replace(/^@[^/]+\/plugin-/, "");
-  }
+  return (
+    <PluginFrame
+      name={pluginName}
+      base={`/${pluginName}`}
+      pathname={subpath ? `/${subpath}` : "/"}
+    />
+  );
 }
 ----
 
-=== Integração com App
+== Comunicacao Shell <-> Frame
+
+=== Fluxo de Inicializacao
+
+[mermaid]
+----
+sequenceDiagram
+    participant S as Shell (z-frame)
+    participant I as Iframe
+    participant F as frameSDK
+
+    S->>I: Cria iframe com src
+    I->>I: Carrega pagina
+    I->>F: frameSDK.initialize()
+    S->>I: postMessage(INIT, props, [port2])
+    F->>F: Recebe port2, deserializa props
+    F->>S: port.postMessage(READY)
+    S->>S: Emite evento 'ready'
+----
+
+=== Tipos de Mensagens
+
+[cols="1,2"]
+|===
+| Mensagem | Descricao
+
+| `INIT`
+| Shell -> Frame: Props iniciais + MessagePort
+
+| `READY`
+| Frame -> Shell: Frame inicializado
+
+| `PROPS_UPDATE`
+| Shell -> Frame: Atualizacao de props
+
+| `EVENT`
+| Shell -> Frame: Evento customizado
+
+| `CUSTOM_EVENT`
+| Frame -> Shell: Evento customizado
+
+| `FUNCTION_CALL`
+| Chamada de funcao RPC
+
+| `FUNCTION_RESPONSE`
+| Resposta de funcao RPC
+|===
+
+=== Passando Funcoes
+
+Funcoes podem ser passadas entre shell e frame via serializacao automatica:
 
 [source,typescript]
 ----
-// runtime/server/app.ts
-import { FragmentGateway } from "@buntime/piercing";
+// Shell: passar funcao como prop
+const frame = document.querySelector('z-frame');
+frame.onSave = async (data) => {
+  await api.save(data);
+  return { success: true };
+};
 
-export function createApp(deps: AppDeps) {
-  const app = new Hono();
+// Frame: chamar funcao do shell
+const result = await frameSDK.props.onSave({ id: 123 });
+console.log(result.success); // true
+----
 
-  // Create fragment gateway
-  const gateway = new FragmentGateway({
-    getShellHtml: async (req) => {
-      // Fetch shell HTML from dashboard plugin
-      const dashboardWorker = deps.pool.getOrCreate("dashboard");
-      const res = await dashboardWorker.fetch(req);
-      return res.text();
-    },
-    generateMessageBusState: async (state, req) => {
-      // Add navigation items to bus state
-      return {
-        ...state,
-        navigation: deps.registry.getNavigationItems(),
-        theme: "system",
-      };
-    },
-  });
+[source,typescript]
+----
+// Frame: registrar funcao
+frameSDK.register('getStats', () => ({ users: 42, requests: 1000 }));
 
-  // Register all fragment plugins
-  for (const { config } of deps.registry.getFragmentPlugins()) {
-    gateway.registerFragment({
-      ...config,
-      ssrFetch: async (req) => {
-        const worker = deps.pool.getOrCreate(config.fragmentId);
-        return worker.fetch(req);
-      },
-    });
+// Shell: chamar funcao do frame
+const stats = await frame.getStats();
+console.log(stats.users); // 42
+----
+
+== Beneficios
+
+- **Isolamento de Seguranca**: Iframes com sandbox impedem acesso ao DOM do shell
+- **Implantacao Independente**: Atualizar UIs de plugins sem alterar o runtime
+- **Liberdade Tecnologica**: Cada plugin pode usar frameworks diferentes
+- **Comunicacao Tipada**: TypeScript para props e eventos
+- **Lazy Loading**: Frames carregam sob demanda
+- **Tratamento de Erros**: Erros no frame nao afetam o shell
+
+== Migracao de @buntime/piercing
+
+Se voce tinha plugins usando o antigo sistema de fragments/piercing:
+
+1. Remova a secao `fragment` do `manifest.jsonc`
+2. Substitua imports de `@buntime/piercing` por `@zomme/frame` ou `@zomme/frame-react`
+3. Inicialize o SDK com `await frameSDK.initialize()` no entry do client
+4. Use `useFrameSDK()` em vez de acessar diretamente o Shadow DOM
+5. Simplifique `getApiBase()` para usar apenas o `<base>` tag
+
+=== Antes (piercing)
+
+[source,tsx]
+----
+// Antigo: acessar Shadow DOM
+function getApiBase(): string {
+  const rootNode = element.getRootNode();
+  if (rootNode instanceof ShadowRoot) {
+    const outlet = rootNode.host;
+    const src = outlet?.getAttribute("src");
+    // ... logica complexa
   }
-
-  // Add fragment middleware
-  app.use("*", gateway.middleware());
-
-  // ... rest of app setup
+  return "/plugin";
 }
 ----
 
-== Candidatos a Novos Plugins
+=== Depois (frame)
 
-Com base na funcionalidade atual do runner, estes podem se tornar plugins fragment:
+[source,tsx]
+----
+// Novo: simples base tag
+function getApiBase(): string {
+  const base = document.querySelector("base");
+  return base?.getAttribute("href")?.replace(/\/$/, "") || "/plugin";
+}
 
-=== plugin-deployments
-
-Atual: `runtime/client/routes/deployments/`
-
-Funcionalidades:
-- Navegador de arquivos
-- Upload/download
-- Gerenciamento de pastas
-- Implantação de workers
-
-=== plugin-metrics (extensão de UI)
-
-Atual: Já é um plugin, mas a UI está no runner
-
-Adicionar fragment ao plugin existente:
-- Dashboard de estatísticas do pool
-- Gráficos de métricas de workers
-- Visualização de métricas Prometheus
-
-=== plugin-logs
-
-Novo plugin para logging centralizado:
-- Streaming de logs em tempo real (SSE)
-- Filtragem/busca de logs
-- Retenção/exportação de logs
-
-=== plugin-health
-
-Novo plugin para monitoramento de saúde:
-- Endpoints de health check
-- Probes de liveness/readiness
-- Dashboard de status de serviços
-
-== Caminho de Migração
-
-1. **Fase 1**: Criar pacote `@buntime/piercing` com componentes principais
-2. **Fase 2**: Criar `plugin-dashboard` como orquestrador do shell
-3. **Fase 3**: Extrair `plugin-deployments` do cliente do runner
-4. **Fase 4**: Adicionar UI fragment ao `plugin-metrics`
-5. **Fase 5**: Criar novos plugins (logs, health)
-
-== Benefícios
-
-- **Implantação Independente**: Atualizar UIs de plugins sem alterar o runner
-- **Liberdade Tecnológica**: Cada plugin pode usar frameworks diferentes
-- **Melhor DX**: Desenvolvedores de plugins são donos de toda sua stack
-- **Lazy Loading**: Fragments carregam sob demanda
-- **Performance SSR**: Renderização inicial rápida com streaming
-- **Isolamento**: Bugs em fragments não derrubam o shell
+// Ou usando frameSDK
+function getApiBase(): string {
+  return frameSDK.props.base;
+}
+----

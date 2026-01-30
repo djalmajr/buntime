@@ -94,13 +94,11 @@ const workerReq = createWorkerRequest({
   originalRequest: req,
   targetPath: "/api/users",
   base: "/my-app",
-  fragmentRoute: "/dashboard",  // opcional
   notFound: false,              // opcional
 });
 
 // Headers injetados:
 // x-base: /my-app
-// x-fragment-route: /dashboard (se fornecido)
 // x-not-found: true (se notFound = true)
 ----
 

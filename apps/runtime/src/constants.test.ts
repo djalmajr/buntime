@@ -30,7 +30,6 @@ describe("constants", () => {
   describe("Headers", () => {
     it("should have all expected headers", () => {
       expect(Headers.BASE).toBe("x-base");
-      expect(Headers.FRAGMENT_ROUTE).toBe("x-fragment-route");
       expect(Headers.NOT_FOUND).toBe("x-not-found");
       expect(Headers.REQUEST_ID).toBe("x-request-id");
       expect(Headers.SEC_FETCH_DEST).toBe("sec-fetch-dest");

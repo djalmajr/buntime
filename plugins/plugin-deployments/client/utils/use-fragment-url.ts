@@ -1,43 +1,28 @@
-import { dispatch, subscribe } from "@buntime/piercing/client";
 import { useCallback, useEffect, useState } from "react";
-
-/**
- * Get the shell's base path (for URL navigation).
- * This is different from getApiBase() which returns the fragment's API base path.
- */
-function getShellBasePath(): string {
-  // Use the document's <base> tag which points to the shell's base path
-  const base = document.querySelector("base");
-  if (base) {
-    const href = base.getAttribute("href") || "";
-    return href.replace(/\/$/, "");
-  }
-  return "";
-}
-
-interface ShellUrlChange {
-  pathname: string;
-  search: string;
-}
+import { useFrameSDK } from "./use-frame-sdk";
 
 interface UrlPathState {
   path: string;
   selectedRoot: string;
 }
 
+/**
+ * Hook for managing deployment URL state.
+ * Syncs with parent shell via Frame SDK when running in iframe.
+ */
 export function useFragmentUrl(rootDirs: string[]) {
+  const { props, emit, sdkAvailable } = useFrameSDK<{ pathname?: string }>();
   const [state, setState] = useState<UrlPathState>(() => parseUrlPath(rootDirs));
 
-  // Listen for URL changes from shell (back/forward, direct navigation)
+  // Watch for pathname changes from shell (via Frame SDK props)
   useEffect(() => {
-    return subscribe("shell:url-change", (event: unknown) => {
-      const { pathname } = event as ShellUrlChange;
-      const parsed = parsePathname(pathname, rootDirs);
-      setState(parsed);
-    });
-  }, [rootDirs]);
+    if (!sdkAvailable || !props.pathname) return;
 
-  // Intercept history changes (for sidebar submenu navigation)
+    const parsed = parsePathname(props.pathname, rootDirs);
+    setState(parsed);
+  }, [props.pathname, rootDirs, sdkAvailable]);
+
+  // Intercept history changes (for standalone mode or internal navigation)
   useEffect(() => {
     const updateFromUrl = () => {
       const parsed = parseUrlPath(rootDirs);
@@ -76,30 +61,32 @@ export function useFragmentUrl(rootDirs: string[]) {
 
     // Check if URL needs updating (no workerDir in URL but we have workerDirs)
     const currentPath = window.location.pathname;
-    const basePath = document.querySelector("base")?.getAttribute("href")?.replace(/\/$/, "") ?? "";
-    const deployPath = currentPath.startsWith(basePath)
-      ? currentPath.slice(basePath.length)
-      : currentPath;
     const needsRedirect =
-      deployPath === "/deployments" || deployPath === "/deployments/" || !parsed.selectedRoot;
+      currentPath === "/" ||
+      currentPath === "/deployments" ||
+      currentPath === "/deployments/" ||
+      !parsed.selectedRoot;
 
     if (needsRedirect && rootDirs[0]) {
       // Redirect to first workerDir
       const newState = { selectedRoot: rootDirs[0], path: "" };
       setState(newState);
-      navigateToShell(newState);
+      navigateToPath(newState, emit);
     } else if (parsed.selectedRoot && parsed.selectedRoot !== state.selectedRoot) {
       setState(parsed);
     }
-  }, [rootDirs, state.selectedRoot]);
+  }, [rootDirs, state.selectedRoot, emit]);
 
-  const setPath = useCallback((newPath: string) => {
-    setState((prev) => {
-      const newState = { ...prev, path: newPath };
-      navigateToShell(newState);
-      return newState;
-    });
-  }, []);
+  const setPath = useCallback(
+    (newPath: string) => {
+      setState((prev) => {
+        const newState = { ...prev, path: newPath };
+        navigateToPath(newState, emit);
+        return newState;
+      });
+    },
+    [emit],
+  );
 
   return { ...state, setPath };
 }
@@ -109,15 +96,10 @@ function parseUrlPath(rootDirs: string[]): UrlPathState {
 }
 
 function parsePathname(pathname: string, rootDirs: string[]): UrlPathState {
-  const basePath = getShellBasePath();
-
-  // Remove base path to get the deployment path
-  let deployPath = pathname.startsWith(basePath) ? pathname.slice(basePath.length) : pathname;
-
   // Remove leading slash
-  deployPath = deployPath.replace(/^\/+/, "");
+  let deployPath = pathname.replace(/^\/+/, "");
 
-  // Remove "deployments/" prefix if present (this fragment's route in shell)
+  // Remove "deployments/" prefix if present
   if (deployPath.startsWith("deployments/")) {
     deployPath = deployPath.slice("deployments/".length);
   } else if (deployPath === "deployments") {
@@ -141,15 +123,16 @@ function parsePathname(pathname: string, rootDirs: string[]): UrlPathState {
   return { selectedRoot, path };
 }
 
-function navigateToShell(state: UrlPathState) {
-  // Build URL relative to shell's basePath (TanStack Router adds basePath automatically)
-  const url = state.path
-    ? `/deployments/${state.selectedRoot}/${state.path}`
-    : `/deployments/${state.selectedRoot}`;
+function navigateToPath(state: UrlPathState, emit: (event: string, data?: unknown) => void) {
+  // Build URL path
+  const url = state.path ? `/${state.selectedRoot}/${state.path}` : `/${state.selectedRoot}`;
 
-  dispatch("fragment:navigate", {
-    action: "push",
-    fragmentId: "deployments",
-    url,
-  });
+  // Emit navigation event to shell (Frame SDK)
+  emit("navigate", { path: url, replace: false, state: {} });
+
+  // Also update local history for standalone mode
+  const fullPath = `/deployments${url}`;
+  if (window.location.pathname !== fullPath) {
+    history.pushState({}, "", fullPath);
+  }
 }

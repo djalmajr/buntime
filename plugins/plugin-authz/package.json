@@ -19,7 +19,7 @@
     "test:watch": "bun test --watch"
   },
   "dependencies": {
-    "@buntime/shared": "file:../../packages/shared",
+    "@buntime/shared": "workspace:*",
     "@iconify-icon/react": "^2.1.0",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-select": "^2.2.6",

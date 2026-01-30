@@ -19,8 +19,7 @@
     "test:watch": "bun test --watch"
   },
   "dependencies": {
-    "@buntime/shared": "file:../../packages/shared",
-    "@zomme/shadcn-react": "file:../../../shadcn-react",
+    "@buntime/shared": "workspace:*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tw-animate-css": "^1.3.4"

@@ -1,7 +1,7 @@
 import { createFileRoute, notFound, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { BUNTIME_URL } from "~/helpers/config";
+import type { ZFrameAttributes } from "~/types/frame";
 
 /**
  * Extract segment (plugin name) from path
@@ -40,22 +40,26 @@ function FragmentRouter() {
   const frameRef = useRef<HTMLElement>(null);
   const segment = getSegment(pathname);
 
-  // Update pathname prop on the frame when route changes
+  // Update pathname prop and emit route-change event when route changes
   useEffect(() => {
-    const frame = frameRef.current;
+    const frame = frameRef.current as HTMLElement & ZFrameAttributes;
     if (frame && segment) {
-      (frame as any).pathname = getFramePathname(pathname, segment);
+      const framePath = getFramePathname(pathname, segment);
+      frame.pathname = framePath;
+      frame.emit?.("route-change", { path: framePath });
     }
   }, [pathname, segment]);
 
   // Listen for frame events
   useEffect(() => {
     const frame = frameRef.current;
-    if (!frame) return;
+    if (!frame || !segment) return;
 
     const handleNavigate = (event: Event) => {
       const { path, replace } = (event as CustomEvent<FrameNavigateDetail>).detail;
-      navigate({ to: path, replace });
+      // Frame emits relative path, shell needs full path with segment prefix
+      const fullPath = `/${segment}${path.startsWith("/") ? path : `/${path}`}`;
+      navigate({ to: fullPath, replace });
     };
 
     const handleError = (event: Event) => {
@@ -74,7 +78,7 @@ function FragmentRouter() {
       frame.removeEventListener("navigate", handleNavigate);
       frame.removeEventListener("error", handleError);
     };
-  }, [navigate]);
+  }, [navigate, segment]);
 
   if (!segment) {
     throw notFound();
@@ -83,8 +87,7 @@ function FragmentRouter() {
   return (
     <z-frame
       ref={frameRef}
-      base={`/${segment}`}
-      src={`${BUNTIME_URL}/${segment}`}
+      src={`${location.origin}/${segment}`}
       pathname={getFramePathname(pathname, segment)}
     />
   );

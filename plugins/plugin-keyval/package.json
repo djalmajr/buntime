@@ -19,9 +19,9 @@
     "test:watch": "bun test --watch"
   },
   "dependencies": {
-    "@buntime/keyval": "file:../../packages/keyval",
-    "@buntime/plugin-database": "file:../plugin-database",
-    "@buntime/shared": "file:../../packages/shared",
+    "@buntime/keyval": "workspace:*",
+    "@buntime/plugin-database": "workspace:*",
+    "@buntime/shared": "workspace:*",
     "@iconify-icon/react": "^2.1.0",
     "@radix-ui/react-checkbox": "^1.3.2",
     "@radix-ui/react-dialog": "^1.1.14",

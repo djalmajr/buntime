@@ -7,8 +7,10 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-const dbPath =
-  Bun.env.AUTHN_DATABASE_PATH || "/home/user/Developer/zomme/buntime/runtime/data/auth.db";
+const dbPath = Bun.env.AUTHN_DATABASE_PATH;
+if (!dbPath) {
+  throw new Error("AUTHN_DATABASE_PATH is not set");
+}
 
 console.log(`Migrating database: ${dbPath}`);
 

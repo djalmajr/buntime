@@ -1,19 +1,19 @@
 # Buntime Runtime
 
-Worker pool runtime for Bun applications with integrated admin dashboard. See [README](../../runtime/README.adoc) for full documentation.
+Worker pool runtime for Bun applications with integrated admin dashboard. See [README](../../apps/runtime/README.adoc) for full documentation.
 
 ## Quick Reference
 
 | Item | Value |
 |------|-------|
-| Location | `runtime/` |
+| Location | `apps/runtime/` |
 | Entry | `src/index.ts` |
 | Server Framework | Hono |
 | Server Alias | `@/` → `./src/` |
 
 ## Key Files
 
-### Server (`runtime/src/`)
+### Server (`apps/runtime/src/`)
 
 | File | Purpose |
 |------|---------|

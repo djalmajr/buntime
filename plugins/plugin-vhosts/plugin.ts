@@ -63,8 +63,8 @@ export default function vhostsPlugin(pluginConfig: VHostsPluginConfig): PluginIm
 
       // Import runtime utilities dynamically (builtin plugin can access runtime internals)
       // Using string variable to prevent TypeScript from following the import
-      const getWorkerDirPath = "../../runtime/src/utils/get-worker-dir";
-      const poolConfigPath = "../../runtime/src/libs/pool/config";
+      const getWorkerDirPath = "../../apps/runtime/src/utils/get-worker-dir";
+      const poolConfigPath = "../../apps/runtime/src/libs/pool/config";
 
       const workerDirModule = (await import(getWorkerDirPath)) as {
         createWorkerResolver: (workerDirs: string[]) => GetWorkerDir;

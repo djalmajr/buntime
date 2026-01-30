@@ -1,5 +1,5 @@
 import { registry } from "virtual:icons";
-import { IconProvider } from "@buntime/shadcn-ui";
+import { IconProvider } from "@zomme/shadcn-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import i18n from "i18next";
 import { StrictMode } from "react";

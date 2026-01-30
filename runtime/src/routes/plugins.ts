@@ -5,49 +5,16 @@
  * - Listing installed plugins
  * - Uploading new plugins (tarball or zip)
  * - Removing plugins
- * - Managing plugin versions (reload, select, list versions)
- * - Enable/disable plugins
  * - Reload plugins (rescan filesystem)
- * - Reset plugins (re-seed from manifest)
- *
- * This API is always available in the runtime (solves bootstrap problem).
- * Plugins are identified by database ID for all operations.
- *
- * Authorization:
- * - plugins:read permission: Can list plugins and versions
- * - plugins:install permission: Can upload new plugins
- * - plugins:remove permission: Can delete plugins
- * - plugins:enable permission: Can enable plugins
- * - plugins:disable permission: Can disable plugins
- * - plugins:config permission: Can reload, reset, and change versions
  */
 
 import { readdir, rename } from "node:fs/promises";
 import { join } from "node:path";
-import { ForbiddenError, NotFoundError, ValidationError } from "@buntime/shared/errors";
-import type { Context } from "hono";
+import { NotFoundError, ValidationError } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { getConfig } from "@/config";
-import { hasPermission, type Permission, type ValidatedKey } from "@/libs/api-keys";
-import { logPluginDisable, logPluginEnable, logPluginInstall, logPluginRemove } from "@/libs/audit";
-import {
-  disablePluginById,
-  enablePluginById,
-  getAllPlugins,
-  getPluginById,
-  type PluginData,
-  removePluginById,
-} from "@/libs/database";
-import type { AppEnv } from "@/libs/hono-context";
-import {
-  AuthHeader,
-  CommonErrors,
-  IdParam,
-  PluginDataSchema,
-  PluginInfoSchema,
-  SuccessResponse,
-} from "@/libs/openapi";
+import { PluginInfoSchema, SuccessResponse } from "@/libs/openapi";
 import {
   createTempDir,
   detectArchiveFormat,
@@ -64,9 +31,8 @@ import type { PluginRegistry } from "@/plugins/registry";
 
 /**
  * Plugin info for API responses
- * Combines filesystem info with database state
  */
-interface PluginInfo extends Partial<PluginData> {
+interface PluginInfo {
   name: string;
   path: string;
   versions: string[];
@@ -74,17 +40,10 @@ interface PluginInfo extends Partial<PluginData> {
 
 /**
  * List all installed plugins from pluginDirs
- * Merges filesystem info (path, versions) with database state (enabled, config, etc.)
  */
 async function listInstalledPlugins(): Promise<PluginInfo[]> {
   const { pluginDirs } = getConfig();
   const plugins: PluginInfo[] = [];
-
-  // Get all plugin data from database (indexed by name)
-  const dbPlugins = new Map<string, PluginData>();
-  for (const p of await getAllPlugins()) {
-    dbPlugins.set(p.name, p);
-  }
 
   for (const pluginDir of pluginDirs) {
     if (!(await directoryExists(pluginDir))) continue;
@@ -109,30 +68,33 @@ async function listInstalledPlugins(): Promise<PluginInfo[]> {
           const versions = await getVersions(packagePath);
 
           if (versions.length > 0) {
-            const pluginName = `${name}/${scopeEntry.name}`;
-            const dbData = dbPlugins.get(pluginName);
-
             plugins.push({
-              ...dbData,
-              name: pluginName,
+              name: `${name}/${scopeEntry.name}`,
               path: packagePath,
               versions,
             });
           }
         }
       } else {
-        // Unscoped package: name/version
+        // Unscoped package: name/version or flat structure
         const versions = await getVersions(fullPath);
 
         if (versions.length > 0) {
-          const dbData = dbPlugins.get(name);
-
           plugins.push({
-            ...dbData,
             name,
             path: fullPath,
             versions,
           });
+        } else {
+          // Check if it's a flat plugin structure (has manifest.jsonc directly)
+          const hasManifest = await Bun.file(join(fullPath, "manifest.jsonc")).exists();
+          if (hasManifest) {
+            plugins.push({
+              name,
+              path: fullPath,
+              versions: ["latest"],
+            });
+          }
         }
       }
     }
@@ -154,55 +116,6 @@ async function getVersions(packagePath: string): Promise<string[]> {
   } catch {
     return [];
   }
-}
-
-/**
- * Get validated key from Hono context
- */
-function getValidatedKey(ctx: Context): ValidatedKey | null {
-  return (ctx as Context<AppEnv>).get("validatedKey");
-}
-
-/**
- * Require a validated key with specific permission
- */
-function requirePermission(ctx: Context, permission: Permission): ValidatedKey {
-  const key = getValidatedKey(ctx);
-
-  if (!key) {
-    throw new ForbiddenError("Authentication required", "AUTH_REQUIRED");
-  }
-
-  if (!hasPermission(key, permission)) {
-    throw new ForbiddenError(`Permission denied: ${permission}`, "PERMISSION_DENIED");
-  }
-
-  return key;
-}
-
-/**
- * Parse and validate id parameter
- */
-function parseId(idParam: string | undefined): number {
-  if (!idParam) {
-    throw new ValidationError("Plugin ID is required", "MISSING_ID");
-  }
-  const id = parseInt(idParam, 10);
-  if (Number.isNaN(id) || id < 1) {
-    throw new ValidationError("Invalid plugin ID", "INVALID_ID");
-  }
-  return id;
-}
-
-/**
- * Get plugin by ID or throw NotFoundError
- */
-async function requirePlugin(id: number): Promise<PluginData> {
-  const plugin = await getPluginById(id);
-  if (!plugin) {
-    throw new NotFoundError(`Plugin not found: ${id}`, "PLUGIN_NOT_FOUND");
-  }
-  return plugin;
 }
 
 interface PluginsRoutesDeps {
@@ -255,26 +168,35 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
         },
       )
 
-      // List all installed plugins (from filesystem + database)
+      // List all installed plugins (from filesystem)
       .get(
         "/",
         describeRoute({
           tags: ["Plugins"],
           summary: "List installed plugins",
           description: "Returns all plugins installed in pluginDirs",
-          parameters: [AuthHeader],
           responses: {
             200: {
               description: "List of plugins",
               content: {
-                "application/json": { schema: { type: "array", items: PluginDataSchema } },
+                "application/json": {
+                  schema: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string" },
+                        path: { type: "string" },
+                        versions: { type: "array", items: { type: "string" } },
+                      },
+                    },
+                  },
+                },
               },
             },
-            ...CommonErrors,
           },
         }),
         async (ctx) => {
-          requirePermission(ctx, "plugins:read");
           const plugins = await listInstalledPlugins();
           return ctx.json(plugins);
         },
@@ -287,7 +209,6 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
           tags: ["Plugins"],
           summary: "Reload all plugins",
           description: "Re-scans pluginDirs and reloads all plugins",
-          parameters: [AuthHeader],
           responses: {
             200: {
               description: "Plugins reloaded",
@@ -303,56 +224,12 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
                 },
               },
             },
-            ...CommonErrors,
           },
         }),
         async (ctx) => {
-          requirePermission(ctx, "plugins:config");
           await loader.rescan();
           const plugins = loader.list();
           return ctx.json({ ok: true, plugins });
-        },
-      )
-
-      // Reset all plugins (remove from DB, re-seed from manifest)
-      .post(
-        "/reset",
-        describeRoute({
-          tags: ["Plugins"],
-          summary: "Reset all plugins",
-          description: "Removes all plugins from DB and re-seeds from manifests",
-          parameters: [AuthHeader],
-          responses: {
-            200: {
-              description: "Plugins reset",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      success: { type: "boolean" },
-                      plugins: { type: "array", items: PluginDataSchema },
-                    },
-                  },
-                },
-              },
-            },
-            ...CommonErrors,
-          },
-        }),
-        async (ctx) => {
-          requirePermission(ctx, "plugins:config");
-
-          // Remove all plugins from database
-          for (const plugin of await getAllPlugins()) {
-            await removePluginById(plugin.id);
-          }
-
-          // Rescan to re-seed from manifests
-          await loader.rescan();
-
-          const plugins = await listInstalledPlugins();
-          return ctx.json({ plugins, success: true });
         },
       )
 
@@ -363,7 +240,6 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
           tags: ["Plugins"],
           summary: "Upload plugin",
           description: "Upload a new plugin (tarball or zip)",
-          parameters: [AuthHeader],
           requestBody: {
             required: true,
             content: {
@@ -409,11 +285,9 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
                 },
               },
             },
-            ...CommonErrors,
           },
         }),
         async (ctx) => {
-          const actor = requirePermission(ctx, "plugins:install");
           const { pluginDirs } = getConfig();
 
           if (pluginDirs.length === 0) {
@@ -451,15 +325,6 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
 
             await rename(tempDir, installPath);
 
-            // Log the installation
-            await logPluginInstall(
-              actor,
-              packageInfo.name,
-              packageInfo.version,
-              ctx.req.header("x-forwarded-for") ?? ctx.req.header("x-real-ip"),
-              ctx.req.header("user-agent"),
-            );
-
             return ctx.json({
               data: {
                 plugin: {
@@ -477,223 +342,38 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
         },
       )
 
-      // Get a plugin by ID
-      .get(
-        "/:id",
-        describeRoute({
-          tags: ["Plugins"],
-          summary: "Get plugin",
-          description: "Returns a plugin by ID",
-          parameters: [AuthHeader, IdParam],
-          responses: {
-            200: {
-              description: "Plugin details",
-              content: { "application/json": { schema: PluginDataSchema } },
-            },
-            ...CommonErrors,
-          },
-        }),
-        async (ctx) => {
-          requirePermission(ctx, "plugins:read");
-          const id = parseId(ctx.req.param("id"));
-          const plugin = await requirePlugin(id);
-          return ctx.json(plugin);
-        },
-      )
-
-      // Enable a plugin by ID
-      .put(
-        "/:id/enable",
-        describeRoute({
-          tags: ["Plugins"],
-          summary: "Enable plugin",
-          description: "Enables a plugin by ID",
-          parameters: [AuthHeader, IdParam],
-          responses: {
-            200: {
-              description: "Plugin enabled",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: { success: { type: "boolean" }, plugin: PluginDataSchema },
-                  },
-                },
-              },
-            },
-            ...CommonErrors,
-          },
-        }),
-        async (ctx) => {
-          const actor = requirePermission(ctx, "plugins:enable");
-          const id = parseId(ctx.req.param("id"));
-          const existing = await requirePlugin(id);
-
-          const plugin = await enablePluginById(id);
-
-          // Log the action
-          await logPluginEnable(
-            actor,
-            id,
-            existing.name,
-            ctx.req.header("x-forwarded-for") ?? ctx.req.header("x-real-ip"),
-            ctx.req.header("user-agent"),
-          );
-
-          // Reload plugins to apply changes
-          await loader.rescan();
-
-          return ctx.json({ plugin, success: true });
-        },
-      )
-
-      // Disable a plugin by ID
-      .put(
-        "/:id/disable",
-        describeRoute({
-          tags: ["Plugins"],
-          summary: "Disable plugin",
-          description: "Disables a plugin by ID",
-          parameters: [AuthHeader, IdParam],
-          responses: {
-            200: {
-              description: "Plugin disabled",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: { success: { type: "boolean" }, plugin: PluginDataSchema },
-                  },
-                },
-              },
-            },
-            ...CommonErrors,
-          },
-        }),
-        async (ctx) => {
-          const actor = requirePermission(ctx, "plugins:disable");
-          const id = parseId(ctx.req.param("id"));
-          const existing = await requirePlugin(id);
-
-          const plugin = await disablePluginById(id);
-
-          // Log the action
-          await logPluginDisable(
-            actor,
-            id,
-            existing.name,
-            ctx.req.header("x-forwarded-for") ?? ctx.req.header("x-real-ip"),
-            ctx.req.header("user-agent"),
-          );
-
-          // Reload plugins to apply changes
-          await loader.rescan();
-
-          return ctx.json({ plugin, success: true });
-        },
-      )
-
-      // Reload a plugin by ID
-      .post(
-        "/:id/reload",
-        describeRoute({
-          tags: ["Plugins"],
-          summary: "Reload plugin",
-          description: "Reloads a specific plugin",
-          parameters: [AuthHeader, IdParam],
-          responses: {
-            200: {
-              description: "Plugin reloaded",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: { success: { type: "boolean" }, plugin: PluginDataSchema },
-                  },
-                },
-              },
-            },
-            ...CommonErrors,
-          },
-        }),
-        async (ctx) => {
-          requirePermission(ctx, "plugins:config");
-          const id = parseId(ctx.req.param("id"));
-          await requirePlugin(id); // Ensure exists
-
-          // Rescan all (individual reload not yet supported in loader)
-          await loader.rescan();
-
-          const plugin = await getPluginById(id);
-          return ctx.json({ plugin, success: true });
-        },
-      )
-
-      // Reset a plugin by ID (remove from DB, re-seed from manifest)
-      .post(
-        "/:id/reset",
-        describeRoute({
-          tags: ["Plugins"],
-          summary: "Reset plugin",
-          description: "Removes plugin from DB and re-seeds from manifest (gets new ID)",
-          parameters: [AuthHeader, IdParam],
-          responses: {
-            200: {
-              description: "Plugin reset",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: { success: { type: "boolean" }, plugin: PluginDataSchema },
-                  },
-                },
-              },
-            },
-            ...CommonErrors,
-          },
-        }),
-        async (ctx) => {
-          requirePermission(ctx, "plugins:config");
-          const id = parseId(ctx.req.param("id"));
-          const existing = await requirePlugin(id);
-
-          // Remove from database
-          await removePluginById(id);
-
-          // Rescan to re-seed from manifest
-          await loader.rescan();
-
-          // Find the plugin again by name (it will have a new ID)
-          const plugins = await getAllPlugins();
-          const plugin = plugins.find((p) => p.name === existing.name) ?? null;
-
-          return ctx.json({ plugin, success: true });
-        },
-      )
-
-      // Delete a plugin by ID (remove from filesystem)
+      // Delete a plugin by name
       .delete(
-        "/:id",
+        "/:name",
         describeRoute({
           tags: ["Plugins"],
           summary: "Delete plugin",
-          description: "Removes plugin from filesystem and database",
-          parameters: [AuthHeader, IdParam],
+          description: "Removes plugin from filesystem",
+          parameters: [
+            {
+              name: "name",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "Plugin name (URL encoded)",
+            },
+          ],
           responses: {
             200: {
               description: "Plugin deleted",
               content: { "application/json": { schema: SuccessResponse } },
             },
-            ...CommonErrors,
           },
         }),
         async (ctx) => {
-          const actor = requirePermission(ctx, "plugins:remove");
           const { pluginDirs } = getConfig();
-          const id = parseId(ctx.req.param("id"));
-          const plugin = await requirePlugin(id);
+          const name = decodeURIComponent(ctx.req.param("name"));
 
-          const { name: pkgName, scope: pkgScope } = parsePackageName(plugin.name);
+          if (!name) {
+            throw new ValidationError("Plugin name is required", "MISSING_NAME");
+          }
+
+          const { name: pkgName, scope: pkgScope } = parsePackageName(name);
 
           // Find and remove plugin from pluginDirs
           let found = false;
@@ -710,111 +390,10 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
           }
 
           if (!found) {
-            throw new NotFoundError(`Plugin files not found: ${plugin.name}`, "PLUGIN_NOT_FOUND");
+            throw new NotFoundError(`Plugin files not found: ${name}`, "PLUGIN_NOT_FOUND");
           }
-
-          // Also remove from database
-          await removePluginById(id);
-
-          // Log the removal
-          await logPluginRemove(
-            actor,
-            id,
-            plugin.name,
-            ctx.req.header("x-forwarded-for") ?? ctx.req.header("x-real-ip"),
-            ctx.req.header("user-agent"),
-          );
 
           return ctx.json({ success: true });
-        },
-      )
-
-      // List versions for a plugin by ID
-      .get(
-        "/:id/versions",
-        describeRoute({
-          tags: ["Plugins"],
-          summary: "List plugin versions",
-          description: "Returns available versions for a plugin",
-          parameters: [AuthHeader, IdParam],
-          responses: {
-            200: {
-              description: "Plugin versions",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      versions: { type: "array", items: { type: "string" } },
-                      active: { type: "string" },
-                    },
-                  },
-                },
-              },
-            },
-            ...CommonErrors,
-          },
-        }),
-        async (ctx) => {
-          requirePermission(ctx, "plugins:read");
-          const id = parseId(ctx.req.param("id"));
-          const plugin = await requirePlugin(id);
-
-          const versions = loader.getVersions(plugin.name);
-          const active = await loader.getActiveVersion(plugin.name);
-
-          return ctx.json({ active, versions });
-        },
-      )
-
-      // Select active version for a plugin by ID
-      .put(
-        "/:id/version",
-        describeRoute({
-          tags: ["Plugins"],
-          summary: "Set active version",
-          description: "Sets the active version for a plugin",
-          parameters: [AuthHeader, IdParam],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: { version: { type: "string" } },
-                  required: ["version"],
-                },
-              },
-            },
-          },
-          responses: {
-            200: {
-              description: "Version set",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: { ok: { type: "boolean" }, activeVersion: { type: "string" } },
-                  },
-                },
-              },
-            },
-            ...CommonErrors,
-          },
-        }),
-        async (ctx) => {
-          requirePermission(ctx, "plugins:config");
-          const id = parseId(ctx.req.param("id"));
-          const plugin = await requirePlugin(id);
-
-          const body = await ctx.req.json<{ version: string }>();
-          if (!body.version) {
-            throw new ValidationError("Version is required", "MISSING_VERSION");
-          }
-
-          await loader.setActiveVersion(plugin.name, body.version);
-
-          return ctx.json({ ok: true, activeVersion: body.version });
         },
       )
   );

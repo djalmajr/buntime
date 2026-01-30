@@ -19,12 +19,12 @@
     "test:watch": "bun test --watch"
   },
   "dependencies": {
-    "@buntime/plugin-keyval": "workspace:*",
-    "@buntime/shadcn-ui": "workspace:*",
-    "@buntime/shared": "workspace:*",
+    "@buntime/plugin-keyval": "file:../plugin-keyval",
+    "@buntime/shared": "file:../../packages/shared",
     "@iconify-icon/react": "^2.1.0",
     "@tanstack/react-query": "^5.62.0",
     "@tanstack/react-table": "^8.20.5",
+    "@zomme/shadcn-react": "file:../../../shadcn-react",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tw-animate-css": "^1.3.4",

@@ -20,7 +20,7 @@ import {
   DialogTitle,
   Icon,
   Skeleton,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 

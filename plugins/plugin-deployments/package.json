@@ -19,10 +19,10 @@
     "test:watch": "bun test --watch"
   },
   "dependencies": {
-    "@buntime/piercing": "workspace:*",
-    "@buntime/shadcn-ui": "workspace:*",
-    "@buntime/shared": "workspace:*",
+    "@buntime/piercing": "file:../../packages/piercing",
+    "@buntime/shared": "file:../../packages/shared",
     "@tanstack/react-query": "^5.80.7",
+    "@zomme/shadcn-react": "file:../../../shadcn-react",
     "cmdk": "^1.1.1",
     "i18next": "^25.2.1",
     "react": "^19.2.0",

@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { getChildLogger } from "@buntime/shared/logger";
 import type {
   BuntimePlugin,
@@ -12,15 +12,12 @@ import type {
 import { omit } from "es-toolkit";
 import { getConfig } from "@/config";
 import { RESERVED_PATHS } from "@/constants";
-import {
-  setPluginVersion as dbSetPluginVersion,
-  getPluginVersion,
-  isPluginEnabled,
-  seedPluginFromManifest,
-} from "@/libs/database";
 import { createPluginLogger, PluginRegistry } from "./registry";
 
 const logger = getChildLogger("PluginLoader");
+
+/** Manifest file names to try in order */
+const MANIFEST_FILES = ["manifest.jsonc", "manifest.json"] as const;
 
 /**
  * Validate that a module has a valid plugin implementation structure
@@ -80,6 +77,7 @@ interface ParsedPlugin {
   dependencies: string[];
   optionalDependencies: string[];
 }
+
 /**
  * Scanned plugin entry from plugin directories
  * Module is loaded lazily to avoid importing disabled plugins
@@ -91,18 +89,6 @@ interface ScannedPlugin {
   path: string;
   /** Plugin manifest from manifest.jsonc */
   manifest: PluginManifest;
-  /** Version of this plugin (from directory name) */
-  version: string;
-}
-
-/**
- * Version info for a plugin
- */
-interface PluginVersionInfo {
-  /** Root directory for this version */
-  dir: string;
-  /** Full path to the plugin entry file */
-  path: string;
 }
 
 /**
@@ -124,8 +110,6 @@ export class PluginLoader {
   private pluginDirsOverride?: string[];
   /** Map of plugin name -> scanned plugin info (populated by scanPluginDirs) */
   private scannedPlugins = new Map<string, ScannedPlugin>();
-  /** Map of plugin name -> available versions (for version management) */
-  private availableVersions = new Map<string, Map<string, PluginVersionInfo>>();
 
   constructor(options: PluginLoaderOptions = {}) {
     this.pool = options.pool;
@@ -133,49 +117,16 @@ export class PluginLoader {
   }
 
   /**
-   * Get available versions for a plugin
+   * List all scanned plugins
+   * Returns name and version (from manifest, informative only)
    */
-  getVersions(name: string): string[] {
-    const versions = this.availableVersions.get(name);
-    if (!versions) return [];
-    return [...versions.keys()].sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
-  }
-
-  /**
-   * Get the active version for a plugin (from SQLite or "latest")
-   */
-  async getActiveVersion(name: string): Promise<string> {
-    return getPluginVersion(name);
-  }
-
-  /**
-   * Set the active version for a plugin
-   * Takes effect on next rescan
-   */
-  async setActiveVersion(name: string, version: string): Promise<void> {
-    const versions = this.availableVersions.get(name);
-    if (!versions) {
-      throw new Error(`Plugin "${name}" not found`);
-    }
-    if (version !== "latest" && !versions.has(version)) {
-      throw new Error(
-        `Version "${version}" not found for plugin "${name}". ` +
-          `Available versions: ${[...versions.keys()].join(", ")}`,
-      );
-    }
-    await dbSetPluginVersion(name, version);
-  }
-
-  /**
-   * List all scanned plugins with their active versions
-   */
-  list(): Array<{ name: string; version: string; versions: string[] }> {
-    const result: Array<{ name: string; version: string; versions: string[] }> = [];
+  list(): Array<{ name: string; version: string }> {
+    const result: Array<{ name: string; version: string }> = [];
     for (const [name, scanned] of this.scannedPlugins) {
+      const version = scanned.manifest.version;
       result.push({
         name,
-        version: scanned.version,
-        versions: this.getVersions(name),
+        version: typeof version === "string" ? version : "0.0.0",
       });
     }
     return result;
@@ -188,7 +139,6 @@ export class PluginLoader {
   async rescan(): Promise<PluginRegistry> {
     // Clear current state
     this.scannedPlugins.clear();
-    this.availableVersions.clear();
     this.registry.clear();
 
     // Reload
@@ -209,10 +159,10 @@ export class PluginLoader {
     for (const [name, scanned] of this.scannedPlugins) {
       const { manifest } = scanned;
 
-      // Skip plugins not enabled in database
-      // Database is source of truth for enabled state (not manifest.enabled)
-      if (!(await isPluginEnabled(name))) {
-        logger.debug(`Skipping plugin not enabled in database: ${name}`);
+      // Skip plugins disabled in manifest
+      // Manifest is the source of truth for enabled state
+      if (manifest.enabled === false) {
+        logger.debug(`Skipping plugin disabled in manifest: ${name}`);
         continue;
       }
 
@@ -220,6 +170,7 @@ export class PluginLoader {
       // Note: menus is passed to plugin factory so plugins can modify it dynamically
       const options = omit(manifest, [
         "name",
+        "version",
         "enabled",
         "base",
         "entrypoint",
@@ -463,10 +414,8 @@ export class PluginLoader {
    * Supports multiple directory structures:
    * 1. Direct: {pluginDir}/plugin.ts
    * 2. Subdirectory: {pluginDir}/{name}/plugin.ts
-   * 3. Versioned: {pluginDir}/{name}/{version}/plugin.ts
-   * 4. Scoped versioned: {pluginDir}/@scope/{name}/{version}/plugin.ts
+   * 3. Scoped: {pluginDir}/@scope/{name}/plugin.ts
    *
-   * For versioned plugins, uses the latest version (highest semver).
    * Plugin metadata is read from manifest.jsonc (required)
    */
   private async scanPluginDirs(pluginDirs: string[]): Promise<void> {
@@ -491,16 +440,13 @@ export class PluginLoader {
           }
         } else if (stat.isDirectory()) {
           if (entry.startsWith("@")) {
-            // Scoped package: {pluginDir}/@scope/{name}/{version}/
+            // Scoped package: {pluginDir}/@scope/{name}/
             await this.scanScopedPackage(entryPath, extensions);
           } else {
-            // Could be: {pluginDir}/{name}/plugin.ts OR {pluginDir}/{name}/{version}/
-            const hasPluginFile = this.findPluginFile(entryPath, extensions);
-            if (hasPluginFile) {
-              await this.tryRegisterPlugin(hasPluginFile, entryPath);
-            } else {
-              // Try versioned structure: {pluginDir}/{name}/{version}/
-              await this.scanVersionedPackage(entryPath, extensions);
+            // Subdirectory: {pluginDir}/{name}/plugin.ts
+            const pluginFile = this.findPluginFile(entryPath, extensions);
+            if (pluginFile) {
+              await this.tryRegisterPlugin(pluginFile, entryPath);
             }
           }
         }
@@ -513,7 +459,7 @@ export class PluginLoader {
   }
 
   /**
-   * Scan a scoped package directory (@scope/name/version/)
+   * Scan a scoped package directory (@scope/name/)
    */
   private async scanScopedPackage(scopeDir: string, extensions: string[]): Promise<void> {
     if (!existsSync(scopeDir)) return;
@@ -523,61 +469,12 @@ export class PluginLoader {
       const pkgPath = join(scopeDir, pkg);
       const stat = statSync(pkgPath);
       if (stat.isDirectory()) {
-        await this.scanVersionedPackage(pkgPath, extensions);
+        const pluginFile = this.findPluginFile(pkgPath, extensions);
+        if (pluginFile) {
+          await this.tryRegisterPlugin(pluginFile, pkgPath);
+        }
       }
     }
-  }
-
-  /**
-   * Scan a versioned package directory (name/version/)
-   * Uses version from SQLite, or latest if not set
-   */
-  private async scanVersionedPackage(packageDir: string, extensions: string[]): Promise<void> {
-    if (!existsSync(packageDir)) return;
-
-    const versions = readdirSync(packageDir)
-      .filter((v) => {
-        const vPath = join(packageDir, v);
-        return statSync(vPath).isDirectory() && !v.startsWith(".");
-      })
-      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true })); // Latest first
-
-    if (versions.length === 0) return;
-
-    // Pre-scan to get plugin name from manifest (to query SQLite)
-    const firstVersionDir = join(packageDir, versions[0]!);
-    const firstPluginFile = this.findPluginFile(firstVersionDir, extensions);
-    if (!firstPluginFile) return;
-
-    // Get plugin name from manifest
-    const firstManifest = await this.loadManifest(firstVersionDir);
-    if (!firstManifest?.name) return;
-    const pluginName = firstManifest.name;
-
-    // Store all available versions for this plugin
-    const versionMap = new Map<string, PluginVersionInfo>();
-    for (const version of versions) {
-      const versionDir = join(packageDir, version);
-      const pluginFile = this.findPluginFile(versionDir, extensions);
-      if (pluginFile) {
-        versionMap.set(version, { dir: versionDir, path: pluginFile });
-      }
-    }
-    this.availableVersions.set(pluginName, versionMap);
-
-    // Determine which version to use
-    const configuredVersion = await getPluginVersion(pluginName);
-    const latestVersion = versions[0]!;
-    const targetVersion =
-      configuredVersion === "latest"
-        ? latestVersion
-        : versionMap.has(configuredVersion)
-          ? configuredVersion
-          : latestVersion;
-
-    // Register the target version
-    const targetInfo = versionMap.get(targetVersion)!;
-    await this.tryRegisterPlugin(targetInfo.path, targetInfo.dir, targetVersion);
   }
 
   /**
@@ -597,11 +494,10 @@ export class PluginLoader {
   }
 
   /**
-   * Try to import and register a plugin file
+   * Try to register a plugin from a file path
    * Requires manifest.jsonc with plugin name and metadata
-   * @param version Optional version string (from directory name)
    */
-  private async tryRegisterPlugin(filePath: string, dir: string, version?: string): Promise<void> {
+  private async tryRegisterPlugin(filePath: string, dir: string): Promise<void> {
     try {
       // Load manifest first (required)
       const manifest = await this.loadManifest(dir);
@@ -618,10 +514,6 @@ export class PluginLoader {
 
       const pluginName = manifest.name;
 
-      // Seed manifest to database (creates if not exists, skips if exists)
-      // This ensures every discovered plugin is tracked in the database
-      await seedPluginFromManifest(manifest);
-
       // Check for duplicates
       if (this.scannedPlugins.has(pluginName)) {
         const existing = this.scannedPlugins.get(pluginName)!;
@@ -632,24 +524,17 @@ export class PluginLoader {
         return;
       }
 
-      // Determine version from parameter or directory name
-      const pluginVersion = version ?? basename(dir);
-
       // Store plugin info WITHOUT importing the module
       // Module is imported lazily in loadPlugin() to avoid loading disabled plugins
       this.scannedPlugins.set(pluginName, {
         dir,
         manifest,
         path: filePath,
-        version: pluginVersion,
       });
-      logger.debug(`Scanned plugin: ${pluginName}@${pluginVersion} (${filePath})`);
+      logger.debug(`Scanned plugin: ${pluginName} (${filePath})`);
     } catch (error) {
       // Import failed, silently ignore (might not be a valid module)
-      logger.debug(`Failed to import ${filePath}: ${error}`);
+      logger.debug(`Failed to scan ${filePath}: ${error}`);
     }
   }
 }
-
-/** Manifest file names to try in order */
-const MANIFEST_FILES = ["manifest.jsonc", "manifest.json"] as const;

@@ -217,7 +217,6 @@ describe("deploymentsPlugin", () => {
       // Single directory should not have submenu items
       expect(menus[0]!.items).toBeUndefined();
     });
-
   });
 });
 

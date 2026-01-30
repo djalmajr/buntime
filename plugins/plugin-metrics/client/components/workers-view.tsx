@@ -11,7 +11,7 @@ import {
   DrawerTitle,
   ScrollArea,
   useDataTable,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import { useEffect, useMemo, useState } from "react";
 import { createMetricsSSE, type MetricsSSEData, type WorkerData } from "~/helpers/sse";
 

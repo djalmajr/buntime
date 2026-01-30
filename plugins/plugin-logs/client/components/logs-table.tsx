@@ -13,7 +13,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import { useEffect, useState } from "react";
 
 type LogLevel = "debug" | "error" | "info" | "warn";

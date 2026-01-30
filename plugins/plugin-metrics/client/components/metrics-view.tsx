@@ -7,7 +7,7 @@ import {
   cn,
   Icon,
   ScrollArea,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import { useEffect, useState } from "react";
 import { createMetricsSSE, type MetricsSSEData } from "~/helpers/sse";
 

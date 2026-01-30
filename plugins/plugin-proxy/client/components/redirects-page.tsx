@@ -11,7 +11,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useState } from "react";
 import {

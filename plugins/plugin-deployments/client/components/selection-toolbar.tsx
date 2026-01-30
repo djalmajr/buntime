@@ -1,4 +1,4 @@
-import { Button, Icon } from "@buntime/shadcn-ui";
+import { Button, Icon } from "@zomme/shadcn-react";
 import { useTranslation } from "react-i18next";
 
 interface SelectionToolbarProps {

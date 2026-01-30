@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
   Separator,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import { useState } from "react";
 import { basePath } from "~/utils/api";
 

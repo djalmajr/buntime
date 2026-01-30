@@ -1,4 +1,4 @@
-import { cn } from "@buntime/shadcn-ui";
+import { cn } from "@zomme/shadcn-react";
 import { useEffect, useRef } from "react";
 import type { CellVariantProps } from "../types";
 

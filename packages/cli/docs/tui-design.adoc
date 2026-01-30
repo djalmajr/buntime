@@ -1,1709 +1,986 @@
-== Design da TUI Interativa
+= Buntime CLI TUI Design
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectnumlevels: 4
+:icons: font
 
-Especificação visual para a interface de terminal interativa (REPL) do Buntime CLI.
+ifdef::env-github[]
+:tip-caption: 💡
+:note-caption: ℹ️
+:important-caption: ⚠️
+:caution-caption: 🔥
+:warning-caption: ⚠️
+endif::[]
 
-=== Visão Geral
+toc::[]
 
-A TUI opera em modo REPL (Read-Eval-Print Loop), mantendo o usuário dentro da aplicação com navegação por menus e atalhos de teclado.
+== Overview
 
-=== Resolução de Conexão
+Design document for the Buntime CLI TUI using the Charm stack:
 
-A TUI determina qual servidor conectar seguindo esta ordem de prioridade:
+* **Bubble Tea** - Elm-inspired TUI framework
+* **Bubbles** - Pre-built components (text input, lists, spinners, tables, etc.)
+* **Lip Gloss** - CSS-like styling for terminal apps
+* **Harmonica** - Spring-based animations
 
-[source]
-----
-┌─────────────────────────────────────────────────────────────────────────┐
-│                                                                         │
-│  1. CLI Arguments (maior prioridade)                                    │
-│     buntime --url https://buntime.home --token xyz --insecure           │
-│          │                                                              │
-│          ▼                                                              │
-│  2. Environment Variables                                               │
-│     BUNTIME_URL, BUNTIME_TOKEN, BUNTIME_INSECURE                        │
-│          │                                                              │
-│          ▼                                                              │
-│  3. SQLite Config (~/.buntime/config.db)                                │
-│     Configurações salvas de sessões anteriores                          │
-│          │                                                              │
-│          ▼                                                              │
-│  4. Interactive Setup (se nenhum anterior disponível)                   │
-│     Prompts para URL, token, TLS                                        │
-│          │                                                              │
-│          ▼                                                              │
-│  5. Default (fallback)                                                  │
-│     http://localhost:8000                                               │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-----
+== Design Principles
 
-**Comportamento:**
+=== Visual Identity
 
 [source]
 ----
-URL:      --url → BUNTIME_URL → Seleção de servidor → Add Server
-Token:    --token → BUNTIME_TOKEN → (tenta sem) → Solicita se 401
-Insecure: --insecure → BUNTIME_INSECURE → SQLite → false
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                     │
+│   ██████╗ ██╗   ██╗███╗   ██╗████████╗██╗███╗   ███╗███████╗       │
+│   ██╔══██╗██║   ██║████╗  ██║╚══██╔══╝██║████╗ ████║██╔════╝       │
+│   ██████╔╝██║   ██║██╔██╗ ██║   ██║   ██║██╔████╔██║█████╗         │
+│   ██╔══██╗██║   ██║██║╚██╗██║   ██║   ██║██║╚██╔╝██║██╔══╝         │
+│   ██████╔╝╚██████╔╝██║ ╚████║   ██║   ██║██║ ╚═╝ ██║███████╗       │
+│   ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝     ╚═╝╚══════╝       │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ----
 
-**Fluxo de inicialização:**
+=== Color Palette (Lip Gloss)
 
-[source]
-----
-  ┌─────────────────────────────┐
-  │  Tem --url ou BUNTIME_URL?  │
-  └─────────────┬───────────────┘
-                │
-      ┌─────────┴─────────┐
-      │ Sim               │ Não
-      ▼                   ▼
-  ┌───────────┐    ┌──────────────────┐
-  │ Usa URL   │    │ SQLite tem       │
-  │ fornecida │    │ servidores?      │
-  └─────┬─────┘    └────────┬─────────┘
-        │                   │
-        │         ┌─────────┴─────────┐
-        │         │ Sim               │ Não
-        │         ▼                   ▼
-        │    ┌────────────┐    ┌──────────────┐
-        │    │ Server     │    │ Add Server   │
-        │    │ Selection  │    │ (primeiro)   │
-        │    └─────┬──────┘    └──────┬───────┘
-        │          │                  │
-        └────┬─────┘                  │
-             │                        │
-             ▼                        │
-      ┌─────────────┐                 │
-      │ Test Connect│◄────────────────┘
-      │ (sem token) │
-      └──────┬──────┘
-             │
-      ┌──────┴───────┬─────────┐
-      │ OK           │ 401     │ Fail
-      ▼              ▼         ▼
-  ┌──────┐    ┌──────────┐  ┌───────┐
-  │ Menu │    │ Solicita │  │ Error │
-  └──────┘    │ Token    │  └───────┘
-              └────┬─────┘
-                   │
-                   ▼
-            ┌─────────────┐
-            │ Retry com   │
-            │ Token       │
-            └──────┬──────┘
-                   │
-            ┌──────┴──────┐
-            │ OK          │ Fail
-            ▼             ▼
-        ┌──────┐     ┌───────┐
-        │ Menu │     │ Error │
-        │+Salva│     └───────┘
-        │Token │
-        └──────┘
-----
-
-**Resumo:**
-
-- `--url` ou `BUNTIME_URL` → usa diretamente, testa conexão
-- Nenhum arg/env + servidores salvos → mostra lista para selecionar
-- Nenhum arg/env + sem servidores → Add Server (primeira execução)
-- Token só é solicitado se servidor retornar 401
-
-**Exemplos:**
-
-[cols="2,3"]
+[cols="1,2,1"]
 |===
-| Cenário | Resultado
+| Color | Usage | Hex
 
-| `buntime` (primeiro uso)
-| Add Server → testa → Menu (ou solicita token se 401)
+| Primary (Cyan)
+| Selected items, active elements
+| `#00D9FF`
 
-| `buntime` (tem servidores salvos)
-| Server Selection → escolhe → testa → Menu
+| Secondary (Purple)
+| Accents, highlights
+| `#BD93F9`
 
-| `buntime --url https://dev.com`
-| Conecta direto → Menu (ou solicita token se 401)
+| Success (Green)
+| Enabled status, success messages
+| `#50FA7B`
 
-| `buntime --url https://dev.com --token xyz`
-| Conecta com token → Menu
+| Warning (Yellow)
+| Warnings, pending status
+| `#F1FA8C`
+
+| Error (Red)
+| Errors, disabled status
+| `#FF5555`
+
+| Muted (Gray)
+| Descriptions, inactive
+| `#6272A4`
+
+| Background
+| Main background
+| `#282A36`
+
+| Surface
+| Cards, panels
+| `#44475A`
 |===
 
-**Tratamento de erros:**
+== Screen Architecture
 
-[cols="1,2,2"]
-|===
-| Resposta | Significado | Ação
-
-| `200 OK`
-| Conexão bem sucedida
-| Vai para Menu principal
-
-| `401 Unauthorized`
-| Servidor requer autenticação
-| Solicita token → retry → salva se sucesso
-
-| `Connection refused`
-| Servidor não está rodando
-| Mostra erro, opção de retry
-
-| `TLS Error`
-| Certificado inválido/self-signed
-| Pergunta se quer pular verificação TLS
-|===
-
-**Exemplos de fluxo:**
+=== Navigation Flow
 
 [source]
 ----
-# Primeiro uso, servidor sem auth
-buntime
-→ Add Server: "http://localhost:8000"
-→ Testa conexão → 200 OK
-→ Salva servidor → Menu
-
-# Primeiro uso, servidor com auth
-buntime
-→ Add Server: "https://prod.buntime.io"
-→ Testa conexão → 401
-→ Solicita token → Retry → 200 OK
-→ Salva servidor + token → Menu
-
-# Com servidores salvos
-buntime
-→ Server Selection: escolhe "Production"
-→ Testa conexão (usa token salvo se houver)
-→ Menu
-
-# Erro de TLS
-buntime --url https://buntime.local
-→ Testa conexão → TLS Error
-→ "Skip TLS verification? [y/N]"
-→ Se Y, retry com insecure=true
-→ Se Y, pergunta se quer salvar preferência
-
-# Conecta sem token + servidor retorna 401
-→ Prompt: "Authentication required. Enter token:"
-----
-
-=== Fluxo de Navegação
-
-[source]
-----
-                         ┌─────────────────┐
-                         │  CLI --url ou   │
-                         │  BUNTIME_URL?   │
-                         └────────┬────────┘
+                           ┌─────────────────┐
+                           │  Server Select  │
+                           │    (splash)     │
+                           └────────┬────────┘
+                                    │
+                     ┌──────────────┼──────────────┐
+                     ▼              ▼              ▼
+              ┌──────────┐   ┌──────────┐   ┌──────────┐
+              │   Add    │   │  Connect │   │  Edit    │
+              │  Server  │   │          │   │  Server  │
+              └──────────┘   └────┬─────┘   └──────────┘
                                   │
-                    ┌─────────────┴─────────────┐
-                    │ Sim                       │ Não
-                    ▼                           ▼
-            ┌─────────────────┐          ┌────────────────┐
-            │ Test Connection │          │ Servers Saved? │
-            └───────┬─────────┘          └───────┬────────┘
-                    │                            │
-           ┌────────┼────────┐          ┌────────┴────────┐
-           │ OK     │ 401    │ Fail     │ Sim             │ Não
-           ▼        ▼        ▼          ▼                 ▼
-    ┌──────────┐ ┌──────┐ ┌──────┐ ┌──────────────┐ ┌──────────────┐
-    │Main Menu │ │Token │ │Error │ │Server Select │ │  Add Server  │
-    └──────────┘ │Prompt│ │Screen│ └──────┬───────┘ └──────┬───────┘
-                 └──┬───┘ └──────┘        │                │
-                    │                     │                │
-                    └──────────► Test Connection ◄─────────┘
-----
-
-**Navegação Principal:**
-
-[source]
-----
-                              ┌─────────────────┐
-                              │   Main Menu     │
-                              └────────┬────────┘
-                                       │
-              ┌────────────────────────┼───────────────────────┐
-              │                        │                       │
-              ▼                        ▼                       ▼
-      ┌───────────────┐       ┌───────────────┐       ┌───────────────┐
-      │  Plugin Menu  │       │   App Menu    │       │   Settings    │
-      └───────┬───────┘       └───────┬───────┘       └───────┬───────┘
-              │                       │                       │
-    ┌─────────┼─────────┐   ┌─────────┼─────────┐             │
-    │         │         │   │         │         │             │
-    ▼         ▼         ▼   ▼         ▼         ▼             ▼
-  List    Install   Remove List   Install   Remove      Servers
-----
-
-=== Interceptor de Autenticação (401)
-
-O TUI intercepta respostas 401 em **qualquer operação**, não apenas na conexão inicial. Isso permite que o servidor comece sem autenticação e depois adicione um plugin de auth.
-
-**Cenário típico:**
-
-1. Primeiro acesso → Servidor sem plugin de auth → Conexão OK sem token
-2. Usuário instala plugin de auth (ex: `@scope/plugin-auth-token`)
-3. Próxima operação (List, Install, Remove) → Servidor retorna 401
-4. TUI exibe Token Prompt → Usuário fornece token → Operação é repetida
-
-**Fluxo do Interceptor:**
-
-[source]
-----
-                    ┌───────────────────────────┐
-                    │  Qualquer API Request     │
-                    │  (List, Install, Remove)  │
-                    └─────────────┬─────────────┘
+                                  ▼
+                           ┌──────────────┐
+                           │  Main Menu   │
+                           │  (dashboard) │
+                           └──────┬───────┘
                                   │
-                   ┌──────────────┼──────────────┐
-                   │ 2xx          │ 401          │ Outro erro
-                   ▼              ▼              ▼
-            ┌───────────┐  ┌────────────┐  ┌────────────┐
-            │ Continua  │  │   Token    │  │   Error    │
-            │ operação  │  │   Prompt   │  │   Screen   │
-            └───────────┘  └─────┬──────┘  └────────────┘
-                                 │
-                                 ▼
-                         ┌─────────────┐
-                         │ Retry com   │
-                         │ novo token  │
-                         └──────┬──────┘
-                                │
-                   ┌────────────┼────────────┐
-                   │ 2xx                     │ 401
-                   ▼                         ▼
-            ┌─────────────────┐      ┌─────────────────┐
-            │ Salva token no  │      │ "Invalid token" │
-            │ servidor atual  │      │ Tenta novamente │
-            │ e continua      │      └─────────────────┘
-            └─────────────────┘
-----
-
-==== Token Prompt (401 durante operação)
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > List                  http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │                                                            │     │
-│   │   Authentication Required                                  │     │
-│   │                                                            │     │
-│   │   The server requires authentication.                      │     │
-│   │                                                            │     │
-│   │   Enter auth token:                                        │     │
-│   │   ┌────────────────────────────────────────────────────┐   │     │
-│   │   │ █                                                  │   │     │
-│   │   └────────────────────────────────────────────────────┘   │     │
-│   │                                                            │     │
-│   │   [x] Save token for this server                           │     │
-│   │                                                            │     │
-│   │                  [ Cancel ]   [ Retry ]                    │     │
-│   │                                  ▲                         │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Enter: Retry   Esc: Cancel                                          │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Token Inválido
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > List                  http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │                                                            │     │
-│   │   Authentication Failed                                    │     │
-│   │                                                            │     │
-│   │   The provided token is invalid or expired.                │     │
-│   │                                                            │     │
-│   │   Enter auth token:                                        │     │
-│   │   ┌────────────────────────────────────────────────────┐   │     │
-│   │   │ █                                                  │   │     │
-│   │   └────────────────────────────────────────────────────┘   │     │
-│   │                                                            │     │
-│   │   [x] Save token for this server                           │     │
-│   │                                                            │     │
-│   │                  [ Cancel ]   [ Retry ]                    │     │
-│   │                                  ▲                         │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Enter: Retry   Esc: Cancel                                          │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-NOTE: Ao cancelar, o usuário volta para a tela anterior. A operação não é executada.
-
-TIP: O checkbox "Save token for this server" vem marcado por padrão. Se o usuário desmarcar, o token é usado apenas para esta operação.
-
-=== Telas
-
-==== Server Selection
-
-Exibido quando há servidores salvos e nenhum argumento foi passado.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│                                                                      │
-│    ██████╗ ██╗   ██╗███╗   ██╗████████╗██╗███╗   ███╗███████╗        │
-│    ██╔══██╗██║   ██║████╗  ██║╚══██╔══╝██║████╗ ████║██╔════╝        │
-│    ██████╔╝██║   ██║██╔██╗ ██║   ██║   ██║██╔████╔██║█████╗          │
-│    ██╔══██╗██║   ██║██║╚██╗██║   ██║   ██║██║╚██╔╝██║██╔══╝          │
-│    ██████╔╝╚██████╔╝██║ ╚████║   ██║   ██║██║ ╚═╝ ██║███████╗        │
-│    ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝     ╚═╝╚══════╝        │
-│                                                                      │
-│                         CLI v1.0.0                                   │
-│                                                                      │
-│   Select a server:                                                   │
-│                                                                      │
-│   ❯ Local Dev          http://localhost:8000                         │
-│     Production         https://buntime.company.io                    │
-│     Home Server        https://buntime.home                          │
-│     ─────────────────────────────────────────────                    │
-│     + Add new server                                                 │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ↑↓: Navigate   Enter: Connect   d: Delete   q: Quit                 │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Add Server
-
-Exibido quando não há servidores salvos ou quando usuário escolhe "+ Add new server".
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI - Add Server                                            │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Server name (alias):                                               │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │ Local Dev█                                                 │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-│   Server URL:                                                        │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │ http://localhost:8000                                      │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-│   Examples:                                                          │
-│     • http://localhost:8000      (local development)                 │
-│     • https://buntime.home       (home server)                       │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Tab: Next   Enter: Connect   Esc: Cancel                            │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Testing Connection
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI                                                         │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                    ⠋ Testing connection...                           │
-│                                                                      │
-│                    https://buntime.home                              │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Please wait...                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== TLS Error Prompt
-
-Exibido quando a conexão falha por erro de certificado.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI                                                         │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   ⚠ TLS Certificate Error                                            │
-│                                                                      │
-│   Could not verify the certificate for https://buntime.home          │
-│                                                                      │
-│   This usually happens with self-signed certificates.                │
-│   Do you want to skip TLS verification for this server?              │
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │                                                            │     │
-│   │   ❯ Yes, skip verification (insecure)                      │     │
-│   │     No, let me fix the certificate                         │     │
-│   │     Change server URL                                      │     │
-│   │                                                            │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ↑↓: Navigate   Enter: Select                                        │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Connection Failed
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI                                                         │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   ✗ Connection Failed                                                │
-│                                                                      │
-│   Could not connect to http://localhost:8000                         │
-│                                                                      │
-│   Error: Connection refused                                          │
-│                                                                      │
-│   Make sure the Buntime server is running and accessible.            │
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │                                                            │     │
-│   │   ❯ Retry connection                                       │     │
-│   │     Change server URL                                      │     │
-│   │     Exit                                                   │     │
-│   │                                                            │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ↑↓: Navigate   Enter: Select   Esc: Cancel                          │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Token Prompt (401 Response)
-
-Exibido quando o servidor retorna 401 Unauthorized durante a conexão inicial.
-
-NOTE: Para 401 durante operações (List, Install, Remove), veja <<Interceptor de Autenticação (401)>>.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI                                    https://buntime.home │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   ⚠ Authentication Required                                          │
-│                                                                      │
-│   The server requires authentication.                                │
-│                                                                      │
-│   Enter authentication token:                                        │
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │ █                                                          │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-│   [x] Save token for this server                                     │
-│                                                                      │
-│   Tip: You can also set BUNTIME_TOKEN environment variable.          │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Enter: Continue   Esc: Cancel                                       │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Connection Success (Auto-save)
-
-Servidor salvo automaticamente após conexão bem sucedida.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI                                                         │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                      ✓ Connected!                                    │
-│                                                                      │
-│                      Local Dev                                       │
-│                      http://localhost:8000                           │
-│                                                                      │
-│                      Server saved for future use.                    │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Press Enter to continue...                                          │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-NOTE: Esta tela aparece brevemente (1-2s) antes de ir para o Menu.
-
-==== Splash Screen (Com Config Existente)
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│                                                                      │
-│    ██████╗ ██╗   ██╗███╗   ██╗████████╗██╗███╗   ███╗███████╗        │
-│    ██╔══██╗██║   ██║████╗  ██║╚══██╔══╝██║████╗ ████║██╔════╝        │
-│    ██████╔╝██║   ██║██╔██╗ ██║   ██║   ██║██╔████╔██║█████╗          │
-│    ██╔══██╗██║   ██║██║╚██╗██║   ██║   ██║██║╚██╔╝██║██╔══╝          │
-│    ██████╔╝╚██████╔╝██║ ╚████║   ██║   ██║██║ ╚═╝ ██║███████╗        │
-│    ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝     ╚═╝╚══════╝        │
-│                                                                      │
-│                         CLI v1.0.0                                   │
-│                                                                      │
-│    Server: http://localhost:8000                                     │
-│    Status: ● Connected                                               │
-│                                                                      │
-│    Press any key to continue...                                      │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Main Menu
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI                                   http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   What would you like to manage?                                     │
-│                                                                      │
-│   ❯ Plugins                    Manage installed plugins              │
-│     Apps                       Manage installed applications         │
-│     Settings                   Manage servers and connections        │
-│     ─────────────────────────────────────────────                    │
-│     Exit                       Quit the CLI                          │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ↑↓: Navigate   Enter: Select   q: Quit                              │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Plugin Menu
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins                         http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Plugin Management                                                  │
-│                                                                      │
-│   ❯ List                       View all installed plugins            │
-│     Install                    Install plugin from tarball           │
-│     Remove                     Remove an installed plugin            │
-│     ─────────────────────────────────────────────                    │
-│     Back                       Return to main menu                   │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ↑↓: Navigate   Enter: Select   Esc: Back   q: Quit                  │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Plugin List
-
-Lista plugins instalados com status enabled/disabled. O estado é controlado via database e persiste entre reinicializações.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > List                  http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Installed Plugins (4)                                              │
-│                                                                      │
-│      Status  Name                                                    │
-│   ────────── ─────────────────────────────────────────               │
-│ > ● ON      @buntime/plugin-keyval@1.0.0                             │
-│   ● ON      @buntime/plugin-deployments@1.0.0                        │
-│   ○ OFF     @buntime/plugin-database@1.0.0                           │
-│   ● ON      @buntime/plugin-metrics@1.0.0                            │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ↑↓: Navigate   Space/Enter: Toggle   r: Refresh   i: Install   Esc: Back │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-**Indicadores de status:**
-
-[cols="1,1,2"]
-|===
-| Indicador | Significado | Cor
-
-| `●` ON
-| Plugin habilitado (carregado pelo runtime)
-| Verde
-
-| `○` OFF
-| Plugin desabilitado (ignorado pelo runtime)
-| Cinza
-|===
-
-**Comportamento:**
-
-- `Space` ou `Enter` alterna o estado enabled/disabled do plugin selecionado
-- A mudança é salva no database (`buntime.db`) no servidor
-- O plugin será carregado/ignorado na próxima inicialização do runtime
-- Durante o toggle, exibe spinner "Updating..." e desabilita navegação
-
-IMPORTANT: O estado enabled/disabled é controlado pelo campo `enabled` na tabela `plugins` do database do servidor (`buntime.db`), não pelo `manifest.jsonc`.
-
-==== Plugin List (Empty)
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > List                  http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                         No plugins installed                         │
-│                                                                      │
-│              Press 'i' to install your first plugin                  │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  r: Refresh   i: Install   Esc: Back                                 │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Plugin Install - File Selection
-
-Formatos suportados:
-
-- `.tgz` - Tarball compactado
-- `.zip` - Arquivo ZIP
-- Diretório - TUI cria tarball automaticamente antes de enviar
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > Install               http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Install Plugin                                                     │
-│                                                                      │
-│   Enter path to plugin (tarball, zip, or directory):                 │
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │ ./my-plugin█                                               │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-│   Supported: .tgz, .zip, or directory                                │
-│                                                                      │
-│   Recent:                                                            │
-│     ./plugins/auth-plugin-1.0.0.tgz                                  │
-│     ./plugins/my-plugin/                                             │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Enter: Confirm   Tab: Autocomplete   Esc: Cancel                    │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Plugin Install - Packing Directory
-
-Exibido quando o usuário seleciona um diretório.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > Install               http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Install Plugin                                                     │
-│                                                                      │
-│   Directory: ./my-plugin/                                            │
-│                                                                      │
-│                                                                      │
-│                      ⠋ Creating tarball...                           │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Please wait...                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Plugin Install - Uploading
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > Install               http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Install Plugin                                                     │
-│                                                                      │
-│   Source: ./my-plugin/                                               │
-│                                                                      │
-│                                                                      │
-│                      ⠋ Uploading and extracting...                   │
-│                                                                      │
-│                      ████████████████░░░░░░░░░░  65%                 │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Please wait...                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Plugin Install - Success
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > Install               http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Install Plugin                                                     │
-│                                                                      │
-│   ✓ Plugin installed successfully!                                   │
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │  Name:     @company/my-plugin                              │     │
-│   │  Version:  1.0.0                                           │     │
-│   │  Path:     /data/plugins/@company/my-plugin/1.0.0          │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Enter: Continue   i: Install another   Esc: Back                    │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Plugin Install - Error
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > Install               http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Install Plugin                                                     │
-│                                                                      │
-│   ✗ Installation failed                                              │
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │  Error: Upload failed: 401 - Unauthorized                  │     │
-│   │                                                            │     │
-│   │  Make sure you have a valid authentication token.          │     │
-│   │  Go to Settings to configure your token.                   │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  r: Retry   s: Settings   Esc: Back                                  │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Plugin Remove - Selection
-
-Primeiro seleciona qual plugin remover.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > Remove                http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Select a plugin to remove:                                         │
-│                                                                      │
-│   ❯ @buntime/plugin-keyval          (1 version)                      │
-│     @buntime/plugin-deployments     (3 versions)                     │
-│     @buntime/plugin-metrics         (1 version)                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ↑↓: Navigate   Enter: Select   Esc: Cancel                          │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Plugin Remove - Version Selection
-
-Checkboxes para selecionar versões. "All versions" é excludente com seleções individuais.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > Remove                http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   @buntime/plugin-deployments                                        │
-│                                                                      │
-│   Select versions to remove:                                         │
-│                                                                      │
-│     ( ) All versions                                                 │
-│   ─────────────────────────────────────────────                      │
-│     [x] 1.0.0                                                        │
-│     [x] 1.1.0                                                        │
-│   ❯ [ ] 1.2.0                                                        │
-│                                                                      │
-│                                                                      │
-│                               Selected: 2 versions                   │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ↑↓: Navigate   Space: Toggle   Enter: Confirm   Esc: Back           │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-**Comportamento:**
-
-- `Space` marca/desmarca checkbox
-- Selecionar "All versions" desmarca todas as versões individuais
-- Selecionar qualquer versão individual desmarca "All versions"
-- `Enter` só funciona se pelo menos uma opção estiver selecionada
-
-==== Plugin Remove - Version Selection (All)
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > Remove                http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   @buntime/plugin-deployments                                        │
-│                                                                      │
-│   Select versions to remove:                                         │
-│                                                                      │
-│   ❯ (•) All versions                                                 │
-│   ─────────────────────────────────────────────                      │
-│     [ ] 1.0.0                                                        │
-│     [ ] 1.1.0                                                        │
-│     [ ] 1.2.0                                                        │
-│                                                                      │
-│                                                                      │
-│                               Selected: All (3 versions)             │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ↑↓: Navigate   Space: Toggle   Enter: Confirm   Esc: Back           │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-NOTE: Para plugins com apenas 1 versão, pula direto para confirmação.
-
-==== Plugin Remove - Confirmation
-
-Mostra as versões selecionadas para remoção.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > Remove                http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │                                                            │     │
-│   │   Are you sure you want to remove these versions?          │     │
-│   │                                                            │     │
-│   │   @buntime/plugin-deployments                              │     │
-│   │                                                            │     │
-│   │   Versions to be removed:                                  │     │
-│   │     • 1.0.0                                                │     │
-│   │     • 1.1.0                                                │     │
-│   │                                                            │     │
-│   │   This action cannot be undone.                            │     │
-│   │                                                            │     │
-│   │                     [ Cancel ]   [ Remove ]                │     │
-│   │                                      ▲                     │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ←→: Navigate   Enter: Confirm   Esc: Cancel                         │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-NOTE: O botão mostra "Remove" para versões parciais e "Remove All" quando todas estão selecionadas.
-
-==== Plugin Remove - Success
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Plugins > Remove                http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│             ✓ Plugin removed successfully                            │
-│                                                                      │
-│               @buntime/plugin-deployments                            │
-│               Removed: 1.0.0, 1.1.0                                  │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Enter: Continue   Esc: Back                                         │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== App Menu
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Apps                            http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   App Management                                                     │
-│                                                                      │
-│   ❯ List                       View all installed apps               │
-│     Install                    Install app from tarball              │
-│     Remove                     Remove an installed app               │
-│     ─────────────────────────────────────────────                    │
-│     Back                       Return to main menu                   │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ↑↓: Navigate   Enter: Select   Esc: Back   q: Quit                  │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== App List
-
-Lista cada versão instalada separadamente para clareza.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Apps > List                     http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Installed Apps (3)                                                 │
-│                                                                      │
-│   App                           Path                                 │
-│   ────────────────────────────  ────────────────────────────────     │
-│   todos-kv@1.0.0                /data/apps/todos-kv/1.0.0            │
-│   hello-api@1.0.0               /data/apps/hello-api/1.0.0           │
-│   hello-api@1.1.0               /data/apps/hello-api/1.1.0           │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  r: Refresh   Esc: Back   q: Quit                                    │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== App Install - File Selection
-
-Mesmos formatos suportados que plugins.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Apps > Install                  http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Install App                                                        │
-│                                                                      │
-│   Enter path to app (tarball, zip, or directory):                    │
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │ ./my-app█                                                  │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-│   Supported: .tgz, .zip, or directory                                │
-│                                                                      │
-│   Recent:                                                            │
-│     ./apps/dashboard-1.0.0.tgz                                       │
-│     ./apps/my-app/                                                   │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Enter: Confirm   Tab: Autocomplete   Esc: Cancel                    │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== App Install - Success
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Apps > Install                  http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Install App                                                        │
-│                                                                      │
-│   ✓ App installed successfully!                                      │
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │  Name:     my-app                                          │     │
-│   │  Version:  1.0.0                                           │     │
-│   │  Path:     /data/apps/my-app/1.0.0                         │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Enter: Continue   i: Install another   Esc: Back                    │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== App Remove - Selection
-
-Primeiro seleciona qual app remover.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Apps > Remove                   http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Select an app to remove:                                           │
-│                                                                      │
-│   ❯ todos-kv                        (1 version)                      │
-│     hello-api                       (2 versions)                     │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ↑↓: Navigate   Enter: Select   Esc: Cancel                          │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== App Remove - Version Selection
-
-Checkboxes para selecionar versões. "All versions" é excludente com seleções individuais.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Apps > Remove                   http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   hello-api                                                          │
-│                                                                      │
-│   Select versions to remove:                                         │
-│                                                                      │
-│     ( ) All versions                                                 │
-│   ─────────────────────────────────────────────                      │
-│   ❯ [x] 1.0.0                                                        │
-│     [ ] 1.1.0                                                        │
-│                                                                      │
-│                                                                      │
-│                               Selected: 1 version                    │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ↑↓: Navigate   Space: Toggle   Enter: Confirm   Esc: Back           │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-NOTE: Para apps com apenas 1 versão, pula direto para confirmação.
-
-==== App Remove - Confirmation
-
-Mostra as versões selecionadas para remoção.
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Apps > Remove                   http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │                                                            │     │
-│   │   Are you sure you want to remove these versions?          │     │
-│   │                                                            │     │
-│   │   hello-api                                                │     │
-│   │                                                            │     │
-│   │   Versions to be removed:                                  │     │
-│   │     • 1.0.0                                                │     │
-│   │                                                            │     │
-│   │   This action cannot be undone.                            │     │
-│   │                                                            │     │
-│   │                     [ Cancel ]   [ Remove ]                │     │
-│   │                                      ▲                     │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ←→: Navigate   Enter: Confirm   Esc: Cancel                         │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-NOTE: O botão mostra "Remove" para versões parciais e "Remove All" quando todas estão selecionadas.
-
-==== App Remove - Success
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Apps > Remove                   http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│             ✓ App removed successfully                               │
-│                                                                      │
-│               hello-api                                              │
-│               Removed: 1.0.0                                         │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Enter: Continue   Esc: Back                                         │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Settings
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Settings                        http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Saved Servers                                                      │
-│                                                                      │
-│   ❯ ● Local Dev              http://localhost:8000                   │
-│       Production             https://buntime.prod.com                │
-│       Staging                https://buntime.staging.com             │
-│                                                                      │
-│   ─────────────────────────────────────────────                      │
-│                                                                      │
-│   [ Add Server ]   [ Edit ]   [ Remove ]   [ Reset All ]             │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ↑↓: Navigate   Enter: Connect   e: Edit   d: Delete   Esc: Back     │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-NOTE: O servidor ativo (conectado) é indicado com `●`. Selecionar outro servidor reconecta automaticamente.
-
-==== Settings - Edit Server
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Settings > Edit                 http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Edit Server                                                        │
-│                                                                      │
-│   Name                                                               │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │ Local Dev█                                                 │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-│   URL                                                                │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │ http://localhost:8000                                      │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-│   Auth Token (optional)                                              │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │ ••••••••••••••••••••                                       │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-│   [x] Skip TLS verification (insecure)                               │
-│                                                                      │
-│                        [ Cancel ]   [ Save ]                         │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Tab: Next   Shift+Tab: Prev   Enter: Select   Esc: Cancel           │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Settings - Remove Server
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Settings                        http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │                                                            │     │
-│   │   Remove Server                                            │     │
-│   │                                                            │     │
-│   │   Are you sure you want to remove this server?             │     │
-│   │                                                            │     │
-│   │   Name: Production                                         │     │
-│   │   URL:  https://buntime.prod.com                           │     │
-│   │                                                            │     │
-│   │                  [ Cancel ]   [ Remove ]                   │     │
-│   │                                   ▲                        │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ←→: Navigate   Enter: Confirm   Esc: Cancel                         │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-WARNING: Se remover o servidor ativo, o CLI reconecta ao próximo servidor da lista ou mostra "Add Server".
-
-==== Settings - Reset Confirmation
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Settings                        http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │                                                            │     │
-│   │   Reset All Data                                           │     │
-│   │                                                            │     │
-│   │   This will delete all saved data:                         │     │
-│   │     • All saved servers (3 servers)                        │     │
-│   │     • Auth tokens                                          │     │
-│   │     • Global preferences                                   │     │
-│   │                                                            │     │
-│   │   You will need to add a server again.                     │     │
-│   │                                                            │     │
-│   │                  [ Cancel ]   [ Reset ]                    │     │
-│   │                                   ▲                        │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ←→: Navigate   Enter: Confirm   Esc: Cancel                         │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Settings - Reset Success
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Settings                                              │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                    ✓ All Data Reset                                  │
-│                                                                      │
-│              Deleted: ~/.buntime/config.db                           │
-│                                                                      │
-│              You will need to add a server to continue.              │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  Press Enter to continue...                                          │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== Connection Error
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI                                   http://localhost:8000 │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                      ✗ Connection Failed                             │
-│                                                                      │
-│              Could not connect to http://localhost:8000              │
-│                                                                      │
-│              Make sure the Buntime server is running.                │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  r: Retry   s: Settings   q: Quit                                    │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-==== TLS Certificate Error
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI                                    https://buntime.home │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│                                                                      │
-│                                                                      │
-│                      ✗ TLS Certificate Error                         │
-│                                                                      │
-│              Unable to verify the server certificate.                │
-│                                                                      │
-│              If this is a self-signed certificate, you can           │
-│              enable "Skip TLS verification" in Settings.             │
-│                                                                      │
-│                                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  s: Settings   q: Quit                                               │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-=== Atalhos de Teclado
-
-[cols="1,3"]
-|===
-| Tecla | Ação
-
-| `↑` / `k`
-| Navegar para cima
-
-| `↓` / `j`
-| Navegar para baixo
-
-| `Enter`
-| Selecionar / Confirmar
-
-| `Space`
-| Toggle (habilitar/desabilitar plugin)
-
-| `Esc`
-| Voltar / Cancelar
-
-| `Tab`
-| Próximo campo / Autocomplete
-
-| `Shift+Tab`
-| Campo anterior
-
-| `q`
-| Sair (quando não em input)
-
-| `r`
-| Atualizar lista
-
-| `i`
-| Atalho para Install (em listas)
-
-| `d`
-| Atalho para Delete/Remove (em listas)
-
-| `s`
-| Atalho para Settings
-
-| `?`
-| Mostrar ajuda
-|===
-
-=== Estados de Conexão
-
-[cols="1,1,2"]
-|===
-| Indicador | Cor | Significado
-
-| `● Connected`
-| Verde
-| Servidor acessível
-
-| `● Connecting...`
-| Amarelo
-| Verificando conexão
-
-| `● Disconnected`
-| Vermelho
-| Servidor inacessível
-
-| `● TLS Error`
-| Vermelho
-| Erro de certificado
-|===
-
-=== Componentes Reutilizáveis
-
-==== Header
-
-[source]
-----
-┌──────────────────────────────────────────────────────────────────────┐
-│  Buntime CLI > Section > Subsection               http://server:port │
-├──────────────────────────────────────────────────────────────────────┤
-----
-
-- Breadcrumb mostrando navegação atual
-- URL do servidor à direita
-- Status de conexão (implícito pela cor do URL)
-
-==== Footer
-
-[source]
-----
-├──────────────────────────────────────────────────────────────────────┤
-│  [atalhos contextuais]                                               │
-└──────────────────────────────────────────────────────────────────────┘
-----
-
-- Atalhos de teclado mudam conforme o contexto
-- Sempre mostra como voltar/sair
-
-==== Menu Item
-
-[source]
-----
-│   ❯ Label                      Description                           │
-│     Another item               Another description                   │
-----
-
-- `❯` indica item selecionado
-- Descrição à direita (cinza)
-
-==== Input Field
-
-[source]
-----
-│   Label                                                              │
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │ value█                                                     │     │
-│   └────────────────────────────────────────────────────────────┘     │
-----
-
-- Label acima do campo
-- Cursor visível (`█`)
-- Borda para delimitar área de input
-
-==== Table
-
-[source]
-----
-│   Column A      Column B      Column C                               │
-│   ────────────  ────────────  ────────────                           │
-│   Value 1       Value 2       Value 3                                │
-│   Value 4       Value 5       Value 6                                │
-----
-
-- Headers em bold
-- Separador com traços
-- Colunas alinhadas
-
-==== Dialog/Modal
-
-[source]
-----
-│   ┌────────────────────────────────────────────────────────────┐     │
-│   │                                                            │     │
-│   │   Title/Message                                            │     │
-│   │                                                            │     │
-│   │   Content...                                               │     │
-│   │                                                            │     │
-│   │                     [ Cancel ]   [ Confirm ]               │     │
-│   │                                                            │     │
-│   └────────────────────────────────────────────────────────────┘     │
-----
-
-- Box centralizado
-- Botões na parte inferior
-- Botão selecionado com destaque
-
-==== Progress Bar
-
-[source]
-----
-│                      ████████████████░░░░░░░░░░  65%                 │
-----
-
-- Barra preenchida proporcional
-- Percentual à direita
-
-==== Spinner
-
-[source]
-----
-│                      ⠋ Loading...                                    │
-----
-
-- Caracteres: `⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏`
-- Animação rotativa
-
-==== Success/Error Messages
-
-[source]
-----
-│   ✓ Operation completed successfully                                 │
-│   ✗ Operation failed: error message                                  │
-----
-
-- `✓` verde para sucesso
-- `✗` vermelho para erro
-
-=== Transições
-
-==== Menu para Menu
-
-- Transição instantânea
-- Breadcrumb atualiza
-
-==== Menu para Lista
-
-- Loading spinner enquanto busca dados
-- Transição para tabela quando dados chegam
-
-==== Ação Destrutiva
-
-- Sempre requer confirmação via dialog
-- Mostra detalhes do que será removido
-
-==== Operação Assíncrona
-
-- Mostra spinner/progress
-- Desabilita navegação
-- Mostra resultado (sucesso/erro)
-- Retorna controle ao usuário
-
-=== Cores
+                    ┌─────────────┼─────────────┐
+                    ▼             ▼             ▼
+             ┌───────────┐ ┌───────────┐ ┌───────────┐
+             │   Apps    │ │  Plugins  │ │  Settings │
+             │  (panel)  │ │  (panel)  │ │  (panel)  │
+             └─────┬─────┘ └─────┬─────┘ └───────────┘
+                   │             │
+          ┌────────┼────────┐    │
+          ▼        ▼        ▼    │
+     ┌─────────┐┌────────┐┌─────────┐
+     │ Install ││ Remove ││ Details │
+     └─────────┘└────────┘└─────────┘
+----
+
+=== Screen Types
 
 [cols="1,2"]
 |===
-| Elemento | Cor
+| Type | Description
 
-| Texto normal
-| Branco/Default
+| **Splash**
+| Full-screen with logo and server list
 
-| Item selecionado
-| Ciano/Azul
+| **Dashboard**
+| Grid layout with stats and quick actions
 
-| Texto secundário
-| Cinza
+| **Panel**
+| List view with actions (apps/plugins)
 
-| Sucesso
-| Verde
+| **Modal**
+| Centered dialog for confirmations
 
-| Erro
-| Vermelho
+| **Form**
+| Multi-field input forms
 
-| Warning
-| Amarelo
-
-| Input focus
-| Ciano border
-
-| Disabled
-| Cinza escuro
+| **Progress**
+| Upload/download progress with animation
 |===
 
-=== Responsividade
+== Screen Designs
 
-A TUI deve se adaptar ao tamanho do terminal:
+=== Server Selection (Splash Screen)
 
-- **Largura mínima:** 60 colunas
-- **Largura ideal:** 80 colunas
-- **Se menor:** Truncar textos longos com `...`
-- **Se maior:** Expandir espaçamentos
+Full-screen welcome with server list and keyboard hints.
 
 [source]
 ----
-// Exemplo de truncamento
-@buntime/plugin-very-long-name... -> @buntime/plugin-ver...
+╭──────────────────────────────────────────────────────────────────────╮
+│                                                                      │
+│                                                                      │
+│     ██████╗ ██╗   ██╗███╗   ██╗████████╗██╗███╗   ███╗███████╗      │
+│     ██╔══██╗██║   ██║████╗  ██║╚══██╔══╝██║████╗ ████║██╔════╝      │
+│     ██████╔╝██║   ██║██╔██╗ ██║   ██║   ██║██╔████╔██║█████╗        │
+│     ██╔══██╗██║   ██║██║╚██╗██║   ██║   ██║██║╚██╔╝██║██╔══╝        │
+│     ██████╔╝╚██████╔╝██║ ╚████║   ██║   ██║██║ ╚═╝ ██║███████╗      │
+│     ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝     ╚═╝╚══════╝      │
+│                                                                      │
+│                      Runtime Worker Pool Manager                     │
+│                              v1.0.0                                  │
+│                                                                      │
+│  ─────────────────────────────────────────────────────────────────  │
+│                                                                      │
+│   SAVED SERVERS                                                      │
+│                                                                      │
+│   ● Production           https://buntime.example.com       2h ago   │
+│   ○ Staging              https://staging.example.com       1d ago   │
+│   ○ Local                http://localhost:8000             5m ago   │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│  ─────────────────────────────────────────────────────────────────  │
+│                                                                      │
+│   ↑↓ navigate   ⏎ connect   a add   e edit   d delete   ? help      │
+│                                                                      │
+╰──────────────────────────────────────────────────────────────────────╯
 ----
 
-=== Persistência de Estado
+**Features:**
 
-==== Banco SQLite
+* ASCII art logo with gradient effect (Lip Gloss)
+* Server list with fuzzy search (`/` to search)
+* Last used indicator with relative time
+* Connection status dot (green = last connected)
+* Animated logo on startup (Harmonica spring)
 
-Localização: `~/.buntime/config.db`
+=== Add Server (Form)
 
-**Schema:**
+Clean form with validation feedback.
 
-[source,sql]
+[source]
 ----
--- Lista de servidores salvos
-CREATE TABLE servers (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  name         TEXT NOT NULL,           -- alias/apelido (ex: "Local", "Production")
-  url          TEXT NOT NULL UNIQUE,    -- URL do servidor
-  token        TEXT,                    -- token de auth (NULL se não precisar)
-  insecure     INTEGER DEFAULT 0,       -- 1 = skip TLS verification
-  last_used_at INTEGER,                 -- timestamp do último uso
-  created_at   INTEGER DEFAULT (unixepoch())
-);
-
--- Configurações globais
-CREATE TABLE config (
-  key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
--- Ex: last_server_id = ID do último servidor usado
+╭──────────────────────────────────────────────────────────────────────╮
+│                                                                      │
+│   ADD SERVER                                                         │
+│                                                                      │
+│   ╭────────────────────────────────────────────────────────────────╮ │
+│   │                                                                │ │
+│   │   Name (optional)                                              │ │
+│   │   ┌──────────────────────────────────────────────────────────┐ │ │
+│   │   │ Production                                             │ │ │
+│   │   └──────────────────────────────────────────────────────────┘ │ │
+│   │   Auto-generated from hostname if empty                        │ │
+│   │                                                                │ │
+│   │   URL *                                                        │ │
+│   │   ┌──────────────────────────────────────────────────────────┐ │ │
+│   │   │ https://buntime.example.com█                           │ │ │
+│   │   └──────────────────────────────────────────────────────────┘ │ │
+│   │                                                                │ │
+│   │   ☐ Skip TLS verification (insecure)                          │ │
+│   │                                                                │ │
+│   │                           ┌──────────┐  ┌──────────┐          │ │
+│   │                           │  Cancel  │  │   Save   │          │ │
+│   │                           └──────────┘  └──────────┘          │ │
+│   │                                                                │ │
+│   ╰────────────────────────────────────────────────────────────────╯ │
+│                                                                      │
+│   tab next   shift+tab prev   ⏎ submit   esc cancel                 │
+│                                                                      │
+╰──────────────────────────────────────────────────────────────────────╯
 ----
 
-**Dados da tabela `servers`:**
+**Features:**
 
-[cols="1,1,2"]
-|===
-| Campo | Tipo | Descrição
+* Real-time URL validation
+* Auto-focus on first field
+* Tab navigation between fields
+* Checkbox with space toggle
+* Inline error messages (red border + message)
 
-| `name`
-| TEXT
-| Apelido do servidor (ex: "Local Dev", "Production")
+=== Connection Testing (Progress)
 
-| `url`
-| TEXT
-| URL do servidor Buntime
+Animated connection test with status updates.
 
-| `token`
-| TEXT (nullable)
-| Token de autenticação (só salvo se servidor retornar 401)
+[source]
+----
+╭──────────────────────────────────────────────────────────────────────╮
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                           ⠋ Connecting...                            │
+│                                                                      │
+│                      https://buntime.example.com                     │
+│                                                                      │
+│                                                                      │
+│                      ━━━━━━━━━━━━━░░░░░░░░░░░░  45%                  │
+│                                                                      │
+│                      ✓ DNS resolved                                  │
+│                      ✓ TCP connected                                 │
+│                      ✓ TLS handshake                                 │
+│                      ⠋ Authenticating...                             │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│   esc cancel                                                         │
+│                                                                      │
+╰──────────────────────────────────────────────────────────────────────╯
+----
 
-| `insecure`
-| INTEGER
-| 0 = verificar TLS, 1 = pular verificação
+**Features:**
 
-| `last_used_at`
-| INTEGER
-| Timestamp do último uso (para ordenação)
-|===
+* Animated spinner (bubbles spinner)
+* Progress bar with percentage
+* Step-by-step status checklist
+* Smooth transitions between states
 
-==== Variáveis de Ambiente
+=== Token Prompt (Modal)
 
-Variáveis de ambiente têm prioridade sobre o banco SQLite:
+Centered modal for authentication.
+
+[source]
+----
+╭──────────────────────────────────────────────────────────────────────╮
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│            ╭────────────────────────────────────────────╮            │
+│            │                                            │            │
+│            │   AUTHENTICATION REQUIRED                  │            │
+│            │                                            │            │
+│            │   Server requires authentication token.    │            │
+│            │                                            │            │
+│            │   Token                                    │            │
+│            │   ┌──────────────────────────────────────┐ │            │
+│            │   │ ••••••••••••••••••••••••••••••••█    │ │            │
+│            │   └──────────────────────────────────────┘ │            │
+│            │                                            │            │
+│            │   ☑ Save token for this server             │            │
+│            │                                            │            │
+│            │            ┌──────────┐  ┌──────────┐     │            │
+│            │            │  Cancel  │  │ Connect  │     │            │
+│            │            └──────────┘  └──────────┘     │            │
+│            │                                            │            │
+│            ╰────────────────────────────────────────────╯            │
+│                                                                      │
+│                                                                      │
+╰──────────────────────────────────────────────────────────────────────╯
+----
+
+**Features:**
+
+* Password masking (dots)
+* Reveal toggle with `ctrl+r`
+* Remember checkbox
+* Shadow effect on modal (Lip Gloss)
+
+=== Main Menu (Dashboard)
+
+Dashboard with stats and quick actions.
+
+[source]
+----
+╭──────────────────────────────────────────────────────────────────────╮
+│  ● Production                             buntime.example.com   v1.0 │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   RUNTIME STATUS                                                     │
+│                                                                      │
+│   ╭──────────────────╮  ╭──────────────────╮  ╭──────────────────╮   │
+│   │      APPS        │  │     PLUGINS      │  │     WORKERS      │   │
+│   │                  │  │                  │  │                  │   │
+│   │        12        │  │         8        │  │      45/100      │   │
+│   │     running      │  │      enabled     │  │      active      │   │
+│   ╰──────────────────╯  ╰──────────────────╯  ╰──────────────────╯   │
+│                                                                      │
+│   ─────────────────────────────────────────────────────────────────  │
+│                                                                      │
+│   QUICK ACTIONS                                                      │
+│                                                                      │
+│   › Manage Apps                      View and manage applications    │
+│     Manage Plugins                   Enable, disable, install        │
+│     View Logs                        Real-time server logs           │
+│     Settings                         Server configuration            │
+│                                                                      │
+│   ─────────────────────────────────────────────────────────────────  │
+│                                                                      │
+│   ↑↓ navigate   ⏎ select   s servers   q quit   ? help               │
+│                                                                      │
+╰──────────────────────────────────────────────────────────────────────╯
+----
+
+**Features:**
+
+* Status cards with colored borders
+* Real-time stats (polling)
+* Menu with descriptions
+* Server indicator in header
+* Keyboard shortcuts visible
+
+=== Apps Panel (List View)
+
+Tabular list with inline actions.
+
+[source]
+----
+╭──────────────────────────────────────────────────────────────────────╮
+│  ● Production                             buntime.example.com   v1.0 │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   APPLICATIONS                                       Filter: ____    │
+│                                                                      │
+│   ┌────────────────────────────────────────────────────────────────┐ │
+│   │ NAME              VERSION     STATUS      WORKERS    MEMORY    │ │
+│   ├────────────────────────────────────────────────────────────────┤ │
+│   │ › todos-kv        1.2.0       ● running   3/5        128 MB    │ │
+│   │   skedly          2.0.1       ● running   2/5         96 MB    │ │
+│   │   admin-panel     1.0.0       ● running   1/5         64 MB    │ │
+│   │   api-gateway     3.1.2       ○ stopped   0/5          0 MB    │ │
+│   │   worker-demo     0.5.0       ● running   1/5         32 MB    │ │
+│   │                                                                │ │
+│   │                                                                │ │
+│   │                                                                │ │
+│   │                                              showing 5 of 12   │ │
+│   └────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│   ─────────────────────────────────────────────────────────────────  │
+│                                                                      │
+│   ↑↓ navigate   ⏎ details   i install   d delete   r refresh        │
+│   / filter   space select multiple   esc back                        │
+│                                                                      │
+╰──────────────────────────────────────────────────────────────────────╯
+----
+
+**Features:**
+
+* Sortable columns (click header or `s`)
+* Fuzzy filter with `/`
+* Multi-select with space
+* Status indicators with color
+* Pagination with scroll
+* Bulk actions on selection
+
+=== App Details (Split View)
+
+Detailed view with tabs.
+
+[source]
+----
+╭──────────────────────────────────────────────────────────────────────╮
+│  ● Production                             buntime.example.com   v1.0 │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   ← todos-kv                                                         │
+│                                                                      │
+│   ┌─────────┬──────────┬──────────┬──────────┐                       │
+│   │ Overview│  Workers │   Logs   │  Config  │                       │
+│   └─────────┴──────────┴──────────┴──────────┘                       │
+│                                                                      │
+│   ╭──────────────────────────────────────────────────────────────╮   │
+│   │                                                              │   │
+│   │   Status          ● Running                                  │   │
+│   │   Version         1.2.0                                      │   │
+│   │   Path            /apps/todos-kv                             │   │
+│   │   Workers         3 of 5 active                              │   │
+│   │   Memory          128 MB (avg 42 MB per worker)              │   │
+│   │   Uptime          2d 14h 32m                                 │   │
+│   │                                                              │   │
+│   │   AVAILABLE VERSIONS                                         │   │
+│   │   1.2.0 (current)  •  1.1.0  •  1.0.0                        │   │
+│   │                                                              │   │
+│   │   ACTIONS                                                    │   │
+│   │   [Restart]  [Stop]  [Scale Workers]  [Delete]               │   │
+│   │                                                              │   │
+│   ╰──────────────────────────────────────────────────────────────╯   │
+│                                                                      │
+│   1-4 tabs   ⏎ action   esc back                                    │
+│                                                                      │
+╰──────────────────────────────────────────────────────────────────────╯
+----
+
+**Features:**
+
+* Tab navigation with number keys
+* Action buttons with focus
+* Version history
+* Real-time stats refresh
+
+=== Plugins Panel
+
+Similar to apps but with enable/disable toggle.
+
+[source]
+----
+╭──────────────────────────────────────────────────────────────────────╮
+│  ● Production                             buntime.example.com   v1.0 │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   PLUGINS                                            Filter: ____    │
+│                                                                      │
+│   ┌────────────────────────────────────────────────────────────────┐ │
+│   │ STATUS  NAME                  VERSION     BASE       DEPS      │ │
+│   ├────────────────────────────────────────────────────────────────┤ │
+│   │ › ✓     plugin-keyval         1.0.0       /keyval    database  │ │
+│   │   ✓     plugin-database       1.0.0       -          -         │ │
+│   │   ✓     plugin-metrics        1.0.0       /metrics   -         │ │
+│   │   ✗     plugin-auth           0.9.0       /auth      database  │ │
+│   │   ✓     plugin-cache          1.2.0       /cache     -         │ │
+│   │                                                                │ │
+│   │                                                                │ │
+│   │                                              showing 5 of 8    │ │
+│   └────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│   ─────────────────────────────────────────────────────────────────  │
+│                                                                      │
+│   ↑↓ navigate   space toggle   i install   d delete   r refresh     │
+│   / filter   esc back                                                │
+│                                                                      │
+╰──────────────────────────────────────────────────────────────────────╯
+----
+
+**Features:**
+
+* Space to toggle enable/disable
+* Status indicator (checkmark/cross)
+* Dependency visualization
+* Inline confirmation for disable
+
+=== Install (File Browser + Progress)
+
+Combined file selection and upload progress.
+
+[source]
+----
+╭──────────────────────────────────────────────────────────────────────╮
+│  ● Production                             buntime.example.com   v1.0 │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   INSTALL PLUGIN                                                     │
+│                                                                      │
+│   ╭────────────────────────────────────────────────────────────────╮ │
+│   │                                                                │ │
+│   │   File Path                                                    │ │
+│   │   ┌──────────────────────────────────────────────────────────┐ │ │
+│   │   │ ~/Downloads/plugin-auth-1.0.0.tgz█                       │ │ │
+│   │   └──────────────────────────────────────────────────────────┘ │ │
+│   │                                                                │ │
+│   │   Supported: .tgz, .tar.gz, .zip                               │ │
+│   │                                                                │ │
+│   │   RECENT FILES                                                 │ │
+│   │   › ~/Downloads/plugin-auth-1.0.0.tgz           2 hours ago    │ │
+│   │     ~/Downloads/plugin-cache-1.2.0.tgz          1 day ago      │ │
+│   │     ~/Downloads/app-bundle.zip                  3 days ago     │ │
+│   │                                                                │ │
+│   │                           ┌──────────┐  ┌──────────┐          │ │
+│   │                           │  Cancel  │  │ Install  │          │ │
+│   │                           └──────────┘  └──────────┘          │ │
+│   │                                                                │ │
+│   ╰────────────────────────────────────────────────────────────────╯ │
+│                                                                      │
+│   tab autocomplete   ↑↓ history   ⏎ install   esc cancel            │
+│                                                                      │
+╰──────────────────────────────────────────────────────────────────────╯
+----
+
+Upload progress state:
+
+[source]
+----
+│   ╭────────────────────────────────────────────────────────────────╮ │
+│   │                                                                │ │
+│   │                     UPLOADING PLUGIN                           │ │
+│   │                                                                │ │
+│   │   plugin-auth-1.0.0.tgz                                        │ │
+│   │                                                                │ │
+│   │   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━░░░░░░░░░  78%             │ │
+│   │                                                                │ │
+│   │   2.3 MB / 3.0 MB                          1.2 MB/s            │ │
+│   │                                                                │ │
+│   │   ✓ Validating file format                                     │ │
+│   │   ✓ Reading manifest                                           │ │
+│   │   ⠋ Uploading to server...                                     │ │
+│   │   ○ Extracting files                                           │ │
+│   │   ○ Registering plugin                                         │ │
+│   │                                                                │ │
+│   ╰────────────────────────────────────────────────────────────────╯ │
+----
+
+**Features:**
+
+* Path autocomplete with Tab
+* Recent files history
+* File validation before upload
+* Detailed progress with steps
+* Speed and ETA display
+* Cancel with Esc
+
+=== Remove (Multi-Select + Confirm)
+
+Version selection with confirmation modal.
+
+[source]
+----
+╭──────────────────────────────────────────────────────────────────────╮
+│  ● Production                             buntime.example.com   v1.0 │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   REMOVE PLUGIN                                                      │
+│                                                                      │
+│   Select versions to remove from plugin-keyval:                      │
+│                                                                      │
+│   ┌────────────────────────────────────────────────────────────────┐ │
+│   │ ☑ 1.0.0        /apps/plugins/plugin-keyval/1.0.0    current   │ │
+│   │ ☐ 0.9.0        /apps/plugins/plugin-keyval/0.9.0              │ │
+│   │ ☑ 0.8.0        /apps/plugins/plugin-keyval/0.8.0              │ │
+│   └────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│   2 versions selected                                                │
+│                                                                      │
+│   WARNING: Removing 1.0.0 will disable this plugin as it's the      │
+│   current active version.                                            │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                           ┌──────────┐  ┌──────────┐                │
+│                           │  Cancel  │  │  Remove  │                │
+│                           └──────────┘  └──────────┘                │
+│                                                                      │
+│   space toggle   a select all   n select none   ⏎ confirm            │
+│                                                                      │
+╰──────────────────────────────────────────────────────────────────────╯
+----
+
+**Features:**
+
+* Multi-select checkboxes
+* Select all/none shortcuts
+* Warning for destructive actions
+* Current version indicator
+
+=== Confirmation Modal
+
+Animated confirmation dialog.
+
+[source]
+----
+│            ╭────────────────────────────────────────────╮            │
+│            │                                            │            │
+│            │   ⚠ CONFIRM REMOVAL                        │            │
+│            │                                            │            │
+│            │   You are about to remove:                 │            │
+│            │                                            │            │
+│            │   • plugin-keyval v1.0.0                   │            │
+│            │   • plugin-keyval v0.8.0                   │            │
+│            │                                            │            │
+│            │   This action cannot be undone.            │            │
+│            │                                            │            │
+│            │                                            │            │
+│            │   Type "remove" to confirm:                │            │
+│            │   ┌──────────────────────────────────────┐ │            │
+│            │   │ remov█                               │ │            │
+│            │   └──────────────────────────────────────┘ │            │
+│            │                                            │            │
+│            │            ┌──────────┐  ┌──────────┐     │            │
+│            │            │  Cancel  │  │ Confirm  │     │            │
+│            │            └──────────┘  └──────────┘     │            │
+│            │                                            │            │
+│            ╰────────────────────────────────────────────╯            │
+----
+
+**Features:**
+
+* Type-to-confirm for destructive actions
+* Animated modal entrance (spring)
+* Disabled confirm button until typed
+* List of affected items
+
+=== Settings Panel
+
+Tabbed settings with server management.
+
+[source]
+----
+╭──────────────────────────────────────────────────────────────────────╮
+│  ● Production                             buntime.example.com   v1.0 │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   SETTINGS                                                           │
+│                                                                      │
+│   ┌──────────┬──────────┬──────────┐                                 │
+│   │ Servers  │  Theme   │  About   │                                 │
+│   └──────────┴──────────┴──────────┘                                 │
+│                                                                      │
+│   SAVED SERVERS                                                      │
+│                                                                      │
+│   ┌────────────────────────────────────────────────────────────────┐ │
+│   │ NAME              URL                           STATUS          │ │
+│   ├────────────────────────────────────────────────────────────────┤ │
+│   │ › Production      https://buntime.example.com   ● connected    │ │
+│   │   Staging         https://staging.example.com   ○ saved        │ │
+│   │   Local           http://localhost:8000         ○ saved        │ │
+│   └────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│   ─────────────────────────────────────────────────────────────────  │
+│                                                                      │
+│   1-3 tabs   e edit   d delete   a add   r reset all   esc back     │
+│                                                                      │
+╰──────────────────────────────────────────────────────────────────────╯
+----
+
+=== Logs View (Live Stream)
+
+Real-time log viewer with filtering.
+
+[source]
+----
+╭──────────────────────────────────────────────────────────────────────╮
+│  ● Production                             buntime.example.com   v1.0 │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   LOGS                    Filter: error    Level: [ALL] [ERR] [WRN] │
+│                                                                      │
+│   ┌────────────────────────────────────────────────────────────────┐ │
+│   │ 14:32:15 INFO  [todos-kv]    Worker started (pid: 12345)       │ │
+│   │ 14:32:16 DEBUG [todos-kv]    Request: GET /api/todos           │ │
+│   │ 14:32:16 ERROR [todos-kv]    Database connection failed        │ │
+│   │ 14:32:17 WARN  [api-gw]      Rate limit approaching (80%)      │ │
+│   │ 14:32:18 INFO  [skedly]      Job completed: daily-backup       │ │
+│   │ 14:32:19 ERROR [api-gw]      Request timeout after 30s         │ │
+│   │ 14:32:20 DEBUG [keyval]      Cache miss: user:123              │ │
+│   │ 14:32:21 INFO  [todos-kv]    Request completed: 200 (45ms)     │ │
+│   │                                                                │ │
+│   │                                                     ▼ auto     │ │
+│   └────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│   ─────────────────────────────────────────────────────────────────  │
+│                                                                      │
+│   / filter   1-4 level   p pause   c clear   ↑↓ scroll   esc back   │
+│                                                                      │
+╰──────────────────────────────────────────────────────────────────────╯
+----
+
+**Features:**
+
+* Color-coded log levels
+* Real-time streaming (SSE/WebSocket)
+* Fuzzy filter with `/`
+* Level filtering with number keys
+* Pause/resume scrolling
+* Auto-scroll indicator
+* App name filtering
+
+=== Help Screen (Quick Reference)
+
+Overlay with keyboard shortcuts.
+
+[source]
+----
+│            ╭────────────────────────────────────────────╮            │
+│            │                                            │            │
+│            │   KEYBOARD SHORTCUTS                       │            │
+│            │                                            │            │
+│            │   NAVIGATION                               │            │
+│            │   ↑/k         Move up                      │            │
+│            │   ↓/j         Move down                    │            │
+│            │   ⏎           Select / Confirm             │            │
+│            │   esc         Go back / Cancel             │            │
+│            │   tab         Next field                   │            │
+│            │   shift+tab   Previous field               │            │
+│            │                                            │            │
+│            │   GLOBAL                                   │            │
+│            │   ?           Toggle this help             │            │
+│            │   s           Switch server                │            │
+│            │   q           Quit                         │            │
+│            │   ctrl+c      Force quit                   │            │
+│            │                                            │            │
+│            │   LISTS                                    │            │
+│            │   /           Filter                       │            │
+│            │   space       Toggle select                │            │
+│            │   a           Select all                   │            │
+│            │   r           Refresh                      │            │
+│            │                                            │            │
+│            │            Press any key to close          │            │
+│            │                                            │            │
+│            ╰────────────────────────────────────────────╯            │
+----
+
+== Component Library
+
+=== Bubbles Components to Use
 
 [cols="1,2"]
 |===
-| Variável | Descrição
+| Component | Usage
 
-| `BUNTIME_URL`
-| URL do servidor (sobrescreve config)
+| `textinput`
+| All text fields (URL, token, filter, path)
 
-| `BUNTIME_TOKEN`
-| Token de autenticação (sobrescreve config)
+| `list`
+| Server list, app/plugin lists, version selection
 
-| `BUNTIME_INSECURE`
-| Set para "true" ou "1" para pular verificação TLS
+| `table`
+| Data tables (apps, plugins, logs)
+
+| `spinner`
+| Loading states, connection testing
+
+| `progress`
+| File upload, connection progress
+
+| `viewport`
+| Scrollable content (logs, help)
+
+| `paginator`
+| List pagination indicators
+
+| `help`
+| Keyboard shortcut bubbles
 |===
 
-==== Precedência de Configuração
+=== Custom Components to Build
 
-A ordem de prioridade (maior para menor):
+[cols="1,2"]
+|===
+| Component | Description
 
-1. Argumentos CLI (`--url`, `--token`, `--insecure`)
-2. Variáveis de ambiente (`BUNTIME_*`)
-3. Banco SQLite (`~/.buntime/config.db`)
-4. Valores default (`http://localhost:8000`)
+| `header`
+| Connection status bar with server info
 
-==== Reset de Configuração
+| `footer`
+| Dynamic keyboard shortcut hints
 
-O usuário pode resetar toda a configuração através de:
+| `modal`
+| Centered overlay dialog
 
-1. **TUI:** Settings > Reset All
-2. **CLI:** `rm ~/.buntime/config.db`
-3. **Env:** Definir `BUNTIME_RESET=1` ao iniciar
+| `card`
+| Stats cards for dashboard
 
-Após reset, a tela "Add Server" será exibida para adicionar um novo servidor.
+| `tabs`
+| Tab navigation component
 
+| `checkbox`
+| Styled checkbox for forms
+
+| `button`
+| Focusable action buttons
+
+| `toast`
+| Success/error notifications
+
+| `filepicker`
+| Path input with autocomplete
+|===
+
+== State Management
+
+=== Model Structure
+
+[source,go]
+----
+type Model struct {
+    // Navigation
+    currentScreen Screen
+    history       []Screen
+
+    // Connection
+    servers    []ServerConfig
+    connection *Connection
+    api        *APIClient
+
+    // Screen-specific state
+    serverList    list.Model
+    mainMenu      list.Model
+    appTable      table.Model
+    pluginTable   table.Model
+
+    // Forms
+    addServerForm FormModel
+    installForm   FormModel
+
+    // UI State
+    width         int
+    height        int
+    loading       bool
+    error         error
+    notification  *Notification
+
+    // Help
+    showHelp      bool
+    keys          KeyMap
+}
+----
+
+=== Screen Enum
+
+[source,go]
+----
+type Screen int
+
+const (
+    ScreenServerSelect Screen = iota
+    ScreenAddServer
+    ScreenEditServer
+    ScreenConnecting
+    ScreenTokenPrompt
+    ScreenConnectionError
+    ScreenMainMenu
+    ScreenApps
+    ScreenAppDetails
+    ScreenAppInstall
+    ScreenAppRemove
+    ScreenPlugins
+    ScreenPluginDetails
+    ScreenPluginInstall
+    ScreenPluginRemove
+    ScreenSettings
+    ScreenLogs
+    ScreenHelp
+)
+----
+
+== Animations
+
+=== Using Harmonica
+
+[source,go]
+----
+// Smooth modal entrance
+spring := harmonica.NewSpring(harmonica.FPS(60), 5.0, 0.5)
+
+// Logo animation on startup
+type LogoModel struct {
+    progress float64
+    spring   harmonica.Spring
+}
+
+func (m LogoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tickMsg:
+        m.progress, _ = m.spring.Update(m.progress, 1.0)
+        return m, tick()
+    }
+    return m, nil
+}
+----
+
+=== Suggested Animations
+
+* Logo reveal on startup (scale spring)
+* Modal entrance/exit (fade + scale)
+* List item transitions (slide)
+* Progress bar smoothing
+* Notification slide-in
+
+== Responsive Design
+
+=== Breakpoints
+
+[cols="1,1,2"]
+|===
+| Width | Layout | Changes
+
+| < 60
+| Compact
+| Hide descriptions, truncate names
+
+| 60-100
+| Normal
+| Standard layout
+
+| > 100
+| Wide
+| Side-by-side panels, more columns
+|===
+
+=== Terminal Size Handling
+
+[source,go]
+----
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
+        m.width = msg.Width
+        m.height = msg.Height
+        m.recalculateLayout()
+    }
+    return m, nil
+}
+
+func (m *Model) recalculateLayout() {
+    // Adjust table columns based on width
+    if m.width < 60 {
+        m.appTable.SetColumns(compactColumns)
+    } else if m.width > 100 {
+        m.appTable.SetColumns(wideColumns)
+    } else {
+        m.appTable.SetColumns(normalColumns)
+    }
+}
+----
+
+== Accessibility
+
+* High contrast colors (WCAG AA)
+* Clear focus indicators
+* Screen reader friendly (when possible)
+* Vim-style navigation (h/j/k/l optional)
+* No color-only indicators (always use symbols too)
+
+== Future Enhancements
+
+=== Phase 2
+
+* File browser with tree view
+* Worker management (scale, restart)
+* Plugin dependency graph visualization
+* Metrics dashboard with charts (ASCII)
+* Multi-server batch operations
+
+=== Phase 3
+
+* SSH tunnel support
+* Config file editor (JSONC)
+* Deployment wizard
+* Backup/restore functionality
+* Plugin marketplace browser

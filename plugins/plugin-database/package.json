@@ -19,12 +19,12 @@
     "test:watch": "bun test --watch"
   },
   "dependencies": {
-    "@buntime/shadcn-ui": "workspace:*",
-    "@buntime/shared": "workspace:*",
-    "@tanstack/react-table": "^8.21.3",
+    "@buntime/shared": "file:../../packages/shared",
     "@iconify-icon/react": "^2.1.0",
     "@libsql/client": "^0.15.0",
     "@tanstack/react-router": "^1.141.2",
+    "@tanstack/react-table": "^8.21.3",
+    "@zomme/shadcn-react": "file:../../../shadcn-react",
     "quick-lru": "^7.3.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

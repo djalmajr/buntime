@@ -7,7 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
   Input,
-} from "@buntime/shadcn-ui";
+} from "@zomme/shadcn-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { valid } from "semver";

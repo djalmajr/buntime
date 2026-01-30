@@ -1,4 +1,4 @@
-import { Button, cn, Icon, Tooltip, TooltipContent, TooltipTrigger } from "@buntime/shadcn-ui";
+import { Button, cn, Icon, Tooltip, TooltipContent, TooltipTrigger } from "@zomme/shadcn-react";
 import { useEffect, useRef, useState } from "react";
 import type { CellVariantProps } from "../types";
 

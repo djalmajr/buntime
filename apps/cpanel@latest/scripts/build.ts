@@ -1,5 +1,0 @@
-import { createAppBuilder } from "@buntime/shared/build";
-
-createAppBuilder({
-  name: "cpanel",
-}).run();

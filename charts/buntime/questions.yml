@@ -2,9 +2,9 @@ questions:
   # ==================== DATABASE ====================
   - variable: buntime.libsqlUrl
     label: "LibSQL Primary URL"
-    description: "URL of the primary LibSQL server (e.g., http://libsql.libsql:8080)"
+    description: "URL of the primary LibSQL server (e.g., http://libsql:8080 if in same namespace)"
     type: string
-    default: "http://libsql.libsql:8080"
+    default: "http://libsql:8080"
     required: true
     group: "Database"
 

@@ -285,9 +285,12 @@ helm install minio minio/minio --namespace minio -f /tmp/minio-values.yaml
 ### 4.2 libSQL (Primary + Replica)
 
 > **Nota:** Não usar `args` - a imagem libsql-server espera env vars, não argumentos de linha de comando.
+>
+> **Recomendação:** Instale o libSQL no mesmo namespace que o buntime (`zomme`) para simplificar a comunicação entre serviços. Se preferir namespaces separados, ajuste as URLs de acordo (ex: `http://libsql.libsql:8080`).
 
 ```bash
-kubectl create namespace libsql
+# Usar namespace único para todos os serviços Zomme
+kubectl create namespace zomme
 
 cat <<EOF | kubectl apply -f -
 # Primary libSQL
@@ -295,7 +298,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: libsql-primary
-  namespace: libsql
+  namespace: zomme
 spec:
   serviceName: libsql-primary
   replicas: 1
@@ -350,7 +353,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: libsql-replica
-  namespace: libsql
+  namespace: zomme
 spec:
   serviceName: libsql-replica
   replicas: 1
@@ -398,8 +401,8 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: libsql-primary
-  namespace: libsql
+  name: libsql
+  namespace: zomme
 spec:
   selector:
     app: libsql
@@ -419,7 +422,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: libsql-replica
-  namespace: libsql
+  namespace: zomme
 spec:
   selector:
     app: libsql
@@ -433,8 +436,8 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: libsql-primary
-  namespace: libsql
+  name: libsql
+  namespace: zomme
   annotations:
     cert-manager.io/cluster-issuer: home-ca-issuer
 spec:
@@ -451,7 +454,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: libsql-primary
+            name: libsql
             port:
               number: 8080
 ---
@@ -460,7 +463,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: libsql-replica
-  namespace: libsql
+  namespace: zomme
   annotations:
     cert-manager.io/cluster-issuer: home-ca-issuer
 spec:
@@ -486,7 +489,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: libsql-wildcard
-  namespace: libsql
+  namespace: zomme
 spec:
   secretName: libsql-wildcard-tls
   issuerRef:
@@ -501,7 +504,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: libsql-namespaces
-  namespace: libsql
+  namespace: zomme
   annotations:
     cert-manager.io/cluster-issuer: home-ca-issuer
 spec:
@@ -518,7 +521,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: libsql-primary
+            name: libsql
             port:
               number: 8080
 EOF
@@ -530,7 +533,7 @@ O Admin API do libSQL roda na porta 9090 e é **interno ao cluster** (sem Ingres
 
 ```bash
 # Terminal 1: Forward da porta admin
-kubectl port-forward -n libsql svc/libsql-primary 9090:9090
+kubectl port-forward -n zomme svc/libsql 9090:9090
 
 # Terminal 2: Criar namespace
 curl -X POST http://localhost:9090/v1/namespaces/meu-app/create \
@@ -1177,7 +1180,7 @@ Import-Certificate -FilePath "home-ca.crt" -CertStoreLocation Cert:\LocalMachine
 | libSQL (write) | https://libsql.home | - |
 | libSQL (read) | https://libsql-ro.home | - |
 | libSQL (namespaces) | https://{namespace}.libsql.home | - |
-| libSQL Admin API | http://libsql-primary.libsql:9090 | interno k8s |
+| libSQL Admin API | http://libsql:9090 | interno k8s (namespace zomme) |
 
 > **Nota:** O GitLab mantém a senha original pois o reset via rails console requer mais recursos.
 > Para alterar, use a interface web: Admin Area > Users > root > Edit > Password.

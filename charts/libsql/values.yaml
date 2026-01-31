@@ -1,0 +1,47 @@
+# LibSQL Helm Chart - Default Values
+
+image:
+  repository: ghcr.io/tursodatabase/libsql-server
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Primary node (always enabled)
+primary:
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""  # Use default if empty
+  # Enable namespace multi-tenancy (--enable-namespaces)
+  enableNamespaces: true
+
+# Replica node (optional)
+replica:
+  enabled: false
+  replicaCount: 1
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 50m
+    limits:
+      memory: 256Mi
+      cpu: 250m
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+
+# Service configuration (ClusterIP only, internal access)
+service:
+  # Fixed name "libsql" for easy discovery
+  # Primary: libsql:8080 (http), libsql:5001 (grpc), libsql:9090 (admin)
+  # Replica: libsql-replica:8080 (http only)
+  httpPort: 8080
+  grpcPort: 5001
+  adminPort: 9090

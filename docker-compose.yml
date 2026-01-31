@@ -9,9 +9,10 @@ services:
       - /home/user/Developer/zomme/buntime-apps:/data/apps
     environment:
       LOG_LEVEL: debug
-      LIBSQL_URL_0: http://libsql:8080
-      WORKER_DIRS: /data/.apps,/data/apps
-      PLUGIN_DIRS: /data/plugins
+      LIBSQL_URL: http://libsql:8080
+      # LIBSQL_REPLICA_1: http://libsql-replica:8080  # Uncomment if using replica
+      WORKER_DIRS: /data/.apps:/data/apps
+      PLUGIN_DIRS: /data/.plugins:/data/plugins
     depends_on:
       - libsql
     restart: unless-stopped

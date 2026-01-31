@@ -5,10 +5,16 @@ metadata:
   labels:
     {{- include "buntime.labels" . | nindent 4 }}
 data:
+  {{- if .Values.buntime.corsOrigins }}
+  CORS_ORIGINS: {{ .Values.buntime.corsOrigins | quote }}
+  {{- end }}
   {{- if .Values.buntime.homepage }}
   HOMEPAGE_APP: {{ .Values.buntime.homepage | quote }}
   {{- end }}
   LIBSQL_URL: {{ .Values.buntime.libsqlUrl | quote }}
+  {{- range $index, $url := .Values.buntime.libsqlReplicas }}
+  LIBSQL_REPLICA_{{ add $index 1 }}: {{ $url | quote }}
+  {{- end }}
   LOG_LEVEL: {{ .Values.buntime.logLevel | quote }}
   NODE_ENV: "production"
   PLUGIN_DIRS: {{ .Values.buntime.pluginDirs | quote }}

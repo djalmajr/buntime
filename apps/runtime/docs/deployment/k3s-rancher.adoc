@@ -76,8 +76,10 @@ docker push registry.example.com/buntime:latest
 
 [source,bash]
 ----
-kubectl create namespace buntime
+kubectl create namespace zomme
 ----
+
+NOTE: Recomendamos usar um único namespace `zomme` para todos os serviços (buntime, libsql, etc). Isso simplifica a comunicação entre serviços (ex: `http://libsql:8080` em vez de `http://libsql.libsql:8080`).
 
 === Criar Arquivo de Values
 
@@ -126,7 +128,7 @@ NOTE: Cada plugin tem seu próprio `manifest.jsonc` no PVC de plugins. Plugins c
 [source,bash]
 ----
 helm install buntime ./charts/buntime \
-  --namespace buntime \
+  --namespace zomme \
   -f values-k3s.yaml
 ----
 
@@ -135,19 +137,19 @@ helm install buntime ./charts/buntime \
 [source,bash]
 ----
 # Ver pods
-kubectl get pods -n buntime
+kubectl get pods -n zomme
 
 # Ver PVCs
-kubectl get pvc -n buntime
+kubectl get pvc -n zomme
 
 # Ver ingress
-kubectl get ingress -n buntime
+kubectl get ingress -n zomme
 
 # Ver certificado TLS
-kubectl get certificate -n buntime
+kubectl get certificate -n zomme
 
 # Ver logs
-kubectl logs -n buntime -l app.kubernetes.io/name=buntime -f
+kubectl logs -n zomme -l app.kubernetes.io/name=buntime -f
 ----
 
 === Acessar
@@ -178,8 +180,8 @@ TIP: Para desenvolvimento local, você pode usar o Rancher para adicionar um rep
 . No menu lateral, vá em **Cluster** > **Projects/Namespaces**
 . Clique em **Create Namespace**
 . Preencha:
-** Name: `buntime`
-** Description: Buntime Runtime
+** Name: `zomme`
+** Description: Zomme Services (buntime, libsql, etc)
 . Clique em **Create**
 
 === Instalar App
@@ -196,7 +198,7 @@ TIP: Para desenvolvimento local, você pode usar o Rancher para adicionar um rep
 | Campo | Valor
 
 | Namespace
-| `buntime`
+| `zomme`
 
 | Name
 | `buntime`
@@ -238,7 +240,7 @@ Cole o conteúdo do `values-k3s.yaml` ou edite os campos individuais na UI.
 === Monitorar Deploy
 
 . No menu lateral, vá em **Workloads** > **Deployments**
-. Selecione namespace `buntime`
+. Selecione namespace `zomme`
 . Clique no deployment `buntime`
 . Verifique:
 ** Status dos pods
@@ -252,7 +254,7 @@ Cole o conteúdo do `values-k3s.yaml` ou edite os campos individuais na UI.
 . **Ingresses**: Service Discovery > Ingresses
 . **PVCs**: Storage > PersistentVolumeClaims
 . **ConfigMaps**: Storage > ConfigMaps
-. **Certificates**: (via kubectl) `kubectl get certificates -n buntime`
+. **Certificates**: (via kubectl) `kubectl get certificates -n zomme`
 
 == Troubleshooting
 
@@ -261,7 +263,7 @@ Cole o conteúdo do `values-k3s.yaml` ou edite os campos individuais na UI.
 [source,bash]
 ----
 # Ver eventos do pod
-kubectl describe pod -n buntime -l app.kubernetes.io/name=buntime
+kubectl describe pod -n zomme -l app.kubernetes.io/name=buntime
 
 # Causas comuns:
 # - Imagem não encontrada: verificar repository e tag
@@ -274,10 +276,10 @@ kubectl describe pod -n buntime -l app.kubernetes.io/name=buntime
 [source,bash]
 ----
 # Verificar ingress
-kubectl describe ingress -n buntime buntime
+kubectl describe ingress -n zomme buntime
 
 # Verificar certificado
-kubectl describe certificate -n buntime buntime-tls
+kubectl describe certificate -n zomme buntime-tls
 
 # Verificar Traefik logs
 kubectl logs -n traefik -l app.kubernetes.io/name=traefik
@@ -288,7 +290,7 @@ kubectl logs -n traefik -l app.kubernetes.io/name=traefik
 [source,bash]
 ----
 # Verificar CertificateRequest
-kubectl get certificaterequest -n buntime
+kubectl get certificaterequest -n zomme
 
 # Verificar ClusterIssuer
 kubectl describe clusterissuer home-ca-issuer
@@ -301,12 +303,12 @@ kubectl logs -n cert-manager -l app=cert-manager
 
 [source,bash]
 ----
-# Verificar se libSQL está rodando
-kubectl get pods -n libsql
+# Verificar se libSQL está rodando (mesmo namespace)
+kubectl get pods -n zomme -l app.kubernetes.io/name=libsql
 
 # Testar conectividade do pod buntime
-kubectl exec -n buntime -it deployment/buntime -- \
-  wget -qO- http://libsql-primary.libsql.svc.cluster.local:8080/health
+kubectl exec -n zomme -it deployment/buntime -- \
+  wget -qO- http://libsql:8080/health
 ----
 
 == Atualização
@@ -321,11 +323,11 @@ docker build -t buntime:latest .
 
 # Upgrade
 helm upgrade buntime ./charts/buntime \
-  --namespace buntime \
+  --namespace zomme \
   -f values-k3s.yaml
 
 # Forçar restart dos pods (pull nova imagem)
-kubectl rollout restart deployment -n buntime buntime
+kubectl rollout restart deployment -n zomme buntime
 ----
 
 === Via Rancher UI
@@ -342,13 +344,13 @@ kubectl rollout restart deployment -n buntime buntime
 
 [source,bash]
 ----
-helm uninstall buntime --namespace buntime
+helm uninstall buntime --namespace zomme
 
 # Opcional: remover PVCs (dados persistentes)
-kubectl delete pvc -n buntime --all
+kubectl delete pvc -n zomme -l app.kubernetes.io/name=buntime
 
-# Opcional: remover namespace
-kubectl delete namespace buntime
+# Opcional: remover namespace (cuidado: remove todos os serviços!)
+kubectl delete namespace zomme
 ----
 
 === Via Rancher UI
@@ -414,26 +416,26 @@ buntime:
 | Ação | Comando
 
 | Instalar
-| `helm install buntime ./charts/buntime -n buntime -f values-k3s.yaml`
+| `helm install buntime ./charts/buntime -n zomme -f values-k3s.yaml`
 
 | Atualizar
-| `helm upgrade buntime ./charts/buntime -n buntime -f values-k3s.yaml`
+| `helm upgrade buntime ./charts/buntime -n zomme -f values-k3s.yaml`
 
 | Desinstalar
-| `helm uninstall buntime -n buntime`
+| `helm uninstall buntime -n zomme`
 
 | Ver status
-| `helm status buntime -n buntime`
+| `helm status buntime -n zomme`
 
 | Ver pods
-| `kubectl get pods -n buntime`
+| `kubectl get pods -n zomme`
 
 | Ver logs
-| `kubectl logs -n buntime -l app.kubernetes.io/name=buntime -f`
+| `kubectl logs -n zomme -l app.kubernetes.io/name=buntime -f`
 
 | Restart pods
-| `kubectl rollout restart deployment -n buntime buntime`
+| `kubectl rollout restart deployment -n zomme buntime`
 
 | Shell no pod
-| `kubectl exec -n buntime -it deployment/buntime -- sh`
+| `kubectl exec -n zomme -it deployment/buntime -- sh`
 |===

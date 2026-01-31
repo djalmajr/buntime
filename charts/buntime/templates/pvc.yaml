@@ -33,21 +33,3 @@ spec:
     requests:
       storage: {{ .Values.persistence.apps.size }}
 {{- end }}
----
-{{- if .Values.persistence.config.enabled }}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "buntime.fullname" . }}-config
-  labels:
-    {{- include "buntime.labels" . | nindent 4 }}
-spec:
-  accessModes:
-    - {{ .Values.persistence.config.accessMode }}
-  {{- if .Values.persistence.config.storageClass }}
-  storageClassName: {{ .Values.persistence.config.storageClass }}
-  {{- end }}
-  resources:
-    requests:
-      storage: {{ .Values.persistence.config.size }}
-{{- end }}

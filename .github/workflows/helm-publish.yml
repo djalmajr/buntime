@@ -1,0 +1,28 @@
+name: Publish Helm Chart
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - ".github/workflows/helm-publish.yml"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout buntime
+        uses: actions/checkout@v4
+
+      - name: Push chart to zommehq/charts
+        uses: cpina/github-action-push-to-another-repository@main
+        env:
+          SSH_DEPLOY_KEY: ${{ secrets.CHARTS_DEPLOY_KEY }}
+        with:
+          source-directory: "charts/buntime"
+          destination-github-username: "zommehq"
+          destination-repository-name: "charts"
+          target-directory: "charts/buntime"
+          target-branch: main
+          commit-message: "chore(buntime): sync chart"

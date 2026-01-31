@@ -52,17 +52,17 @@ WORKDIR /app
 # Copy the binary
 COPY --from=builder /build/apps/runtime/dist/buntime /app/buntime
 
-# Copy plugins (manifest.jsonc + dist only)
-COPY --from=builder /output/plugins/ /data/plugins/
+# Copy core plugins to hidden .plugins directory (updated with image)
+COPY --from=builder /output/plugins/ /data/.plugins/
 
 # Copy cpanel to hidden .apps directory (not visible in deployments UI)
 COPY --from=builder /build/apps/cpanel/dist/ /data/.apps/cpanel/dist/
 COPY --from=builder /build/apps/cpanel/manifest.jsonc /data/.apps/cpanel/
 
 # Default environment variables (aligned with Helm chart values.yaml)
-# .apps = built-in apps (hidden from deployments), apps = user apps (visible)
+# .apps/.plugins = core (from image), apps/plugins = custom (from PVC)
 ENV WORKER_DIRS=/data/.apps,/data/apps
-ENV PLUGIN_DIRS=/data/plugins
+ENV PLUGIN_DIRS=/data/.plugins,/data/plugins
 
 EXPOSE 8000
 

@@ -650,6 +650,30 @@ describe("api", () => {
       expect(res.headers.get("Content-Type")).toBe("application/zip");
     });
 
+    it("should download a folder as zip", async () => {
+      await mkdir(join(TEST_APPS_PATH, "myapp/1.0.0"), { recursive: true });
+      await writeFile(join(TEST_APPS_PATH, "myapp/1.0.0/index.ts"), "export default {}");
+      await writeFile(join(TEST_APPS_PATH, "myapp/1.0.0/config.json"), "{}");
+
+      const res = await apiRequest("GET", "/download-batch?paths=apps/myapp/1.0.0");
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toBe("application/zip");
+      expect(res.headers.get("Content-Disposition")).toContain("download-");
+    });
+
+    it("should download multiple folders as zip", async () => {
+      await mkdir(join(TEST_APPS_PATH, "app1/1.0.0"), { recursive: true });
+      await mkdir(join(TEST_APPS_PATH, "app2/2.0.0"), { recursive: true });
+      await writeFile(join(TEST_APPS_PATH, "app1/1.0.0/index.ts"), "app1");
+      await writeFile(join(TEST_APPS_PATH, "app2/2.0.0/index.ts"), "app2");
+
+      const res = await apiRequest("GET", "/download-batch?paths=apps/app1/1.0.0,apps/app2/2.0.0");
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toBe("application/zip");
+    });
+
     it("should return error when paths is not provided", async () => {
       const res = await apiRequest("GET", "/download-batch");
       const json = await res.json();
@@ -1043,15 +1067,26 @@ describe("GET /download-batch - edge cases", () => {
     expect(res.headers.get("Content-Type")).toBe("application/zip");
   });
 
-  it("should handle error inside try block and cleanup temp dir", async () => {
+  it("should handle unknown directory path", async () => {
     // Pass an unknown directory path that will cause resolvePath to throw
-    // inside the try block, triggering the catch block cleanup
     const res = await apiRequest("GET", "/download-batch?paths=unknown-dir/file.txt");
 
-    // The catch block converts the error to ValidationError with DOWNLOAD_FAILED code
-    expect(res.status).toBe(400);
+    // The error is re-thrown as NotFoundError with DIR_NOT_FOUND code
+    expect(res.status).toBe(404);
     const json = await res.json();
-    expect(json.code).toBe("DOWNLOAD_FAILED");
+    expect(json.code).toBe("DIR_NOT_FOUND");
+  });
+
+  it("should return NO_VALID_PATHS when all paths are invalid", async () => {
+    // Create a valid directory structure but request non-existent files
+    await mkdir(join(TEST_APPS_PATH, "app1"), { recursive: true });
+
+    // Request a file that doesn't exist within a valid directory
+    const res = await apiRequest("GET", "/download-batch?paths=apps/app1/nonexistent.txt");
+
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.code).toBe("NO_VALID_PATHS");
   });
 });
 

@@ -1,14 +1,20 @@
 services:
-  buntime:
+  # =============================================================================
+  # Production: Compiled binary with minimal image
+  # Usage: docker-compose --profile prod up
+  # =============================================================================
+  buntime-prod:
+    container_name: buntime
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
     volumes:
-      - /home/user/Developer/zomme/buntime-apps:/data/apps
+      - ${WORKER_DIRS:-./tmp/apps}:/data/apps
+      - ${PLUGIN_DIRS:-./tmp/plugins}:/data/plugins
     environment:
-      LOG_LEVEL: debug
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       LIBSQL_URL: http://libsql:8080
       # LIBSQL_REPLICA_1: http://libsql-replica:8080  # Uncomment if using replica
       WORKER_DIRS: /data/.apps:/data/apps
@@ -16,6 +22,44 @@ services:
     depends_on:
       - libsql
     restart: unless-stopped
+    profiles:
+      - prod
+
+  # =============================================================================
+  # Development: Hot reload with source mounted as volumes
+  # Usage: docker-compose --profile dev up
+  # =============================================================================
+  buntime-dev:
+    container_name: buntime
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # Source code (for hot reload) - mounted in /build for bun workspaces
+      - ./packages:/build/packages
+      - ./apps:/build/apps
+      - ./plugins:/build/plugins
+      # Internal apps and plugins symlinked to /data for runtime
+      - ./apps:/data/.apps
+      - ./plugins:/data/.plugins
+      # External apps and plugins (from env)
+      - ${WORKER_DIRS:-./tmp/apps}:/data/apps
+      - ${PLUGIN_DIRS:-./tmp/plugins}:/data/plugins
+    environment:
+      LOG_LEVEL: debug
+      LIBSQL_URL: http://libsql:8080
+      WORKER_DIRS: /data/.apps:/data/apps
+      PLUGIN_DIRS: /data/.plugins:/data/plugins
+    depends_on:
+      - libsql
+    profiles:
+      - dev
+
+  # =============================================================================
+  # LibSQL
+  # =============================================================================
   libsql:
     image: ghcr.io/tursodatabase/libsql-server:latest
     ports:
@@ -29,13 +73,6 @@ services:
       SQLD_GRPC_LISTEN_ADDR: 0.0.0.0:5001
       # Development mode - no auth required
       SQLD_DISABLE_AUTH: "true"
-    # Healthcheck disabled - libsql distroless image has no curl/wget
-    # healthcheck:
-    #   test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/health || exit 1"]
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 5
-    #   start_period: 10s
     restart: unless-stopped
   # libsql-replica:
   #   image: ghcr.io/tursodatabase/libsql-server:latest

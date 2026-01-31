@@ -9,8 +9,8 @@
     "plugins/*"
   ],
   "scripts": {
-    "build": "bun run --filter '*' build",
-    "dev": "bun run --filter '@buntime/plugin-*' dev & bun run --filter '@buntime/runtime' dev",
+    "build": "NODE_ENV=production bun run --filter '*' build",
+    "dev": "bun run --filter '@buntime/plugin-*' dev & bun run --filter '@buntime/cpanel' dev & bun run --filter '@buntime/runtime' dev",
     "lint:format": "bun run --filter '*' lint:format",
     "lint:types": "bun run --filter '*' lint:types",
     "lint": "bun run --filter '*' lint",

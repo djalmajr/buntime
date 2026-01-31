@@ -415,12 +415,15 @@ export const api = new Hono()
       throw new ValidationError("Paths are required", "PATHS_REQUIRED");
     }
 
+    const fs = await import("node:fs/promises");
+
     // Create a temporary directory to collect files
     const tempDir = `/tmp/buntime-download-${Date.now()}`;
-    await import("node:fs/promises").then((fs) => fs.mkdir(tempDir, { recursive: true }));
+    await fs.mkdir(tempDir, { recursive: true });
 
     try {
       // Copy all selected items to temp dir
+      let copiedCount = 0;
       for (const path of paths) {
         const { baseDir, relativePath, rootName } = resolvePath(path);
         if (!baseDir) continue;
@@ -429,14 +432,34 @@ export const api = new Hono()
         const name = relativePath ? relativePath.split("/").pop() || rootName : rootName;
         const destPath = join(tempDir, name);
 
-        const proc = Bun.spawn(["cp", "-r", fullPath, destPath]);
-        await proc.exited;
+        // Verify source exists before copying
+        try {
+          await fs.access(fullPath);
+        } catch {
+          console.warn(`[Deployments] Download batch: path not found: ${fullPath}`);
+          continue;
+        }
+
+        const proc = Bun.spawn(["cp", "-r", fullPath, destPath], { stderr: "pipe" });
+        const exitCode = await proc.exited;
+
+        if (exitCode !== 0) {
+          const stderr = await new Response(proc.stderr).text();
+          console.error(`[Deployments] cp failed for ${path}: ${stderr}`);
+          continue;
+        }
+
+        copiedCount++;
+      }
+
+      if (copiedCount === 0) {
+        throw new NotFoundError("No valid paths to download", "NO_VALID_PATHS");
       }
 
       // Zip the temp directory (excluding .dirinfo)
       const proc = Bun.spawn(
         ["zip", "-r", "-q", "-x", ".dirinfo", "-x", "*/.dirinfo", "-x", "**/.dirinfo", "-", "."],
-        { cwd: tempDir, stdout: "pipe" },
+        { cwd: tempDir, stdout: "pipe", stderr: "pipe" },
       );
 
       const response = new Response(proc.stdout, {
@@ -447,15 +470,26 @@ export const api = new Hono()
       });
 
       // Cleanup temp dir after streaming (fire and forget)
-      proc.exited.then(() => {
+      proc.exited.then((exitCode: number) => {
+        if (exitCode !== 0) {
+          console.error(`[Deployments] zip failed with exit code ${exitCode}`);
+        }
         Bun.spawn(["rm", "-rf", tempDir]);
       });
 
       return response;
-    } catch {
+    } catch (err) {
       // Cleanup on error
       Bun.spawn(["rm", "-rf", tempDir]);
-      throw new ValidationError("Failed to create download", "DOWNLOAD_FAILED");
+      // Re-throw known errors, wrap unknown ones
+      if (err instanceof NotFoundError || err instanceof ValidationError) {
+        throw err;
+      }
+      console.error(`[Deployments] Download batch failed:`, err);
+      throw new ValidationError(
+        err instanceof Error ? err.message : "Failed to create download",
+        "DOWNLOAD_FAILED",
+      );
     }
   })
   .onError((err) => {

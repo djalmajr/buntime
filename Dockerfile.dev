@@ -1,0 +1,27 @@
+# =============================================================================
+# Dockerfile.dev - Development image with hot reload
+# Run with: docker-compose --profile dev up
+# =============================================================================
+FROM oven/bun:1.3
+
+# Install system dependencies (zip/unzip for download-batch endpoint)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    zip \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy everything (node_modules, dist, etc. filtered by .dockerignore)
+COPY . .
+
+# Default environment
+ENV LOG_LEVEL=debug
+ENV WORKER_DIRS=/data/.apps:/data/apps
+ENV PLUGIN_DIRS=/data/.plugins:/data/plugins
+
+EXPOSE 8000
+
+# Install dependencies and run dev mode
+# bun install is run at startup because volumes override COPY during runtime
+CMD ["sh", "-c", "bun install && bun run dev"]

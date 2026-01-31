@@ -4,6 +4,8 @@
   "enabled": false,
   "optionalDependencies": ["@buntime/plugin-authn"],
   "entrypoint": "dist/client/index.html",
+  // Plugin entrypoint (server-side code)
+  "pluginEntry": "dist/plugin.js",
   "menus": [
     {
       "icon": "lucide:shield",

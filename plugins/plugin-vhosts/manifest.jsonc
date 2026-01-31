@@ -2,6 +2,8 @@
   // Plugin metadata
   "name": "@buntime/plugin-vhosts",
   "base": "",
+  // Plugin entrypoint (server-side code)
+  "pluginEntry": "dist/plugin.js",
 
   // Plugin state
   "enabled": false,

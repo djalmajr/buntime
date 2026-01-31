@@ -4,6 +4,8 @@
   "base": "/authz",
   // Client entrypoint (compiled files)
   "entrypoint": "dist/client/index.html",
+  // Plugin entrypoint (server-side code)
+  "pluginEntry": "dist/plugin.js",
   // Required plugins
   "dependencies": ["@buntime/plugin-authn"],
   // Menu items for shell navigation

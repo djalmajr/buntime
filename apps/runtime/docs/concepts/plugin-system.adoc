@@ -110,6 +110,7 @@ Cada plugin deve ter um `manifest.jsonc` na raiz do diretório com metadata e co
   "enabled": true,                    // Habilita/desabilita o plugin
   "base": "/keyval",                  // Base path para rotas (obrigatorio)
   "entrypoint": "dist/client/index.html",  // Entrypoint do cliente (se houver)
+  "pluginEntry": "dist/plugin.js",    // Entrypoint do plugin (server-side)
   "dependencies": ["@buntime/plugin-database"],  // Dependencias obrigatorias
   "optionalDependencies": [],         // Dependencias opcionais
   "menus": [{ "title": "KeyVal", "icon": "lucide:database", "path": "/keyval" }]
@@ -140,6 +141,11 @@ Cada plugin deve ter um `manifest.jsonc` na raiz do diretório com metadata e co
 | -
 | Entrypoint do cliente para plugins com UI (ex: `dist/client/index.html`)
 
+| `pluginEntry`
+| string
+| -
+| Entrypoint do plugin (server-side: middlewares, hooks, rotas). Se não especificado, o loader tenta `plugin.{ts,js}` ou `index.{ts,js}` na raiz do diretório.
+
 | `dependencies`
 | string[]
 | []
@@ -157,6 +163,37 @@ Cada plugin deve ter um `manifest.jsonc` na raiz do diretório com metadata e co
 |===
 
 IMPORTANT: Plugins com `enabled: false` são ignorados pelo loader e pelo sistema de build. Isso permite ter plugins no diretório sem carregá-los.
+
+=== Diferença entre `entrypoint` e `pluginEntry`
+
+O manifest possui dois campos para especificar arquivos de entrada:
+
+[cols="1,1,3"]
+|===
+| Campo | Propósito | Exemplo
+
+| `entrypoint`
+| Entrypoint da **aplicação** (client HTML ou server JS servido como app)
+| `dist/client/index.html`
+
+| `pluginEntry`
+| Entrypoint do **plugin** (código server-side: middlewares, hooks, rotas)
+| `dist/plugin.js`
+|===
+
+[source,jsonc]
+----
+{
+  "name": "@buntime/plugin-example",
+  "entrypoint": "dist/client/index.html",  // App client (HTML)
+  "pluginEntry": "dist/plugin.js"          // Plugin server (JS)
+}
+----
+
+**Comportamento do loader:**
+
+1. Se `pluginEntry` está definido → usa esse caminho
+2. Senão → fallback para `plugin.{ts,js}` ou `index.{ts,js}` na raiz do diretório
 
 Lista completa de plugins builtin: authn, authz, database, deployments, durable, gateway, health, keyval, logs, metrics, proxy, vhosts.
 
@@ -1011,7 +1048,7 @@ O shell usa o web component `<z-frame>` para carregar plugins em iframes isolado
 
 === Configuracao do Plugin
 
-Plugins com UI precisam apenas de um `entrypoint` no manifest:
+Plugins com UI precisam de `entrypoint` (client) e `pluginEntry` (server) no manifest:
 
 [source,jsonc]
 ----
@@ -1020,6 +1057,7 @@ Plugins com UI precisam apenas de um `entrypoint` no manifest:
   "name": "@buntime/plugin-keyval",
   "base": "/keyval",
   "entrypoint": "dist/client/index.html",
+  "pluginEntry": "dist/plugin.js",
   "menus": [
     { "title": "KeyVal", "icon": "lucide:database", "path": "/keyval" }
   ]
@@ -1255,6 +1293,7 @@ export default function createRateLimiter(config: RateLimitConfig): PluginImpl {
 {
   "name": "@company/rate-limiter",
   "base": "/rate-limiter",
+  "pluginEntry": "dist/plugin.js",
   "enabled": true,
   "maxRequests": 1000,
   "windowMs": 60000

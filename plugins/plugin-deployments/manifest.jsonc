@@ -4,6 +4,8 @@
   "base": "/deployments",
   // Client entrypoint (compiled files)
   "entrypoint": "dist/client/index.html",
+  // Plugin entrypoint (server-side code)
+  "pluginEntry": "dist/plugin.js",
   // Menu items for shell navigation
   "menus": [
     {

@@ -364,6 +364,13 @@ export interface PluginManifest {
   entrypoint?: string;
 
   /**
+   * Path to plugin entrypoint (server-side code: middlewares, hooks, routes)
+   * If not specified, loader tries: plugin.{ts,js}, index.{ts,js} in root
+   * @example "dist/plugin.js"
+   */
+  pluginEntry?: string;
+
+  /**
    * Required dependencies on other plugins
    * These plugins must be loaded before this one
    * Throws error if dependency is not configured

@@ -4,10 +4,12 @@
   "base": "/database",
 
   // Plugin state
-  "enabled": false,
+  "enabled": true,
 
   // Client entrypoint (compiled files)
   "entrypoint": "dist/client/index.html",
+  // Plugin entrypoint (server-side code)
+  "pluginEntry": "dist/plugin.js",
 
   // Menu items for C-Panel sidebar
   "menus": [
@@ -28,7 +30,8 @@
     {
       "type": "libsql",
       // urls[0] = primary, urls[1..n] = replicas
-      "urls": ["http://localhost:8880"],
+      // Empty array = use LIBSQL_URL_0 env var
+      "urls": [],
       // Auth token for remote databases
       // "authToken": "${LIBSQL_AUTH_TOKEN}",
       "default": true

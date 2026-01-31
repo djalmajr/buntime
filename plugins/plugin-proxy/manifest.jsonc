@@ -2,13 +2,15 @@
   // Plugin metadata
   "name": "@buntime/plugin-proxy",
   "base": "/redirects",
-  "optionalDependencies": ["@buntime/plugin-keyval"],
+  "dependencies": ["@buntime/plugin-keyval"],
 
   // Plugin state
   "enabled": true,
 
   // Client entrypoint (compiled files)
   "entrypoint": "dist/client/index.html",
+  // Plugin entrypoint (server-side code)
+  "pluginEntry": "dist/plugin.js",
 
   // Menu items for C-Panel sidebar
   "menus": [

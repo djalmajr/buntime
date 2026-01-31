@@ -5,10 +5,12 @@
   "dependencies": ["@buntime/plugin-database"],
 
   // Plugin state
-  "enabled": false,
+  "enabled": true,
 
   // Client entrypoint (compiled files)
   "entrypoint": "dist/client/index.html",
+  // Plugin entrypoint (server-side code)
+  "pluginEntry": "dist/plugin.js",
 
   // Menu items for C-Panel sidebar
   "menus": [
@@ -31,7 +33,7 @@
 
   // Plugin-specific configuration
   // Database adapter type: "libsql" | "mysql" | "postgres" | "sqlite"
-  // "database": "libsql",
+  "database": "libsql",
   "metrics": {
     // Enable persistent metrics stored in database (default: false)
     "persistent": false,

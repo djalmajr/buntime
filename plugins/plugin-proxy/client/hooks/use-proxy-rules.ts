@@ -32,7 +32,7 @@ export interface ProxyRuleInput {
 export function useProxyRules() {
   return useQuery({
     queryFn: async () => {
-      const res = await fetch(`${manifest.base}/api/proxy/rules`);
+      const res = await fetch(`${manifest.base}/api/rules`);
       if (!res.ok) throw new Error("Failed to fetch rules");
       return res.json() as Promise<ProxyRule[]>;
     },
@@ -45,7 +45,7 @@ export function useCreateProxyRule() {
 
   return useMutation({
     mutationFn: async (data: ProxyRuleInput) => {
-      const res = await fetch(`${manifest.base}/api/proxy/rules`, {
+      const res = await fetch(`${manifest.base}/api/rules`, {
         body: JSON.stringify(data),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -64,7 +64,7 @@ export function useUpdateProxyRule() {
 
   return useMutation({
     mutationFn: async ({ data, id }: { data: Partial<ProxyRuleInput>; id: string }) => {
-      const res = await fetch(`${manifest.base}/api/proxy/rules/${id}`, {
+      const res = await fetch(`${manifest.base}/api/rules/${id}`, {
         body: JSON.stringify(data),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -83,7 +83,7 @@ export function useDeleteProxyRule() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`${manifest.base}/api/proxy/rules/${id}`, {
+      const res = await fetch(`${manifest.base}/api/rules/${id}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to delete rule");

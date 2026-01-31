@@ -2,7 +2,7 @@ apiVersion: v2
 name: buntime
 description: A Helm chart for Buntime - Worker Pool Runtime for Bun applications
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "1.0.0"
 icon: https://bun.sh/logo.svg
 keywords:
@@ -11,9 +11,9 @@ keywords:
   - runtime
   - worker-pool
   - microservices
-home: https://github.com/user/buntime
+home: https://github.com/zommehq/buntime
 sources:
-  - https://github.com/user/buntime
+  - https://github.com/zommehq/buntime
 maintainers:
   - name: Zomme
     email: noreply@zommehq.com

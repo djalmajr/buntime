@@ -3,7 +3,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/user/buntime
+  repository: ghcr.io/zommehq/buntime
   tag: latest
   pullPolicy: Always
 
@@ -44,26 +44,25 @@ buntime:
   libsqlAuthToken: ""  # optional: auth token if libSQL server requires it
   libsqlUrl: "http://libsql:8080"
   logLevel: "info"
-  pluginDirs: "/data/plugins"
+  # Plugin directories: core (.plugins from image) + custom (plugins PVC)
+  pluginDirs: "/data/.plugins,/data/plugins"
   poolSize: 100
   port: 8000
   # Root API key (required for first access, use Secret in production)
   # Generate with: openssl rand -hex 32
   rootKey: ""
-  workerDirs: "/data/apps"
+  # Worker directories: core (.apps from image) + custom (apps PVC)
+  workerDirs: "/data/.apps,/data/apps"
 
 # Persistent storage
 persistence:
-  config:
-    enabled: true
-    size: 1Gi
-    accessMode: ReadWriteOnce
-    storageClass: ""  # Use default if empty
+  # Custom plugins (core plugins are in /data/.plugins from image)
   plugins:
     enabled: true
     size: 5Gi
     accessMode: ReadWriteOnce
     storageClass: ""  # Use default if empty
+  # User applications
   apps:
     enabled: true
     size: 10Gi

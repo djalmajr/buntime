@@ -30,10 +30,6 @@ spec:
                 name: {{ include "buntime.fullname" . }}
             {{- end }}
           volumeMounts:
-            {{- if .Values.persistence.config.enabled }}
-            - name: config
-              mountPath: /data/config
-            {{- end }}
             {{- if .Values.persistence.plugins.enabled }}
             - name: plugins
               mountPath: /data/plugins
@@ -55,11 +51,6 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 5
       volumes:
-        {{- if .Values.persistence.config.enabled }}
-        - name: config
-          persistentVolumeClaim:
-            claimName: {{ include "buntime.fullname" . }}-config
-        {{- end }}
         {{- if .Values.persistence.plugins.enabled }}
         - name: plugins
           persistentVolumeClaim:

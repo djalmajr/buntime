@@ -18,7 +18,7 @@ jobs:
       - name: Push chart to zommehq/charts
         uses: cpina/github-action-push-to-another-repository@main
         env:
-          SSH_DEPLOY_KEY: ${{ secrets.CHARTS_DEPLOY_KEY }}
+          API_TOKEN_GITHUB: ${{ secrets.CHARTS_PAT }}
         with:
           source-directory: "charts/buntime"
           destination-github-username: "zommehq"

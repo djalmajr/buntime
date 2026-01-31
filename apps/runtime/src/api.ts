@@ -24,9 +24,14 @@ import { createWorkerRoutes } from "@/routes/worker";
 import { createWorkerResolver } from "@/utils/get-worker-dir";
 
 // Initialize logger first (before anything else)
+// LOG_LEVEL from env with fallback based on NODE_ENV
+const logLevel =
+  (Bun.env.LOG_LEVEL as "debug" | "info" | "warn" | "error") ||
+  (NODE_ENV === "production" ? "info" : "debug");
+
 const logger = createLogger({
   format: NODE_ENV === "production" ? "json" : "pretty",
-  level: NODE_ENV === "production" ? "info" : "debug",
+  level: logLevel,
 });
 // Set as global logger so shared modules can access it
 setLogger(logger);

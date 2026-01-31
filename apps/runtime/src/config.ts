@@ -65,14 +65,14 @@ function parsePoolSize(envValue: string | undefined, fallback: number): number {
 
 /**
  * Expand directory paths from config
- * Handles comma-separated values from env vars: "${VAR}" where VAR="/path1,/path2"
+ * Handles colon-separated values from env vars (PATH style): "${VAR}" where VAR="/path1:/path2"
  */
 function expandDirs(dirs: string[], baseDir: string): string[] {
   return dirs.flatMap((dir) => {
     const expanded = substituteEnvVars(dir);
-    // Split by comma if env var contains multiple paths
+    // Split by colon if env var contains multiple paths (PATH style)
     return expanded
-      .split(",")
+      .split(":")
       .map((p) => p.trim())
       .filter(Boolean)
       .map((p) => (isAbsolute(p) ? p : resolve(baseDir, p)));

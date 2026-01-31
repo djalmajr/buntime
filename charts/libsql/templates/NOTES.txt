@@ -1,0 +1,27 @@
+LibSQL has been deployed!
+
+Primary endpoint: http://libsql:{{ .Values.service.httpPort }}
+Admin API: http://libsql:{{ .Values.service.adminPort }} (internal only)
+
+{{- if .Values.replica.enabled }}
+
+Replica endpoint: http://libsql-replica:{{ .Values.service.httpPort }}
+Replicas: {{ .Values.replica.replicaCount }}
+{{- end }}
+
+{{- if .Values.primary.enableNamespaces }}
+
+Multi-tenancy is ENABLED. To create a namespace:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/libsql {{ .Values.service.adminPort }}:{{ .Values.service.adminPort }}
+  curl -X POST http://localhost:{{ .Values.service.adminPort }}/v1/namespaces/my-namespace/create
+{{- end }}
+
+Configure Buntime to connect:
+
+  buntime:
+    libsqlUrl: "http://libsql.{{ .Release.Namespace }}:{{ .Values.service.httpPort }}"
+{{- if .Values.replica.enabled }}
+    libsqlReplicas:
+      - "http://libsql-replica.{{ .Release.Namespace }}:{{ .Values.service.httpPort }}"
+{{- end }}

@@ -22,16 +22,23 @@ function substituteEnvVars(str: string): string {
 /**
  * Auto-detect libSQL URLs from environment variables.
  *
- * Convention: LIBSQL_URL_0, LIBSQL_URL_1, LIBSQL_URL_2, ...
- * - LIBSQL_URL_0 is always the primary (required)
- * - LIBSQL_URL_1, LIBSQL_URL_2, ... are replicas (optional)
+ * Convention:
+ * - LIBSQL_URL: Primary URL (required for writes)
+ * - LIBSQL_REPLICA_1, LIBSQL_REPLICA_2, ...: Replica URLs (optional, for read scaling)
  */
 function detectLibSqlUrls(): string[] {
   const urls: string[] = [];
-  let index = 0;
 
+  // Primary URL (required)
+  const primaryUrl = process.env.LIBSQL_URL;
+  if (primaryUrl) {
+    urls.push(primaryUrl);
+  }
+
+  // Replica URLs (optional): LIBSQL_REPLICA_1, LIBSQL_REPLICA_2, ...
+  let index = 1;
   while (true) {
-    const envVar = process.env[`LIBSQL_URL_${index}`];
+    const envVar = process.env[`LIBSQL_REPLICA_${index}`];
     if (!envVar) break;
     urls.push(envVar);
     index++;

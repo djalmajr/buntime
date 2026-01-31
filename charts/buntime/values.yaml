@@ -39,20 +39,39 @@ buntime:
   # String: redirect path (e.g., "/cpanel")
   # Empty: no homepage redirect
   homepage: ""
+
   # LibSQL database connection
-  # URL format: http://host:port or http://host:port/namespace (for multi-tenant servers)
-  libsqlAuthToken: ""  # optional: auth token if libSQL server requires it
+  # Primary URL (required for database plugin)
   libsqlUrl: "http://libsql:8080"
+  # Replica URLs (optional, for read scaling)
+  # These will be set as LIBSQL_REPLICA_1, LIBSQL_REPLICA_2, etc.
+  libsqlReplicas: []
+  #   - "http://libsql-replica-1:8080"
+  #   - "http://libsql-replica-2:8080"
+  # Auth token (optional, for authenticated libSQL servers)
+  libsqlAuthToken: ""
+
+  # Logging level (debug, info, warn, error)
+  # Fallback: "info" in production, "debug" in development
   logLevel: "info"
-  # Plugin directories: core (.plugins from image) + custom (plugins PVC)
-  pluginDirs: "/data/.plugins,/data/plugins"
+
+  # CORS allowed origins (comma-separated)
+  # Empty = restrictive in production, "*" in development
+  corsOrigins: ""
+
+  # Plugin directories (colon-separated, PATH style)
+  # Core plugins from image + custom plugins from PVC
+  pluginDirs: "/data/.plugins:/data/plugins"
+
+  # Worker pool size
   poolSize: 100
+
+  # HTTP port
   port: 8000
-  # Root API key (required for first access, use Secret in production)
-  # Generate with: openssl rand -hex 32
-  rootKey: ""
-  # Worker directories: core (.apps from image) + custom (apps PVC)
-  workerDirs: "/data/.apps,/data/apps"
+
+  # Worker directories (colon-separated, PATH style)
+  # Core apps from image + custom apps from PVC
+  workerDirs: "/data/.apps:/data/apps"
 
 # Persistent storage
 persistence:

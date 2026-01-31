@@ -1,0 +1,14 @@
+apiVersion: v2
+name: libsql
+description: LibSQL database server with optional replication
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - database
+  - sqlite
+  - libsql
+  - sqld
+maintainers:
+  - name: Zomme
+    url: https://github.com/zommehq

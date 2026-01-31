@@ -1,0 +1,41 @@
+# Primary service (fixed name for easy discovery)
+apiVersion: v1
+kind: Service
+metadata:
+  name: libsql
+  labels:
+    {{- include "libsql.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "libsql.selectorLabels.primary" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.httpPort }}
+      targetPort: http
+    - name: grpc
+      port: {{ .Values.service.grpcPort }}
+      targetPort: grpc
+    - name: admin
+      port: {{ .Values.service.adminPort }}
+      targetPort: admin
+---
+{{- if .Values.replica.enabled }}
+# Replica service (for read scaling)
+apiVersion: v1
+kind: Service
+metadata:
+  name: libsql-replica
+  labels:
+    {{- include "libsql.labels" . | nindent 4 }}
+    app.kubernetes.io/component: replica
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "libsql.selectorLabels.replica" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.httpPort }}
+      targetPort: http
+{{- end }}

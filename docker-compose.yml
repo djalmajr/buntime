@@ -1,22 +1,20 @@
 services:
-  # buntime:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     - "8001:8000"
-  #   volumes:
-  #     - ./tmp:/app/apps
-  #   environment:
-  #     LOG_LEVEL: debug
-  #     PLUGIN_DIRS: /app/plugins
-  #     POOL_SIZE: "100"
-  #     PORT: "8000"
-  #     WORKER_DIRS: /app/apps
-  #   depends_on:
-  #     libsql:
-  #       condition: service_healthy
-  #   restart: unless-stopped
+  buntime:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - /home/user/Developer/zomme/buntime-apps:/data/apps
+    environment:
+      LOG_LEVEL: debug
+      LIBSQL_URL_0: http://libsql:8080
+      WORKER_DIRS: /data/.apps,/data/apps
+      PLUGIN_DIRS: /data/plugins
+    depends_on:
+      - libsql
+    restart: unless-stopped
   libsql:
     image: ghcr.io/tursodatabase/libsql-server:latest
     ports:
@@ -30,11 +28,13 @@ services:
       SQLD_GRPC_LISTEN_ADDR: 0.0.0.0:5001
       # Development mode - no auth required
       SQLD_DISABLE_AUTH: "true"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+    # Healthcheck disabled - libsql distroless image has no curl/wget
+    # healthcheck:
+    #   test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/health || exit 1"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
+    #   start_period: 10s
     restart: unless-stopped
   # libsql-replica:
   #   image: ghcr.io/tursodatabase/libsql-server:latest

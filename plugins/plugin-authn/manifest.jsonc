@@ -9,6 +9,8 @@
   "enabled": false,
   // Client entrypoint (compiled files)
   "entrypoint": "dist/client/index.html",
+  // Plugin entrypoint (server-side code)
+  "pluginEntry": "dist/plugin.js",
   // Requires plugin-database to be enabled
   // Database adapter type (uses default if not specified)
   // "database": "libsql",

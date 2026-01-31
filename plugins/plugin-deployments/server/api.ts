@@ -14,6 +14,7 @@ let globalExcludes: string[] = [...DEFAULT_EXCLUDES];
 export function setWorkerDirs(dirs: string[]): void {
   workerDirs = dirs;
   // Build name -> path map, handling duplicates with index suffix
+  // Folders starting with "." are hidden from deployments listing but still served
   dirNameMap = new Map();
   const nameCounts: Record<string, number> = {};
 
@@ -24,7 +25,10 @@ export function setWorkerDirs(dirs: string[]): void {
     if (count > 1) {
       name = `${name}-${count}`;
     }
-    dirNameMap.set(name, dir);
+    // Skip hidden directories (starting with ".") from UI listing
+    if (!name.startsWith(".")) {
+      dirNameMap.set(name, dir);
+    }
   }
 }
 

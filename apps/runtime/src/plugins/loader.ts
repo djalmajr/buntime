@@ -443,10 +443,14 @@ export class PluginLoader {
             // Scoped package: {pluginDir}/@scope/{name}/
             await this.scanScopedPackage(entryPath, extensions);
           } else {
-            // Subdirectory: {pluginDir}/{name}/plugin.ts
-            const pluginFile = this.findPluginFile(entryPath, extensions);
-            if (pluginFile) {
-              await this.tryRegisterPlugin(pluginFile, entryPath);
+            // Subdirectory: {pluginDir}/{name}/
+            // Load manifest first to check for "pluginEntry" field
+            const manifest = await this.loadManifest(entryPath);
+            if (manifest) {
+              const pluginFile = this.findPluginFile(entryPath, extensions, manifest.pluginEntry);
+              if (pluginFile) {
+                await this.tryRegisterPluginWithManifest(pluginFile, entryPath, manifest);
+              }
             }
           }
         }
@@ -469,9 +473,13 @@ export class PluginLoader {
       const pkgPath = join(scopeDir, pkg);
       const stat = statSync(pkgPath);
       if (stat.isDirectory()) {
-        const pluginFile = this.findPluginFile(pkgPath, extensions);
-        if (pluginFile) {
-          await this.tryRegisterPlugin(pluginFile, pkgPath);
+        // Load manifest first to check for "pluginEntry" field
+        const manifest = await this.loadManifest(pkgPath);
+        if (manifest) {
+          const pluginFile = this.findPluginFile(pkgPath, extensions, manifest.pluginEntry);
+          if (pluginFile) {
+            await this.tryRegisterPluginWithManifest(pluginFile, pkgPath, manifest);
+          }
         }
       }
     }
@@ -479,9 +487,21 @@ export class PluginLoader {
 
   /**
    * Find plugin entry file in a directory
-   * Tries: plugin.{ts,js}, index.{ts,js}
+   * Priority:
+   * 1. manifest.pluginEntry field (if specified)
+   * 2. {dir}/plugin.{ts,js}, {dir}/index.{ts,js} (source/fallback)
    */
-  private findPluginFile(dir: string, extensions: string[]): string | null {
+  private findPluginFile(dir: string, extensions: string[], pluginEntry?: string): string | null {
+    // 1. Use manifest.pluginEntry if specified
+    if (pluginEntry) {
+      const pluginPath = join(dir, pluginEntry);
+      if (existsSync(pluginPath)) {
+        return pluginPath;
+      }
+      logger.warn(`Plugin file from manifest not found: ${pluginPath}`);
+    }
+
+    // 2. Fallback: try root (source files)
     for (const filename of ["plugin", "index"]) {
       for (const ext of extensions) {
         const filePath = join(dir, `${filename}${ext}`);
@@ -496,6 +516,7 @@ export class PluginLoader {
   /**
    * Try to register a plugin from a file path
    * Requires manifest.jsonc with plugin name and metadata
+   * Used for direct file plugins (not in subdirectory)
    */
   private async tryRegisterPlugin(filePath: string, dir: string): Promise<void> {
     try {
@@ -506,35 +527,47 @@ export class PluginLoader {
         return;
       }
 
-      // Manifest must have name
-      if (!manifest.name || typeof manifest.name !== "string") {
-        logger.warn(`Manifest in ${dir} is missing required field: name`);
-        return;
-      }
-
-      const pluginName = manifest.name;
-
-      // Check for duplicates
-      if (this.scannedPlugins.has(pluginName)) {
-        const existing = this.scannedPlugins.get(pluginName)!;
-        logger.warn(
-          `Duplicate plugin "${pluginName}" found at ${filePath}, ` +
-            `keeping existing from ${existing.path}`,
-        );
-        return;
-      }
-
-      // Store plugin info WITHOUT importing the module
-      // Module is imported lazily in loadPlugin() to avoid loading disabled plugins
-      this.scannedPlugins.set(pluginName, {
-        dir,
-        manifest,
-        path: filePath,
-      });
-      logger.debug(`Scanned plugin: ${pluginName} (${filePath})`);
+      await this.tryRegisterPluginWithManifest(filePath, dir, manifest);
     } catch (error) {
       // Import failed, silently ignore (might not be a valid module)
       logger.debug(`Failed to scan ${filePath}: ${error}`);
     }
+  }
+
+  /**
+   * Register a plugin with an already-loaded manifest
+   * Avoids loading manifest twice when scanning directories
+   */
+  private async tryRegisterPluginWithManifest(
+    filePath: string,
+    dir: string,
+    manifest: PluginManifest,
+  ): Promise<void> {
+    // Manifest must have name
+    if (!manifest.name || typeof manifest.name !== "string") {
+      logger.warn(`Manifest in ${dir} is missing required field: name`);
+      return;
+    }
+
+    const pluginName = manifest.name;
+
+    // Check for duplicates
+    if (this.scannedPlugins.has(pluginName)) {
+      const existing = this.scannedPlugins.get(pluginName)!;
+      logger.warn(
+        `Duplicate plugin "${pluginName}" found at ${filePath}, ` +
+          `keeping existing from ${existing.path}`,
+      );
+      return;
+    }
+
+    // Store plugin info WITHOUT importing the module
+    // Module is imported lazily in loadPlugin() to avoid loading disabled plugins
+    this.scannedPlugins.set(pluginName, {
+      dir,
+      manifest,
+      path: filePath,
+    });
+    logger.debug(`Scanned plugin: ${pluginName} (${filePath})`);
   }
 }

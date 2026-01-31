@@ -97,11 +97,13 @@ export const api = new Hono()
     const existing = dynamicRules[existingIndex]!;
 
     const updated: StoredRule = {
+      base: body.base ?? existing.base,
       changeOrigin: body.changeOrigin ?? existing.changeOrigin,
       headers: body.headers ?? existing.headers,
       id,
       name: body.name ?? existing.name,
       pattern: body.pattern ?? existing.pattern,
+      relativePaths: body.relativePaths ?? existing.relativePaths,
       rewrite: body.rewrite ?? existing.rewrite,
       secure: body.secure ?? existing.secure,
       target: body.target ?? existing.target,

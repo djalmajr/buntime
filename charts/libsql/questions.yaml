@@ -1,0 +1,146 @@
+questions:
+  # ==================== PRIMARY ====================
+  - variable: primary.enableNamespaces
+    label: "Enable Multi-tenancy"
+    description: "Enable namespace support for multi-tenant databases"
+    type: boolean
+    default: true
+    group: "Primary"
+
+  - variable: primary.resources.requests.memory
+    label: "Memory Request"
+    description: "Minimum memory allocation for primary"
+    type: string
+    default: "256Mi"
+    group: "Primary"
+
+  - variable: primary.resources.requests.cpu
+    label: "CPU Request"
+    description: "Minimum CPU allocation for primary"
+    type: string
+    default: "100m"
+    group: "Primary"
+
+  - variable: primary.resources.limits.memory
+    label: "Memory Limit"
+    description: "Maximum memory allocation for primary"
+    type: string
+    default: "512Mi"
+    group: "Primary"
+
+  - variable: primary.resources.limits.cpu
+    label: "CPU Limit"
+    description: "Maximum CPU allocation for primary"
+    type: string
+    default: "500m"
+    group: "Primary"
+
+  # ==================== REPLICA ====================
+  - variable: replica.enabled
+    label: "Enable Replica"
+    description: "Deploy read-only replica nodes for scaling"
+    type: boolean
+    default: false
+    group: "Replica"
+    show_subquestion_if: true
+    subquestions:
+      - variable: replica.replicaCount
+        label: "Replica Count"
+        description: "Number of replica nodes"
+        type: int
+        default: 1
+        min: 1
+        max: 5
+      - variable: replica.resources.requests.memory
+        label: "Replica Memory Request"
+        type: string
+        default: "128Mi"
+      - variable: replica.resources.requests.cpu
+        label: "Replica CPU Request"
+        type: string
+        default: "50m"
+      - variable: replica.resources.limits.memory
+        label: "Replica Memory Limit"
+        type: string
+        default: "256Mi"
+      - variable: replica.resources.limits.cpu
+        label: "Replica CPU Limit"
+        type: string
+        default: "250m"
+
+  # ==================== STORAGE ====================
+  - variable: primary.persistence.enabled
+    label: "Enable Primary Persistence"
+    description: "Use persistent volume for primary data"
+    type: boolean
+    default: true
+    group: "Storage"
+
+  - variable: primary.persistence.size
+    label: "Primary Volume Size"
+    description: "Size of the primary data volume"
+    type: string
+    default: "10Gi"
+    group: "Storage"
+    show_if: "primary.persistence.enabled=true"
+
+  - variable: primary.persistence.storageClass
+    label: "Primary Storage Class"
+    description: "Storage class for primary PVC (empty = default)"
+    type: storageclass
+    default: ""
+    group: "Storage"
+    show_if: "primary.persistence.enabled=true"
+
+  - variable: replica.persistence.enabled
+    label: "Enable Replica Persistence"
+    description: "Use persistent volume for replica data"
+    type: boolean
+    default: true
+    group: "Storage"
+    show_if: "replica.enabled=true"
+
+  - variable: replica.persistence.size
+    label: "Replica Volume Size"
+    description: "Size of each replica data volume"
+    type: string
+    default: "10Gi"
+    group: "Storage"
+    show_if: "replica.enabled=true&&replica.persistence.enabled=true"
+
+  - variable: replica.persistence.storageClass
+    label: "Replica Storage Class"
+    description: "Storage class for replica PVCs (empty = default)"
+    type: storageclass
+    default: ""
+    group: "Storage"
+    show_if: "replica.enabled=true&&replica.persistence.enabled=true"
+
+  # ==================== ADVANCED ====================
+  - variable: image.tag
+    label: "Image Tag"
+    description: "LibSQL server image tag"
+    type: string
+    default: "latest"
+    group: "Advanced"
+
+  - variable: service.httpPort
+    label: "HTTP Port"
+    description: "HTTP API port"
+    type: int
+    default: 8080
+    group: "Advanced"
+
+  - variable: service.grpcPort
+    label: "gRPC Port"
+    description: "gRPC port for replication"
+    type: int
+    default: 5001
+    group: "Advanced"
+
+  - variable: service.adminPort
+    label: "Admin Port"
+    description: "Admin API port"
+    type: int
+    default: 9090
+    group: "Advanced"

@@ -1,0 +1,164 @@
+questions:
+  # ==================== DATABASE ====================
+  - variable: buntime.libsqlUrl
+    label: "LibSQL Primary URL"
+    description: "URL of the primary LibSQL server (e.g., http://libsql.libsql:8080)"
+    type: string
+    default: "http://libsql.libsql:8080"
+    required: true
+    group: "Database"
+
+  - variable: buntime.libsqlReplicas
+    label: "LibSQL Replica URLs"
+    description: "Optional list of replica URLs for read scaling. One URL per line."
+    type: multiline
+    default: ""
+    group: "Database"
+
+  - variable: buntime.libsqlAuthToken
+    label: "LibSQL Auth Token"
+    description: "Authentication token for LibSQL (leave empty if not required)"
+    type: password
+    default: ""
+    group: "Database"
+
+  # ==================== NETWORKING ====================
+  - variable: ingress.enabled
+    label: "Enable Ingress"
+    description: "Expose Buntime via Ingress controller"
+    type: boolean
+    default: false
+    group: "Networking"
+    show_subquestion_if: true
+    subquestions:
+      - variable: ingress.host
+        label: "Hostname"
+        description: "Hostname for the ingress (e.g., buntime.home)"
+        type: hostname
+        default: ""
+        required: true
+      - variable: ingress.className
+        label: "Ingress Class"
+        description: "Ingress controller class name"
+        type: string
+        default: "traefik"
+      - variable: ingress.tls.enabled
+        label: "Enable TLS"
+        description: "Enable HTTPS with TLS certificate"
+        type: boolean
+        default: false
+
+  - variable: buntime.corsOrigins
+    label: "CORS Origins"
+    description: "Comma-separated list of allowed CORS origins (empty = restrictive)"
+    type: string
+    default: ""
+    group: "Networking"
+
+  - variable: service.type
+    label: "Service Type"
+    description: "Kubernetes service type"
+    type: enum
+    default: "NodePort"
+    options:
+      - "ClusterIP"
+      - "NodePort"
+      - "LoadBalancer"
+    group: "Networking"
+
+  # ==================== RUNTIME ====================
+  - variable: buntime.logLevel
+    label: "Log Level"
+    description: "Application log verbosity"
+    type: enum
+    default: "info"
+    options:
+      - "debug"
+      - "info"
+      - "warn"
+      - "error"
+    group: "Runtime"
+
+  - variable: buntime.poolSize
+    label: "Worker Pool Size"
+    description: "Maximum number of concurrent workers"
+    type: int
+    default: 100
+    min: 1
+    max: 1000
+    group: "Runtime"
+
+  - variable: buntime.homepage
+    label: "Homepage Redirect"
+    description: "Redirect path for root URL (e.g., /cpanel). Leave empty for no redirect."
+    type: string
+    default: ""
+    group: "Runtime"
+
+  # ==================== STORAGE ====================
+  - variable: persistence.plugins.enabled
+    label: "Enable Plugins PVC"
+    description: "Create persistent volume for custom plugins"
+    type: boolean
+    default: true
+    group: "Storage"
+    show_subquestion_if: true
+    subquestions:
+      - variable: persistence.plugins.size
+        label: "Plugins Volume Size"
+        type: string
+        default: "5Gi"
+      - variable: persistence.plugins.storageClass
+        label: "Storage Class"
+        description: "Leave empty for default storage class"
+        type: storageclass
+        default: ""
+
+  - variable: persistence.apps.enabled
+    label: "Enable Apps PVC"
+    description: "Create persistent volume for user applications"
+    type: boolean
+    default: true
+    group: "Storage"
+    show_subquestion_if: true
+    subquestions:
+      - variable: persistence.apps.size
+        label: "Apps Volume Size"
+        type: string
+        default: "10Gi"
+      - variable: persistence.apps.storageClass
+        label: "Storage Class"
+        description: "Leave empty for default storage class"
+        type: storageclass
+        default: ""
+
+  # ==================== ADVANCED ====================
+  - variable: replicaCount
+    label: "Replica Count"
+    description: "Number of Buntime pod replicas"
+    type: int
+    default: 1
+    min: 1
+    max: 10
+    group: "Advanced"
+
+  - variable: buntime.pluginDirs
+    label: "Plugin Directories"
+    description: "Colon-separated list of plugin directories"
+    type: string
+    default: "/data/.plugins:/data/plugins"
+    group: "Advanced"
+
+  - variable: buntime.workerDirs
+    label: "Worker Directories"
+    description: "Colon-separated list of worker directories"
+    type: string
+    default: "/data/.apps:/data/apps"
+    group: "Advanced"
+
+  - variable: image.tag
+    label: "Image Tag"
+    description: "Docker image tag (use 'latest' for most recent)"
+    type: string
+    default: "latest"
+    group: "Advanced"

@@ -11,6 +11,9 @@ spec:
       {{- include "buntime.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      annotations:
+        # Force pod recreation on every helm upgrade (pulls latest image)
+        rollme: {{ randAlphaNum 5 | quote }}
       labels:
         {{- include "buntime.selectorLabels" . | nindent 8 }}
     spec:

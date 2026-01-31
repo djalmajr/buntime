@@ -47,6 +47,12 @@ RUN for plugin in plugins/plugin-*; do \
 # =============================================================================
 FROM debian:bookworm-slim
 
+# Install system dependencies (zip/unzip for download-batch endpoint)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    zip \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Copy the binary

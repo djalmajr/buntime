@@ -3,6 +3,10 @@ import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import type { ZFrameAttributes } from "~/types/frame";
 
+/** Sandbox permissions for plugin iframes (includes allow-downloads for file downloads) */
+const FRAME_SANDBOX =
+  "allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads";
+
 /**
  * Extract segment (plugin name) from path
  * e.g., "/metrics" -> "metrics", "/metrics/workers" -> "metrics"
@@ -97,6 +101,7 @@ function FragmentRouter() {
       ref={frameRef}
       src={`${location.origin}/${segment}`}
       pathname={getFramePathname(pathname, segment)}
+      sandbox={FRAME_SANDBOX}
     />
   );
 }

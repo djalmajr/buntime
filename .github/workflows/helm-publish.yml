@@ -1,4 +1,4 @@
-name: Publish Helm Chart
+name: Publish Helm Charts
 
 on:
   push:
@@ -15,14 +15,14 @@ jobs:
       - name: Checkout buntime
         uses: actions/checkout@v4
 
-      - name: Push chart to zommehq/charts
+      - name: Push charts to zommehq/charts
         uses: cpina/github-action-push-to-another-repository@main
         env:
           API_TOKEN_GITHUB: ${{ secrets.CHARTS_PAT }}
         with:
-          source-directory: "charts/buntime"
+          source-directory: "charts"
           destination-github-username: "zommehq"
           destination-repository-name: "charts"
-          target-directory: "charts/buntime"
+          target-directory: "charts"
           target-branch: main
-          commit-message: "chore(buntime): sync chart"
+          commit-message: "chore: sync charts from buntime"

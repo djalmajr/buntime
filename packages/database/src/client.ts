@@ -29,16 +29,16 @@ function resolveBaseUrl(baseUrl?: string): string {
     return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
   }
 
-  // Check for environment variable (DATABASE_API_URL or BUNTIME_API_URL)
+  // Check for environment variable (DATABASE_API_URL or RUNTIME_API_URL)
   const env = typeof process !== "undefined" ? process.env : undefined;
   if (env?.DATABASE_API_URL) {
     const url = env.DATABASE_API_URL;
     return url.endsWith("/") ? url.slice(0, -1) : url;
   }
 
-  // Workers receive BUNTIME_API_URL from the runtime
-  if (env?.BUNTIME_API_URL) {
-    const url = `${env.BUNTIME_API_URL}/database/api`;
+  // Workers receive RUNTIME_API_URL from the runtime
+  if (env?.RUNTIME_API_URL) {
+    const url = `${env.RUNTIME_API_URL}/database/api`;
     return url;
   }
 

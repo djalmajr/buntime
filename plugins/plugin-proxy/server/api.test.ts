@@ -17,14 +17,13 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
       poolSize: 10,
       workerDirs: ["./apps"],
     },
-    getService: mock(() => undefined),
+    getPlugin: mock(() => undefined),
     logger: {
       debug: mock(() => {}),
       error: mock(() => {}),
       info: mock(() => {}),
       warn: mock(() => {}),
     },
-    registerService: mock(() => {}),
     ...overrides,
   };
 }
@@ -198,7 +197,7 @@ describe("Proxy API", () => {
     it("should return 400 when pattern missing", async () => {
       const mockKv = createMockKv();
       const ctx = createMockContext({
-        getService: mock(() => mockKv) as PluginContext["getService"],
+        getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
       });
       initializeProxyService(ctx, []);
 
@@ -217,7 +216,7 @@ describe("Proxy API", () => {
     it("should return 400 when target missing", async () => {
       const mockKv = createMockKv();
       const ctx = createMockContext({
-        getService: mock(() => mockKv) as PluginContext["getService"],
+        getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
       });
       initializeProxyService(ctx, []);
 
@@ -236,7 +235,7 @@ describe("Proxy API", () => {
     it("should return 400 when regex pattern is invalid", async () => {
       const mockKv = createMockKv();
       const ctx = createMockContext({
-        getService: mock(() => mockKv) as PluginContext["getService"],
+        getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
       });
       initializeProxyService(ctx, []);
 
@@ -255,7 +254,7 @@ describe("Proxy API", () => {
     it("should create new dynamic rule", async () => {
       const mockKv = createMockKv();
       const ctx = createMockContext({
-        getService: mock(() => mockKv) as PluginContext["getService"],
+        getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
       });
       initializeProxyService(ctx, []);
 
@@ -308,7 +307,7 @@ describe("Proxy API", () => {
       const mockKv = createMockKv();
       const staticRules: ProxyRule[] = [{ pattern: "^/api/(.*)$", target: "http://backend:8080" }];
       const ctx = createMockContext({
-        getService: mock(() => mockKv) as PluginContext["getService"],
+        getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
       });
       initializeProxyService(ctx, staticRules);
 
@@ -327,7 +326,7 @@ describe("Proxy API", () => {
     it("should return 404 when rule not found", async () => {
       const mockKv = createMockKv();
       const ctx = createMockContext({
-        getService: mock(() => mockKv) as PluginContext["getService"],
+        getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
       });
       initializeProxyService(ctx, []);
 
@@ -346,7 +345,7 @@ describe("Proxy API", () => {
     it("should return 400 when updated pattern is invalid", async () => {
       const mockKv = createMockKv();
       const ctx = createMockContext({
-        getService: mock(() => mockKv) as PluginContext["getService"],
+        getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
       });
       initializeProxyService(ctx, []);
 
@@ -373,7 +372,7 @@ describe("Proxy API", () => {
     it("should update dynamic rule", async () => {
       const mockKv = createMockKv();
       const ctx = createMockContext({
-        getService: mock(() => mockKv) as PluginContext["getService"],
+        getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
       });
       initializeProxyService(ctx, []);
 
@@ -426,7 +425,7 @@ describe("Proxy API", () => {
       const mockKv = createMockKv();
       const staticRules: ProxyRule[] = [{ pattern: "^/api/(.*)$", target: "http://backend:8080" }];
       const ctx = createMockContext({
-        getService: mock(() => mockKv) as PluginContext["getService"],
+        getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
       });
       initializeProxyService(ctx, staticRules);
 
@@ -443,7 +442,7 @@ describe("Proxy API", () => {
     it("should return 404 when rule not found", async () => {
       const mockKv = createMockKv();
       const ctx = createMockContext({
-        getService: mock(() => mockKv) as PluginContext["getService"],
+        getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
       });
       initializeProxyService(ctx, []);
 
@@ -460,7 +459,7 @@ describe("Proxy API", () => {
     it("should delete dynamic rule", async () => {
       const mockKv = createMockKv();
       const ctx = createMockContext({
-        getService: mock(() => mockKv) as PluginContext["getService"],
+        getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
       });
       initializeProxyService(ctx, []);
 
@@ -499,7 +498,7 @@ describe("Proxy API", () => {
 
       const mockKv = createMockKv();
       const ctxWithKv = createMockContext({
-        getService: mock(() => mockKv) as PluginContext["getService"],
+        getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
       });
       initializeProxyService(ctxWithKv, []);
 

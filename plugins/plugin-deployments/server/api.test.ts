@@ -120,8 +120,8 @@ describe("api", () => {
     it("should filter out internal visibility apps", async () => {
       await mkdir(join(TEST_APPS_PATH, "internal-app"), { recursive: true });
       await writeFile(
-        join(TEST_APPS_PATH, "internal-app/manifest.jsonc"),
-        JSON.stringify({ visibility: "internal" }),
+        join(TEST_APPS_PATH, "internal-app/manifest.yaml"),
+        Bun.YAML.stringify({ visibility: "internal" }),
       );
       await mkdir(join(TEST_APPS_PATH, "public-app"), { recursive: true });
 
@@ -135,8 +135,8 @@ describe("api", () => {
     it("should include currentVisibility in response", async () => {
       await mkdir(join(TEST_APPS_PATH, "my-app/1.0.0"), { recursive: true });
       await writeFile(
-        join(TEST_APPS_PATH, "my-app/1.0.0/manifest.jsonc"),
-        JSON.stringify({ visibility: "protected" }),
+        join(TEST_APPS_PATH, "my-app/1.0.0/manifest.yaml"),
+        Bun.YAML.stringify({ visibility: "protected" }),
       );
 
       const res = await apiRequest("GET", "/list?path=apps/my-app/1.0.0");
@@ -1229,16 +1229,10 @@ describe("POST /delete-batch - error handling", () => {
 });
 
 describe("Environment variable initialization", () => {
-  it("should handle BUNTIME_WORKER_DIRS env var parsing via subprocess", async () => {
+  it("should handle RUNTIME_WORKER_DIRS env var parsing via subprocess", async () => {
     // This test uses a subprocess to test the module initialization with env vars
-    // The env var parsing happens at module load time
+    // The env var parsing happens at module load time (colon-separated PATH style)
     const testScript = `
-      process.env.BUNTIME_WORKER_DIRS = JSON.stringify(["/test/apps", "/test/packages"]);
-      process.env.BUNTIME_EXCLUDES = JSON.stringify(["dist", ".cache"]);
-
-      // Clear module cache to force re-import
-      delete require.cache[require.resolve("./api")];
-
       const { getWorkerDirs, getExcludes } = await import("./api");
 
       const workerDirs = getWorkerDirs();
@@ -1251,8 +1245,8 @@ describe("Environment variable initialization", () => {
       cwd: join(import.meta.dir),
       env: {
         ...process.env,
-        BUNTIME_WORKER_DIRS: JSON.stringify(["/test/apps", "/test/packages"]),
-        BUNTIME_EXCLUDES: JSON.stringify(["dist", ".cache"]),
+        RUNTIME_WORKER_DIRS: "/test/apps:/test/packages",
+        DEPLOYMENTS_EXCLUDES: "dist:.cache",
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -1267,7 +1261,7 @@ describe("Environment variable initialization", () => {
     expect(result.excludes).toContain(".cache");
   });
 
-  it("should handle invalid BUNTIME_WORKER_DIRS JSON gracefully via subprocess", async () => {
+  it("should handle empty RUNTIME_WORKER_DIRS gracefully via subprocess", async () => {
     const proc = Bun.spawn(
       [
         "bun",
@@ -1281,8 +1275,8 @@ describe("Environment variable initialization", () => {
         cwd: join(import.meta.dir),
         env: {
           ...process.env,
-          BUNTIME_WORKER_DIRS: "invalid-json",
-          BUNTIME_EXCLUDES: undefined,
+          RUNTIME_WORKER_DIRS: "",
+          DEPLOYMENTS_EXCLUDES: undefined,
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -1292,12 +1286,12 @@ describe("Environment variable initialization", () => {
     await proc.exited;
     const output = await new Response(proc.stdout).text();
 
-    // Should use defaults when JSON parsing fails
+    // Should use empty array when env var is empty
     const workerDirs = JSON.parse(output.trim());
     expect(Array.isArray(workerDirs)).toBe(true);
   });
 
-  it("should handle invalid BUNTIME_EXCLUDES JSON gracefully via subprocess", async () => {
+  it("should handle empty DEPLOYMENTS_EXCLUDES gracefully via subprocess", async () => {
     const proc = Bun.spawn(
       [
         "bun",
@@ -1311,8 +1305,8 @@ describe("Environment variable initialization", () => {
         cwd: join(import.meta.dir),
         env: {
           ...process.env,
-          BUNTIME_WORKER_DIRS: undefined,
-          BUNTIME_EXCLUDES: "invalid-json",
+          RUNTIME_WORKER_DIRS: undefined,
+          DEPLOYMENTS_EXCLUDES: "",
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -1322,38 +1316,10 @@ describe("Environment variable initialization", () => {
     await proc.exited;
     const output = await new Response(proc.stdout).text();
 
-    // Should use defaults when JSON parsing fails
+    // Should use defaults when env var is empty
     const excludes = JSON.parse(output.trim());
     expect(Array.isArray(excludes)).toBe(true);
-  });
-
-  it("should handle empty array BUNTIME_WORKER_DIRS via subprocess", async () => {
-    const proc = Bun.spawn(
-      [
-        "bun",
-        "-e",
-        `
-        const { getWorkerDirs } = await import("./api");
-        console.log(JSON.stringify(getWorkerDirs()));
-      `,
-      ],
-      {
-        cwd: join(import.meta.dir),
-        env: {
-          ...process.env,
-          BUNTIME_WORKER_DIRS: "[]",
-          BUNTIME_EXCLUDES: undefined,
-        },
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
-
-    await proc.exited;
-    const output = await new Response(proc.stdout).text();
-
-    // Empty array should not update workerDirs (keep defaults)
-    const workerDirs = JSON.parse(output.trim());
-    expect(Array.isArray(workerDirs)).toBe(true);
+    expect(excludes).toContain(".git");
+    expect(excludes).toContain("node_modules");
   });
 });

@@ -1,23 +1,16 @@
 import { getChildLogger } from "@buntime/shared/logger";
-import type { PublicRoutesConfig } from "@buntime/shared/types";
 import { loadManifestConfig } from "@buntime/shared/utils/buntime-config";
-import { parseDurationToMs } from "@buntime/shared/utils/duration";
-import { parseSizeToBytes } from "@buntime/shared/utils/size";
-import { boolean, number, substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
+import {
+  parseWorkerConfig,
+  type WorkerConfig,
+  WorkerConfigDefaults,
+  type WorkerManifest,
+} from "@buntime/shared/utils/worker-config";
+import { boolean, number } from "@buntime/shared/utils/zod-helpers";
 import z from "zod/v4";
 import { getConfig } from "@/config";
 
 const logger = getChildLogger("WorkerConfig");
-
-// Default values for worker configuration
-export const ConfigDefaults = {
-  autoInstall: false,
-  idleTimeout: 60,
-  lowMemory: false,
-  maxRequests: 1000,
-  timeout: 30,
-  ttl: 0,
-} as const;
 
 // Schema for publicRoutes - can be array or object with HTTP methods
 const publicRoutesSchema = z.union([
@@ -41,17 +34,17 @@ const durationSchema = z.union([z.number().nonnegative(), z.string()]);
 const sizeSchema = z.union([z.number().positive(), z.string()]);
 
 const workerConfigSchema = z.object({
-  autoInstall: boolean(ConfigDefaults.autoInstall, z.boolean()),
+  autoInstall: boolean(WorkerConfigDefaults.autoInstall, z.boolean()),
   entrypoint: z.string().optional(),
-  // Environment variables to pass to the worker (supports ${VAR_NAME} substitution)
   env: z.record(z.string(), z.string()).optional(),
-  idleTimeout: durationSchema.default(ConfigDefaults.idleTimeout),
-  lowMemory: boolean(ConfigDefaults.lowMemory, z.boolean()),
+  idleTimeout: durationSchema.default(WorkerConfigDefaults.idleTimeout),
+  injectBase: boolean(WorkerConfigDefaults.injectBase, z.boolean()),
+  lowMemory: boolean(WorkerConfigDefaults.lowMemory, z.boolean()),
   maxBodySize: sizeSchema.optional(),
-  maxRequests: number(ConfigDefaults.maxRequests, z.number().nonnegative()),
+  maxRequests: number(WorkerConfigDefaults.maxRequests, z.number().nonnegative()),
   publicRoutes: publicRoutesSchema.optional(),
-  timeout: durationSchema.default(ConfigDefaults.timeout),
-  ttl: durationSchema.default(ConfigDefaults.ttl),
+  timeout: durationSchema.default(WorkerConfigDefaults.timeout),
+  ttl: durationSchema.default(WorkerConfigDefaults.ttl),
 });
 
 export type WorkerConfigFile = z.infer<typeof workerConfigSchema>;
@@ -67,108 +60,87 @@ class WorkerConfigError extends Error {
   }
 }
 
-// Internal configuration (values in milliseconds/bytes)
-export interface WorkerConfig {
-  autoInstall: boolean;
-  entrypoint?: string;
-  env?: Record<string, string>;
-  idleTimeoutMs: number;
-  lowMemory: boolean;
-  maxBodySizeBytes: number;
-  maxRequests: number;
-  publicRoutes?: PublicRoutesConfig;
-  timeoutMs: number;
-  ttlMs: number;
-}
-
 /**
- * Load worker configuration from manifest.jsonc or manifest.json
+ * Load worker configuration from manifest.yaml
+ *
+ * 1. Loads and validates manifest with Zod schema
+ * 2. Parses to normalized format (ms/bytes) via parseWorkerConfig
+ * 3. Applies runtime-specific limits (bodySize ceiling)
+ * 4. Validates config relationships (ttl >= timeout, etc.)
  */
 export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
   // Load config using shared utility
-  const config = await loadManifestConfig(appDir);
+  const rawConfig = await loadManifestConfig(appDir);
 
-  // Validate and apply defaults
-  const { data, error } = workerConfigSchema.safeParse(config || {});
+  // Validate schema and apply defaults
+  const { data, error } = workerConfigSchema.safeParse(rawConfig || {});
 
   if (error) {
     const err = error.issues.map((v) => `${v.path.join(".")}: ${v.message}`).join(", ");
     throw new WorkerConfigError(`Invalid config: ${err}`, appDir);
   }
 
-  const timeoutMs = parseDurationToMs(data.timeout);
-  const ttlMs = parseDurationToMs(data.ttl);
-  let idleTimeoutMs = parseDurationToMs(data.idleTimeout);
+  // Parse to normalized format (ms/bytes)
+  const config = parseWorkerConfig(data as WorkerManifest);
 
-  // Parse and validate maxBodySize (with ceiling from runtime config)
+  // Apply runtime-specific bodySize limits
   const { bodySize } = getConfig();
-  let maxBodySizeBytes = bodySize.default;
-  if (data.maxBodySize !== undefined) {
-    const parsed = parseSizeToBytes(data.maxBodySize);
-    if (parsed > bodySize.max) {
-      logger.warn(
-        `maxBodySize (${parsed} bytes) exceeds maximum (${bodySize.max} bytes), capping to maximum`,
-        { appDir },
-      );
-      maxBodySizeBytes = bodySize.max;
-    } else {
-      maxBodySizeBytes = parsed;
-    }
+  let maxBodySizeBytes = config.maxBodySizeBytes ?? bodySize.default;
+
+  if (maxBodySizeBytes > bodySize.max) {
+    logger.warn(
+      `maxBodySize (${maxBodySizeBytes} bytes) exceeds maximum (${bodySize.max} bytes), capping to maximum`,
+      { appDir },
+    );
+    maxBodySizeBytes = bodySize.max;
   }
 
   // Validate durations are positive/non-negative
-  if (timeoutMs <= 0) {
-    throw new WorkerConfigError(`timeout must be positive, got: ${data.timeout}`, appDir);
+  if (config.timeoutMs <= 0) {
+    throw new WorkerConfigError(`timeout must be positive`, appDir);
   }
-  if (ttlMs < 0) {
-    throw new WorkerConfigError(`ttl must be non-negative, got: ${data.ttl}`, appDir);
+  if (config.ttlMs < 0) {
+    throw new WorkerConfigError(`ttl must be non-negative`, appDir);
   }
-  if (idleTimeoutMs <= 0) {
-    throw new WorkerConfigError(`idleTimeout must be positive, got: ${data.idleTimeout}`, appDir);
+  if (config.idleTimeoutMs <= 0) {
+    throw new WorkerConfigError(`idleTimeout must be positive`, appDir);
   }
 
   // Validate config relationships for persistent workers (ttl > 0)
-  if (ttlMs > 0) {
+  let { idleTimeoutMs } = config;
+
+  if (config.ttlMs > 0) {
     // ttl must be >= timeout (worker shouldn't expire during a request)
-    if (ttlMs < timeoutMs) {
+    if (config.ttlMs < config.timeoutMs) {
       throw new WorkerConfigError(
-        `ttl (${ttlMs}ms) must be >= timeout (${timeoutMs}ms). Worker would expire before request completes.`,
+        `ttl (${config.ttlMs}ms) must be >= timeout (${config.timeoutMs}ms). Worker would expire before request completes.`,
         appDir,
       );
     }
 
     // idleTimeout must be >= timeout (worker shouldn't be marked idle during a request)
-    if (idleTimeoutMs < timeoutMs) {
+    if (idleTimeoutMs < config.timeoutMs) {
       throw new WorkerConfigError(
-        `idleTimeout (${idleTimeoutMs}ms) must be >= timeout (${timeoutMs}ms). Worker could be marked idle while processing.`,
+        `idleTimeout (${idleTimeoutMs}ms) must be >= timeout (${config.timeoutMs}ms). Worker could be marked idle while processing.`,
         appDir,
       );
     }
 
     // idleTimeout > ttl is pointless - auto-adjust with warning
-    if (idleTimeoutMs > ttlMs) {
-      logger.warn(`idleTimeout (${idleTimeoutMs}ms) exceeds ttl (${ttlMs}ms), adjusting to ttl`, {
-        appDir,
-      });
-      idleTimeoutMs = ttlMs;
+    if (idleTimeoutMs > config.ttlMs) {
+      logger.warn(
+        `idleTimeout (${idleTimeoutMs}ms) exceeds ttl (${config.ttlMs}ms), adjusting to ttl`,
+        {
+          appDir,
+        },
+      );
+      idleTimeoutMs = config.ttlMs;
     }
   }
 
-  // Substitute environment variables in env config values
-  const env = data.env
-    ? Object.fromEntries(Object.entries(data.env).map(([k, v]) => [k, substituteEnvVars(v)]))
-    : undefined;
-
   return {
-    autoInstall: data.autoInstall,
-    entrypoint: data.entrypoint,
-    env,
+    ...config,
     idleTimeoutMs,
-    lowMemory: data.lowMemory,
     maxBodySizeBytes,
-    maxRequests: data.maxRequests,
-    publicRoutes: data.publicRoutes,
-    timeoutMs,
-    ttlMs,
   };
 }

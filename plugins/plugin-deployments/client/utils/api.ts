@@ -1,4 +1,6 @@
-import manifest from "../../manifest.jsonc";
+import manifest from "../../manifest.yaml";
+
+const BASE = manifest.base;
 
 /**
  * Make API requests to the deployments API
@@ -7,7 +9,7 @@ export async function apiRequest<T>(
   endpoint: string,
   options?: RequestInit,
 ): Promise<{ success: boolean; data?: T; error?: string }> {
-  const url = `${manifest.base}/api${endpoint}`;
+  const url = `${BASE}/api${endpoint}`;
 
   try {
     const res = await fetch(url, {
@@ -36,7 +38,7 @@ export async function uploadFiles(
   files: File[],
   paths: string[],
 ): Promise<{ success: boolean; error?: string }> {
-  const url = `${manifest.base}/api/upload`;
+  const url = `${BASE}/api/upload`;
 
   const formData = new FormData();
   formData.append("path", path);
@@ -67,7 +69,7 @@ export async function uploadFiles(
  * Get download URL for a file
  */
 export function getDownloadUrl(path: string): string {
-  return `${manifest.base}/api/download?path=${encodeURIComponent(path)}`;
+  return `${BASE}/api/download?path=${encodeURIComponent(path)}`;
 }
 
 /**
@@ -75,5 +77,5 @@ export function getDownloadUrl(path: string): string {
  */
 export function getBatchDownloadUrl(paths: string[]): string {
   const pathsParam = paths.map((p) => encodeURIComponent(p)).join(",");
-  return `${manifest.base}/api/download-batch?paths=${pathsParam}`;
+  return `${BASE}/api/download-batch?paths=${pathsParam}`;
 }

@@ -1,7 +1,7 @@
+import type { WorkerConfig } from "@buntime/shared/utils/worker-config";
 import { Hono } from "hono";
 import { Headers, MessageTypes } from "@/constants";
 import { serveStatic } from "@/utils/serve-static";
-import type { WorkerConfig } from "./config";
 import type { MethodHandlers, RouteHandler, WorkerApp, WorkerResponse } from "./types";
 
 declare var self: Worker;
@@ -156,15 +156,35 @@ self.onmessage = async ({ data }) => {
     headers["content-type"] ||= "text/plain; charset=utf-8";
 
     let body = await response.arrayBuffer();
-    const base = req.headers[Headers.BASE];
     const isHtml = headers["content-type"]?.includes("text/html");
 
-    if (isHtml && base) {
-      const text = new TextDecoder().decode(body);
-      const baseHref = escapeHtml(base === "/" ? "/" : `${base}/`);
-      const injection = `<base href="${baseHref}" />`;
-      const html = text.replace("<head>", `<head>${injection}`);
-      body = new TextEncoder().encode(html).buffer;
+    // Filter PUBLIC_* env vars for client-side injection (security: never expose server-only vars)
+    const publicEnv = config.env
+      ? Object.fromEntries(Object.entries(config.env).filter(([key]) => key.startsWith("PUBLIC_")))
+      : null;
+    const hasPublicEnv = publicEnv && Object.keys(publicEnv).length > 0;
+
+    // Inject <base href> and/or window.__env__ into HTML responses
+    if (isHtml && (config.injectBase || hasPublicEnv)) {
+      let text = new TextDecoder().decode(body);
+
+      // Inject <base href> after <head> for asset loading (opt-in via injectBase: true)
+      if (config.injectBase) {
+        const base = req.headers[Headers.BASE];
+        if (base) {
+          const baseHref = escapeHtml(base === "/" ? "/" : `${base}/`);
+          text = text.replace("<head>", `<head><base href="${baseHref}" />`);
+        }
+      }
+
+      // Inject window.__env__ with PUBLIC_* vars only (implicit via naming convention)
+      if (hasPublicEnv) {
+        // Escape </script> in values to prevent XSS
+        const safeJson = JSON.stringify(publicEnv).replace(/<\/script>/gi, "<\\/script>");
+        text = text.replace("</head>", `<script>window.__env__=${safeJson};</script></head>`);
+      }
+
+      body = new TextEncoder().encode(text).buffer;
     }
 
     const message: WorkerResponse = {

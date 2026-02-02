@@ -14,7 +14,7 @@ import { Hono } from "hono";
 import { generateSpecs, openAPIRouteHandler } from "hono-openapi";
 import { createApp } from "@/app";
 import { initConfig } from "@/config";
-import { NODE_ENV, VERSION } from "@/constants";
+import { API_PATH, NODE_ENV, VERSION } from "@/constants";
 import { WorkerPool } from "@/libs/pool/pool";
 import { PluginLoader } from "@/plugins/loader";
 import { createAppsRoutes } from "@/routes/apps";
@@ -24,9 +24,9 @@ import { createWorkerRoutes } from "@/routes/worker";
 import { createWorkerResolver } from "@/utils/get-worker-dir";
 
 // Initialize logger first (before anything else)
-// LOG_LEVEL from env with fallback based on NODE_ENV
+// RUNTIME_LOG_LEVEL from env with fallback based on NODE_ENV
 const logLevel =
-  (Bun.env.LOG_LEVEL as "debug" | "info" | "warn" | "error") ||
+  (Bun.env.RUNTIME_LOG_LEVEL as "debug" | "info" | "warn" | "error") ||
   (NODE_ENV === "production" ? "info" : "debug");
 
 const logger = createLogger({
@@ -38,10 +38,6 @@ setLogger(logger);
 
 // Load configuration from environment variables
 const runtimeConfig = initConfig();
-
-// Set workerDirs as env var so plugin workers can access it
-// Workers inherit Bun.env at spawn time
-Bun.env.BUNTIME_WORKER_DIRS = JSON.stringify(runtimeConfig.workerDirs);
 
 // Create pool with config
 const pool = new WorkerPool({ maxSize: runtimeConfig.poolSize });
@@ -61,7 +57,7 @@ const openApiDocumentation = {
     version: VERSION,
   },
   openapi: "3.1.0" as const,
-  servers: [{ description: "Runtime API", url: "/api" }],
+  servers: [{ description: "Runtime API", url: API_PATH }],
   tags: [
     { description: "Runtime health checks", name: "Health" },
     { description: "Plugin information and management", name: "Plugins" },
@@ -96,7 +92,7 @@ coreRoutes.get("/openapi.json", openApiHandler as any).get(
   Scalar({
     metaData: { title: "Buntime API Docs" },
     theme: "purple",
-    url: "/api/openapi.json",
+    url: `${API_PATH}/openapi.json`,
   }),
 );
 
@@ -111,7 +107,6 @@ const workers = createWorkerRoutes({
 const app = createApp({
   coreRoutes,
   getWorkerDir,
-  homepage: runtimeConfig.homepage,
   pool,
   registry,
   workers,

@@ -1,0 +1,49 @@
+name: "@buntime/plugin-keyval"
+base: "/keyval"
+enabled: true
+
+dependencies:
+  - "@buntime/plugin-database"
+
+entrypoint: dist/client/index.html
+pluginEntry: dist/plugin.js
+
+menus:
+  - icon: lucide:database
+    path: /keyval
+    title: KeyVal
+    items:
+      - icon: lucide:home
+        path: /keyval
+        title: Overview
+      - icon: lucide:list
+        path: /keyval/entries
+        title: Entries
+      - icon: lucide:layers
+        path: /keyval/queue
+        title: Queue
+      - icon: lucide:search
+        path: /keyval/search
+        title: Search
+      - icon: lucide:eye
+        path: /keyval/watch
+        title: Watch
+      - icon: lucide:atom
+        path: /keyval/atomic
+        title: Atomic
+      - icon: lucide:activity
+        path: /keyval/metrics
+        title: Metrics
+
+# Database adapter type
+database: libsql
+
+# Metrics configuration
+metrics:
+  persistent: false
+  flushInterval: 30000
+
+# Queue configuration
+queue:
+  cleanupInterval: 60000
+  lockDuration: 30000

@@ -11,20 +11,19 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ${WORKER_DIRS:-./tmp/apps}:/data/apps
-      - ${PLUGIN_DIRS:-./tmp/plugins}:/data/plugins
+      - ${RUNTIME_WORKER_DIRS:-./tmp/apps}:/data/apps
+      - ${RUNTIME_PLUGIN_DIRS:-./tmp/plugins}:/data/plugins
     environment:
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      LIBSQL_URL: http://libsql:8080
-      # LIBSQL_REPLICA_1: http://libsql-replica:8080  # Uncomment if using replica
-      WORKER_DIRS: /data/.apps:/data/apps
-      PLUGIN_DIRS: /data/.plugins:/data/plugins
+      RUNTIME_LOG_LEVEL: ${RUNTIME_LOG_LEVEL:-info}
+      RUNTIME_WORKER_DIRS: /data/.apps:/data/apps
+      RUNTIME_PLUGIN_DIRS: /data/.plugins:/data/plugins
+      # Plugin: Database
+      DATABASE_LIBSQL_URL: http://libsql:8080
     depends_on:
       - libsql
     restart: unless-stopped
     profiles:
       - prod
-
   # =============================================================================
   # Development: Hot reload with source mounted as volumes
   # Usage: docker-compose --profile dev up
@@ -45,18 +44,27 @@ services:
       - ./apps:/data/.apps
       - ./plugins:/data/.plugins
       # External apps and plugins (from env)
-      - ${WORKER_DIRS:-./tmp/apps}:/data/apps
-      - ${PLUGIN_DIRS:-./tmp/plugins}:/data/plugins
+      - ${RUNTIME_WORKER_DIRS:-./tmp/apps}:/data/apps
+      - ${RUNTIME_PLUGIN_DIRS:-./tmp/plugins}:/data/plugins
+      # App shell (example-spa)
+      - ${GATEWAY_APP_SHELL:-/tmp/apps/example-spa}:/data/apps/example-spa
     environment:
-      LOG_LEVEL: debug
-      LIBSQL_URL: http://libsql:8080
-      WORKER_DIRS: /data/.apps:/data/apps
-      PLUGIN_DIRS: /data/.plugins:/data/plugins
+      # Runtime
+      NODE_ENV: development
+      PORT: 8000
+      RUNTIME_API_PREFIX: /_
+      RUNTIME_LOG_LEVEL: debug
+      RUNTIME_PLUGIN_DIRS: /data/.plugins:/data/plugins
+      RUNTIME_POOL_SIZE: 10
+      RUNTIME_WORKER_DIRS: /data/.apps:/data/apps
+      # Plugin: Database
+      DATABASE_LIBSQL_URL: http://libsql:8080
+      # Plugin: Gateway
+      GATEWAY_APP_SHELL: /data/apps/example-spa
     depends_on:
       - libsql
     profiles:
       - dev
-
   # =============================================================================
   # LibSQL
   # =============================================================================

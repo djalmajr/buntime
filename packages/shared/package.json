@@ -13,6 +13,8 @@
     "./utils/duration": "./src/utils/duration.ts",
     "./utils/size": "./src/utils/size.ts",
     "./utils/static-handler": "./src/utils/static-handler.ts",
+    "./utils/worker-config": "./src/utils/worker-config.ts",
+    "./utils/glob": "./src/utils/glob.ts",
     "./utils/zod-helpers": "./src/utils/zod-helpers.ts"
   },
   "scripts": {

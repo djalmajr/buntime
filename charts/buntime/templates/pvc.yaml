@@ -1,4 +1,3 @@
-{{- if .Values.persistence.plugins.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -14,9 +13,7 @@ spec:
   resources:
     requests:
       storage: {{ .Values.persistence.plugins.size }}
-{{- end }}
 ---
-{{- if .Values.persistence.apps.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -32,4 +29,3 @@ spec:
   resources:
     requests:
       storage: {{ .Values.persistence.apps.size }}
-{{- end }}

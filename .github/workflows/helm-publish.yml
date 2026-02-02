@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "charts/**"
+      - "plugins/*/manifest.yaml"
+      - "scripts/generate-helm*.ts"
       - ".github/workflows/helm-publish.yml"
   workflow_dispatch:
 
@@ -14,6 +16,15 @@ jobs:
     steps:
       - name: Checkout buntime
         uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Generate Helm files
+        run: bun scripts/generate-helm.ts
 
       - name: Push charts to zommehq/charts
         uses: cpina/github-action-push-to-another-repository@main

@@ -1,0 +1,93 @@
+name: "@buntime/plugin-gateway"
+base: "/gateway"
+enabled: true
+
+optionalDependencies:
+  - "@buntime/plugin-authn"
+
+entrypoint: dist/client/index.html
+pluginEntry: dist/plugin.js
+
+menus:
+  - icon: lucide:shield
+    path: /gateway
+    title: Gateway
+
+# Rate limiting configuration
+rateLimit:
+  requests: 100
+  window: "1m"
+  keyBy: ip
+  excludePaths:
+    - "/health"
+
+# Response cache configuration (disabled)
+# cache:
+#   ttl: 60
+#   methods:
+#     - GET
+#   maxEntries: 1000
+
+# CORS configuration
+cors:
+  origin: "*"
+  methods:
+    - GET
+    - HEAD
+    - PUT
+    - PATCH
+    - POST
+    - DELETE
+  credentials: false
+  maxAge: 86400
+  preflight: true
+
+# Config schema for Rancher UI
+config:
+  appShell:
+    type: string
+    label: App Shell Path
+    description: |
+      Absolute path to the micro-frontend shell application.
+      When configured, all browser navigations are served through this shell.
+    example: /data/apps/example-spa/1.0.0
+    env: GATEWAY_APP_SHELL
+
+  rateLimit:
+    type: object
+    label: Rate Limiting
+    properties:
+      requests:
+        type: number
+        label: "Rate Limit: Max Requests"
+        description: Maximum requests per window
+        default: 100
+        min: 1
+        max: 10000
+        env: GATEWAY_RATE_LIMIT_REQUESTS
+      window:
+        type: enum
+        label: "Rate Limit: Time Window"
+        default: "1m"
+        options:
+          - "30s"
+          - "1m"
+          - "5m"
+          - "1h"
+        env: GATEWAY_RATE_LIMIT_WINDOW
+
+  cors:
+    type: object
+    label: CORS
+    properties:
+      origin:
+        type: string
+        label: "CORS: Allowed Origins"
+        description: "* for all, or comma-separated list"
+        default: "*"
+        env: GATEWAY_CORS_ORIGIN
+      credentials:
+        type: boolean
+        label: "CORS: Allow Credentials"
+        default: false
+        env: GATEWAY_CORS_CREDENTIALS

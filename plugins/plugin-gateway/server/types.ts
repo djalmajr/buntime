@@ -56,6 +56,14 @@ export interface CacheConfig {
 
 export interface GatewayConfig extends BasePluginConfig {
   /**
+   * Path to the micro-frontend shell application
+   * When configured, all browser navigations are served through this shell
+   * Can be set via GATEWAY_APP_SHELL env var
+   * @example "/data/apps/example-spa/1.0.0"
+   */
+  appShell?: string;
+
+  /**
    * Response caching configuration
    */
   cache?: CacheConfig;

@@ -17,3 +17,12 @@ packages/cli-go/buntime-cli
 
 # Local runtime config
 runtime/data
+
+# Helm generated files (regenerate with: bun scripts/generate-helm.ts)
+charts/buntime/values.yaml
+charts/buntime/templates/configmap.yaml
+charts/buntime/questions.yml
+
+# Planning (local state, not shared)
+.opencode/plans/
+.opencode/planning-state.json

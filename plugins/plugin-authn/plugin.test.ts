@@ -3,63 +3,23 @@
  *
  * Tests:
  * - Plugin configuration and structure
- * - globToRegex utility function
- * - globArrayToRegex utility function
- * - getPublicRoutesForMethod utility function
  * - isPublicRoute utility function
  * - processProviderConfig utility function
  * - onRequest middleware
  * - onInit lifecycle
  * - onShutdown lifecycle
+ *
+ * Note: glob utilities (globToRegex, globArrayToRegex, getPublicRoutesForMethod)
+ * are tested in packages/shared/src/utils/glob.test.ts
  */
 
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import type { AppInfo, PluginContext, PublicRoutesConfig } from "@buntime/shared/types";
-
-// We need to test the internal functions, so we'll recreate them here
-// since they're not exported from the plugin
-
-/**
- * Convert glob pattern to regex pattern
- */
-function globToRegex(pattern: string): string {
-  if (pattern.startsWith("(")) return pattern;
-  let regex = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*/g, "___DOUBLE_STAR___")
-    .replace(/\*/g, "[^/]*")
-    .replace(/___DOUBLE_STAR___/g, ".*")
-    .replace(/\?/g, ".");
-  if (!regex.startsWith("^")) regex = `^${regex}`;
-  if (!regex.endsWith("$")) regex = `${regex}$`;
-  return regex;
-}
-
-/**
- * Convert array of glob patterns to combined regex
- */
-function globArrayToRegex(patterns: string[]): RegExp | null {
-  if (!patterns?.length) return null;
-  return new RegExp(`(${patterns.map(globToRegex).join("|")})`);
-}
-
-/**
- * Get public routes for a specific HTTP method
- */
-function getPublicRoutesForMethod(
-  publicRoutes: PublicRoutesConfig | undefined,
-  method: string,
-): string[] {
-  if (!publicRoutes) return [];
-  if (Array.isArray(publicRoutes)) return publicRoutes;
-  const normalized = method.toUpperCase() as keyof typeof publicRoutes;
-  const all = publicRoutes.ALL || [];
-  const specific = publicRoutes[normalized] || [];
-  return [...new Set([...all, ...specific])];
-}
+import { getPublicRoutesForMethod, globArrayToRegex } from "@buntime/shared/utils/glob";
 
 /**
  * Check if a route is public for the given worker
+ * (This is an internal function of the plugin, recreated here for testing)
  */
 function isPublicRoute(
   pathname: string,
@@ -89,133 +49,6 @@ function isPublicRoute(
 }
 
 describe("plugin-authn", () => {
-  describe("globToRegex", () => {
-    it("should convert simple pattern", () => {
-      const regex = globToRegex("/api/test");
-      expect(regex).toBe("^/api/test$");
-    });
-
-    it("should convert single wildcard", () => {
-      const regex = globToRegex("/api/*");
-      expect(regex).toBe("^/api/[^/]*$");
-    });
-
-    it("should convert double wildcard", () => {
-      const regex = globToRegex("/api/**");
-      expect(regex).toBe("^/api/.*$");
-    });
-
-    it("should escape special regex characters", () => {
-      const regex = globToRegex("/api/test.json");
-      expect(regex).toBe("^/api/test\\.json$");
-    });
-
-    it("should convert question mark to single character matcher", () => {
-      const regex = globToRegex("/api/v?/test");
-      expect(regex).toBe("^/api/v./test$");
-    });
-
-    it("should handle patterns already starting with regex group", () => {
-      const regex = globToRegex("(^/api/test$)");
-      expect(regex).toBe("(^/api/test$)");
-    });
-
-    it("should handle complex patterns", () => {
-      const regex = globToRegex("/auth/api/**");
-      expect(regex).toBe("^/auth/api/.*$");
-    });
-
-    it("should handle multiple wildcards", () => {
-      const regex = globToRegex("/*/api/**/test");
-      expect(regex).toBe("^/[^/]*/api/.*/test$");
-    });
-  });
-
-  describe("globArrayToRegex", () => {
-    it("should return null for empty array", () => {
-      const result = globArrayToRegex([]);
-      expect(result).toBeNull();
-    });
-
-    it("should return null for undefined", () => {
-      const result = globArrayToRegex(undefined as unknown as string[]);
-      expect(result).toBeNull();
-    });
-
-    it("should convert single pattern", () => {
-      const regex = globArrayToRegex(["/api/test"]);
-      expect(regex).not.toBeNull();
-      expect(regex!.test("/api/test")).toBe(true);
-      expect(regex!.test("/api/other")).toBe(false);
-    });
-
-    it("should combine multiple patterns with OR", () => {
-      const regex = globArrayToRegex(["/api/test", "/api/other"]);
-      expect(regex).not.toBeNull();
-      expect(regex!.test("/api/test")).toBe(true);
-      expect(regex!.test("/api/other")).toBe(true);
-      expect(regex!.test("/api/unknown")).toBe(false);
-    });
-
-    it("should handle wildcard patterns", () => {
-      const regex = globArrayToRegex(["/api/*", "/auth/**"]);
-      expect(regex).not.toBeNull();
-      expect(regex!.test("/api/users")).toBe(true);
-      expect(regex!.test("/api/users/123")).toBe(false); // single wildcard doesn't match /
-      expect(regex!.test("/auth/login")).toBe(true);
-      expect(regex!.test("/auth/oauth/callback")).toBe(true);
-    });
-  });
-
-  describe("getPublicRoutesForMethod", () => {
-    it("should return empty array for undefined config", () => {
-      const routes = getPublicRoutesForMethod(undefined, "GET");
-      expect(routes).toEqual([]);
-    });
-
-    it("should return routes array directly if config is array", () => {
-      const config: PublicRoutesConfig = ["/api/public", "/api/health"];
-      const routes = getPublicRoutesForMethod(config, "GET");
-      expect(routes).toEqual(["/api/public", "/api/health"]);
-    });
-
-    it("should return ALL routes for any method", () => {
-      const config: PublicRoutesConfig = {
-        ALL: ["/api/health"],
-        GET: ["/api/info"],
-      };
-      const routes = getPublicRoutesForMethod(config, "POST");
-      expect(routes).toContain("/api/health");
-    });
-
-    it("should combine ALL and method-specific routes", () => {
-      const config: PublicRoutesConfig = {
-        ALL: ["/api/health"],
-        GET: ["/api/info"],
-      };
-      const routes = getPublicRoutesForMethod(config, "GET");
-      expect(routes).toContain("/api/health");
-      expect(routes).toContain("/api/info");
-    });
-
-    it("should deduplicate routes", () => {
-      const config: PublicRoutesConfig = {
-        ALL: ["/api/health"],
-        GET: ["/api/health", "/api/info"],
-      };
-      const routes = getPublicRoutesForMethod(config, "GET");
-      expect(routes.filter((r) => r === "/api/health").length).toBe(1);
-    });
-
-    it("should normalize method to uppercase", () => {
-      const config: PublicRoutesConfig = {
-        GET: ["/api/info"],
-      };
-      const routes = getPublicRoutesForMethod(config, "get");
-      expect(routes).toContain("/api/info");
-    });
-  });
-
   describe("isPublicRoute", () => {
     const internalPublicRoutes: PublicRoutesConfig = {
       ALL: ["/auth/api", "/auth/api/**"],
@@ -398,7 +231,7 @@ describe("onInit lifecycle", () => {
     });
 
     const mockContext: PluginContext = {
-      getService: mock(() => null),
+      getPlugin: mock(() => null),
       logger: {
         debug: mock(() => {}),
         error: mock(() => {}),
@@ -443,7 +276,9 @@ describe("onInit lifecycle", () => {
     };
 
     const mockContext: PluginContext = {
-      getService: mock((name: string) => (name === "database" ? mockDbService : null)),
+      getPlugin: mock((name: string) =>
+        name === "@buntime/plugin-database" ? mockDbService : null,
+      ),
       logger: {
         debug: mock(() => {}),
         error: mock(() => {}),
@@ -500,7 +335,9 @@ describe("onInit lifecycle", () => {
     };
 
     const mockContext: PluginContext = {
-      getService: mock((name: string) => (name === "database" ? mockDbService : null)),
+      getPlugin: mock((name: string) =>
+        name === "@buntime/plugin-database" ? mockDbService : null,
+      ),
       logger: {
         debug: mock(() => {}),
         error: mock(() => {}),
@@ -549,12 +386,11 @@ describe("onRequest middleware", () => {
   });
 
   it("should validate API key and add X-Identity header for valid key", async () => {
-    process.env.VALID_API_KEY = "valid-key-123";
-
+    // Note: env var substitution was removed - use literal key value
     const plugin = authnPlugin({
       apiKeys: [
         {
-          key: "${VALID_API_KEY}",
+          key: "valid-key-123",
           name: "Test Key",
           roles: ["admin", "deployer"],
         },
@@ -577,17 +413,14 @@ describe("onRequest middleware", () => {
     expect(identity.name).toBe("Test Key");
     expect(identity.roles).toContain("admin");
     expect(identity.roles).toContain("deployer");
-
-    delete process.env.VALID_API_KEY;
   });
 
   it("should use default roles when API key has no roles specified", async () => {
-    process.env.VALID_API_KEY = "valid-key-123";
-
+    // Note: env var substitution was removed - use literal key value
     const plugin = authnPlugin({
       apiKeys: [
         {
-          key: "${VALID_API_KEY}",
+          key: "valid-key-123",
           name: "Test Key",
         },
       ],
@@ -606,17 +439,14 @@ describe("onRequest middleware", () => {
     const newReq = result as Request;
     const identity = JSON.parse(newReq.headers.get("X-Identity") || "{}");
     expect(identity.roles).toContain("api-client");
-
-    delete process.env.VALID_API_KEY;
   });
 
   it("should return 401 for invalid API key", async () => {
-    process.env.VALID_API_KEY = "valid-key-123";
-
+    // Note: env var substitution was removed - use literal key value
     const plugin = authnPlugin({
       apiKeys: [
         {
-          key: "${VALID_API_KEY}",
+          key: "valid-key-123",
           name: "Test Key",
           roles: ["admin"],
         },
@@ -635,10 +465,8 @@ describe("onRequest middleware", () => {
     expect(result).toBeInstanceOf(Response);
     const res = result as Response;
     expect(res.status).toBe(401);
-    const body = await res.json();
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBe("Invalid API key");
-
-    delete process.env.VALID_API_KEY;
   });
 
   it("should return 401 for API requests without session", async () => {
@@ -657,7 +485,7 @@ describe("onRequest middleware", () => {
     expect(result).toBeInstanceOf(Response);
     const res = result as Response;
     expect(res.status).toBe(401);
-    const body = await res.json();
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBe("Unauthorized");
   });
 

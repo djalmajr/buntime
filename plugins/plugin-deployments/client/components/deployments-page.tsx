@@ -6,7 +6,7 @@ import { apiRequest, uploadFiles } from "~/utils/api";
 import { cn } from "~/utils/cn";
 import { isValidUploadDestination, parseDeploymentPath } from "~/utils/path-utils";
 import { useFragmentUrl } from "~/utils/use-fragment-url";
-import manifest from "../../manifest.jsonc";
+import manifest from "../../manifest.yaml";
 import { FileRow } from "./file-row";
 import { MoveDialog } from "./move-dialog";
 import { NewFolderDialog } from "./new-folder-dialog";

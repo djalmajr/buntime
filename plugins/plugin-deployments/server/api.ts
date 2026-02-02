@@ -3,13 +3,24 @@ import { errorToResponse, NotFoundError, ValidationError } from "@buntime/shared
 import { Hono } from "hono";
 import { DirInfo } from "./libs/dir-info";
 
-// Multiple worker directories support (set via BUNTIME_WORKER_DIRS env var)
+// Multiple worker directories support (set via RUNTIME_WORKER_DIRS env var)
 let workerDirs: string[] = [];
 let dirNameMap: Map<string, string> = new Map(); // dirName -> fullPath
 
 // Global excludes (folders to hide from listing)
 const DEFAULT_EXCLUDES = [".git", "node_modules"];
 let globalExcludes: string[] = [...DEFAULT_EXCLUDES];
+
+/**
+ * Parse colon-separated paths (PATH style) into array
+ * Example: "/data/.apps:/data/apps" -> ["/data/.apps", "/data/apps"]
+ */
+function parsePaths(value: string): string[] {
+  return value
+    .split(":")
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
 
 export function setWorkerDirs(dirs: string[]): void {
   workerDirs = dirs;
@@ -41,27 +52,19 @@ export function getExcludes(): string[] {
   return globalExcludes;
 }
 
-// Initialize from env vars (set by runtime for plugin workers)
+// Initialize from env vars (same env vars used by runtime)
 // This runs when the module is first imported in the worker process
-if (Bun.env.BUNTIME_WORKER_DIRS) {
-  try {
-    const dirs = JSON.parse(Bun.env.BUNTIME_WORKER_DIRS) as string[];
-    if (Array.isArray(dirs) && dirs.length > 0) {
-      setWorkerDirs(dirs);
-    }
-  } catch {
-    // Ignore parse errors, use default
+if (Bun.env.RUNTIME_WORKER_DIRS) {
+  const dirs = parsePaths(Bun.env.RUNTIME_WORKER_DIRS);
+  if (dirs.length > 0) {
+    setWorkerDirs(dirs);
   }
 }
 
-if (Bun.env.BUNTIME_EXCLUDES) {
-  try {
-    const excludes = JSON.parse(Bun.env.BUNTIME_EXCLUDES) as string[];
-    if (Array.isArray(excludes)) {
-      setExcludes(excludes);
-    }
-  } catch {
-    // Ignore parse errors, use default
+if (Bun.env.DEPLOYMENTS_EXCLUDES) {
+  const excludes = parsePaths(Bun.env.DEPLOYMENTS_EXCLUDES);
+  if (excludes.length > 0) {
+    setExcludes(excludes);
   }
 } else {
   // Initialize DirInfo with default excludes

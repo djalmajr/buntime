@@ -137,14 +137,14 @@ export function createWorkerResolver(workerDirs: string[]) {
       }
 
       // 3. Try simple format (workerDir/worker-name/ without version subfolder)
-      // Treat as "latest" if the folder has package.json or manifest.jsonc
+      // Treat as "latest" if the folder has package.json or manifest.yaml
       if (!allDirs.has(LATEST)) {
         const simpleDir = join(workerDir, name);
         if (existsSync(simpleDir) && statSync(simpleDir).isDirectory()) {
           const hasPackageJson = existsSync(join(simpleDir, "package.json"));
           const hasManifest =
-            existsSync(join(simpleDir, "manifest.jsonc")) ||
-            existsSync(join(simpleDir, "manifest.json"));
+            existsSync(join(simpleDir, "manifest.yaml")) ||
+            existsSync(join(simpleDir, "manifest.yml"));
           if (hasPackageJson || hasManifest) {
             allVersions.push(LATEST);
             allDirs.set(LATEST, simpleDir);

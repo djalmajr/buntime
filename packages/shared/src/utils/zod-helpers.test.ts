@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import z from "zod/v4";
-import { boolean, number, substituteEnvVars } from "./zod-helpers";
+import { boolean, number } from "./zod-helpers";
 
 describe("number helper", () => {
   describe("default value handling", () => {
@@ -117,80 +117,6 @@ describe("boolean helper", () => {
       expect(schema.parse("yes")).toBe(false);
       expect(schema.parse("no")).toBe(false);
       expect(schema.parse("random")).toBe(false);
-    });
-  });
-});
-
-describe("substituteEnvVars", () => {
-  const originalEnv = { ...process.env };
-
-  beforeEach(() => {
-    // Set up test env vars
-    process.env.TEST_VAR = "test-value";
-    process.env.ANOTHER_VAR = "another-value";
-    process.env.NUMERIC_VAR = "12345";
-  });
-
-  afterEach(() => {
-    // Restore original env
-    process.env = { ...originalEnv };
-  });
-
-  describe("variable substitution", () => {
-    it("should substitute single variable", () => {
-      const result = substituteEnvVars("Hello ${TEST_VAR}");
-      expect(result).toBe("Hello test-value");
-    });
-
-    it("should substitute multiple variables", () => {
-      const result = substituteEnvVars("${TEST_VAR} and ${ANOTHER_VAR}");
-      expect(result).toBe("test-value and another-value");
-    });
-
-    it("should substitute same variable multiple times", () => {
-      const result = substituteEnvVars("${TEST_VAR} ${TEST_VAR}");
-      expect(result).toBe("test-value test-value");
-    });
-  });
-
-  describe("missing variables", () => {
-    it("should replace missing variable with empty string", () => {
-      const result = substituteEnvVars("Value: ${NONEXISTENT_VAR}");
-      expect(result).toBe("Value: ");
-    });
-  });
-
-  describe("no substitution needed", () => {
-    it("should return string unchanged if no variables", () => {
-      const result = substituteEnvVars("No variables here");
-      expect(result).toBe("No variables here");
-    });
-
-    it("should not substitute incomplete syntax", () => {
-      const result = substituteEnvVars("$TEST_VAR without braces");
-      expect(result).toBe("$TEST_VAR without braces");
-    });
-  });
-
-  describe("edge cases", () => {
-    it("should handle empty string", () => {
-      const result = substituteEnvVars("");
-      expect(result).toBe("");
-    });
-
-    it("should handle variable at start", () => {
-      const result = substituteEnvVars("${TEST_VAR} at start");
-      expect(result).toBe("test-value at start");
-    });
-
-    it("should handle variable at end", () => {
-      const result = substituteEnvVars("at end ${TEST_VAR}");
-      expect(result).toBe("at end test-value");
-    });
-
-    it("should handle only variable", () => {
-      const result = substituteEnvVars("${TEST_VAR}");
-      expect(result).toBe("test-value");
     });
   });
 });

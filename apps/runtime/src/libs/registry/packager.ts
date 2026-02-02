@@ -8,7 +8,7 @@ import { rename as fsRename, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 /**
- * Package info extracted from manifest.json
+ * Package info extracted from manifest.yaml
  */
 export interface PackageInfo {
   name: string;
@@ -125,39 +125,43 @@ async function extractZip(zipFile: Blob, destPath: string): Promise<void> {
 }
 
 /**
- * Read and validate manifest.json from extracted package
+ * Read and validate manifest.yaml from extracted package
  *
- * Requires name and version fields in manifest.json.
+ * Requires name and version fields in manifest.yaml.
  * The location (pluginDirs vs workerDirs) determines if it's a plugin or app.
  *
  * @param packagePath - Path to the extracted package directory
  * @returns Package info with name and version
  */
 export async function readPackageInfo(packagePath: string): Promise<PackageInfo> {
-  const manifestPath = join(packagePath, "manifest.json");
-  const manifestFile = Bun.file(manifestPath);
+  // Try manifest.yaml first, then manifest.yml
+  for (const filename of ["manifest.yaml", "manifest.yml"]) {
+    const manifestPath = join(packagePath, filename);
+    const manifestFile = Bun.file(manifestPath);
 
-  if (!(await manifestFile.exists())) {
-    throw new Error("manifest.json not found in uploaded package");
+    if (await manifestFile.exists()) {
+      const content = await manifestFile.text();
+      const manifest = Bun.YAML.parse(content) as {
+        name?: string;
+        version?: string;
+      };
+
+      if (!manifest.name) {
+        throw new Error(`${filename} is missing 'name' field`);
+      }
+
+      if (!manifest.version) {
+        throw new Error(`${filename} is missing 'version' field`);
+      }
+
+      return {
+        name: manifest.name,
+        version: manifest.version,
+      };
+    }
   }
 
-  const manifest = (await manifestFile.json()) as {
-    name?: string;
-    version?: string;
-  };
-
-  if (!manifest.name) {
-    throw new Error("manifest.json is missing 'name' field");
-  }
-
-  if (!manifest.version) {
-    throw new Error("manifest.json is missing 'version' field");
-  }
-
-  return {
-    name: manifest.name,
-    version: manifest.version,
-  };
+  throw new Error("manifest.yaml not found in uploaded package");
 }
 
 /**

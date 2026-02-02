@@ -1,7 +1,7 @@
 import type { AdapterType, DatabaseService } from "@buntime/plugin-database";
 import type { PluginContext, PluginImpl } from "@buntime/shared/types";
 import { api } from "./server";
-import { initialize, shutdown } from "./server/services";
+import { getKv, initialize, shutdown } from "./server/services";
 
 export interface KeyValConfig {
   /**
@@ -56,25 +56,24 @@ export interface KeyValConfig {
  * - Prefix-based listing
  *
  * @example
- * ```jsonc
- * // plugins/plugin-database/manifest.jsonc
- * {
- *   "name": "@buntime/plugin-database",
- *   "enabled": true,
- *   "adapters": [
- *     { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] }
- *   ]
- * }
+ * ```yaml
+ * # plugins/plugin-database/manifest.yaml
+ * name: "@buntime/plugin-database"
+ * enabled: true
+ * adapters:
+ *   - type: libsql
+ *     default: true
+ *     urls:
+ *       - http://localhost:8880
  * ```
  *
- * ```jsonc
- * // plugins/plugin-keyval/manifest.jsonc
- * {
- *   "name": "@buntime/plugin-keyval",
- *   "enabled": true,
- *   "database": "libsql",
- *   "metrics": { "persistent": true }
- * }
+ * ```yaml
+ * # plugins/plugin-keyval/manifest.yaml
+ * name: "@buntime/plugin-keyval"
+ * enabled: true
+ * database: libsql
+ * metrics:
+ *   persistent: true
  * ```
  */
 export default function keyvalExtension(config: KeyValConfig = {}): PluginImpl {
@@ -82,14 +81,17 @@ export default function keyvalExtension(config: KeyValConfig = {}): PluginImpl {
     // API routes run on main thread (required for SSE/watch endpoints)
     routes: api,
 
+    // Expose kv service for other plugins (queue is accessible via kv.queue)
+    provides: () => getKv(),
+
     async onInit(ctx: PluginContext) {
       // Get database service from plugin-database
-      const database = ctx.getService<DatabaseService>("database");
+      const database = ctx.getPlugin<DatabaseService>("@buntime/plugin-database");
       if (!database) {
-        throw new Error("plugin-keyval requires plugin-database to be loaded first");
+        throw new Error("plugin-keyval requires @buntime/plugin-database to be loaded first");
       }
 
-      const kv = await initialize(
+      await initialize(
         database,
         {
           adapterType: config.database,
@@ -98,9 +100,6 @@ export default function keyvalExtension(config: KeyValConfig = {}): PluginImpl {
         },
         ctx.logger,
       );
-
-      // Register kv service for other plugins (queue is accessible via kv.queue)
-      ctx.registerService("kv", kv);
 
       const dbType = config.database ?? database.getDefaultType();
       ctx.logger.info(`KeyVal initialized (database: ${dbType})`);

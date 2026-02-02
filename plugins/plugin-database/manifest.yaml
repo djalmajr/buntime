@@ -1,0 +1,64 @@
+name: "@buntime/plugin-database"
+base: "/database"
+enabled: true
+
+entrypoint: dist/client/index.html
+pluginEntry: dist/plugin.js
+
+menus:
+  - icon: lucide:database
+    path: /database
+    title: Database
+    items:
+      - icon: lucide:home
+        path: /database
+        title: Overview
+      - icon: lucide:table-2
+        path: /database/studio
+        title: Studio
+
+# Database adapters configuration
+adapters:
+  - type: libsql
+    # urls[0] = primary, urls[1..n] = replicas
+    # Empty array = use LIBSQL_URL_0 env var
+    urls: []
+    # authToken: "${LIBSQL_AUTH_TOKEN}"
+    default: true
+  # MySQL/PostgreSQL example:
+  # - type: mysql
+  #   url: "mysql://user:pass@localhost:3306/db"
+  # SQLite example:
+  # - type: sqlite
+  #   baseDir: "./data"
+
+# Multi-tenancy configuration
+tenancy:
+  enabled: false
+  header: x-tenant-id
+  defaultTenant: default
+  autoCreate: true
+  maxTenants: 1000
+
+# Config schema for Rancher UI
+config:
+  libsqlUrl:
+    type: string
+    label: LibSQL Primary URL
+    description: URL of the primary LibSQL server (e.g., http://libsql:8080)
+    default: "http://libsql:8080"
+    required: true
+    env: DATABASE_LIBSQL_URL
+
+  libsqlReplicas:
+    type: array
+    label: LibSQL Replica URLs
+    description: Optional list of replica URLs for read scaling. One URL per line.
+    default: []
+    env: DATABASE_LIBSQL_REPLICAS
+
+  libsqlAuthToken:
+    type: password
+    label: LibSQL Auth Token
+    description: Authentication token for LibSQL (leave empty if not required)
+    env: DATABASE_LIBSQL_AUTH_TOKEN

@@ -7,8 +7,6 @@
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { getChildLogger } from "@buntime/shared/logger";
-import type { HomepageConfig } from "@buntime/shared/types";
-import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
 import {
   BodySizeLimits,
   DELAY_MS,
@@ -26,9 +24,7 @@ interface RuntimeConfig {
     default: number;
     max: number;
   };
-  corsOrigins: string[];
   delayMs: number;
-  homepage?: string | HomepageConfig;
   isCompiled: boolean;
   isDev: boolean;
   nodeEnv: string;
@@ -57,7 +53,7 @@ function parsePoolSize(envValue: string | undefined, fallback: number): number {
   if (!envValue) return fallback;
   const parsed = parseInt(envValue, 10);
   if (Number.isNaN(parsed) || parsed <= 0) {
-    logger.warn(`Invalid POOL_SIZE "${envValue}", using default: ${fallback}`);
+    logger.warn(`Invalid RUNTIME_POOL_SIZE "${envValue}", using default: ${fallback}`);
     return fallback;
   }
   return parsed;
@@ -65,13 +61,12 @@ function parsePoolSize(envValue: string | undefined, fallback: number): number {
 
 /**
  * Expand directory paths from config
- * Handles colon-separated values from env vars (PATH style): "${VAR}" where VAR="/path1:/path2"
+ * Handles colon-separated values from env vars (PATH style): "/path1:/path2"
  */
 function expandDirs(dirs: string[], baseDir: string): string[] {
   return dirs.flatMap((dir) => {
-    const expanded = substituteEnvVars(dir);
     // Split by colon if env var contains multiple paths (PATH style)
-    return expanded
+    return dir
       .split(":")
       .map((p) => p.trim())
       .filter(Boolean)
@@ -92,14 +87,15 @@ interface InitConfigOptions {
 export function initConfig(options: InitConfigOptions = {}): RuntimeConfig {
   const baseDir = options.baseDir ?? (IS_COMPILED ? dirname(process.execPath) : process.cwd());
 
-  // Get workerDirs from env var (comma-separated or JSON array)
+  // Get workerDirs from env var (colon-separated, PATH style)
   // Relative paths are resolved against the base directory
-  // WORKER_DIRS="/app,/data" or WORKER_DIRS='["/app","/data"]'
-  const workerDirConfig = options.workerDirs ?? (Bun.env.WORKER_DIRS ? [Bun.env.WORKER_DIRS] : []);
+  // RUNTIME_WORKER_DIRS="/data/.apps:/data/apps"
+  const workerDirConfig =
+    options.workerDirs ?? (Bun.env.RUNTIME_WORKER_DIRS ? [Bun.env.RUNTIME_WORKER_DIRS] : []);
   const workerDirs = expandDirs(workerDirConfig, baseDir);
 
   if (workerDirs.length === 0) {
-    throw new Error("workerDirs is required: set WORKER_DIRS env var");
+    throw new Error("workerDirs is required: set RUNTIME_WORKER_DIRS env var");
   }
 
   // Warn about non-existent worker paths
@@ -110,40 +106,21 @@ export function initConfig(options: InitConfigOptions = {}): RuntimeConfig {
   }
 
   // Get pluginDirs from env var or default ["./plugins"]
-  const pluginDirConfig = Bun.env.PLUGIN_DIRS ? [Bun.env.PLUGIN_DIRS] : ["./plugins"];
+  const pluginDirConfig = Bun.env.RUNTIME_PLUGIN_DIRS
+    ? [Bun.env.RUNTIME_PLUGIN_DIRS]
+    : ["./plugins"];
   const pluginDirs = expandDirs(pluginDirConfig, baseDir);
 
   // Get poolSize from env var or default by environment
   const envFallback = poolDefaults[NODE_ENV] ?? 100;
-  const poolSize = parsePoolSize(Bun.env.POOL_SIZE, envFallback);
-
-  // Get homepage from env var (string redirect format)
-  const homepage: string | HomepageConfig | undefined = Bun.env.HOMEPAGE_APP;
-
-  // Parse CORS_ORIGINS - comma-separated list of allowed origins
-  // If not set and IS_DEV, defaults to ["*"] for development convenience
-  const corsOriginsEnv = Bun.env.CORS_ORIGINS;
-  const corsOrigins = corsOriginsEnv
-    ? [
-        ...new Set(
-          corsOriginsEnv
-            .split(",")
-            .map((o) => o.trim())
-            .filter(Boolean),
-        ),
-      ]
-    : IS_DEV
-      ? ["*"]
-      : [];
+  const poolSize = parsePoolSize(Bun.env.RUNTIME_POOL_SIZE, envFallback);
 
   const config: RuntimeConfig = {
     bodySize: {
       default: BodySizeLimits.DEFAULT,
       max: BodySizeLimits.MAX,
     },
-    corsOrigins,
     delayMs: DELAY_MS,
-    homepage,
     isCompiled: IS_COMPILED,
     isDev: IS_DEV,
     nodeEnv: NODE_ENV,

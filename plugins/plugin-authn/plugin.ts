@@ -1,47 +1,7 @@
 import type { AdapterType, DatabaseService } from "@buntime/plugin-database";
 import type { AppInfo, PluginContext, PluginImpl, PublicRoutesConfig } from "@buntime/shared/types";
-import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
-import manifest from "./manifest.jsonc";
+import { getPublicRoutesForMethod, globArrayToRegex } from "@buntime/shared/utils/glob";
 import { api } from "./server/api";
-
-/**
- * Convert glob pattern to regex pattern
- */
-function globToRegex(pattern: string): string {
-  if (pattern.startsWith("(")) return pattern;
-  let regex = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*/g, "___DOUBLE_STAR___")
-    .replace(/\*/g, "[^/]*")
-    .replace(/___DOUBLE_STAR___/g, ".*")
-    .replace(/\?/g, ".");
-  if (!regex.startsWith("^")) regex = `^${regex}`;
-  if (!regex.endsWith("$")) regex = `${regex}$`;
-  return regex;
-}
-
-/**
- * Convert array of glob patterns to combined regex
- */
-function globArrayToRegex(patterns: string[]): RegExp | null {
-  if (!patterns?.length) return null;
-  return new RegExp(`(${patterns.map(globToRegex).join("|")})`);
-}
-
-/**
- * Get public routes for a specific HTTP method
- */
-function getPublicRoutesForMethod(
-  publicRoutes: PublicRoutesConfig | undefined,
-  method: string,
-): string[] {
-  if (!publicRoutes) return [];
-  if (Array.isArray(publicRoutes)) return publicRoutes;
-  const normalized = method.toUpperCase() as keyof typeof publicRoutes;
-  const all = publicRoutes.ALL || [];
-  const specific = publicRoutes[normalized] || [];
-  return [...new Set([...all, ...specific])];
-}
 
 /**
  * Check if a route is public for the given worker
@@ -157,6 +117,12 @@ export interface AuthnConfig {
   apiKeys?: ApiKeyConfig[];
 
   /**
+   * Base path for this plugin (comes from manifest)
+   * @example "/auth"
+   */
+  base?: string;
+
+  /**
    * Database adapter type to use
    * Uses default adapter from plugin-database if not specified
    */
@@ -196,25 +162,10 @@ export interface AuthnConfig {
 }
 
 /**
- * Substitute env vars in provider config
+ * Process provider config (values come directly from ConfigMap or manifest)
  */
 function processProviderConfig(input: ProviderConfigInput): ProviderConfig {
-  if (input.type === "email-password") {
-    return input;
-  }
-
-  const result = { ...input };
-
-  // Process string fields that may contain env vars
-  for (const key of ["clientId", "clientSecret", "issuer", "realm", "domain"] as const) {
-    if (key in result && typeof (result as Record<string, unknown>)[key] === "string") {
-      (result as Record<string, unknown>)[key] = substituteEnvVars(
-        (result as Record<string, unknown>)[key] as string,
-      );
-    }
-  }
-
-  return result as ProviderConfig;
+  return input as ProviderConfig;
 }
 
 /**
@@ -229,7 +180,7 @@ function processProviderConfig(input: ProviderConfigInput): ProviderConfig {
  *
  * @example Email/Password only (development)
  * ```jsonc
- * // plugins/plugin-database/manifest.jsonc
+ * // plugins/plugin-database/manifest.yaml
  * {
  *   "enabled": true,
  *   "adapters": [{ "type": "libsql", "default": true }]
@@ -237,7 +188,7 @@ function processProviderConfig(input: ProviderConfigInput): ProviderConfig {
  * ```
  *
  * ```jsonc
- * // plugins/plugin-authn/manifest.jsonc
+ * // plugins/plugin-authn/manifest.yaml
  * {
  *   "enabled": true,
  *   "providers": [
@@ -248,7 +199,7 @@ function processProviderConfig(input: ProviderConfigInput): ProviderConfig {
  *
  * @example Keycloak with SCIM and multi-tenancy
  * ```jsonc
- * // plugins/plugin-database/manifest.jsonc
+ * // plugins/plugin-database/manifest.yaml
  * {
  *   "enabled": true,
  *   "adapters": [{ "type": "libsql", "default": true }],
@@ -257,7 +208,7 @@ function processProviderConfig(input: ProviderConfigInput): ProviderConfig {
  * ```
  *
  * ```jsonc
- * // plugins/plugin-authn/manifest.jsonc
+ * // plugins/plugin-authn/manifest.yaml
  * {
  *   "enabled": true,
  *   "providers": [
@@ -275,7 +226,7 @@ function processProviderConfig(input: ProviderConfigInput): ProviderConfig {
  *
  * @example With API keys for CI/CD
  * ```jsonc
- * // plugins/plugin-authn/manifest.jsonc
+ * // plugins/plugin-authn/manifest.yaml
  * {
  *   "enabled": true,
  *   "providers": [{ "type": "email-password" }],
@@ -290,17 +241,14 @@ function processProviderConfig(input: ProviderConfigInput): ProviderConfig {
  * ```
  */
 export default function authnPlugin(config: AuthnConfig = {} as AuthnConfig): PluginImpl {
-  // Process provider configs (substitute env vars)
+  // Process provider configs (values come from ConfigMap or manifest)
   const providers = (config.providers ?? []).map(processProviderConfig);
 
-  // Process API keys (substitute env vars in key field)
-  const apiKeys = config.apiKeys?.map((ak) => ({
-    ...ak,
-    key: substituteEnvVars(ak.key),
-  }));
+  // API keys come directly from config (values from ConfigMap or manifest)
+  const apiKeys = config.apiKeys;
 
-  // Base path from manifest
-  const basePath = manifest.base;
+  // Base path from config (set by loader from manifest)
+  const basePath = config.base ?? "/auth";
 
   // Internal public routes for this plugin (absolute paths)
   const internalPublicRoutes: PublicRoutesConfig = {
@@ -314,11 +262,11 @@ export default function authnPlugin(config: AuthnConfig = {} as AuthnConfig): Pl
 
     async onInit(ctx: PluginContext) {
       // Get database service from plugin-database
-      const database = ctx.getService<DatabaseService>("database");
+      const database = ctx.getPlugin<DatabaseService>("@buntime/plugin-database");
       if (!database) {
         throw new Error(
           "@buntime/plugin-authn requires @buntime/plugin-database. " +
-            "Add it to your manifest.jsonc plugins before plugin-authn.",
+            "Add it to your manifest.yaml plugins before plugin-authn.",
         );
       }
 

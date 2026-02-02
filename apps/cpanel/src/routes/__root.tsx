@@ -35,10 +35,8 @@ function RootLayoutContent() {
   ];
 
   const navGroups: SidebarNavGroup[] = useMemo(() => {
-    // Collect all menus from plugins and sort by priority
-    const allMenus = (plugins$.data ?? [])
-      .flatMap((plugin) => plugin.menus ?? [])
-      .sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50));
+    // Collect all menus from plugins (order comes from API - topological sort)
+    const allMenus = (plugins$.data ?? []).flatMap((plugin) => plugin.menus ?? []);
 
     const currentPath = location.pathname;
 

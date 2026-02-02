@@ -1,0 +1,23 @@
+# Buntime Helm Chart - Base ConfigMap (Runtime Only)
+# Plugin env vars are generated from manifest.yaml files
+# To regenerate: bun scripts/generate-helm.ts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "buntime.fullname" . }}
+  labels:
+    {{- include "buntime.labels" . | nindent 4 }}
+data:
+  # Runtime configuration
+  LOG_LEVEL: {{ .Values.buntime.logLevel | quote }}
+  NODE_ENV: "production"
+  PLUGIN_DIRS: {{ .Values.buntime.pluginDirs | quote }}
+  POOL_SIZE: {{ .Values.buntime.poolSize | quote }}
+  PORT: {{ .Values.buntime.port | quote }}
+  {{- if .Values.buntime.apiPrefix }}
+  RUNTIME_API_PREFIX: {{ .Values.buntime.apiPrefix | quote }}
+  {{- end }}
+  WORKER_DIRS: {{ .Values.buntime.workerDirs | quote }}
+
+  # Plugin env vars - GENERATED SECTION
+  # Do not edit below this line - values are generated from plugin manifests

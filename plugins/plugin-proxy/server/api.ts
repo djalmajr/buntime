@@ -108,6 +108,7 @@ export const api = new Hono()
       secure: body.secure ?? existing.secure,
       target: body.target ?? existing.target,
       ws: body.ws ?? existing.ws,
+      publicRoutes: body.publicRoutes ?? existing.publicRoutes,
     };
 
     // Validate pattern compiles

@@ -1,0 +1,17 @@
+name: "@buntime/plugin-logs"
+base: "/logs"
+enabled: false
+
+entrypoint: dist/client/index.html
+pluginEntry: dist/plugin.js
+
+menus:
+  - icon: lucide:scroll-text
+    path: /logs
+    title: Logs
+
+# Maximum number of log entries to keep in memory
+maxEntries: 1000
+
+# SSE update interval in milliseconds
+sseInterval: 1000

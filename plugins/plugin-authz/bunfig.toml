@@ -5,4 +5,4 @@ plugins = [
 ]
 
 [plugins.iconify]
-dirs = ["client", "../../packages/shadcn-ui/src"]
+dirs = ["client"]

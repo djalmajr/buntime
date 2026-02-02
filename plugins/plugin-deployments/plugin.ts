@@ -1,5 +1,5 @@
 import type { BasePluginConfig, MenuItem, PluginContext, PluginImpl } from "@buntime/shared/types";
-import { api, getDirNames, getExcludes, setExcludes, setWorkerDirs } from "./server/api";
+import { getDirNames, setExcludes, setWorkerDirs } from "./server/api";
 
 export interface DeploymentsConfig extends BasePluginConfig {
   /**
@@ -33,15 +33,18 @@ export interface DeploymentsConfig extends BasePluginConfig {
  * Deployments plugin for Buntime
  *
  * Provides:
- * - UI for deployments management
- * - API endpoints for file operations (list, upload, download, etc.)
+ * - UI for deployments management (via worker)
+ * - API endpoints for file operations (via worker - serverless)
+ *
+ * This plugin runs as serverless (API in index.ts worker, not persistent).
+ * The onInit hook only configures menu items dynamically.
  */
 export default function deploymentsPlugin(pluginConfig: DeploymentsConfig = {}): PluginImpl {
   // Menu items from manifest (passed by loader, modified dynamically in onInit)
   const menus = pluginConfig.menus ?? [];
 
   return {
-    routes: api,
+    // No routes here - API runs in worker (index.ts) for serverless mode
 
     onInit(ctx: PluginContext) {
       const config = ctx.config as DeploymentsConfig;
@@ -53,8 +56,6 @@ export default function deploymentsPlugin(pluginConfig: DeploymentsConfig = {}):
       if (config.excludes) {
         setExcludes(config.excludes);
       }
-      // Set env var so fragment workers inherit the excludes
-      Bun.env.BUNTIME_EXCLUDES = JSON.stringify(getExcludes());
 
       // Generate submenu items for each directory (only if more than one)
       const dirNames = getDirNames();

@@ -1,0 +1,26 @@
+name: "@buntime/plugin-deployments"
+base: "/deployments"
+enabled: true
+
+entrypoint: dist/index.js
+pluginEntry: dist/plugin.js
+
+menus:
+  - icon: lucide:rocket
+    path: /deployments
+    title: Deployments
+
+# Folder patterns to exclude from listing (merged with defaults: [".git", "node_modules"])
+excludes:
+  - ".cache"
+  - cli
+  - runtime
+
+# Config schema for Rancher UI
+config:
+  excludes:
+    type: array
+    label: Exclude Patterns
+    description: Additional folder patterns to exclude from app listing
+    default: [".cache", "cli", "runtime"]
+    env: DEPLOYMENTS_EXCLUDES

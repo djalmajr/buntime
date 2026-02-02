@@ -1,0 +1,16 @@
+name: "@buntime/plugin-vhosts"
+base: ""
+enabled: false
+
+pluginEntry: dist/plugin.js
+
+# Virtual host configurations keyed by hostname pattern
+hosts: {}
+  # Exact match example:
+  # example.com:
+  #   app: my-app@latest
+  #   pathPrefix: /api
+  #
+  # Wildcard subdomain example (captures tenant):
+  # "*.example.com":
+  #   app: multi-tenant-app

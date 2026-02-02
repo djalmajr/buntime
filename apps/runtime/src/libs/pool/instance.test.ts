@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { WorkerConfig } from "@buntime/shared/utils/worker-config";
 import { WorkerState } from "@/constants";
-import type { WorkerConfig } from "./config";
 import { WorkerInstance } from "./instance";
 
 const TEST_DIR = join(import.meta.dir, ".test-instance");
@@ -12,6 +12,7 @@ const createMockConfig = (overrides: Partial<WorkerConfig> = {}): WorkerConfig =
   entrypoint: "index.ts",
   env: {},
   idleTimeoutMs: 60000,
+  injectBase: true,
   lowMemory: false,
   maxBodySizeBytes: 10 * 1024 * 1024,
   maxRequests: 1000,

@@ -1,5 +1,4 @@
 import { NotFoundError } from "@buntime/shared/errors";
-import type { HomepageConfig } from "@buntime/shared/types";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { RESERVED_PATHS } from "@/constants";
@@ -9,12 +8,6 @@ import type { PluginRegistry } from "@/plugins/registry";
 import { createWorkerRequest } from "@/utils/request";
 
 export interface WorkerRoutesConfig {
-  /**
-   * Homepage configuration:
-   * - string: redirects to the path (e.g., "/cpanel" → redirect to /cpanel)
-   * - object: serves app at root with custom base (e.g., { app: "/cpanel", base: "/" })
-   */
-  homepage?: string | HomepageConfig;
   version: string;
 }
 
@@ -29,8 +22,8 @@ export function createWorkerRoutes({ config, getWorkerDir, pool, registry }: Wor
   /**
    * Handle plugin app (served as worker from plugin directory)
    * @param ctx - Hono context
-   * @param overridePath - Optional path to use instead of ctx.req.path (for homepage)
-   * @param overrideBase - Optional base path override (e.g., "/" for homepage)
+   * @param overridePath - Optional path to use instead of ctx.req.path (for shell routing)
+   * @param overrideBase - Optional base path override (e.g., "/" for shell routing)
    */
   async function runPluginApp(ctx: Context, overridePath?: string, overrideBase?: string) {
     if (!registry) return null;
@@ -43,7 +36,7 @@ export function createWorkerRoutes({ config, getWorkerDir, pool, registry }: Wor
 
     // Calculate pathname relative to plugin app base path
     const originalUrl = new URL(ctx.req.url);
-    // Use requestPath for rewriting since it may be overridden (e.g., homepage)
+    // Use requestPath for rewriting since it may be overridden (e.g., shell routing)
     const tempUrl = new URL(requestPath, originalUrl.href);
     const relativePath = tempUrl.pathname.slice(pluginApp.basePath.length) || "/";
 
@@ -94,79 +87,21 @@ export function createWorkerRoutes({ config, getWorkerDir, pool, registry }: Wor
   }
 
   /**
-   * Handle homepage request
-   * - string: redirects to the path
-   * - object with base: serves app inline with custom base path
+   * Handle root request
+   * Returns version info (shell routing is handled by plugin-gateway)
    */
-  async function runHomepage(ctx: Context) {
-    if (!config.homepage) {
-      return new Response(`Buntime v${config.version}`, {
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      });
-    }
-
-    // Simple string config: redirect to the path
-    if (typeof config.homepage === "string") {
-      if (config.homepage.startsWith("/")) {
-        return ctx.redirect(config.homepage);
-      }
-      // App name - redirect to /:app
-      return ctx.redirect(`/${config.homepage}`);
-    }
-
-    // Object config: serve app with custom base
-    const { app, base } = config.homepage;
-
-    // No base specified: redirect instead of serving inline
-    if (base === undefined) {
-      return ctx.redirect(app.startsWith("/") ? app : `/${app}`);
-    }
-
-    // Plugin path (e.g., /cpanel)
-    if (app.startsWith("/")) {
-      // Build the full path: app base + current request path
-      // e.g., /cpanel + /chunk-xxx.js = /cpanel/chunk-xxx.js
-      const fullPath = ctx.req.path === "/" ? app : `${app}${ctx.req.path}`;
-
-      const pluginResponse = await runPluginApp(ctx, fullPath, base);
-      if (pluginResponse) return pluginResponse;
-      throw new NotFoundError(`Homepage plugin not found: ${app}`, "HOMEPAGE_PLUGIN_NOT_FOUND");
-    }
-
-    // App name
-    return runApp(ctx, app);
+  function handleRoot(_ctx: Context) {
+    return new Response(`Buntime v${config.version}`, {
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   }
 
   /**
-   * Get normalized homepage config
-   */
-  function getHomepageConfig(): HomepageConfig | null {
-    if (!config.homepage) return null;
-    if (typeof config.homepage === "string") {
-      return { app: config.homepage };
-    }
-    return config.homepage;
-  }
-
-  /**
-   * Handle app routes - with homepage fallback for inline mode
+   * Handle app routes
    */
   async function handleAppRoute(ctx: Context) {
-    // 1. Try normal app routing first
-    const response = await run(ctx, ctx.req.param("app"));
-
-    // 2. If app not found and homepage is inline, fallback to homepage
-    if (response.status === 404) {
-      const homepage = getHomepageConfig();
-      if (homepage?.base !== undefined && homepage.app.startsWith("/")) {
-        const fullPath = `${homepage.app}${ctx.req.path}`;
-        const pluginResponse = await runPluginApp(ctx, fullPath, homepage.base);
-        if (pluginResponse) return pluginResponse;
-      }
-    }
-
-    return response;
+    return run(ctx, ctx.req.param("app"));
   }
 
-  return new Hono().all(":app/*", handleAppRoute).all("/*", runHomepage);
+  return new Hono().all(":app/*", handleAppRoute).all("/*", handleRoot);
 }

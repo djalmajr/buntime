@@ -11,13 +11,13 @@ import type {
 } from "@buntime/shared/types";
 import { omit } from "es-toolkit";
 import { getConfig } from "@/config";
-import { RESERVED_PATHS } from "@/constants";
+import { API_PATH, RESERVED_PATHS, VERSION } from "@/constants";
 import { createPluginLogger, PluginRegistry } from "./registry";
 
 const logger = getChildLogger("PluginLoader");
 
 /** Manifest file names to try in order */
-const MANIFEST_FILES = ["manifest.jsonc", "manifest.json"] as const;
+const MANIFEST_FILES = ["manifest.yaml", "manifest.yml"] as const;
 
 /**
  * Validate that a module has a valid plugin implementation structure
@@ -87,7 +87,7 @@ interface ScannedPlugin {
   dir: string;
   /** Full path to the plugin entry file */
   path: string;
-  /** Plugin manifest from manifest.jsonc */
+  /** Plugin manifest from manifest.yaml */
   manifest: PluginManifest;
 }
 
@@ -168,11 +168,11 @@ export class PluginLoader {
 
       // Get plugin-specific options from manifest (excluding metadata fields)
       // Note: menus is passed to plugin factory so plugins can modify it dynamically
+      // Note: base is kept in options so plugins can access their own base path
       const options = omit(manifest, [
         "name",
         "version",
         "enabled",
-        "base",
         "entrypoint",
         "dependencies",
         "optionalDependencies",
@@ -245,7 +245,7 @@ export class PluginLoader {
           const isDisabled = configuredNames.has(dep);
           throw new Error(
             `Plugin "${plugin.name}" requires "${dep}" which is ${isDisabled ? "disabled" : "not installed"}. ` +
-              `${isDisabled ? `Enable "${dep}" in its manifest.jsonc.` : `Ensure "${dep}" is installed in pluginDirs.`}`,
+              `${isDisabled ? `Enable "${dep}" in its manifest.yaml.` : `Ensure "${dep}" is installed in pluginDirs.`}`,
           );
         }
       }
@@ -358,11 +358,12 @@ export class PluginLoader {
       },
       logger: createPluginLogger(plugin.name),
       pool: this.pool,
-      registerService<T>(serviceName: string, service: T): void {
-        registry.registerService(serviceName, service);
+      getPlugin<T>(pluginName: string): T | undefined {
+        return registry.getPlugin<T>(pluginName);
       },
-      getService<T>(serviceName: string): T | undefined {
-        return registry.getService<T>(serviceName);
+      runtime: {
+        api: API_PATH,
+        version: VERSION,
       },
     };
 
@@ -382,6 +383,13 @@ export class PluginLoader {
       await Promise.race([initPromise, timeoutPromise]);
     }
 
+    // Register plugin's provides exports (after onInit completes)
+    if (plugin.provides) {
+      const provided = await Promise.resolve(plugin.provides());
+      registry.registerProvides(plugin.name, provided);
+      logger.debug(`Registered provides for ${plugin.name}`);
+    }
+
     // Register plugin with its root directory
     this.registry.register(plugin, dir || undefined);
 
@@ -391,15 +399,15 @@ export class PluginLoader {
   }
 
   /**
-   * Load plugin manifest from manifest.jsonc or manifest.json
+   * Load plugin manifest from manifest.yaml or manifest.yml
    */
   private async loadManifest(pluginDir: string): Promise<PluginManifest | null> {
     for (const filename of MANIFEST_FILES) {
       const manifestPath = join(pluginDir, filename);
       if (existsSync(manifestPath)) {
         try {
-          const config = await import(manifestPath);
-          return (config.default ?? config) as PluginManifest;
+          const content = await Bun.file(manifestPath).text();
+          return Bun.YAML.parse(content) as PluginManifest;
         } catch (err) {
           logger.warn(`Failed to parse ${manifestPath}: ${err}`);
         }
@@ -416,7 +424,7 @@ export class PluginLoader {
    * 2. Subdirectory: {pluginDir}/{name}/plugin.ts
    * 3. Scoped: {pluginDir}/@scope/{name}/plugin.ts
    *
-   * Plugin metadata is read from manifest.jsonc (required)
+   * Plugin metadata is read from manifest.yaml (required)
    */
   private async scanPluginDirs(pluginDirs: string[]): Promise<void> {
     const extensions = [".ts", ".js"];
@@ -515,7 +523,7 @@ export class PluginLoader {
 
   /**
    * Try to register a plugin from a file path
-   * Requires manifest.jsonc with plugin name and metadata
+   * Requires manifest.yaml with plugin name and metadata
    * Used for direct file plugins (not in subdirectory)
    */
   private async tryRegisterPlugin(filePath: string, dir: string): Promise<void> {

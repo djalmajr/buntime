@@ -1,5 +1,5 @@
 import type { PluginContext, PluginImpl } from "@buntime/shared/types";
-import { initApi } from "./server/api";
+import { api, initApi } from "./server/api";
 import { PolicyAdministrationPoint } from "./server/pap";
 import { PolicyDecisionPoint } from "./server/pdp";
 import type { CombiningAlgorithm, Effect, EvaluationContext, Policy } from "./server/types";
@@ -95,6 +95,7 @@ let pdp: PolicyDecisionPoint;
 let config: AuthzConfig;
 let excludePatterns: RegExp[] = [];
 let logger: PluginContext["logger"];
+let service: AuthzService;
 
 function isExcluded(pathname: string): boolean {
   return excludePatterns.some((p) => p.test(pathname));
@@ -217,31 +218,34 @@ function buildContext(
  * Requires @buntime/authn to be loaded first (for identity extraction).
  *
  * @example
- * ```jsonc
- * // plugins/plugin-authz/manifest.jsonc
- * {
- *   "name": "@buntime/plugin-authz",
- *   "enabled": true,
- *   "store": "file",
- *   "path": "./policies.json",
- *   "policySeed": {
- *     "policies": [
- *       {
- *         "id": "admin-all",
- *         "effect": "permit",
- *         "subjects": [{ "role": "admin" }],
- *         "resources": [{ "path": "*" }],
- *         "actions": [{ "method": "*" }]
- *       }
- *     ]
- *   }
- * }
+ * ```yaml
+ * # plugins/plugin-authz/manifest.yaml
+ * name: "@buntime/plugin-authz"
+ * enabled: true
+ * store: file
+ * path: "./policies.json"
+ * policySeed:
+ *   policies:
+ *     - id: admin-all
+ *       effect: permit
+ *       subjects:
+ *         - role: admin
+ *       resources:
+ *         - path: "*"
+ *       actions:
+ *         - method: "*"
  * ```
  */
 export default function authzPlugin(pluginConfig: AuthzConfig = {}): PluginImpl {
   config = pluginConfig;
 
   return {
+    // API runs persistently in runtime (needs pap/pdp state)
+    routes: api,
+
+    // Expose authz service for other plugins
+    provides: () => service,
+
     async onInit(ctx: PluginContext) {
       logger = ctx.logger;
 
@@ -269,8 +273,8 @@ export default function authzPlugin(pluginConfig: AuthzConfig = {}): PluginImpl 
       // Compile exclude patterns
       excludePatterns = (config.excludePaths ?? []).map((p) => new RegExp(p));
 
-      // Register authz service for other plugins
-      const authzService: AuthzService = {
+      // Create authz service for other plugins
+      service = {
         async seedPolicies(policies, options) {
           if (options?.onlyIfEmpty !== false && pap.getAll().length > 0) {
             logger.debug("seedPolicies skipped - policies already exist");
@@ -287,8 +291,6 @@ export default function authzPlugin(pluginConfig: AuthzConfig = {}): PluginImpl 
         getPap: () => pap,
         getPdp: () => pdp,
       };
-
-      ctx.registerService("authz", authzService);
 
       const policyCount = pap.getAll().length;
       logger.info(

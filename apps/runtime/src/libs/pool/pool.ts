@@ -1,7 +1,7 @@
+import type { WorkerConfig } from "@buntime/shared/utils/worker-config";
 import QuickLRU from "quick-lru";
 import { WorkerState } from "@/constants";
 import { getEntrypoint } from "@/utils/get-entrypoint";
-import type { WorkerConfig } from "./config";
 import { WorkerInstance } from "./instance";
 import { type HistoricalStats, type PoolMetrics, WorkerMetrics, type WorkerStats } from "./metrics";
 import { computeAvgResponseTime, roundTwoDecimals } from "./stats";

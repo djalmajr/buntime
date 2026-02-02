@@ -47,7 +47,6 @@ export const PluginInfoSchema = {
           icon: { type: "string" as const, example: "lucide:database" },
           items: { type: "array" as const, items: { type: "object" as const } },
           path: { type: "string" as const, example: "/keyval" },
-          priority: { type: "integer" as const },
           title: { type: "string" as const, example: "KeyVal" },
         },
       },

@@ -18,14 +18,13 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
       poolSize: 10,
       workerDirs: ["./apps"],
     },
-    getService: mock(() => undefined),
+    getPlugin: mock(() => undefined),
     logger: {
       debug: mock(() => {}),
       error: mock(() => {}),
       info: mock(() => {}),
       warn: mock(() => {}),
     },
-    registerService: mock(() => {}),
     ...overrides,
   };
 }
@@ -117,7 +116,7 @@ describe("proxyPlugin", () => {
 
       await plugin.onInit?.(ctx);
 
-      expect(ctx.getService).toHaveBeenCalledWith("kv");
+      expect(ctx.getPlugin).toHaveBeenCalledWith("@buntime/plugin-keyval");
     });
 
     it("should log when keyval service not available", async () => {

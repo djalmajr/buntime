@@ -1,0 +1,30 @@
+name: "@buntime/plugin-proxy"
+base: "/redirects"
+enabled: true
+
+dependencies:
+  - "@buntime/plugin-keyval"
+
+entrypoint: dist/client/index.html
+pluginEntry: dist/plugin.js
+
+menus:
+  - icon: lucide:network
+    path: /redirects
+    title: Redirects
+
+# Static proxy rules (dynamic rules via keyval plugin)
+rules: []
+  # Example: Proxy /app/* to localhost:4000
+  # - id: app-proxy
+  #   name: App Proxy
+  #   pattern: "^/app(/.*)?$"
+  #   target: http://localhost:4000
+  #   rewrite: "$1"
+  #   changeOrigin: true
+  #   secure: true
+  #   ws: true
+  #   base: /app
+  #   relativePaths: false
+  #   headers:
+  #     X-Custom-Header: value

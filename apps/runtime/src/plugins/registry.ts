@@ -17,7 +17,7 @@ export class PluginRegistry {
   private order: string[] = [];
   private pluginDirs: Map<string, string> = new Map(); // pluginName -> directory
   private plugins: Map<string, BuntimePlugin> = new Map();
-  private services: Map<string, unknown> = new Map(); // serviceName -> service
+  private providers: Map<string, unknown> = new Map(); // pluginName -> provides exports
 
   /**
    * Get number of registered plugins
@@ -71,7 +71,7 @@ export class PluginRegistry {
     this.plugins.clear();
     this.pluginDirs.clear();
     this.order = [];
-    this.services.clear();
+    this.providers.clear();
     this.mountedPaths.clear();
     this.logger.debug("Registry cleared");
   }
@@ -125,10 +125,11 @@ export class PluginRegistry {
   }
 
   /**
-   * Get a service registered by another plugin
+   * Get exports from another plugin by its manifest name
+   * @param pluginName Plugin manifest name (e.g., "@buntime/plugin-database")
    */
-  getService<T>(name: string): T | undefined {
-    return this.services.get(name) as T | undefined;
+  getPlugin<T>(pluginName: string): T | undefined {
+    return this.providers.get(pluginName) as T | undefined;
   }
 
   /**
@@ -205,13 +206,15 @@ export class PluginRegistry {
   }
 
   /**
-   * Register a service for other plugins to use
+   * Register a plugin's exports (called by loader after onInit)
+   * @param pluginName Plugin manifest name (e.g., "@buntime/plugin-database")
+   * @param provides The exports object from the plugin's provides() function
    */
-  registerService<T>(name: string, service: T): void {
-    if (this.services.has(name)) {
-      this.logger.warn(`Service "${name}" is being overwritten`);
+  registerProvides<T>(pluginName: string, provides: T): void {
+    if (this.providers.has(pluginName)) {
+      this.logger.warn(`Plugin "${pluginName}" provides are being overwritten`);
     }
-    this.services.set(name, service);
+    this.providers.set(pluginName, provides);
   }
 
   /**

@@ -4,7 +4,7 @@ import { BodySizeLimits } from "./constants";
 
 describe("config", () => {
   // Env vars that tests may modify - always clean these up
-  const testEnvVars = ["POOL_SIZE", "WORKER_DIRS", "HOMEPAGE_APP", "PLUGIN_DIRS"] as const;
+  const testEnvVars = ["RUNTIME_POOL_SIZE", "RUNTIME_WORKER_DIRS", "RUNTIME_PLUGIN_DIRS"] as const;
 
   beforeEach(() => {
     // Clean up test env vars before each test
@@ -31,15 +31,15 @@ describe("config", () => {
       expect(() => initConfig({ workerDirs: [] })).toThrow(/workerDirs is required/);
     });
 
-    it("should use WORKER_DIRS env var when not in options", () => {
-      Bun.env.WORKER_DIRS = "/env/apps";
+    it("should use RUNTIME_WORKER_DIRS env var when not in options", () => {
+      Bun.env.RUNTIME_WORKER_DIRS = "/env/apps";
 
       const result = initConfig();
       expect(result.workerDirs).toContain("/env/apps");
     });
 
-    it("should handle comma-separated WORKER_DIRS", () => {
-      Bun.env.WORKER_DIRS = "/app1,/app2,/app3";
+    it("should handle colon-separated RUNTIME_WORKER_DIRS (PATH style)", () => {
+      Bun.env.RUNTIME_WORKER_DIRS = "/app1:/app2:/app3";
 
       const result = initConfig();
       expect(result.workerDirs).toContain("/app1");
@@ -47,8 +47,8 @@ describe("config", () => {
       expect(result.workerDirs).toContain("/app3");
     });
 
-    it("should use POOL_SIZE env var", () => {
-      Bun.env.POOL_SIZE = "100";
+    it("should use RUNTIME_POOL_SIZE env var", () => {
+      Bun.env.RUNTIME_POOL_SIZE = "100";
 
       const result = initConfig({ workerDirs: ["/tmp"] });
       expect(result.poolSize).toBe(100);
@@ -60,18 +60,11 @@ describe("config", () => {
       expect(result.poolSize).toBe(5);
     });
 
-    it("should handle invalid POOL_SIZE gracefully", () => {
-      Bun.env.POOL_SIZE = "invalid";
+    it("should handle invalid RUNTIME_POOL_SIZE gracefully", () => {
+      Bun.env.RUNTIME_POOL_SIZE = "invalid";
 
       const result = initConfig({ workerDirs: ["/tmp"] });
       expect(result.poolSize).toBeGreaterThan(0);
-    });
-
-    it("should use HOMEPAGE_APP env var", () => {
-      Bun.env.HOMEPAGE_APP = "my-app";
-
-      const result = initConfig({ workerDirs: ["/tmp"] });
-      expect(result.homepage).toBe("my-app");
     });
 
     it("should use default body size limits", () => {
@@ -95,8 +88,8 @@ describe("config", () => {
       expect(result.pluginDirs.length).toBeGreaterThan(0);
     });
 
-    it("should use PLUGIN_DIRS env var", () => {
-      Bun.env.PLUGIN_DIRS = "/custom/plugins";
+    it("should use RUNTIME_PLUGIN_DIRS env var", () => {
+      Bun.env.RUNTIME_PLUGIN_DIRS = "/custom/plugins";
 
       const result = initConfig({ workerDirs: ["/tmp"] });
       expect(result.pluginDirs).toContain("/custom/plugins");

@@ -1,6 +1,6 @@
 import type { PluginContext, PluginImpl, PluginLogger } from "@buntime/shared/types";
 import type { Server } from "bun";
-import manifest from "./manifest.jsonc";
+import manifest from "./manifest.yaml";
 import {
   api,
   handleWebSocketRequest,
@@ -10,63 +10,45 @@ import {
 } from "./server/api";
 import type { HranaWebSocketData } from "./server/hrana/websocket";
 import { DatabaseServiceImpl } from "./server/service";
-import type { AdapterConfig, DatabasePluginConfig, DatabaseService } from "./server/types";
+import type { AdapterConfig, DatabasePluginConfig } from "./server/types";
 
 let service: DatabaseServiceImpl | null = null;
 let logger: PluginLogger;
-
-function substituteEnvVars(str: string): string {
-  return str.replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] ?? "");
-}
 
 /**
  * Auto-detect libSQL URLs from environment variables.
  *
  * Convention:
- * - LIBSQL_URL: Primary URL (required for writes)
- * - LIBSQL_REPLICA_1, LIBSQL_REPLICA_2, ...: Replica URLs (optional, for read scaling)
+ * - DATABASE_LIBSQL_URL: Primary URL (required for writes)
+ * - DATABASE_LIBSQL_REPLICAS: Comma-separated replica URLs (optional, for read scaling)
  */
 function detectLibSqlUrls(): string[] {
   const urls: string[] = [];
 
   // Primary URL (required)
-  const primaryUrl = process.env.LIBSQL_URL;
+  const primaryUrl = process.env.DATABASE_LIBSQL_URL;
   if (primaryUrl) {
     urls.push(primaryUrl);
   }
 
-  // Replica URLs (optional): LIBSQL_REPLICA_1, LIBSQL_REPLICA_2, ...
-  let index = 1;
-  while (true) {
-    const envVar = process.env[`LIBSQL_REPLICA_${index}`];
-    if (!envVar) break;
-    urls.push(envVar);
-    index++;
+  // Replica URLs (optional): comma-separated list
+  const replicas = process.env.DATABASE_LIBSQL_REPLICAS;
+  if (replicas) {
+    const replicaUrls = replicas
+      .split(",")
+      .map((u) => u.trim())
+      .filter(Boolean);
+    urls.push(...replicaUrls);
   }
 
   return urls;
 }
 
 /**
- * Process a single adapter config with env var substitution
+ * Process a single adapter config (values come from ConfigMap or manifest)
  */
 function processAdapter(adapter: AdapterConfig, log: PluginLogger): AdapterConfig {
   const processed = { ...adapter, logger: log };
-
-  // Substitute env vars in authToken
-  if ("authToken" in processed && processed.authToken) {
-    processed.authToken = substituteEnvVars(processed.authToken);
-  }
-
-  // Substitute env vars in url (for sqlite/postgres/mysql)
-  if ("url" in processed && processed.url) {
-    processed.url = substituteEnvVars(processed.url);
-  }
-
-  // Process urls array with env var substitution (for libsql)
-  if ("urls" in processed && Array.isArray(processed.urls)) {
-    processed.urls = processed.urls.map((url) => substituteEnvVars(url)).filter((url) => url);
-  }
 
   // Auto-detect libSQL URLs from environment and merge with config
   if (processed.type === "libsql") {
@@ -85,7 +67,7 @@ function processAdapter(adapter: AdapterConfig, log: PluginLogger): AdapterConfi
 }
 
 /**
- * Process config to normalize adapters array and substitute env vars
+ * Process config to normalize adapters array
  */
 function processConfig(config: DatabasePluginConfig, log: PluginLogger): DatabasePluginConfig {
   const processed = { ...config };
@@ -106,31 +88,36 @@ function processConfig(config: DatabasePluginConfig, log: PluginLogger): Databas
  *
  * Supports multiple adapters - each plugin can choose which to use.
  *
- * @example Multiple adapters - each plugin has its own manifest.jsonc
- * ```jsonc
- * // plugins/plugin-database/manifest.jsonc
- * {
- *   "name": "@buntime/plugin-database",
- *   "enabled": true,
- *   "adapters": [
- *     { "type": "libsql", "default": true, "urls": ["http://localhost:8880"] },
- *     { "type": "sqlite", "url": "file:./auth.db" }
- *   ]
- * }
+ * @example Multiple adapters - each plugin has its own manifest.yaml
+ * ```yaml
+ * # plugins/plugin-database/manifest.yaml
+ * name: "@buntime/plugin-database"
+ * enabled: true
+ * adapters:
+ *   - type: libsql
+ *     default: true
+ *     urls:
+ *       - http://localhost:8880
+ *   - type: sqlite
+ *     url: file:./auth.db
  * ```
  *
- * ```jsonc
- * // plugins/plugin-keyval/manifest.jsonc
- * { "name": "@buntime/plugin-keyval", "enabled": true, "database": "libsql" }
+ * ```yaml
+ * # plugins/plugin-keyval/manifest.yaml
+ * name: "@buntime/plugin-keyval"
+ * enabled: true
+ * database: libsql
  * ```
  *
- * ```jsonc
- * // plugins/plugin-authn/manifest.jsonc
- * { "name": "@buntime/plugin-authn", "enabled": true, "database": "sqlite" }
+ * ```yaml
+ * # plugins/plugin-authn/manifest.yaml
+ * name: "@buntime/plugin-authn"
+ * enabled: true
+ * database: sqlite
  * ```
  */
 export default function databasePlugin(config: DatabasePluginConfig = {}): PluginImpl {
-  const base = manifest.base;
+  const base = config.base ?? manifest.base;
 
   return {
     // API routes run on main thread
@@ -138,6 +125,9 @@ export default function databasePlugin(config: DatabasePluginConfig = {}): Plugi
 
     // WebSocket handler for HRANA protocol
     websocket: hranaWebSocketHandler as PluginImpl["websocket"],
+
+    // Expose database service for other plugins
+    provides: () => service,
 
     async onInit(ctx: PluginContext) {
       logger = ctx.logger;
@@ -153,9 +143,6 @@ export default function databasePlugin(config: DatabasePluginConfig = {}): Plugi
 
       // Set service for API routes (with base path for WebSocket)
       setService(service, logger, base);
-
-      // Register service for other plugins
-      ctx.registerService<DatabaseService>("database", service);
 
       logger.info("Database plugin initialized");
     },

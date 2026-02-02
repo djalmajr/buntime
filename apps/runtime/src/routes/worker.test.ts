@@ -2,8 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from "bun
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { BuntimePlugin } from "@buntime/shared/types";
+import type { WorkerConfig } from "@buntime/shared/utils/worker-config";
 import { initConfig } from "@/config";
-import type { WorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
 import { PluginRegistry } from "@/plugins/registry";
 import { createWorkerRoutes, type WorkerRoutesConfig, type WorkerRoutesDeps } from "./worker";
@@ -25,6 +25,7 @@ const _createMockWorkerConfig = (): WorkerConfig => ({
   entrypoint: "index.ts",
   env: {},
   idleTimeoutMs: 60000,
+  injectBase: false,
   lowMemory: false,
   maxBodySizeBytes: 10 * 1024 * 1024,
   maxRequests: 1000,
@@ -81,110 +82,14 @@ describe("createWorkerRoutes", () => {
     ...overrides,
   });
 
-  describe("homepage routes", () => {
-    it("should return version string when no homepage configured", async () => {
+  describe("root route", () => {
+    it("should return version string", async () => {
       const routes = createWorkerRoutes(createDeps());
       const req = new Request("http://localhost/");
       const res = await routes.fetch(req);
 
       expect(res.status).toBe(200);
       expect(await res.text()).toBe("Buntime v1.0.0");
-    });
-
-    it("should redirect to path when homepage is string starting with /", async () => {
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { homepage: "/my-app", version: "1.0.0" },
-        }),
-      );
-      const req = new Request("http://localhost/");
-      const res = await routes.fetch(req);
-
-      expect(res.status).toBe(302);
-      expect(res.headers.get("location")).toBe("/my-app");
-    });
-
-    it("should redirect to app path when homepage is app name", async () => {
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { homepage: "my-app", version: "1.0.0" },
-        }),
-      );
-      const req = new Request("http://localhost/");
-      const res = await routes.fetch(req);
-
-      expect(res.status).toBe(302);
-      expect(res.headers.get("location")).toBe("/my-app");
-    });
-
-    it("should redirect when homepage object has no base", async () => {
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { homepage: { app: "/my-plugin" }, version: "1.0.0" },
-        }),
-      );
-      const req = new Request("http://localhost/");
-      const res = await routes.fetch(req);
-
-      expect(res.status).toBe(302);
-      expect(res.headers.get("location")).toBe("/my-plugin");
-    });
-
-    it("should redirect for app name in homepage object", async () => {
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { homepage: { app: "my-test-app" }, version: "1.0.0" },
-        }),
-      );
-      const req = new Request("http://localhost/");
-      const res = await routes.fetch(req);
-
-      expect(res.status).toBe(302);
-      expect(res.headers.get("location")).toBe("/my-test-app");
-    });
-
-    it("should serve plugin app inline when homepage object has base", async () => {
-      const plugin = createMockPlugin({
-        name: "cpanel-plugin",
-        base: "/cpanel",
-      });
-      registry.register(plugin, "/mock/cpanel/dir");
-
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { homepage: { app: "/cpanel", base: "/" }, version: "1.0.0" },
-        }),
-      );
-      const req = new Request("http://localhost/");
-      const _res = await routes.fetch(req);
-
-      expect(pool.fetchMock).toHaveBeenCalled();
-    });
-
-    it("should throw NotFoundError when homepage plugin not found", async () => {
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { homepage: { app: "/nonexistent", base: "/" }, version: "1.0.0" },
-        }),
-      );
-      const req = new Request("http://localhost/");
-      // The route handler throws NotFoundError
-      // Hono may catch it and return an error response
-      const res = await routes.fetch(req);
-      // NotFoundError has statusCode 404, Hono may return 404 or 500
-      expect([404, 500]).toContain(res.status);
-    });
-
-    it("should serve app when homepage object refers to workerDirs", async () => {
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { homepage: { app: "my-app", base: "/" }, version: "1.0.0" },
-        }),
-      );
-      const req = new Request("http://localhost/");
-      const _res = await routes.fetch(req);
-
-      expect(pool.fetchMock).toHaveBeenCalled();
     });
   });
 
@@ -216,31 +121,6 @@ describe("createWorkerRoutes", () => {
       const req = new Request("http://localhost/plugin-app/page");
       const _res = await routes.fetch(req);
 
-      expect(pool.fetchMock).toHaveBeenCalled();
-    });
-
-    it("should fallback to homepage plugin when app 404 and homepage inline", async () => {
-      const plugin = createMockPlugin({
-        name: "cpanel-plugin",
-        base: "/cpanel",
-      });
-      registry.register(plugin, "/mock/cpanel/dir");
-
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { homepage: { app: "/cpanel", base: "/" }, version: "1.0.0" },
-          getWorkerDir: () => "",
-        }),
-      );
-      // Simulate 404 from app, should fallback to homepage plugin
-      pool.fetchMock.mockImplementationOnce(() =>
-        Promise.resolve(new Response("not found", { status: 404 })),
-      );
-
-      const req = new Request("http://localhost/cpanel/page");
-      const _res = await routes.fetch(req);
-
-      // Should call pool.fetch for the homepage plugin fallback
       expect(pool.fetchMock).toHaveBeenCalled();
     });
   });
@@ -308,108 +188,6 @@ describe("createWorkerRoutes", () => {
       const req = new Request("http://localhost/my-app");
       await routes.fetch(req);
 
-      expect(pool.fetchMock).toHaveBeenCalled();
-    });
-  });
-
-  describe("getHomepageConfig", () => {
-    it("should return null for no homepage config", async () => {
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { version: "1.0.0" },
-        }),
-      );
-      const req = new Request("http://localhost/");
-      const res = await routes.fetch(req);
-      expect(res.status).toBe(200);
-      expect(await res.text()).toBe("Buntime v1.0.0");
-    });
-
-    it("should normalize string homepage to object format", async () => {
-      // String homepage triggers redirect, not inline serving
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { homepage: "/my-app", version: "1.0.0" },
-        }),
-      );
-      const req = new Request("http://localhost/");
-      const res = await routes.fetch(req);
-      expect(res.status).toBe(302);
-      expect(res.headers.get("location")).toBe("/my-app");
-    });
-  });
-
-  describe("getHomepageConfig internal", () => {
-    it("should normalize string homepage to object format internally", async () => {
-      // When homepage is a string, getHomepageConfig returns { app: string }
-      // This is used by handleAppRoute for fallback logic
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { homepage: "my-test-app", version: "1.0.0" },
-          getWorkerDir: () => "", // No apps found - triggers 404 fallback
-        }),
-      );
-
-      // Request to an app route that will 404
-      const req = new Request("http://localhost/some-app/page");
-      const res = await routes.fetch(req);
-      // Should return 404 or redirect (depends on homepage config)
-      expect([302, 404, 500]).toContain(res.status);
-    });
-  });
-
-  describe("handleAppRoute with homepage fallback", () => {
-    it("should redirect when homepage config lacks base", async () => {
-      const plugin = createMockPlugin({
-        name: "app-plugin",
-        base: "/app-plugin",
-      });
-      registry.register(plugin, "/mock/plugin/dir");
-
-      // Homepage config without base triggers redirect, not inline serving
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { homepage: { app: "/app-plugin" }, version: "1.0.0" },
-        }),
-      );
-
-      const req = new Request("http://localhost/");
-      const res = await routes.fetch(req);
-      // Should redirect to the app
-      expect(res.status).toBe(302);
-      expect(res.headers.get("location")).toBe("/app-plugin");
-    });
-
-    it("should serve homepage inline when base is defined", async () => {
-      const plugin = createMockPlugin({
-        name: "cpanel-inline",
-        base: "/cpanel",
-      });
-      registry.register(plugin, "/mock/cpanel/dir");
-
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { homepage: { app: "/cpanel", base: "/" }, version: "1.0.0" },
-        }),
-      );
-
-      // Homepage request with base defined should serve inline
-      const req = new Request("http://localhost/");
-      const _res = await routes.fetch(req);
-      // Should have called pool.fetch for the inline homepage
-      expect(pool.fetchMock).toHaveBeenCalled();
-    });
-
-    it("should route apps via pool", async () => {
-      const routes = createWorkerRoutes(
-        createDeps({
-          config: { homepage: { app: "my-app", base: "/" }, version: "1.0.0" },
-        }),
-      );
-
-      const req = new Request("http://localhost/my-app/page");
-      const _res = await routes.fetch(req);
-      // Should have called pool.fetch for the app
       expect(pool.fetchMock).toHaveBeenCalled();
     });
   });

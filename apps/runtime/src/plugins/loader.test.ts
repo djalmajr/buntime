@@ -6,6 +6,11 @@ import { PluginLoader } from "./loader";
 
 const TEST_DIR = join(import.meta.dir, ".test-loader");
 
+// Helper to write YAML manifest
+function writeManifest(dir: string, data: Record<string, unknown>) {
+  writeFileSync(join(dir, "manifest.yaml"), Bun.YAML.stringify(data));
+}
+
 describe("PluginLoader", () => {
   beforeAll(() => {
     mkdirSync(TEST_DIR, { recursive: true });
@@ -51,7 +56,7 @@ describe("PluginLoader", () => {
       // Create a plugin directory with empty name in manifest
       const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "no-name");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(join(pluginDir, "manifest.jsonc"), JSON.stringify({ name: "", base: "/test" }));
+      writeManifest(pluginDir, { name: "", base: "/test" });
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
       const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
@@ -63,7 +68,7 @@ describe("PluginLoader", () => {
     it("should load plugin without base field (hooks-only plugin)", async () => {
       const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "no-base");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(join(pluginDir, "manifest.jsonc"), JSON.stringify({ name: "no-base" }));
+      writeManifest(pluginDir, { name: "no-base" });
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
       // Plugins without base are valid (they have only hooks, no routes)
@@ -75,10 +80,7 @@ describe("PluginLoader", () => {
     it("should throw for invalid base path format", async () => {
       const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "invalid-base");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({ name: "invalid-base", base: "/invalid base path" }),
-      );
+      writeManifest(pluginDir, { name: "invalid-base", base: "/invalid base path" });
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
       // Plugin is enabled by default, validation happens during loadPlugin
@@ -89,24 +91,7 @@ describe("PluginLoader", () => {
     it("should throw for reserved path /api", async () => {
       const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "reserved-api");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({ name: "reserved-api", base: "/api" }),
-      );
-      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
-
-      // Plugin is enabled by default, validation happens during loadPlugin
-      const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
-      await expect(loader.load()).rejects.toThrow(/cannot use reserved path/);
-    });
-
-    it("should throw for reserved path /health", async () => {
-      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "reserved-health");
-      mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({ name: "reserved-health", base: "/health" }),
-      );
+      writeManifest(pluginDir, { name: "reserved-api", base: "/api" });
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
       // Plugin is enabled by default, validation happens during loadPlugin
@@ -117,10 +102,7 @@ describe("PluginLoader", () => {
     it("should throw for already loaded plugin", async () => {
       const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "duplicate");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({ name: "duplicate", base: "/dup" }),
-      );
+      writeManifest(pluginDir, { name: "duplicate", base: "/dup" });
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
       // Plugin is enabled by default during scan
@@ -133,10 +115,7 @@ describe("PluginLoader", () => {
     it("should support factory function plugins", async () => {
       const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "factory");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({ name: "factory-plugin", base: "/factory" }),
-      );
+      writeManifest(pluginDir, { name: "factory-plugin", base: "/factory" });
       writeFileSync(
         join(pluginDir, "plugin.ts"),
         `export default (config) => ({
@@ -169,10 +148,7 @@ describe("PluginLoader", () => {
     it("should call onInit hook with timeout protection", async () => {
       const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "with-init");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({ name: "with-init", base: "/init" }),
-      );
+      writeManifest(pluginDir, { name: "with-init", base: "/init" });
       writeFileSync(
         join(pluginDir, "plugin.ts"),
         `export default {
@@ -191,10 +167,7 @@ describe("PluginLoader", () => {
     it("should skip disabled plugins from manifest", async () => {
       const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "disabled-plugin");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({ name: "disabled-plugin", base: "/disabled", enabled: false }),
-      );
+      writeManifest(pluginDir, { name: "disabled-plugin", base: "/disabled", enabled: false });
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
       // Plugin with enabled=false from manifest should not be loaded
@@ -225,10 +198,7 @@ describe("PluginLoader", () => {
     it("should resolve plugin from ./plugins/name/plugin.ts with manifest", async () => {
       const pluginDir = join(EXT_TEST_DIR, "plugins", "my-plugin");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({ name: "my-plugin", base: "/my-plugin" }),
-      );
+      writeManifest(pluginDir, { name: "my-plugin", base: "/my-plugin" });
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
       // Plugin is enabled by default during scan
@@ -240,10 +210,7 @@ describe("PluginLoader", () => {
     it("should resolve plugin from ./plugins/name/index.ts with manifest", async () => {
       const pluginDir = join(EXT_TEST_DIR, "plugins", "nested-plugin");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({ name: "nested-plugin", base: "/nested" }),
-      );
+      writeManifest(pluginDir, { name: "nested-plugin", base: "/nested" });
       writeFileSync(join(pluginDir, "index.ts"), `export default {};`);
 
       // Plugin is enabled by default during scan
@@ -256,10 +223,7 @@ describe("PluginLoader", () => {
       // Create plugin with scoped name in manifest
       const pluginDir = join(EXT_TEST_DIR, "plugins", "plugin-metrics");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({ name: "@buntime/plugin-metrics", base: "/metrics" }),
-      );
+      writeManifest(pluginDir, { name: "@buntime/plugin-metrics", base: "/metrics" });
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
       // Plugin is enabled by default during scan
@@ -272,10 +236,7 @@ describe("PluginLoader", () => {
       // Directory name is "whatever" but internal name is "my-awesome-plugin"
       const pluginDir = join(EXT_TEST_DIR, "plugins", "whatever");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({ name: "my-awesome-plugin", base: "/awesome" }),
-      );
+      writeManifest(pluginDir, { name: "my-awesome-plugin", base: "/awesome" });
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
       // Plugin is enabled by default during scan
@@ -310,16 +271,10 @@ describe("PluginLoader", () => {
       mkdirSync(pluginADir, { recursive: true });
       mkdirSync(pluginBDir, { recursive: true });
 
-      writeFileSync(
-        join(pluginADir, "manifest.jsonc"),
-        JSON.stringify({ name: "plugin-a", base: "/a" }),
-      );
+      writeManifest(pluginADir, { name: "plugin-a", base: "/a" });
       writeFileSync(join(pluginADir, "plugin.ts"), `export default {};`);
 
-      writeFileSync(
-        join(pluginBDir, "manifest.jsonc"),
-        JSON.stringify({ name: "plugin-b", base: "/b", dependencies: ["plugin-a"] }),
-      );
+      writeManifest(pluginBDir, { name: "plugin-b", base: "/b", dependencies: ["plugin-a"] });
       writeFileSync(join(pluginBDir, "plugin.ts"), `export default {};`);
 
       // Both plugins enabled by default during scan
@@ -335,15 +290,16 @@ describe("PluginLoader", () => {
     it("should throw for missing required dependency", async () => {
       const pluginDir = join(DEP_TEST_DIR, "plugins", "needs-dep");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({ name: "needs-dep", base: "/needs", dependencies: ["missing-dep"] }),
-      );
+      writeManifest(pluginDir, {
+        name: "needs-dep",
+        base: "/needs",
+        dependencies: ["missing-dep"],
+      });
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
       // Plugin is enabled by default, validation happens during load
       const loader = new PluginLoader({ pluginDirs: [join(DEP_TEST_DIR, "plugins")] });
-      await expect(loader.load()).rejects.toThrow(/requires.*missing-dep.*not available/);
+      await expect(loader.load()).rejects.toThrow(/requires.*missing-dep.*not installed/);
     });
 
     it("should detect circular dependencies", async () => {
@@ -352,16 +308,10 @@ describe("PluginLoader", () => {
       mkdirSync(cycleADir, { recursive: true });
       mkdirSync(cycleBDir, { recursive: true });
 
-      writeFileSync(
-        join(cycleADir, "manifest.jsonc"),
-        JSON.stringify({ name: "cycle-a", base: "/cycle-a", dependencies: ["cycle-b"] }),
-      );
+      writeManifest(cycleADir, { name: "cycle-a", base: "/cycle-a", dependencies: ["cycle-b"] });
       writeFileSync(join(cycleADir, "plugin.ts"), `export default {};`);
 
-      writeFileSync(
-        join(cycleBDir, "manifest.jsonc"),
-        JSON.stringify({ name: "cycle-b", base: "/cycle-b", dependencies: ["cycle-a"] }),
-      );
+      writeManifest(cycleBDir, { name: "cycle-b", base: "/cycle-b", dependencies: ["cycle-a"] });
       writeFileSync(join(cycleBDir, "plugin.ts"), `export default {};`);
 
       // Both plugins enabled by default, validation happens during load
@@ -377,20 +327,14 @@ describe("PluginLoader", () => {
       mkdirSync(optBaseDir, { recursive: true });
       mkdirSync(withOptDir, { recursive: true });
 
-      writeFileSync(
-        join(optBaseDir, "manifest.jsonc"),
-        JSON.stringify({ name: "optional-base", base: "/opt-base" }),
-      );
+      writeManifest(optBaseDir, { name: "optional-base", base: "/opt-base" });
       writeFileSync(join(optBaseDir, "plugin.ts"), `export default {};`);
 
-      writeFileSync(
-        join(withOptDir, "manifest.jsonc"),
-        JSON.stringify({
-          name: "with-optional",
-          base: "/with-opt",
-          optionalDependencies: ["optional-base", "not-configured"],
-        }),
-      );
+      writeManifest(withOptDir, {
+        name: "with-optional",
+        base: "/with-opt",
+        optionalDependencies: ["optional-base", "not-configured"],
+      });
       writeFileSync(join(withOptDir, "plugin.ts"), `export default {};`);
 
       // Both plugins enabled by default during scan
@@ -425,10 +369,7 @@ describe("PluginLoader", () => {
     it("should resolve plugin with default export", async () => {
       const pluginDir = join(DEFAULT_TEST_DIR, "plugins", "with-default");
       mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(
-        join(pluginDir, "manifest.jsonc"),
-        JSON.stringify({ name: "with-default", base: "/default" }),
-      );
+      writeManifest(pluginDir, { name: "with-default", base: "/default" });
       writeFileSync(
         join(pluginDir, "plugin.ts"),
         `const plugin = { onInit: () => {} };

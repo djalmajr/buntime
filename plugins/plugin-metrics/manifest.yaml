@@ -1,0 +1,24 @@
+name: "@buntime/plugin-metrics"
+base: "/metrics"
+enabled: false
+
+entrypoint: dist/client/index.html
+pluginEntry: dist/plugin.js
+
+menus:
+  - icon: lucide:activity
+    path: /metrics
+    title: Metrics
+    items:
+      - icon: lucide:layout-dashboard
+        path: /metrics
+        title: Overview
+      - icon: lucide:cpu
+        path: /metrics/workers
+        title: Workers
+
+# Enable Prometheus format endpoint
+prometheus: true
+
+# SSE update interval in milliseconds
+sseInterval: 1000

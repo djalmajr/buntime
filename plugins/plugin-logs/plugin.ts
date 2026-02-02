@@ -34,12 +34,12 @@ export default function logsPlugin(pluginConfig: LogsConfig = {}): PluginImpl {
   return {
     routes: api, // SSE requires main thread (streaming doesn't work in workers)
 
+    // Expose log service for other plugins to use
+    provides: () => ({ addLog, clearLogs, getLogs, getStats }),
+
     onInit(ctx: PluginContext) {
       setLogger(ctx.logger);
       ctx.logger.info("Logs plugin initialized");
-
-      // Register log service for other plugins to use
-      ctx.registerService("logs", { addLog, clearLogs, getLogs, getStats });
     },
   };
 }

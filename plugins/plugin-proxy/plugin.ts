@@ -4,6 +4,7 @@ import { api } from "./server/api";
 import {
   handleProxyRequest,
   initializeProxyService,
+  isProxyRoutePublic,
   loadDynamicRules,
   type ProxyRule,
   proxyWebSocketHandler,
@@ -14,7 +15,7 @@ import {
 
 export interface ProxyConfig {
   /**
-   * Static proxy rules (from manifest.jsonc, readonly)
+   * Static proxy rules (from manifest.yaml, readonly)
    */
   rules?: ProxyRule[];
 }
@@ -22,6 +23,9 @@ export interface ProxyConfig {
 export default function proxyPlugin(config: ProxyConfig = {}): PluginImpl {
   return {
     routes: api,
+
+    // Expose public routes checker for auth plugins
+    provides: () => ({ isPublic: isProxyRoutePublic }),
 
     async onInit(ctx: PluginContext) {
       initializeProxyService(ctx, config.rules || []);

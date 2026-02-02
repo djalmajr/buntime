@@ -17,13 +17,10 @@ function createMockLogger(): PluginLogger {
 
 // Mock plugin context factory
 function createMockContext(logger: PluginLogger): PluginContext {
-  const services = new Map<string, unknown>();
+  const plugins = new Map<string, unknown>();
   return {
     logger,
-    registerService: <T>(name: string, service: T) => {
-      services.set(name, service);
-    },
-    getService: <T>(name: string) => services.get(name) as T | undefined,
+    getPlugin: <T>(name: string) => plugins.get(name) as T | undefined,
   } as PluginContext;
 }
 
@@ -265,8 +262,8 @@ describe("databasePlugin", () => {
 
         await plugin.onInit?.(ctx);
 
-        // Verify service was registered
-        const service = ctx.getService("database");
+        // Verify service is exposed via provides
+        const service = plugin.provides?.();
         expect(service).toBeDefined();
         expect(logger.info).toHaveBeenCalled();
 
@@ -290,7 +287,7 @@ describe("databasePlugin", () => {
         await plugin.onInit?.(ctx);
 
         // Service should initialize successfully with substituted token
-        const service = ctx.getService("database");
+        const service = plugin.provides?.();
         expect(service).toBeDefined();
 
         // Cleanup
@@ -329,7 +326,7 @@ describe("databasePlugin", () => {
 
         await plugin.onInit?.(ctx);
 
-        const service = ctx.getService("database");
+        const service = plugin.provides?.();
         expect(service).toBeDefined();
 
         await plugin.onShutdown?.();
@@ -416,42 +413,31 @@ describe("databasePlugin", () => {
     });
 
     describe("detectLibSqlUrls", () => {
-      // Save original LIBSQL_URL and LIBSQL_REPLICA_* vars
-      const savedLibSqlUrl = process.env.LIBSQL_URL;
-      const savedEnvVars: Record<string, string | undefined> = {};
+      // Save original DATABASE_LIBSQL_* vars
+      const savedLibSqlUrl = process.env.DATABASE_LIBSQL_URL;
+      const savedLibSqlReplicas = process.env.DATABASE_LIBSQL_REPLICAS;
 
       beforeEach(() => {
-        // Save and clear LIBSQL_URL and all LIBSQL_REPLICA_* vars
-        delete process.env.LIBSQL_URL;
-        for (const key of Object.keys(process.env)) {
-          if (key.startsWith("LIBSQL_REPLICA_")) {
-            savedEnvVars[key] = process.env[key];
-            delete process.env[key];
-          }
-        }
+        // Clear DATABASE_LIBSQL_* vars before each test
+        delete process.env.DATABASE_LIBSQL_URL;
+        delete process.env.DATABASE_LIBSQL_REPLICAS;
       });
 
       afterEach(() => {
         // Clear test vars
-        delete process.env.LIBSQL_URL;
-        for (const key of Object.keys(process.env)) {
-          if (key.startsWith("LIBSQL_REPLICA_")) {
-            delete process.env[key];
-          }
-        }
+        delete process.env.DATABASE_LIBSQL_URL;
+        delete process.env.DATABASE_LIBSQL_REPLICAS;
         // Restore original vars
         if (savedLibSqlUrl !== undefined) {
-          process.env.LIBSQL_URL = savedLibSqlUrl;
+          process.env.DATABASE_LIBSQL_URL = savedLibSqlUrl;
         }
-        for (const [key, value] of Object.entries(savedEnvVars)) {
-          if (value !== undefined) {
-            process.env[key] = value;
-          }
+        if (savedLibSqlReplicas !== undefined) {
+          process.env.DATABASE_LIBSQL_REPLICAS = savedLibSqlReplicas;
         }
       });
 
-      it("should detect LIBSQL_URL", async () => {
-        process.env.LIBSQL_URL = "http://detected:8080";
+      it("should detect DATABASE_LIBSQL_URL", async () => {
+        process.env.DATABASE_LIBSQL_URL = "http://detected:8080";
 
         const logger = createMockLogger();
         const ctx = createMockContext(logger);
@@ -462,16 +448,15 @@ describe("databasePlugin", () => {
 
         await plugin.onInit?.(ctx);
 
-        const service = ctx.getService("database") as { getDefaultType(): string };
-        expect(service.getDefaultType()).toBe("libsql");
+        const service = plugin.provides?.() as { getDefaultType(): string } | undefined;
+        expect(service?.getDefaultType()).toBe("libsql");
 
         await plugin.onShutdown?.();
       });
 
-      it("should detect LIBSQL_URL and LIBSQL_REPLICA_* vars", async () => {
-        process.env.LIBSQL_URL = "http://primary:8080";
-        process.env.LIBSQL_REPLICA_1 = "http://replica1:8080";
-        process.env.LIBSQL_REPLICA_2 = "http://replica2:8080";
+      it("should detect DATABASE_LIBSQL_URL and DATABASE_LIBSQL_REPLICAS vars", async () => {
+        process.env.DATABASE_LIBSQL_URL = "http://primary:8080";
+        process.env.DATABASE_LIBSQL_REPLICAS = "http://replica1:8080,http://replica2:8080";
 
         const logger = createMockLogger();
         const ctx = createMockContext(logger);
@@ -484,10 +469,10 @@ describe("databasePlugin", () => {
         await plugin.onShutdown?.();
       });
 
-      it("should stop at first gap in replica sequence", async () => {
-        process.env.LIBSQL_URL = "http://primary:8080";
-        // Skip LIBSQL_REPLICA_1
-        process.env.LIBSQL_REPLICA_2 = "http://should-be-ignored:8080";
+      it("should filter empty replicas from comma-separated list", async () => {
+        process.env.DATABASE_LIBSQL_URL = "http://primary:8080";
+        // Empty entries should be filtered out
+        process.env.DATABASE_LIBSQL_REPLICAS = "http://replica1:8080,,  ,http://replica2:8080";
 
         const logger = createMockLogger();
         const ctx = createMockContext(logger);
@@ -501,7 +486,7 @@ describe("databasePlugin", () => {
       });
 
       it("should merge env urls with config urls (deduplicated)", async () => {
-        process.env.LIBSQL_URL = "http://env-primary:8080";
+        process.env.DATABASE_LIBSQL_URL = "http://env-primary:8080";
 
         const logger = createMockLogger();
         const ctx = createMockContext(logger);

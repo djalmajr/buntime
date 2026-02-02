@@ -31,13 +31,13 @@ RUN NODE_ENV=production bun run build
 WORKDIR /build/apps/runtime
 RUN NODE_ENV=production bun scripts/build.ts --compile
 
-# Prepare clean plugin output (manifest.jsonc + dist only, skip disabled plugins without dist)
+# Prepare clean plugin output (manifest.yaml + dist only, skip disabled plugins without dist)
 WORKDIR /build
 RUN for plugin in plugins/plugin-*; do \
       name=$(basename "$plugin"); \
       if [ -d "$plugin/dist" ]; then \
         mkdir -p /output/plugins/"$name"; \
-        cp "$plugin/manifest.jsonc" /output/plugins/"$name"/; \
+        cp "$plugin/manifest.yaml" /output/plugins/"$name"/; \
         cp -r "$plugin/dist" /output/plugins/"$name"/; \
       fi; \
     done
@@ -63,12 +63,12 @@ COPY --from=builder /output/plugins/ /data/.plugins/
 
 # Copy cpanel to hidden .apps directory (not visible in deployments UI)
 COPY --from=builder /build/apps/cpanel/dist/ /data/.apps/cpanel/dist/
-COPY --from=builder /build/apps/cpanel/manifest.jsonc /data/.apps/cpanel/
+COPY --from=builder /build/apps/cpanel/manifest.yaml /data/.apps/cpanel/
 
 # Default environment variables (aligned with Helm chart values.yaml)
 # .apps/.plugins = core (from image), apps/plugins = custom (from PVC)
-ENV WORKER_DIRS=/data/.apps,/data/apps
-ENV PLUGIN_DIRS=/data/.plugins,/data/plugins
+ENV RUNTIME_WORKER_DIRS=/data/.apps:/data/apps
+ENV RUNTIME_PLUGIN_DIRS=/data/.plugins:/data/plugins
 
 EXPOSE 8000
 

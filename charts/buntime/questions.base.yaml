@@ -1,0 +1,130 @@
+# Buntime Helm Chart - Base Questions (Runtime Core)
+# This file contains only the runtime core configuration.
+# Plugin questions are generated automatically from manifest.yaml files.
+#
+# DO NOT EDIT questions.yml directly - it is auto-generated.
+# Run: bun scripts/generate-helm-questions.ts
+
+questions:
+  # ==================== RUNTIME ====================
+  - variable: buntime.logLevel
+    label: "Log Level"
+    description: "Application log verbosity"
+    type: enum
+    default: "info"
+    options:
+      - "debug"
+      - "info"
+      - "warn"
+      - "error"
+    group: "Runtime"
+
+  - variable: buntime.poolSize
+    label: "Worker Pool Size"
+    description: "Maximum number of concurrent workers"
+    type: int
+    default: 100
+    min: 1
+    max: 1000
+    group: "Runtime"
+
+  - variable: replicaCount
+    label: "Replica Count"
+    description: "Number of Buntime pod replicas"
+    type: int
+    default: 1
+    min: 1
+    max: 10
+    group: "Runtime"
+
+  - variable: service.type
+    label: "Service Type"
+    description: "Kubernetes service type"
+    type: enum
+    default: "NodePort"
+    options:
+      - "ClusterIP"
+      - "NodePort"
+      - "LoadBalancer"
+    group: "Runtime"
+
+  - variable: buntime.apiPrefix
+    label: "API Prefix"
+    description: "Prefix for runtime API routes (e.g., '/_' mounts API at '/_/api')"
+    type: string
+    default: ""
+    group: "Runtime"
+
+  - variable: buntime.pluginDirs
+    label: "Plugin Directories"
+    description: "Colon-separated list of plugin directories"
+    type: string
+    default: "/data/.plugins:/data/plugins"
+    group: "Runtime"
+
+  - variable: buntime.workerDirs
+    label: "Worker Directories"
+    description: "Colon-separated list of worker directories"
+    type: string
+    default: "/data/.apps:/data/apps"
+    group: "Runtime"
+
+  - variable: image.tag
+    label: "Image Tag"
+    description: "Docker image tag (use 'latest' for most recent)"
+    type: string
+    default: "latest"
+    group: "Runtime"
+
+  # ==================== INGRESS ====================
+  - variable: ingress.host
+    label: "Ingress Hostname"
+    description: "Hostname for the ingress (e.g., buntime.example.com). Leave empty to disable ingress."
+    type: hostname
+    default: ""
+    group: "Runtime"
+
+  - variable: ingress.className
+    label: "Ingress Class"
+    description: "Ingress controller class name"
+    type: string
+    default: "traefik"
+    group: "Runtime"
+
+  - variable: ingress.tls.enabled
+    label: "Enable TLS"
+    description: "Enable HTTPS with TLS certificate"
+    type: boolean
+    default: false
+    group: "Runtime"
+
+  # ==================== STORAGE ====================
+  - variable: persistence.plugins.size
+    label: "Plugins Volume Size"
+    description: "Size of persistent volume for custom plugins"
+    type: string
+    default: "5Gi"
+    group: "Runtime"
+
+  - variable: persistence.plugins.storageClass
+    label: "Plugins Storage Class"
+    description: "Storage class for plugins volume (leave empty for default)"
+    type: storageclass
+    default: ""
+    group: "Runtime"
+
+  - variable: persistence.apps.size
+    label: "Apps Volume Size"
+    description: "Size of persistent volume for user applications"
+    type: string
+    default: "10Gi"
+    group: "Runtime"
+
+  - variable: persistence.apps.storageClass
+    label: "Apps Storage Class"
+    description: "Storage class for apps volume (leave empty for default)"
+    type: storageclass
+    default: ""
+    group: "Runtime"
+
+# Plugin questions will be appended below by generate-helm-questions.ts

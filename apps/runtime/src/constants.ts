@@ -47,10 +47,32 @@ export const VERSION = version;
 export const APP_NAME_PATTERN = /^\/([^/]+)/;
 
 /**
+ * Normalize a URL path by removing duplicate slashes and trailing slashes
+ * @example normalizePath("/_//api/") → "/_/api"
+ * @example normalizePath("//api") → "/api"
+ */
+function normalizePath(path: string): string {
+  return path.replace(/\/+/g, "/").replace(/\/$/, "") || "/";
+}
+
+/**
+ * Runtime API prefix from environment
+ * When set, runtime API is mounted at {prefix}/api instead of /api
+ * @example RUNTIME_API_PREFIX="/_" → API at "/_/api"
+ */
+export const RUNTIME_API_PREFIX = (Bun.env.RUNTIME_API_PREFIX || "").replace(/\/+$/, "");
+
+/**
+ * Runtime API path (computed from prefix)
+ * @example "/api" (default) or "/_/api" (with prefix)
+ */
+export const API_PATH = normalizePath(`${RUNTIME_API_PREFIX}/api`);
+
+/**
  * Reserved paths that cannot be used by plugins or apps
  * These are handled by the runtime or should return 404
  */
-export const RESERVED_PATHS = ["/api", "/health", "/.well-known"];
+export const RESERVED_PATHS = [RUNTIME_API_PREFIX || "/api", "/.well-known"];
 
 /**
  * HTTP headers used by Buntime for request routing

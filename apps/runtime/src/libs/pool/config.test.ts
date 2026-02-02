@@ -2,46 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from "bu
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as runtimeConfig from "@/config";
-import { ConfigDefaults, loadWorkerConfig } from "./config";
+import { loadWorkerConfig } from "./config";
 
-describe("ConfigDefaults", () => {
-  it("should have correct default values", () => {
-    expect(ConfigDefaults.autoInstall).toBe(false);
-    expect(ConfigDefaults.idleTimeout).toBe(60);
-    expect(ConfigDefaults.lowMemory).toBe(false);
-    expect(ConfigDefaults.maxRequests).toBe(1000);
-    expect(ConfigDefaults.timeout).toBe(30);
-    expect(ConfigDefaults.ttl).toBe(0);
-  });
-
-  it("should have all expected keys", () => {
-    const keys = Object.keys(ConfigDefaults).sort();
-    expect(keys).toEqual([
-      "autoInstall",
-      "idleTimeout",
-      "lowMemory",
-      "maxRequests",
-      "timeout",
-      "ttl",
-    ]);
-  });
-
-  it("should have idleTimeout in seconds", () => {
-    expect(ConfigDefaults.idleTimeout).toBe(60);
-  });
-
-  it("should have timeout in seconds", () => {
-    expect(ConfigDefaults.timeout).toBe(30);
-  });
-
-  it("should have ttl of 0 for ephemeral mode by default", () => {
-    expect(ConfigDefaults.ttl).toBe(0);
-  });
-
-  it("should have maxRequests for worker recycling", () => {
-    expect(ConfigDefaults.maxRequests).toBe(1000);
-  });
-});
+// Helper to write YAML manifest
+function writeManifest(dir: string, data: Record<string, unknown>) {
+  writeFileSync(join(dir, "manifest.yaml"), Bun.YAML.stringify(data));
+}
 
 describe("loadWorkerConfig", () => {
   // Use unique test directories with timestamps to avoid Bun module cache
@@ -60,7 +26,6 @@ describe("loadWorkerConfig", () => {
   beforeEach(() => {
     spyOn(runtimeConfig, "getConfig").mockReturnValue({
       bodySize: { default: 10 * 1024 * 1024, max: 100 * 1024 * 1024 },
-      corsOrigins: [],
       delayMs: 100,
       isCompiled: false,
       isDev: true,
@@ -90,19 +55,16 @@ describe("loadWorkerConfig", () => {
     });
   });
 
-  describe("manifest.jsonc config", () => {
-    it("should load config from manifest.jsonc", async () => {
+  describe("manifest.yaml config", () => {
+    it("should load config from manifest.yaml", async () => {
       const uniqueDir = join(baseTestDir, `manifest-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          timeout: 45,
-          maxRequests: 500,
-          lowMemory: true,
-        }),
-      );
+      writeManifest(uniqueDir, {
+        timeout: 45,
+        maxRequests: 500,
+        lowMemory: true,
+      });
 
       const config = await loadWorkerConfig(uniqueDir);
 
@@ -157,16 +119,13 @@ describe("loadWorkerConfig", () => {
       expect(config.maxBodySizeBytes).toBe(10 * 1024 * 1024);
     });
 
-    it("should parse maxBodySize from manifest.jsonc", async () => {
+    it("should parse maxBodySize from manifest.yaml", async () => {
       const uniqueDir = join(baseTestDir, `body-manifest-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          maxBodySize: "5mb",
-        }),
-      );
+      writeManifest(uniqueDir, {
+        maxBodySize: "5mb",
+      });
 
       const config = await loadWorkerConfig(uniqueDir);
 
@@ -177,12 +136,9 @@ describe("loadWorkerConfig", () => {
       const uniqueDir = join(baseTestDir, `body-cap-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          maxBodySize: "500mb", // Exceeds 100mb max
-        }),
-      );
+      writeManifest(uniqueDir, {
+        maxBodySize: "500mb", // Exceeds 100mb max
+      });
 
       const config = await loadWorkerConfig(uniqueDir);
 
@@ -196,13 +152,10 @@ describe("loadWorkerConfig", () => {
       const uniqueDir = join(baseTestDir, `duration-num-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          timeout: 45,
-          idleTimeout: 120,
-        }),
-      );
+      writeManifest(uniqueDir, {
+        timeout: 45,
+        idleTimeout: 120,
+      });
 
       const config = await loadWorkerConfig(uniqueDir);
 
@@ -214,14 +167,11 @@ describe("loadWorkerConfig", () => {
       const uniqueDir = join(baseTestDir, `duration-str-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          timeout: "1m",
-          idleTimeout: "5m",
-          ttl: "1h",
-        }),
-      );
+      writeManifest(uniqueDir, {
+        timeout: "1m",
+        idleTimeout: "5m",
+        ttl: "1h",
+      });
 
       const config = await loadWorkerConfig(uniqueDir);
 
@@ -236,12 +186,9 @@ describe("loadWorkerConfig", () => {
       const uniqueDir = join(baseTestDir, `val-timeout-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          timeout: 0,
-        }),
-      );
+      writeManifest(uniqueDir, {
+        timeout: 0,
+      });
 
       await expect(loadWorkerConfig(uniqueDir)).rejects.toThrow(/timeout must be positive/);
     });
@@ -250,13 +197,10 @@ describe("loadWorkerConfig", () => {
       const uniqueDir = join(baseTestDir, `val-ttl-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          timeout: 30,
-          ttl: -1,
-        }),
-      );
+      writeManifest(uniqueDir, {
+        timeout: 30,
+        ttl: -1,
+      });
 
       // Zod validates first with "Too small" error
       await expect(loadWorkerConfig(uniqueDir)).rejects.toThrow(/Invalid config.*ttl/);
@@ -266,12 +210,9 @@ describe("loadWorkerConfig", () => {
       const uniqueDir = join(baseTestDir, `val-idle-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          idleTimeout: 0,
-        }),
-      );
+      writeManifest(uniqueDir, {
+        idleTimeout: 0,
+      });
 
       await expect(loadWorkerConfig(uniqueDir)).rejects.toThrow(/idleTimeout must be positive/);
     });
@@ -280,13 +221,10 @@ describe("loadWorkerConfig", () => {
       const uniqueDir = join(baseTestDir, `val-ttl-timeout-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          timeout: 60,
-          ttl: 30, // Less than timeout
-        }),
-      );
+      writeManifest(uniqueDir, {
+        timeout: 60,
+        ttl: 30, // Less than timeout
+      });
 
       await expect(loadWorkerConfig(uniqueDir)).rejects.toThrow(/ttl.*must be >= timeout/);
     });
@@ -295,14 +233,11 @@ describe("loadWorkerConfig", () => {
       const uniqueDir = join(baseTestDir, `val-idle-timeout-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          timeout: 60,
-          idleTimeout: 30, // Less than timeout
-          ttl: 120,
-        }),
-      );
+      writeManifest(uniqueDir, {
+        timeout: 60,
+        idleTimeout: 30, // Less than timeout
+        ttl: 120,
+      });
 
       await expect(loadWorkerConfig(uniqueDir)).rejects.toThrow(/idleTimeout.*must be >= timeout/);
     });
@@ -311,14 +246,11 @@ describe("loadWorkerConfig", () => {
       const uniqueDir = join(baseTestDir, `val-adjust-idle-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          timeout: 30,
-          idleTimeout: 300, // Exceeds ttl
-          ttl: 120,
-        }),
-      );
+      writeManifest(uniqueDir, {
+        timeout: 30,
+        idleTimeout: 300, // Exceeds ttl
+        ttl: 120,
+      });
 
       const config = await loadWorkerConfig(uniqueDir);
 
@@ -332,12 +264,9 @@ describe("loadWorkerConfig", () => {
       const uniqueDir = join(baseTestDir, `routes-arr-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          publicRoutes: ["/health", "/api/public/*"],
-        }),
-      );
+      writeManifest(uniqueDir, {
+        publicRoutes: ["/health", "/api/public/*"],
+      });
 
       const config = await loadWorkerConfig(uniqueDir);
 
@@ -348,15 +277,12 @@ describe("loadWorkerConfig", () => {
       const uniqueDir = join(baseTestDir, `routes-obj-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          publicRoutes: {
-            GET: ["/health"],
-            POST: ["/webhook"],
-          },
-        }),
-      );
+      writeManifest(uniqueDir, {
+        publicRoutes: {
+          GET: ["/health"],
+          POST: ["/webhook"],
+        },
+      });
 
       const config = await loadWorkerConfig(uniqueDir);
 
@@ -372,12 +298,9 @@ describe("loadWorkerConfig", () => {
       const uniqueDir = join(baseTestDir, `entry-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          entrypoint: "src/server.ts",
-        }),
-      );
+      writeManifest(uniqueDir, {
+        entrypoint: "src/server.ts",
+      });
 
       const config = await loadWorkerConfig(uniqueDir);
 
@@ -388,16 +311,80 @@ describe("loadWorkerConfig", () => {
       const uniqueDir = join(baseTestDir, `auto-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });
 
-      writeFileSync(
-        join(uniqueDir, "manifest.jsonc"),
-        JSON.stringify({
-          autoInstall: true,
-        }),
-      );
+      writeManifest(uniqueDir, {
+        autoInstall: true,
+      });
 
       const config = await loadWorkerConfig(uniqueDir);
 
       expect(config.autoInstall).toBe(true);
+    });
+  });
+
+  describe("injectBase", () => {
+    it("should default to false", async () => {
+      const uniqueDir = join(baseTestDir, `inject-default-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      const config = await loadWorkerConfig(uniqueDir);
+
+      expect(config.injectBase).toBe(false);
+    });
+
+    it("should parse injectBase: true", async () => {
+      const uniqueDir = join(baseTestDir, `inject-true-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      writeManifest(uniqueDir, {
+        injectBase: true,
+      });
+
+      const config = await loadWorkerConfig(uniqueDir);
+
+      expect(config.injectBase).toBe(true);
+    });
+
+    it("should parse injectBase: false explicitly", async () => {
+      const uniqueDir = join(baseTestDir, `inject-false-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      writeManifest(uniqueDir, {
+        injectBase: false,
+      });
+
+      const config = await loadWorkerConfig(uniqueDir);
+
+      expect(config.injectBase).toBe(false);
+    });
+  });
+
+  describe("env", () => {
+    it("should parse env variables from manifest", async () => {
+      const uniqueDir = join(baseTestDir, `env-parse-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      writeManifest(uniqueDir, {
+        env: {
+          PUBLIC_API_URL: "https://api.example.com",
+          DATABASE_URL: "postgres://localhost/db",
+        },
+      });
+
+      const config = await loadWorkerConfig(uniqueDir);
+
+      expect(config.env).toEqual({
+        PUBLIC_API_URL: "https://api.example.com",
+        DATABASE_URL: "postgres://localhost/db",
+      });
+    });
+
+    it("should be undefined when not specified", async () => {
+      const uniqueDir = join(baseTestDir, `env-undefined-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      const config = await loadWorkerConfig(uniqueDir);
+
+      expect(config.env).toBeUndefined();
     });
   });
 });

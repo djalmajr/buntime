@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { getChildLogger } from "@buntime/shared/logger";
+import type { WorkerConfig } from "@buntime/shared/utils/worker-config";
 import { DELAY_MS, IS_COMPILED, MessageTypes, WorkerState, type WorkerStatus } from "@/constants";
-import type { WorkerConfig } from "./config";
 import { computeAvgResponseTime, roundTwoDecimals } from "./stats";
 import type { WorkerRequest, WorkerResponse } from "./types";
 
@@ -77,19 +77,24 @@ export class WorkerInstance {
     // Security: Workers only receive explicit env vars, never inherit from runtime
     // Sensitive env vars are filtered out to prevent accidental secret leakage
     const safeEnv = filterSensitiveEnv(config.env);
-    // Provide runtime API URL for internal HTTP calls (database, keyval, etc.)
-    const runtimePort = Bun.env.PORT ?? "8000";
-    const runtimeApiUrl = `http://127.0.0.1:${runtimePort}`;
+
+    // Runtime config passed to workers
+    const runtimePort = Bun.env.RUNTIME_PORT ?? Bun.env.PORT ?? "8000";
 
     this.worker = new Worker(WORKER_PATH, {
       env: {
         ...safeEnv,
+        // App-specific
         APP_DIR: appDir,
-        BUNTIME_API_URL: runtimeApiUrl,
         ENTRYPOINT,
-        NODE_ENV: Bun.env.NODE_ENV ?? "development",
         WORKER_CONFIG: JSON.stringify(config),
         WORKER_ID: this.id,
+        // Runtime config (RUNTIME_* prefix)
+        NODE_ENV: Bun.env.NODE_ENV ?? "development",
+        RUNTIME_API_URL: `http://127.0.0.1:${runtimePort}`,
+        RUNTIME_LOG_LEVEL: Bun.env.RUNTIME_LOG_LEVEL ?? "info",
+        RUNTIME_PLUGIN_DIRS: Bun.env.RUNTIME_PLUGIN_DIRS ?? "",
+        RUNTIME_WORKER_DIRS: Bun.env.RUNTIME_WORKER_DIRS ?? "",
       },
       smol: config.lowMemory,
     });

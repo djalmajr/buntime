@@ -30,10 +30,7 @@ function createMockContext() {
       warn: mock(() => {}),
       error: mock(() => {}),
     },
-    registerService: mock((name: string, service: unknown) => {
-      services[name] = service;
-    }),
-    getService: mock((name: string) => services[name]),
+    getPlugin: mock((name: string) => services[name]),
   };
 }
 
@@ -97,13 +94,16 @@ describe("authzPlugin", () => {
       expect(ctx.logger.info).toHaveBeenCalled();
     });
 
-    it("should register authz service", async () => {
+    it("should expose authz service via provides", async () => {
       const plugin = authzPlugin();
       const ctx = createMockContext();
 
       await plugin.onInit?.(ctx as never);
 
-      expect(ctx.registerService).toHaveBeenCalledWith("authz", expect.any(Object));
+      // The service is now exposed via provides() instead of registerService
+      const authzService = plugin.provides?.() as { getPap: () => unknown };
+      expect(authzService).toBeDefined();
+      expect(authzService.getPap).toBeDefined();
     });
 
     it("should load inline policies (deprecated config)", async () => {
@@ -116,7 +116,7 @@ describe("authzPlugin", () => {
       await plugin.onInit?.(ctx as never);
 
       // Get the authz service and check policies
-      const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+      const authzService = plugin.provides() as {
         getPap: () => PolicyAdministrationPoint;
       };
       const pap = authzService.getPap();
@@ -349,7 +349,7 @@ describe("authzPlugin", () => {
 
       await plugin.onInit?.(ctx as never);
 
-      const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+      const authzService = plugin.provides() as {
         seedPolicies: (policies: Policy[], options?: { onlyIfEmpty?: boolean }) => Promise<number>;
         getPap: () => PolicyAdministrationPoint;
       };
@@ -372,7 +372,7 @@ describe("authzPlugin", () => {
 
       await plugin.onInit?.(ctx as never);
 
-      const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+      const authzService = plugin.provides() as {
         seedPolicies: (policies: Policy[], options?: { onlyIfEmpty?: boolean }) => Promise<number>;
       };
 
@@ -388,7 +388,7 @@ describe("authzPlugin", () => {
 
       await plugin.onInit?.(ctx as never);
 
-      const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+      const authzService = plugin.provides() as {
         seedPolicies: (policies: Policy[], options?: { onlyIfEmpty?: boolean }) => Promise<number>;
         getPap: () => PolicyAdministrationPoint;
       };
@@ -408,7 +408,7 @@ describe("authzPlugin", () => {
 
       await plugin.onInit?.(ctx as never);
 
-      const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+      const authzService = plugin.provides() as {
         getPap: () => PolicyAdministrationPoint;
       };
 
@@ -422,7 +422,7 @@ describe("authzPlugin", () => {
 
       await plugin.onInit?.(ctx as never);
 
-      const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+      const authzService = plugin.provides() as {
         getPdp: () => PolicyDecisionPoint;
       };
 
@@ -557,7 +557,7 @@ describe("policy seed", () => {
 
     await plugin.onInit?.(ctx as never);
 
-    const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+    const authzService = plugin.provides() as {
       getPap: () => PolicyAdministrationPoint;
     };
     const pap = authzService.getPap();
@@ -576,7 +576,7 @@ describe("policy seed", () => {
 
     await plugin.onInit?.(ctx as never);
 
-    const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+    const authzService = plugin.provides() as {
       getPap: () => PolicyAdministrationPoint;
     };
     const pap = authzService.getPap();
@@ -597,7 +597,7 @@ describe("policy seed", () => {
 
     await plugin.onInit?.(ctx as never);
 
-    const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+    const authzService = plugin.provides() as {
       getPap: () => PolicyAdministrationPoint;
     };
     const pap = authzService.getPap();
@@ -621,7 +621,7 @@ describe("policy seed", () => {
 
     await plugin.onInit?.(ctx as never);
 
-    const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+    const authzService = plugin.provides() as {
       getPap: () => PolicyAdministrationPoint;
     };
     const pap = authzService.getPap();
@@ -643,7 +643,7 @@ describe("policy seed", () => {
 
     await plugin.onInit?.(ctx as never);
 
-    const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+    const authzService = plugin.provides() as {
       getPap: () => PolicyAdministrationPoint;
     };
     const pap = authzService.getPap();
@@ -667,7 +667,7 @@ describe("policy seed", () => {
 
     await plugin.onInit?.(ctx as never);
 
-    const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+    const authzService = plugin.provides() as {
       getPap: () => PolicyAdministrationPoint;
     };
     const pap = authzService.getPap();
@@ -711,7 +711,7 @@ describe("policy seed", () => {
 
       await plugin.onInit?.(ctx as never);
 
-      const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+      const authzService = plugin.provides() as {
         getPap: () => PolicyAdministrationPoint;
       };
       const pap = authzService.getPap();
@@ -743,7 +743,7 @@ describe("policy seed", () => {
 
       await plugin.onInit?.(ctx as never);
 
-      const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+      const authzService = plugin.provides() as {
         getPap: () => PolicyAdministrationPoint;
       };
       const pap = authzService.getPap();
@@ -777,7 +777,7 @@ describe("policy seed", () => {
 
       await plugin.onInit?.(ctx as never);
 
-      const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+      const authzService = plugin.provides() as {
         getPap: () => PolicyAdministrationPoint;
       };
       const pap = authzService.getPap();
@@ -823,7 +823,7 @@ describe("policy seed", () => {
 
     await plugin.onInit?.(ctx as never);
 
-    const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+    const authzService = plugin.provides() as {
       getPap: () => PolicyAdministrationPoint;
     };
     const pap = authzService.getPap();
@@ -844,7 +844,7 @@ describe("policy seed", () => {
 
     await plugin.onInit?.(ctx as never);
 
-    const authzService = (ctx.registerService as ReturnType<typeof mock>).mock.calls[0][1] as {
+    const authzService = plugin.provides() as {
       getPap: () => PolicyAdministrationPoint;
     };
     const pap = authzService.getPap();

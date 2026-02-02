@@ -193,23 +193,20 @@ describe("plugin-keyval", () => {
 
       const mockContext: PluginContext = {
         config: {},
-        getService: <T>(name: string): T | undefined => {
-          if (name === "database") {
+        getPlugin: <T>(name: string): T | undefined => {
+          if (name === "@buntime/plugin-database") {
             return mockDatabaseService as T;
           }
           return undefined;
         },
         logger: mockLogger,
-        registerService: (name: string, service: unknown) => {
-          registeredServices.set(name, service);
-        },
       };
 
       await plugin.onInit?.(mockContext);
 
-      // Verify kv service was registered
-      expect(registeredServices.has("kv")).toBe(true);
-      expect(registeredServices.get("kv")).toBeDefined();
+      // Verify kv service is exposed via provides
+      const kvService = plugin.provides?.();
+      expect(kvService).toBeDefined();
 
       // Cleanup
       await plugin.onShutdown?.();
@@ -220,15 +217,14 @@ describe("plugin-keyval", () => {
 
       const mockContext: PluginContext = {
         config: {},
-        getService: <T>(_name: string): T | undefined => {
+        getPlugin: <T>(_name: string): T | undefined => {
           return undefined;
         },
         logger: mockLogger,
-        registerService: () => {},
       };
 
       await expect(plugin.onInit?.(mockContext)).rejects.toThrow(
-        "plugin-keyval requires plugin-database to be loaded first",
+        "plugin-keyval requires @buntime/plugin-database to be loaded first",
       );
     });
 
@@ -237,20 +233,17 @@ describe("plugin-keyval", () => {
 
       const mockContext: PluginContext = {
         config: {},
-        getService: <T>(name: string): T | undefined => {
-          if (name === "database") {
+        getPlugin: <T>(name: string): T | undefined => {
+          if (name === "@buntime/plugin-database") {
             return mockDatabaseService as T;
           }
           return undefined;
         },
         logger: mockLogger,
-        registerService: (name: string, service: unknown) => {
-          registeredServices.set(name, service);
-        },
       };
 
       await plugin.onInit?.(mockContext);
-      expect(registeredServices.has("kv")).toBe(true);
+      expect(plugin.provides?.()).toBeDefined();
 
       await plugin.onShutdown?.();
     });
@@ -269,20 +262,17 @@ describe("plugin-keyval", () => {
 
       const mockContext: PluginContext = {
         config: {},
-        getService: <T>(name: string): T | undefined => {
-          if (name === "database") {
+        getPlugin: <T>(name: string): T | undefined => {
+          if (name === "@buntime/plugin-database") {
             return mockDatabaseService as T;
           }
           return undefined;
         },
         logger: mockLogger,
-        registerService: (name: string, service: unknown) => {
-          registeredServices.set(name, service);
-        },
       };
 
       await plugin.onInit?.(mockContext);
-      expect(registeredServices.has("kv")).toBe(true);
+      expect(plugin.provides?.()).toBeDefined();
 
       await plugin.onShutdown?.();
     });
@@ -300,14 +290,13 @@ describe("plugin-keyval", () => {
 
       const mockContext: PluginContext = {
         config: {},
-        getService: <T>(name: string): T | undefined => {
-          if (name === "database") {
+        getPlugin: <T>(name: string): T | undefined => {
+          if (name === "@buntime/plugin-database") {
             return mockDatabaseService as T;
           }
           return undefined;
         },
         logger: loggingLogger,
-        registerService: () => {},
       };
 
       await plugin.onInit?.(mockContext);
@@ -322,14 +311,13 @@ describe("plugin-keyval", () => {
 
       const mockContext: PluginContext = {
         config: {},
-        getService: <T>(name: string): T | undefined => {
-          if (name === "database") {
+        getPlugin: <T>(name: string): T | undefined => {
+          if (name === "@buntime/plugin-database") {
             return mockDatabaseService as T;
           }
           return undefined;
         },
         logger: mockLogger,
-        registerService: () => {},
       };
 
       await plugin.onInit?.(mockContext);

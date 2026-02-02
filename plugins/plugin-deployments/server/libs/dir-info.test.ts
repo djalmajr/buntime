@@ -640,10 +640,10 @@ describe("DirInfo", () => {
       expect(visibility).toBeUndefined();
     });
 
-    it("should read visibility from manifest.jsonc", async () => {
+    it("should read visibility from manifest.yaml", async () => {
       await writeFile(
-        join(visibilityTestPath, "manifest.jsonc"),
-        JSON.stringify({ visibility: "internal" }),
+        join(visibilityTestPath, "manifest.yaml"),
+        Bun.YAML.stringify({ visibility: "internal" }),
       );
       const dir = new DirInfo(TEST_BASE_PATH, "visibility-test");
 
@@ -754,12 +754,12 @@ describe("DirInfo", () => {
       await rm(excludesTestPath, { force: true, recursive: true });
     });
 
-    it("should apply per-app excludes from manifest.jsonc", async () => {
+    it("should apply per-app excludes from manifest.yaml", async () => {
       // Create app with version folder and config
       await mkdir(join(excludesTestPath, "my-app/1.0.0/dist"), { recursive: true });
       await writeFile(
-        join(excludesTestPath, "my-app/1.0.0/manifest.jsonc"),
-        JSON.stringify({ excludes: ["dist"] }),
+        join(excludesTestPath, "my-app/1.0.0/manifest.yaml"),
+        Bun.YAML.stringify({ excludes: ["dist"] }),
       );
       await writeFile(join(excludesTestPath, "my-app/1.0.0/index.js"), "content");
       await writeFile(join(excludesTestPath, "my-app/1.0.0/dist/bundle.js"), "bundle");
@@ -777,8 +777,8 @@ describe("DirInfo", () => {
       await mkdir(join(excludesTestPath, "my-app/1.0.0/dist"), { recursive: true });
       await mkdir(join(excludesTestPath, "my-app/1.0.0/node_modules"), { recursive: true });
       await writeFile(
-        join(excludesTestPath, "my-app/1.0.0/manifest.jsonc"),
-        JSON.stringify({ excludes: ["dist"] }),
+        join(excludesTestPath, "my-app/1.0.0/manifest.yaml"),
+        Bun.YAML.stringify({ excludes: ["dist"] }),
       );
       await writeFile(join(excludesTestPath, "my-app/1.0.0/index.js"), "content");
 

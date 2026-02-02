@@ -1,0 +1,2 @@
+entrypoint: dist/index.html
+visibility: protected

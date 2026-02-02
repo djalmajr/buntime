@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createStaticHandler } from "./static-handler";
 
 describe("createStaticHandler", () => {
-  const TEST_DIR = "/tmp/static-handler-test-" + Date.now();
+  const TEST_DIR = `/tmp/static-handler-test-${Date.now()}`;
   let handler: ReturnType<typeof createStaticHandler>;
 
   beforeAll(async () => {

@@ -1,19 +1,14 @@
 import { errorToResponse } from "@buntime/shared/errors";
 import { getChildLogger } from "@buntime/shared/logger";
-import type {
-  AppInfo,
-  HomepageConfig,
-  WorkerConfig as SharedWorkerConfig,
-} from "@buntime/shared/types";
+import type { AppInfo, WorkerManifest } from "@buntime/shared/types";
+import type { WorkerConfig } from "@buntime/shared/utils/worker-config";
 import type { Hono } from "hono";
 import { Hono as HonoApp } from "hono";
-import { cors } from "hono/cors";
-import { getConfig } from "@/config";
-import { APP_NAME_PATTERN, Headers } from "@/constants";
-import type { WorkerConfig } from "@/libs/pool/config";
+import { API_PATH, APP_NAME_PATTERN, Headers } from "@/constants";
 import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
 import type { PluginRegistry } from "@/plugins/registry";
+import { createWellKnownRoutes } from "@/routes/well-known";
 import {
   BodyTooLargeError,
   cloneRequestBody,
@@ -27,12 +22,6 @@ export interface AppDeps {
   /** API routes mounted at /api/* */
   coreRoutes: Hono;
   getWorkerDir: (appName: string) => string | undefined;
-  /**
-   * Homepage configuration from HOMEPAGE_APP env var
-   * String: redirect to path (e.g., "/my-app")
-   * Object: app-shell mode (e.g., { app: "cpanel", shell: true })
-   */
-  homepage?: string | HomepageConfig;
   pool: WorkerPool;
   registry: PluginRegistry;
   workers: Hono;
@@ -112,8 +101,8 @@ async function getAppVersion(dir: string): Promise<string> {
 async function createAppInfo(resolved: ResolvedApp): Promise<AppInfo> {
   const poolConfig = resolved.config;
 
-  // Convert pool config (ms) to shared config (seconds) format
-  const sharedConfig: SharedWorkerConfig = {
+  // Convert pool config (ms) to manifest format (seconds) for AppInfo
+  const sharedConfig: WorkerManifest = {
     autoInstall: poolConfig.autoInstall,
     entrypoint: poolConfig.entrypoint,
     idleTimeout: poolConfig.idleTimeoutMs / 1000,
@@ -156,99 +145,6 @@ async function servePluginApp(
 }
 
 /**
- * Resolved shell configuration
- */
-interface ResolvedShell {
-  name: string;
-  base: string;
-  dir: string;
-  config: WorkerConfig;
-}
-
-/**
- * Resolve shell worker if homepage is configured for app-shell mode
- */
-async function resolveShell(
-  homepage: string | HomepageConfig | undefined,
-  getWorkerDir: (appName: string) => string | undefined,
-): Promise<ResolvedShell | undefined> {
-  if (!homepage) return undefined;
-
-  // String format is redirect mode, not shell mode
-  if (typeof homepage === "string") return undefined;
-
-  // Object format with shell: true enables app-shell mode
-  if (!homepage.shell) return undefined;
-
-  const dir = getWorkerDir(homepage.app);
-  if (!dir) {
-    logger.warn(`Shell worker "${homepage.app}" not found in workerDirs`);
-    return undefined;
-  }
-
-  const config = await loadWorkerConfig(dir);
-
-  return {
-    name: homepage.app,
-    base: `/${homepage.app}`,
-    dir,
-    config,
-  };
-}
-
-/**
- * Check if a pathname should be routed to the shell
- * Returns true for navigation requests to:
- * - "/" (homepage)
- * - Any path starting with a plugin base (e.g., "/metrics", "/metrics/workers")
- *
- * Returns false for:
- * - Non-navigation requests (e.g., fetch requests)
- * - API routes (paths containing "/api/")
- *
- * Note: Public routes are checked separately before calling this function
- * to avoid redirect loops (e.g., /auth/login should not go through shell)
- */
-function shouldRouteToShell(
-  pathname: string,
-  secFetchMode: string | undefined,
-  pluginBases: Set<string>,
-): boolean {
-  // Only intercept top-level navigation
-  if (secFetchMode && secFetchMode !== "navigate") return false;
-
-  // Don't intercept API routes
-  if (pathname.includes("/api/")) return false;
-
-  // Homepage always goes to shell
-  if (pathname === "/" || pathname === "") return true;
-
-  // Check if pathname matches any plugin base
-  return [...pluginBases].some((base) => pathname === base || pathname.startsWith(`${base}/`));
-}
-
-interface ShellRequestParams {
-  notFound?: boolean;
-  req: Request;
-  shell: ResolvedShell;
-}
-
-/**
- * Create a request for the shell app with proper headers
- */
-function createShellRequest({ notFound = false, req, shell }: ShellRequestParams): Request {
-  // Shell always serves from root, so pathname is "/"
-  // x-base must be the shell's actual base path so assets load correctly
-  // e.g., shell at /cpanel -> <base href="/cpanel/"> -> /cpanel/index.js
-  return createWorkerRequest({
-    base: shell.base,
-    notFound,
-    originalRequest: req,
-    targetPath: "/",
-  });
-}
-
-/**
  * Context shared between routing handlers
  */
 interface RoutingContext {
@@ -262,7 +158,6 @@ interface RoutingContext {
   /** Correlation ID for request tracing */
   requestId: string;
   resolved?: ResolvedApp;
-  shell?: ResolvedShell;
   url: string;
 }
 
@@ -333,23 +228,6 @@ async function handlePluginApp(ctx: RoutingContext): Promise<Response | null> {
 }
 
 /**
- * Handle 404 with shell (show consistent 404 page)
- */
-async function handle404WithShell(ctx: RoutingContext, response: Response): Promise<Response> {
-  if (response.status !== 404 || !ctx.shell || !ctx.pool) {
-    return response;
-  }
-
-  const shellReq = createProcessedRequest(ctx);
-  const shellRequest = createShellRequest({
-    notFound: true,
-    req: shellReq,
-    shell: ctx.shell,
-  });
-  return ctx.pool.fetch(ctx.shell.dir, ctx.shell.config, shellRequest, ctx.requestBody);
-}
-
-/**
  * Validate CSRF for state-changing requests
  * Returns Response if blocked, undefined if allowed
  */
@@ -405,26 +283,11 @@ function validateCsrf(
 /**
  * Create the main Hono app with unified routing
  */
-export function createApp({
-  coreRoutes,
-  getWorkerDir,
-  homepage,
-  pool,
-  registry,
-  workers,
-}: AppDeps) {
+export function createApp({ coreRoutes, getWorkerDir, pool, registry, workers }: AppDeps) {
   const app = new HonoApp();
 
-  // CORS middleware - configurable via CORS_ORIGINS env var
-  // Falls back to "*" in development if not set
-  const { corsOrigins } = getConfig();
-  if (corsOrigins.length > 0) {
-    const origin = corsOrigins.includes("*") ? "*" : corsOrigins;
-    app.use("/api/*", cors({ origin }));
-  }
-
-  // Middleware for /api/* routes - CSRF protection
-  app.use("/api/*", async (c, next) => {
+  // Middleware for API routes - CSRF protection
+  app.use(`${API_PATH}/*`, async (c, next) => {
     const requestId = c.req.header(Headers.REQUEST_ID) ?? crypto.randomUUID();
     const csrfResponse = validateCsrf(
       c.req.method,
@@ -440,18 +303,11 @@ export function createApp({
     c.header(Headers.REQUEST_ID, requestId);
   });
 
-  // Mount API routes at /api
-  app.route("/api", coreRoutes);
+  // Mount API routes
+  app.route(API_PATH, coreRoutes);
 
-  // Resolve shell worker early (will be used in routing)
-  // Catch errors to prevent rejected promise from blocking all requests
-  let shellPromise: Promise<ResolvedShell | undefined> | undefined;
-  if (homepage && pool) {
-    shellPromise = resolveShell(homepage, getWorkerDir).catch((err) => {
-      logger.error("Failed to resolve shell worker", { error: err });
-      return undefined; // Graceful degradation
-    });
-  }
+  // Mount well-known routes for service discovery
+  app.route("/.well-known", createWellKnownRoutes());
 
   // Register initial plugin routes and check for collisions
   const pluginPaths = new Map<string, string>();
@@ -478,7 +334,6 @@ export function createApp({
     // Generate or use existing correlation ID for request tracing
     const requestId = honoCtx.req.header(Headers.REQUEST_ID) ?? crypto.randomUUID();
 
-    const shell = shellPromise ? await shellPromise : undefined;
     const resolved = await resolveTargetApp(pathname, registry, getWorkerDir);
     const appInfo = resolved ? await createAppInfo(resolved) : undefined;
 
@@ -511,26 +366,6 @@ export function createApp({
       });
     };
 
-    // APP-SHELL MODE: Intercept navigation requests to shell
-    // Get plugin bases dynamically to support hot-reload
-    const pluginBases = registry.getPluginBasePaths();
-    const secFetchMode = honoCtx.req.header(Headers.SEC_FETCH_MODE);
-    if (shell && pool && shouldRouteToShell(pathname, secFetchMode, pluginBases)) {
-      const hookResult = await registry.runOnRequest(honoCtx.req.raw, appInfo);
-      if (hookResult instanceof Response) return hookResult;
-
-      const shellHeaders = new globalThis.Headers(hookResult.headers);
-      shellHeaders.set(Headers.REQUEST_ID, requestId);
-      const shellReq = new Request(honoCtx.req.url, {
-        body: requestBody,
-        headers: shellHeaders,
-        method: honoCtx.req.method,
-      });
-      const shellRequest = createShellRequest({ req: shellReq, shell });
-      const response = await pool.fetch(shell.dir, shell.config, shellRequest, requestBody);
-      return runOnResponse(response);
-    }
-
     // Run plugin onRequest hooks (auth, etc.)
     const processedReq = await registry.runOnRequest(honoCtx.req.raw, appInfo);
     if (processedReq instanceof Response) return processedReq;
@@ -546,7 +381,6 @@ export function createApp({
       requestBody,
       requestId,
       resolved,
-      shell,
       url: honoCtx.req.url,
     };
 
@@ -566,9 +400,7 @@ export function createApp({
     const workerReq = createProcessedRequest(ctx);
     const response = await workers.fetch(workerReq);
 
-    // Handle 404 with shell if available
-    const finalResponse = await handle404WithShell(ctx, response);
-    return runOnResponse(finalResponse);
+    return runOnResponse(response);
   });
 
   app.onError(errorToResponse);

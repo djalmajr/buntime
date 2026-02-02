@@ -35,13 +35,3 @@ export const boolean = (defaultValue: boolean, schema: z.ZodBoolean = z.boolean(
     return v === "true" || v === "1";
   }, schema);
 };
-
-/**
- * Substitute environment variables in a string
- * Supports ${VAR_NAME} syntax
- */
-export function substituteEnvVars(value: string): string {
-  return value.replace(/\$\{([^}]+)\}/g, (_, varName) => {
-    return process.env[varName] ?? "";
-  });
-}

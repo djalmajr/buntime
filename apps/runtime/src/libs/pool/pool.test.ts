@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { WorkerConfig } from "@buntime/shared/utils/worker-config";
 import { WorkerState } from "@/constants";
-import type { WorkerConfig } from "./config";
 import { WorkerPool } from "./pool";
 
 const TEST_DIR = join(import.meta.dir, ".test-pool");
@@ -13,6 +13,7 @@ const createMockConfig = (overrides: Partial<WorkerConfig> = {}): WorkerConfig =
   entrypoint: "index.ts",
   env: {},
   idleTimeoutMs: 60000,
+  injectBase: false,
   lowMemory: false,
   maxBodySizeBytes: 10 * 1024 * 1024,
   maxRequests: 1000,
@@ -580,6 +581,219 @@ describe("WorkerPool", () => {
         await pool.fetch(appDir, config, new Request("http://localhost/test"));
         const stats = pool.getWorkerStats();
         expect(stats["no-pkg@3.0.0"]).toBeDefined();
+      } finally {
+        pool.shutdown();
+        await Bun.sleep(100);
+      }
+    });
+  });
+
+  describe("HTML injection", () => {
+    // Helper to create an HTML SPA app
+    const createHtmlApp = (appDir: string, html?: string) => {
+      mkdirSync(appDir, { recursive: true });
+      writeFileSync(
+        join(appDir, "index.html"),
+        html ?? `<!DOCTYPE html><html><head><title>Test</title></head><body>Hello</body></html>`,
+      );
+      writeFileSync(
+        join(appDir, "package.json"),
+        JSON.stringify({ name: "html-app", version: "1.0.0" }),
+      );
+    };
+
+    it("should inject window.__env__ with PUBLIC_* vars only", async () => {
+      const appDir = join(TEST_DIR, "env-inject-app@1.0.0");
+      createHtmlApp(appDir);
+
+      const pool = new WorkerPool({ maxSize: 5 });
+      const config = createMockConfig({
+        entrypoint: "index.html",
+        env: {
+          PUBLIC_API_URL: "https://api.example.com",
+          PUBLIC_APP_NAME: "MyApp",
+          SECRET_KEY: "should-not-appear",
+          DATABASE_URL: "postgres://localhost/db",
+        },
+      });
+
+      try {
+        const req = new Request("http://localhost/");
+        const res = await pool.fetch(appDir, config, req);
+        const html = await res.text();
+
+        // Should contain window.__env__ script
+        expect(html).toContain("window.__env__=");
+
+        // Should contain PUBLIC_* vars
+        expect(html).toContain("PUBLIC_API_URL");
+        expect(html).toContain("https://api.example.com");
+        expect(html).toContain("PUBLIC_APP_NAME");
+        expect(html).toContain("MyApp");
+
+        // Should NOT contain non-PUBLIC vars
+        expect(html).not.toContain("SECRET_KEY");
+        expect(html).not.toContain("should-not-appear");
+        expect(html).not.toContain("DATABASE_URL");
+        expect(html).not.toContain("postgres://localhost/db");
+      } finally {
+        pool.shutdown();
+        await Bun.sleep(100);
+      }
+    });
+
+    it("should not inject window.__env__ when no PUBLIC_* vars exist", async () => {
+      const appDir = join(TEST_DIR, "no-public-env@1.0.0");
+      createHtmlApp(appDir);
+
+      const pool = new WorkerPool({ maxSize: 5 });
+      const config = createMockConfig({
+        entrypoint: "index.html",
+        env: {
+          SECRET_KEY: "secret",
+          DATABASE_URL: "postgres://localhost/db",
+        },
+      });
+
+      try {
+        const req = new Request("http://localhost/");
+        const res = await pool.fetch(appDir, config, req);
+        const html = await res.text();
+
+        // Should NOT contain window.__env__ script
+        expect(html).not.toContain("window.__env__");
+      } finally {
+        pool.shutdown();
+        await Bun.sleep(100);
+      }
+    });
+
+    it("should not inject window.__env__ when env is empty", async () => {
+      const appDir = join(TEST_DIR, "empty-env@1.0.0");
+      createHtmlApp(appDir);
+
+      const pool = new WorkerPool({ maxSize: 5 });
+      const config = createMockConfig({
+        entrypoint: "index.html",
+        env: {},
+      });
+
+      try {
+        const req = new Request("http://localhost/");
+        const res = await pool.fetch(appDir, config, req);
+        const html = await res.text();
+
+        // Should NOT contain window.__env__ script
+        expect(html).not.toContain("window.__env__");
+      } finally {
+        pool.shutdown();
+        await Bun.sleep(100);
+      }
+    });
+
+    it("should escape </script> in env values to prevent XSS", async () => {
+      const appDir = join(TEST_DIR, "xss-escape@1.0.0");
+      createHtmlApp(appDir);
+
+      const pool = new WorkerPool({ maxSize: 5 });
+      const config = createMockConfig({
+        entrypoint: "index.html",
+        env: {
+          PUBLIC_XSS_TEST: '</script><script>alert("xss")</script>',
+        },
+      });
+
+      try {
+        const req = new Request("http://localhost/");
+        const res = await pool.fetch(appDir, config, req);
+        const html = await res.text();
+
+        // Should contain escaped version
+        expect(html).toContain("window.__env__=");
+        // Should NOT contain unescaped </script> in the value
+        expect(html).not.toMatch(/<\/script>.*<script>alert/);
+        // The script tag should be properly escaped
+        expect(html).toContain("<\\/script>");
+      } finally {
+        pool.shutdown();
+        await Bun.sleep(100);
+      }
+    });
+
+    it("should inject <base href> when injectBase is true", async () => {
+      const appDir = join(TEST_DIR, "base-inject@1.0.0");
+      createHtmlApp(appDir);
+
+      const pool = new WorkerPool({ maxSize: 5 });
+      const config = createMockConfig({
+        entrypoint: "index.html",
+        injectBase: true,
+      });
+
+      try {
+        const req = new Request("http://localhost/", {
+          headers: { "x-base": "/my-app" },
+        });
+        const res = await pool.fetch(appDir, config, req);
+        const html = await res.text();
+
+        // Should contain <base href>
+        expect(html).toContain('<base href="/my-app/"');
+      } finally {
+        pool.shutdown();
+        await Bun.sleep(100);
+      }
+    });
+
+    it("should not inject <base href> when injectBase is false", async () => {
+      const appDir = join(TEST_DIR, "no-base-inject@1.0.0");
+      createHtmlApp(appDir);
+
+      const pool = new WorkerPool({ maxSize: 5 });
+      const config = createMockConfig({
+        entrypoint: "index.html",
+        injectBase: false,
+      });
+
+      try {
+        const req = new Request("http://localhost/", {
+          headers: { "x-base": "/my-app" },
+        });
+        const res = await pool.fetch(appDir, config, req);
+        const html = await res.text();
+
+        // Should NOT contain <base href>
+        expect(html).not.toContain("<base href");
+      } finally {
+        pool.shutdown();
+        await Bun.sleep(100);
+      }
+    });
+
+    it("should inject both base and env when both configured", async () => {
+      const appDir = join(TEST_DIR, "both-inject@1.0.0");
+      createHtmlApp(appDir);
+
+      const pool = new WorkerPool({ maxSize: 5 });
+      const config = createMockConfig({
+        entrypoint: "index.html",
+        injectBase: true,
+        env: {
+          PUBLIC_API: "https://api.example.com",
+        },
+      });
+
+      try {
+        const req = new Request("http://localhost/", {
+          headers: { "x-base": "/app" },
+        });
+        const res = await pool.fetch(appDir, config, req);
+        const html = await res.text();
+
+        // Should contain both
+        expect(html).toContain('<base href="/app/"');
+        expect(html).toContain("window.__env__=");
+        expect(html).toContain("PUBLIC_API");
       } finally {
         pool.shutdown();
         await Bun.sleep(100);

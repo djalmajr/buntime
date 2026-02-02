@@ -29,19 +29,16 @@ function isValidVersion(version: string): boolean {
 }
 
 /**
- * Read manifest config from manifest.jsonc or manifest.json
+ * Read manifest config from manifest.yaml or manifest.yml
  */
 async function readManifestConfig(dirPath: string): Promise<BuntimeConfig | undefined> {
-  // Try manifest.jsonc first, then manifest.json
-  for (const filename of ["manifest.jsonc", "manifest.json"]) {
+  for (const filename of ["manifest.yaml", "manifest.yml"]) {
     try {
       const manifestPath = join(dirPath, filename);
       const manifestFile = Bun.file(manifestPath);
       if (await manifestFile.exists()) {
-        // Bun natively parses JSONC (strips comments and trailing commas)
-        const mod = await import(manifestPath);
-        const config = mod.default ?? mod;
-        if (config) return config as BuntimeConfig;
+        const content = await manifestFile.text();
+        return Bun.YAML.parse(content) as BuntimeConfig;
       }
     } catch {
       // Ignore parse errors

@@ -1,0 +1,65 @@
+name: "@buntime/plugin-authz"
+base: "/authz"
+enabled: false
+
+dependencies:
+  - "@buntime/plugin-authn"
+
+entrypoint: dist/client/index.html
+pluginEntry: dist/plugin.js
+
+menus:
+  - icon: lucide:shield-check
+    path: /authz
+    title: Authorization
+    items:
+      - icon: lucide:file-text
+        path: /authz/policies
+        title: Policies
+      - icon: lucide:scale
+        path: /authz/evaluate
+        title: Evaluate
+
+# Policy combining algorithm: deny-overrides | permit-overrides | deny-unless-permit | permit-unless-deny
+combiningAlgorithm: deny-overrides
+
+# Default effect when no policy matches: permit | deny
+defaultEffect: deny
+
+# Policy store type: memory | file
+store: memory
+
+# Paths that skip authorization (regex patterns)
+excludePaths:
+  - ".*\\.(js|css|woff2?|png|svg|ico|json)$"
+  - "/health"
+  - "/public/.*"
+
+# Policy seeding configuration
+policySeed:
+  enabled: true
+  onlyIfEmpty: true
+  environments: ["*"]
+  policies:
+    - id: admin-full-access
+      name: Admin Full Access
+      description: Allow admin role full access
+      effect: permit
+      priority: 100
+      subjects:
+        - role: admin
+      resources:
+        - path: "/**"
+      actions:
+        - method: "*"
+    - id: users-read-only
+      name: Users Read-Only
+      description: Allow user role read-only access to API
+      effect: permit
+      priority: 90
+      subjects:
+        - role: user
+      resources:
+        - path: "/api/**"
+      actions:
+        - method: GET

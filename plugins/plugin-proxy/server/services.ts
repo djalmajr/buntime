@@ -1,6 +1,6 @@
 import type { Kv } from "@buntime/plugin-keyval";
 import type { PluginContext } from "@buntime/shared/types";
-import { substituteEnvVars } from "@buntime/shared/utils/zod-helpers";
+import { getPublicRoutesForMethod, globArrayToRegex } from "@buntime/shared/utils/glob";
 import type { Server, ServerWebSocket } from "bun";
 
 export interface ProxyRule {
@@ -24,8 +24,7 @@ export interface ProxyRule {
 
   /**
    * Target URL to proxy to
-   * Supports ${ENV_VAR} syntax for environment variables
-   * @example "http://backend:8080" or "${API_URL}"
+   * @example "http://backend:8080"
    */
   target: string;
 
@@ -73,6 +72,23 @@ export interface ProxyRule {
    * @default false
    */
   relativePaths?: boolean;
+
+  /**
+   * Routes that don't require authentication
+   * Supports glob patterns: * (any segment), ** (recursive), ? (single char)
+   * Paths are matched against the original request path (before rewrite)
+   *
+   * @example
+   * // Array format (applies to ALL methods)
+   * publicRoutes: ["/config/**", "/health"]
+   *
+   * // Object format (method-specific)
+   * publicRoutes: {
+   *   ALL: ["/health"],
+   *   GET: ["/config/**"]
+   * }
+   */
+  publicRoutes?: string[] | Record<string, string[]>;
 }
 
 export interface CompiledRule extends ProxyRule {
@@ -111,7 +127,7 @@ export function compileRule(rule: ProxyRule, readonly: boolean): CompiledRule | 
       id: rule.id || crypto.randomUUID(),
       readonly,
       regex: new RegExp(rule.pattern),
-      target: substituteEnvVars(rule.target),
+      target: rule.target, // Values come from ConfigMap or manifest
       ws: rule.ws !== false,
     };
   } catch (err) {
@@ -138,6 +154,43 @@ export function matchRule(pathname: string): MatchResult | null {
     }
   }
   return null;
+}
+
+/**
+ * Check if a pathname is public for any proxy rule
+ * This is called by auth plugins to determine if a proxied route requires authentication
+ *
+ * @param pathname - The request pathname (e.g., "/api/config/keycloak")
+ * @param method - HTTP method (e.g., "GET")
+ * @returns true if the route is public (no auth required), false otherwise
+ */
+export function isProxyRoutePublic(pathname: string, method: string): boolean {
+  const rules = getAllRules();
+
+  for (const rule of rules) {
+    // Check if this rule matches the pathname
+    const match = pathname.match(rule.regex);
+    if (!match) continue;
+
+    // Rule matches - check if it has publicRoutes
+    if (!rule.publicRoutes) continue;
+
+    // Get public routes for this method
+    const publicPaths = getPublicRoutesForMethod(rule.publicRoutes, method);
+    if (publicPaths.length === 0) continue;
+
+    // Build regex from public paths
+    const publicRegex = globArrayToRegex(publicPaths);
+    if (!publicRegex) continue;
+
+    // Test if pathname matches any public route
+    if (publicRegex.test(pathname)) {
+      logger?.debug(`Proxy public route match: ${pathname} (rule: ${rule.name || rule.id})`);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function rewritePath(match: MatchResult, pathname: string): string {
@@ -200,6 +253,10 @@ export async function httpProxy(req: Request, rule: CompiledRule, path: string):
     responseHeaders.delete("connection");
     responseHeaders.delete("keep-alive");
     responseHeaders.delete("transfer-encoding");
+    // Bun's fetch auto-decompresses responses, so we must remove encoding headers
+    // to prevent browser from trying to decompress already-decompressed content
+    responseHeaders.delete("content-encoding");
+    responseHeaders.delete("content-length");
 
     // Process HTML responses: inject <base> tag and/or rewrite paths
     const contentType = responseHeaders.get("content-type") || "";
@@ -361,7 +418,7 @@ export async function loadDynamicRules(): Promise<void> {
   if (!kv) return;
 
   const rules: StoredRule[] = [];
-  for await (const entry of kv.list<StoredRule>(KV_PREFIX)) {
+  for await (const entry of kv.list(KV_PREFIX)) {
     if (entry.value) {
       rules.push(entry.value);
     }
@@ -389,6 +446,7 @@ export function ruleToResponse(rule: CompiledRule) {
     id: rule.id,
     name: rule.name,
     pattern: rule.pattern,
+    publicRoutes: rule.publicRoutes,
     readonly: rule.readonly,
     relativePaths: rule.relativePaths,
     rewrite: rule.rewrite,
@@ -415,7 +473,7 @@ export function initializeProxyService(ctx: PluginContext, staticRulesConfig: Pr
   }
 
   // Use shared kv service from plugin-keyval for dynamic rules
-  const sharedKv = ctx.getService<Kv>("kv");
+  const sharedKv = ctx.getPlugin<Kv>("@buntime/plugin-keyval");
 
   if (sharedKv) {
     kv = sharedKv;

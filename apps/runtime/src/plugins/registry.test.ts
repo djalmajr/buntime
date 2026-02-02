@@ -150,26 +150,26 @@ describe("PluginRegistry", () => {
     });
   });
 
-  describe("services", () => {
-    it("should register and retrieve services", () => {
+  describe("plugin provides", () => {
+    it("should register and retrieve plugin provides", () => {
       const service = { doSomething: () => "done" };
-      registry.registerService("my-service", service);
-      const retrieved = registry.getService<typeof service>("my-service");
+      registry.registerProvides("my-plugin", service);
+      const retrieved = registry.getPlugin<typeof service>("my-plugin");
       expect(retrieved).toBe(service);
     });
 
-    it("should return undefined for unknown service", () => {
-      expect(registry.getService("unknown")).toBeUndefined();
+    it("should return undefined for unknown plugin", () => {
+      expect(registry.getPlugin("unknown")).toBeUndefined();
     });
 
-    it("should allow overwriting service with warning", () => {
+    it("should allow overwriting provides with warning", () => {
       const service1 = { version: 1 };
       const service2 = { version: 2 };
 
-      registry.registerService("my-service", service1);
-      registry.registerService("my-service", service2);
+      registry.registerProvides("my-plugin", service1);
+      registry.registerProvides("my-plugin", service2);
 
-      expect(registry.getService<{ version: number }>("my-service")?.version).toBe(2);
+      expect(registry.getPlugin<{ version: number }>("my-plugin")?.version).toBe(2);
     });
   });
 

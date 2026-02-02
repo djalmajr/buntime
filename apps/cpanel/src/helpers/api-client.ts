@@ -4,7 +4,6 @@ export interface MenuItemInfo {
   icon: string;
   items?: MenuItemInfo[];
   path: string;
-  priority?: number;
   title: string;
 }
 
@@ -17,9 +16,34 @@ export interface PluginInfo {
 }
 
 /**
+ * Runtime configuration from /.well-known/buntime
+ */
+interface RuntimeConfig {
+  api: string;
+  version: string;
+}
+
+/** Cached runtime config */
+let runtimeConfig: RuntimeConfig | null = null;
+
+/**
+ * Fetch runtime configuration from well-known endpoint.
+ * Caches the result for subsequent calls.
+ */
+async function getRuntimeConfig(): Promise<RuntimeConfig> {
+  if (runtimeConfig) return runtimeConfig;
+  const res = await fetch("/.well-known/buntime");
+  const config: RuntimeConfig = await res.json();
+  runtimeConfig = config;
+  return config;
+}
+
+/**
  * Fetch list of loaded plugins from the runtime API.
+ * Discovers API path dynamically via /.well-known/buntime
  */
 export async function fetchLoadedPlugins(): Promise<PluginInfo[]> {
-  const res = await fetch("/api/plugins/loaded");
+  const { api } = await getRuntimeConfig();
+  const res = await fetch(`${api}/plugins/loaded`);
   return res.json();
 }

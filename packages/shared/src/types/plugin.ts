@@ -6,9 +6,118 @@ import type { Hono, MiddlewareHandler } from "hono";
  */
 export type RouteHandler = Response | BunFile | ((req: Request) => Response | Promise<Response>);
 
+// ============================================================================
+// Config Schema Types (for manifest.yaml)
+// ============================================================================
+
+/**
+ * Supported config value types in manifest.yaml
+ */
+export type ConfigType = "string" | "number" | "boolean" | "enum" | "array" | "password" | "object";
+
+/**
+ * Base config field properties shared by all types
+ */
+export interface ConfigFieldBase {
+  /** Field type */
+  type: ConfigType;
+  /** Display label in Rancher UI */
+  label: string;
+  /** Description/help text */
+  description?: string;
+  /** Environment variable name (e.g., GATEWAY_APP_SHELL) */
+  env?: string;
+  /** Whether field is required */
+  required?: boolean;
+  /** Example value for documentation */
+  example?: string;
+}
+
+/**
+ * String config field
+ */
+export interface ConfigFieldString extends ConfigFieldBase {
+  type: "string";
+  default?: string;
+}
+
+/**
+ * Password config field (masked in UI)
+ */
+export interface ConfigFieldPassword extends ConfigFieldBase {
+  type: "password";
+  default?: string;
+}
+
+/**
+ * Number config field
+ */
+export interface ConfigFieldNumber extends ConfigFieldBase {
+  type: "number";
+  default?: number;
+  min?: number;
+  max?: number;
+}
+
+/**
+ * Boolean config field
+ */
+export interface ConfigFieldBoolean extends ConfigFieldBase {
+  type: "boolean";
+  default?: boolean;
+}
+
+/**
+ * Enum config field (dropdown)
+ */
+export interface ConfigFieldEnum extends ConfigFieldBase {
+  type: "enum";
+  default?: string;
+  options: string[];
+}
+
+/**
+ * Array config field (multiline in Rancher)
+ */
+export interface ConfigFieldArray extends ConfigFieldBase {
+  type: "array";
+  default?: string[];
+}
+
+/**
+ * Object config field (nested properties)
+ */
+export interface ConfigFieldObject extends ConfigFieldBase {
+  type: "object";
+  properties: Record<string, ConfigField>;
+}
+
+/**
+ * Union of all config field types
+ */
+export type ConfigField =
+  | ConfigFieldString
+  | ConfigFieldPassword
+  | ConfigFieldNumber
+  | ConfigFieldBoolean
+  | ConfigFieldEnum
+  | ConfigFieldArray
+  | ConfigFieldObject;
+
+/**
+ * Plugin configuration schema
+ * Maps config key to field definition
+ */
+export type ConfigSchema = Record<string, ConfigField>;
+
+// ============================================================================
+// Menu and Plugin Types
+// ============================================================================
+
 /**
  * Menu item for plugin navigation in the shell (C-Panel)
  * Supports nested menus via `items` property
+ * Order is determined by plugin load order (topological sort by dependencies)
  */
 export interface MenuItem {
   /** Display title */
@@ -19,9 +128,6 @@ export interface MenuItem {
 
   /** Route path (e.g., "/logs") */
   path: string;
-
-  /** Sort priority (lower = earlier in menu) */
-  priority?: number;
 
   /** Nested menu items */
   items?: MenuItem[];
@@ -84,32 +190,6 @@ export type PublicRoutesConfig =
 export type PluginConfig = string | [name: string, config: Record<string, unknown>];
 
 /**
- * Homepage configuration for app-shell mode
- * When shell: true, the worker acts as an app-shell managing micro-frontends
- */
-export interface HomepageConfig {
-  /**
-   * Worker app name (must exist in workerDirs)
-   * @example "cpanel"
-   */
-  app: string;
-
-  /**
-   * Base path to inject for SPA routing
-   * If omitted, redirects to app path instead of serving inline
-   * @example "/" for serving at root
-   */
-  base?: string;
-
-  /**
-   * Enable app-shell mode
-   * When true, the worker intercepts navigation to plugin base paths
-   * @default false
-   */
-  shell?: boolean;
-}
-
-/**
  * Buntime global configuration (environment variables)
  */
 export interface BuntimeConfig {
@@ -126,20 +206,6 @@ export interface BuntimeConfig {
     /** Maximum allowed body size (ceiling for per-worker config) */
     max?: number | string;
   };
-
-  /**
-   * Homepage configuration
-   *
-   * String format (redirect mode):
-   * - "/my-app" - redirects GET / to /my-app
-   *
-   * Object format (app-shell mode):
-   * - { app: "cpanel", shell: true } - worker acts as app-shell
-   *
-   * @example "/my-app"
-   * @example { "app": "cpanel", "shell": true }
-   */
-  homepage?: string | HomepageConfig;
 
   /**
    * Directories to scan for plugins
@@ -205,18 +271,26 @@ export interface PluginContext {
   pool?: unknown;
 
   /**
-   * Register a service for other plugins to use
-   * @param name Service name (e.g., "kv", "cache")
-   * @param service The service instance
+   * Get exports from another plugin by its manifest name
+   * @param pluginName Plugin manifest name (e.g., "@buntime/plugin-database")
+   * @returns The plugin's exported object or undefined if not registered
+   *
+   * @example
+   * const database = ctx.getPlugin<DatabaseService>("@buntime/plugin-database");
+   * const kv = ctx.getPlugin<Kv>("@buntime/plugin-keyval");
    */
-  registerService<T>(name: string, service: T): void;
+  getPlugin<T>(pluginName: string): T | undefined;
 
   /**
-   * Get a service registered by another plugin
-   * @param name Service name
-   * @returns The service instance or undefined if not registered
+   * Runtime information for service discovery
+   * Same data exposed at /.well-known/buntime
    */
-  getService<T>(name: string): T | undefined;
+  runtime: {
+    /** Runtime API path (e.g., "/api" or "/_/api") */
+    api: string;
+    /** Runtime version */
+    version: string;
+  };
 }
 
 /**
@@ -228,6 +302,16 @@ export interface PluginLogger {
   info(message: string, ...args: unknown[]): void;
   warn(message: string, ...args: unknown[]): void;
 }
+
+// Re-export worker config types from centralized module
+export type {
+  AppVisibility,
+  WorkerConfig,
+  WorkerManifest,
+} from "../utils/worker-config";
+export { parseWorkerConfig, WorkerConfigDefaults } from "../utils/worker-config";
+
+import type { WorkerManifest } from "../utils/worker-config";
 
 /**
  * Information about the app being accessed
@@ -242,58 +326,8 @@ export interface AppInfo {
   /** Absolute path to app directory */
   dir: string;
 
-  /** App-specific worker configuration */
-  config: WorkerConfig;
-}
-
-/**
- * Worker configuration from manifest.jsonc (per-app)
- */
-/**
- * App visibility in the deployments UI
- * - "public": visible and editable (default)
- * - "protected": visible but read-only
- * - "internal": hidden from UI
- */
-export type AppVisibility = "internal" | "protected" | "public";
-
-export interface WorkerConfig {
-  autoInstall?: boolean;
-  entrypoint?: string;
-
-  /**
-   * Additional environment variables to pass to the worker
-   */
-  env?: Record<string, string>;
-
-  idleTimeout?: number;
-  lowMemory?: boolean;
-
-  /**
-   * Maximum body size for this worker
-   * If not set, uses the global bodySize.default
-   * Cannot exceed global bodySize.max
-   * @example "50mb" or 52428800
-   */
-  maxBodySize?: number | string;
-
-  maxRequests?: number;
-
-  /**
-   * Routes that bypass plugin onRequest hooks
-   * Routes are relative to the worker's base path (e.g., "/api/health" → "/{app}/api/health")
-   * Supports wildcards: * (single segment), ** (multiple segments)
-   */
-  publicRoutes?: PublicRoutesConfig;
-
-  timeout?: number;
-  ttl?: number;
-
-  /**
-   * App visibility in the deployments UI
-   * @default "public"
-   */
-  visibility?: AppVisibility;
+  /** App-specific worker configuration (human-readable format) */
+  config: WorkerManifest;
 }
 
 /**
@@ -325,8 +359,8 @@ export interface PluginApp {
   /** Filesystem directory containing the app */
   dir: string;
 
-  /** Optional worker config overrides */
-  config?: Partial<WorkerConfig>;
+  /** Optional worker config overrides (human-readable format) */
+  config?: Partial<WorkerManifest>;
 
   /**
    * URL path for this app (e.g., "/login", "/dashboard")
@@ -343,7 +377,7 @@ export interface PluginApp {
 }
 
 /**
- * Plugin manifest from manifest.jsonc
+ * Plugin manifest from manifest.yaml
  * Contains all metadata and configuration (no code)
  */
 export interface PluginManifest {
@@ -387,8 +421,21 @@ export interface PluginManifest {
   /**
    * Menu items for the shell navigation (C-Panel sidebar)
    * Supports nested menus via `items` property
+   * Order is determined by plugin load order (topological sort)
    */
   menus?: MenuItem[];
+
+  /**
+   * Configuration schema for Helm questions.yml generation
+   * Defines configurable options exposed in Rancher UI
+   * @example
+   * config:
+   *   appShell:
+   *     type: string
+   *     label: App Shell Path
+   *     env: GATEWAY_APP_SHELL
+   */
+  config?: ConfigSchema;
 
   /** Plugin-specific configuration (passed to factory function) */
   [key: string]: unknown;
@@ -427,6 +474,28 @@ export interface PluginImpl {
 
   /** Called when plugin is initialized */
   onInit?: (ctx: PluginContext) => Promise<void> | void;
+
+  /**
+   * Exports provided by this plugin for other plugins to use.
+   * Called AFTER onInit completes. The returned value is registered
+   * with the plugin's manifest name as the key.
+   *
+   * Other plugins can access via: ctx.getPlugin("@buntime/plugin-xxx")
+   *
+   * @returns Value to expose to other plugins (typically an object or service instance)
+   *
+   * @example
+   * // In plugin-database - expose service instance directly
+   * provides: () => databaseService
+   *
+   * // In plugin-logs - expose multiple functions
+   * provides: () => ({ addLog, clearLogs, getLogs })
+   *
+   * // In another plugin
+   * const db = ctx.getPlugin<DatabaseService>("@buntime/plugin-database");
+   * db?.query("SELECT * FROM users");
+   */
+  provides?: () => unknown | Promise<unknown>;
 
   /** Called when buntime is shutting down */
   onShutdown?: () => Promise<void> | void;
@@ -470,7 +539,7 @@ export type BuntimePlugin = PluginManifest & PluginImpl;
 
 /**
  * Plugin implementation factory function type
- * Receives plugin-specific config from manifest.jsonc
+ * Receives plugin-specific config from manifest.yaml
  */
 export type PluginImplFactory = (
   config?: Record<string, unknown>,

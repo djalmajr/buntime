@@ -10,7 +10,7 @@ plugins = [
 rootDirectory = "client"
 
 [plugins.iconify]
-dirs = ["client", "../../packages/shadcn-ui/src"]
+dirs = ["client"]
 
 [plugins.i18next]
 dirs = "client"

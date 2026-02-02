@@ -495,39 +495,12 @@ describe("compileRule", () => {
     expect(rule?.ws).toBe(false);
   });
 
-  it("should substitute environment variables in target", () => {
-    const originalEnv = process.env.TEST_TARGET;
-    process.env.TEST_TARGET = "http://test-backend:9000";
-
+  // Note: substituteEnvVars was removed as part of plugin cleanup
+  // Target should be used as-is, env var substitution is no longer supported
+  it("should use target as-is without env var substitution", () => {
     const rule = compileRule(createRule({ target: "${TEST_TARGET}" }), false);
-    expect(rule?.target).toBe("http://test-backend:9000");
-
-    if (originalEnv !== undefined) {
-      process.env.TEST_TARGET = originalEnv;
-    } else {
-      delete process.env.TEST_TARGET;
-    }
-  });
-
-  it("should return empty string for undefined env vars", () => {
-    delete process.env.UNDEFINED_VAR;
-    const rule = compileRule(createRule({ target: "http://host:${UNDEFINED_VAR}" }), false);
-    // When env var is not set, it's replaced with empty string
-    expect(rule?.target).toBe("http://host:");
-  });
-
-  it("should allow mixing env vars with static text", () => {
-    const originalEnv = process.env.TEST_PORT;
-    process.env.TEST_PORT = "9000";
-
-    const rule = compileRule(createRule({ target: "http://backend:${TEST_PORT}/api" }), false);
-    expect(rule?.target).toBe("http://backend:9000/api");
-
-    if (originalEnv !== undefined) {
-      process.env.TEST_PORT = originalEnv;
-    } else {
-      delete process.env.TEST_PORT;
-    }
+    // No substitution - target stays as literal string
+    expect(rule?.target).toBe("${TEST_TARGET}");
   });
 });
 
@@ -1075,12 +1048,12 @@ describe("initializeProxyService", () => {
   it("should use kv service when available", () => {
     const mockKv = { get: mock(() => {}) };
     const ctx = createMockContext({
-      getService: mock(() => mockKv) as PluginContext["getService"],
+      getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
     });
 
     initializeProxyService(ctx, []);
 
-    expect(ctx.getService).toHaveBeenCalledWith("kv");
+    expect(ctx.getPlugin).toHaveBeenCalledWith("@buntime/plugin-keyval");
     // Verify kv was set (comparing by reference would fail due to type mismatch)
     expect(getKv()).not.toBeNull();
   });
@@ -1141,7 +1114,7 @@ describe("getKv", () => {
   it("should return kv when available", () => {
     const mockKv = { get: mock(() => {}) };
     const ctx = createMockContext({
-      getService: mock(() => mockKv) as PluginContext["getService"],
+      getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
     });
 
     initializeProxyService(ctx, []);
@@ -1180,7 +1153,7 @@ describe("loadDynamicRules", () => {
     };
 
     const ctx = createMockContext({
-      getService: mock(() => mockKv) as PluginContext["getService"],
+      getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
     });
 
     initializeProxyService(ctx, []);
@@ -1204,7 +1177,7 @@ describe("loadDynamicRules", () => {
     };
 
     const ctx = createMockContext({
-      getService: mock(() => mockKv) as PluginContext["getService"],
+      getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
     });
 
     initializeProxyService(ctx, []);
@@ -1236,7 +1209,7 @@ describe("saveRule", () => {
     };
 
     const ctx = createMockContext({
-      getService: mock(() => mockKv) as PluginContext["getService"],
+      getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
     });
 
     initializeProxyService(ctx, []);
@@ -1266,7 +1239,7 @@ describe("deleteRule", () => {
     };
 
     const ctx = createMockContext({
-      getService: mock(() => mockKv) as PluginContext["getService"],
+      getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
     });
 
     initializeProxyService(ctx, []);
@@ -1816,14 +1789,13 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
       poolSize: 10,
       workerDirs: ["./apps"],
     },
-    getService: mock(() => undefined),
+    getPlugin: mock(() => undefined),
     logger: {
       debug: mock(() => {}),
       error: mock(() => {}),
       info: mock(() => {}),
       warn: mock(() => {}),
     },
-    registerService: mock(() => {}),
     ...overrides,
   };
 }

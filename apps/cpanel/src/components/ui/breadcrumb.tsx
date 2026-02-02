@@ -50,8 +50,6 @@ function BreadcrumbLink({
 
 function BreadcrumbPage({ className, ...props }: React.ComponentProps<"span">) {
   return (
-    // biome-ignore lint/a11y/useFocusableInteractive: Current page indicator, not an interactive link
-    // biome-ignore lint/a11y/useSemanticElements: Intentional span with role for a11y
     <span
       data-slot="breadcrumb-page"
       role="link"

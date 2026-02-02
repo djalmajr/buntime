@@ -16,9 +16,9 @@ WORKDIR /build
 COPY . .
 
 # Default environment
-ENV LOG_LEVEL=debug
-ENV WORKER_DIRS=/data/.apps:/data/apps
-ENV PLUGIN_DIRS=/data/.plugins:/data/plugins
+ENV RUNTIME_LOG_LEVEL=debug
+ENV RUNTIME_WORKER_DIRS=/data/.apps:/data/apps
+ENV RUNTIME_PLUGIN_DIRS=/data/.plugins:/data/plugins
 
 EXPOSE 8000
 

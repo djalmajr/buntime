@@ -5,6 +5,7 @@
  * Supports wildcard subdomains for multi-tenancy.
  */
 import type { PluginContext, PluginImpl } from "@buntime/shared/types";
+import type { WorkerConfig } from "@buntime/shared/utils/worker-config";
 import { matchVirtualHost, type VHostConfig } from "./server/matcher";
 
 /** Header name for tenant extracted from wildcard subdomain */
@@ -26,22 +27,16 @@ export interface VHostsPluginConfig {
   hosts: Record<string, VHostConfig>;
 }
 
-// Local type for worker config (subset of what we need)
-interface WorkerConfigLike {
-  entrypoint?: string;
-  timeout?: number;
-}
-
 // Type for the pool interface we need
 interface PoolLike {
-  fetch(appDir: string, config: WorkerConfigLike, req: Request): Promise<Response>;
+  fetch(appDir: string, config: WorkerConfig, req: Request): Promise<Response>;
 }
 
 // Type for the app resolver function
 type GetWorkerDir = (workerName: string) => string;
 
 // Type for worker config loader
-type LoadWorkerConfig = (appDir: string) => Promise<WorkerConfigLike>;
+type LoadWorkerConfig = (appDir: string) => Promise<WorkerConfig>;
 
 /**
  * Virtual Hosts plugin for Buntime

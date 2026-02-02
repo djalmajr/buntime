@@ -20,15 +20,13 @@
  *
  * ### Conditional Build
  *
- * Plugin builds are conditional based on `manifest.jsonc` in the plugin directory.
+ * Plugin builds are conditional based on `manifest.yaml` in the plugin directory.
  * If `enabled: false`, the build is skipped:
  *
- * ```jsonc
- * // plugins/plugin-metrics/manifest.jsonc
- * {
- *   "enabled": false,  // Build will be skipped
- *   "entrypoint": "dist/client/index.html"
- * }
+ * ```yaml
+ * # plugins/plugin-metrics/manifest.yaml
+ * enabled: false  # Build will be skipped
+ * entrypoint: dist/client/index.html
  * ```
  *
  * This allows having plugins in the directory without building them.
@@ -206,7 +204,7 @@ export function createPluginBuilder(config: PluginBuildConfig): PluginBuilder {
   async function run(): Promise<void> {
     // Check if plugin is enabled
     if (!isEnabledSync(cwd)) {
-      console.log(`Skipping ${config.name} (disabled in manifest.jsonc)`);
+      console.log(`Skipping ${config.name} (disabled in manifest.yaml)`);
       return;
     }
 
@@ -276,8 +274,8 @@ export function createAppBuilder(config: AppBuildConfig): AppBuilder {
   const isWatch = process.argv.includes("--watch");
   const cwd = process.cwd();
 
-  // @buntime/shared is provided by runtime, @buntime/database is bundled (HTTP client)
-  const external = ["@buntime/shared", "@buntime/shadcn-ui", ...(config.external ?? [])];
+  // @buntime/shared is provided by runtime
+  const external = ["@buntime/shared", ...(config.external ?? [])];
   const srcDir = config.srcDir ?? "./src";
   const watchDirs =
     config.watchDirs ?? (config.clientOnly ? [srcDir] : ["./client", "./server", "."]);

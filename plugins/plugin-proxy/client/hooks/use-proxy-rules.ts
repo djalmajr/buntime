@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import manifest from "../../manifest.jsonc";
+import manifest from "../../manifest.yaml";
+
+const BASE = manifest.base;
 
 export interface ProxyRule {
   base?: string;
@@ -32,7 +34,7 @@ export interface ProxyRuleInput {
 export function useProxyRules() {
   return useQuery({
     queryFn: async () => {
-      const res = await fetch(`${manifest.base}/api/rules`);
+      const res = await fetch(`${BASE}/api/rules`);
       if (!res.ok) throw new Error("Failed to fetch rules");
       return res.json() as Promise<ProxyRule[]>;
     },
@@ -45,7 +47,7 @@ export function useCreateProxyRule() {
 
   return useMutation({
     mutationFn: async (data: ProxyRuleInput) => {
-      const res = await fetch(`${manifest.base}/api/rules`, {
+      const res = await fetch(`${BASE}/api/rules`, {
         body: JSON.stringify(data),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -64,7 +66,7 @@ export function useUpdateProxyRule() {
 
   return useMutation({
     mutationFn: async ({ data, id }: { data: Partial<ProxyRuleInput>; id: string }) => {
-      const res = await fetch(`${manifest.base}/api/rules/${id}`, {
+      const res = await fetch(`${BASE}/api/rules/${id}`, {
         body: JSON.stringify(data),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -83,7 +85,7 @@ export function useDeleteProxyRule() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`${manifest.base}/api/rules/${id}`, {
+      const res = await fetch(`${BASE}/api/rules/${id}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to delete rule");

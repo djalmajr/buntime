@@ -4,13 +4,13 @@
  *
  * Ensures that:
  * - apps/runtime/package.json "version"
- * - charts/buntime/Chart.yaml "appVersion"
+ * - charts/Chart.yaml "appVersion"
  *
  * are always in sync.
  */
 
 const RUNTIME_PKG_PATH = "apps/runtime/package.json";
-const CHART_PATH = "charts/buntime/Chart.yaml";
+const CHART_PATH = "charts/Chart.yaml";
 
 async function getRuntimeVersion(): Promise<string> {
   const pkg = await Bun.file(RUNTIME_PKG_PATH).json();

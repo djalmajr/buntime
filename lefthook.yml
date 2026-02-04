@@ -4,11 +4,11 @@
 pre-commit:
   commands:
     version-sync:
-      glob: "{apps/runtime/package.json,charts/buntime/Chart.yaml}"
+      glob: "{apps/runtime/package.json,charts/Chart.yaml}"
       run: bun scripts/check-version-sync.ts
       fail_text: "Version mismatch! Run 'bun scripts/bump-version.ts <patch|minor|major>' to sync."
 
     chart-version:
-      glob: "charts/buntime/**"
+      glob: "charts/**"
       run: bun scripts/check-chart-version.ts
       fail_text: "Chart files changed without version bump! Run 'bun scripts/bump-chart.ts patch' to fix."

@@ -15,7 +15,7 @@
  *   bun scripts/bump-chart.ts 1.0.0   # Set specific version
  */
 
-const CHART_PATH = "charts/buntime/Chart.yaml";
+const CHART_PATH = "charts/Chart.yaml";
 
 type BumpType = "patch" | "minor" | "major";
 
@@ -89,7 +89,7 @@ async function main() {
 
   console.log(`\n✅ Chart version bumped to ${newVersion}\n`);
   console.log("Next steps:");
-  console.log("  1. Stage your changes: git add charts/buntime/");
+  console.log("  1. Stage your changes: git add charts/");
   console.log(`  2. Commit: git commit -m "chore(chart): bump version to ${newVersion}"`);
 }
 

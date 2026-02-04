@@ -12,7 +12,7 @@
 
 import { $ } from "bun";
 
-const CHART_DIR = "charts/buntime";
+const CHART_DIR = "charts";
 const CHART_YAML = `${CHART_DIR}/Chart.yaml`;
 
 interface StagedFiles {

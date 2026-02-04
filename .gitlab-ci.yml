@@ -1,6 +1,5 @@
 stages:
   - build
-  - publish
 
 variables:
   DOCKER_TLS_CERTDIR: ""
@@ -10,7 +9,7 @@ variables:
   CI_REGISTRY_IMAGE: ghcr.io/zommehq/buntime
 
 # =============================================================================
-# Docker Build and Push
+# Docker Build and Push (GitLab local registry - for testing)
 # =============================================================================
 docker-build:
   stage: build
@@ -27,32 +26,6 @@ docker-build:
     - docker build --cache-from $CI_REGISTRY_IMAGE:latest -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA -t $CI_REGISTRY_IMAGE:latest .
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
     - docker push $CI_REGISTRY_IMAGE:latest
-  only:
-    - test/gitlab-ci
-  tags:
-    - docker
-
-# =============================================================================
-# Helm Charts Publish
-# =============================================================================
-helm-publish:
-  stage: publish
-  image: oven/bun:1.3
-  before_script:
-    - apt-get update
-    - apt-get install -y git ca-certificates
-    - git config --global user.email ci@gitlab.example.com
-    - git config --global user.name GitLab-CI
-    - git config --global http.sslVerify false
-  script:
-    - bun install
-    - bun scripts/generate-helm.ts
-    - git clone https://root:${CHARTS_TOKEN}@gitlab.example.com/zomme/charts.git /tmp/charts
-    - mkdir -p /tmp/charts/charts
-    - cp -r charts/buntime /tmp/charts/charts/
-    - cd /tmp/charts && git add .
-    - cd /tmp/charts && git commit -m "sync chart" || true
-    - cd /tmp/charts && git push origin main || true
   only:
     - test/gitlab-ci
   tags:

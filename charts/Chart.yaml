@@ -11,9 +11,9 @@ keywords:
   - runtime
   - worker-pool
   - microservices
-home: https://github.com/zommehq/charts
+home: https://github.com/zommehq/buntime
 sources:
-  - https://github.com/zommehq/charts
+  - https://github.com/zommehq/buntime
 maintainers:
   - name: Zomme
     email: noreply@zommehq.com

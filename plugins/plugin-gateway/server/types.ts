@@ -58,10 +58,17 @@ export interface GatewayConfig extends BasePluginConfig {
   /**
    * Path to the micro-frontend shell application
    * When configured, all browser navigations are served through this shell
-   * Can be set via GATEWAY_APP_SHELL env var
+   * Can be set via GATEWAY_SHELL_DIR env var
    * @example "/data/apps/example-spa/1.0.0"
    */
-  appShell?: string;
+  shellDir?: string;
+
+  /**
+   * Basenames that bypass the AppShell (comma-separated)
+   * Can be set via GATEWAY_SHELL_EXCLUDES env var or cookie with same name
+   * @example "admin,legacy,reports"
+   */
+  shellExcludes?: string;
 
   /**
    * Response caching configuration

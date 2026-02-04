@@ -4,6 +4,8 @@ API gateway extension for Buntime runner.
 
 ## Features
 
+- **Micro-frontend shell** - Serve all navigations through a central shell app
+- **Shell bypass** - Exclude specific apps from the shell (via env or cookie)
 - Token bucket rate limiting
 - Response caching (in-memory)
 - CORS handling with preflight
@@ -19,9 +21,35 @@ API gateway extension for Buntime runner.
 
 | Option | Type | Description |
 |--------|------|-------------|
+| `shellDir` | `string` | Path to the micro-frontend shell application |
+| `shellExcludes` | `string` | Basenames that bypass the shell (comma-separated) |
 | `rateLimit` | `RateLimitConfig` | Rate limiting config |
 | `cache` | `CacheConfig` | Response caching config |
 | `cors` | `CorsConfig` | CORS config |
+
+### ShellConfig (Micro-frontend)
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `shellDir` | `string` | `""` | Path to the micro-frontend shell application |
+| `shellExcludes` | `string` | `"cpanel"` | Basenames that bypass the shell (comma-separated) |
+
+**Environment Variables:**
+- `GATEWAY_SHELL_DIR` - Path to shell app
+- `GATEWAY_SHELL_EXCLUDES` - Basenames to bypass (comma-separated)
+
+**Cookie Override:**
+Users can set a `GATEWAY_SHELL_EXCLUDES` cookie to add per-user bypass basenames. The cookie value is combined with the env var.
+
+**Example:**
+```bash
+# Environment
+GATEWAY_SHELL_DIR=/data/apps/example-spa
+GATEWAY_SHELL_EXCLUDES=cpanel,admin
+
+# Cookie (adds dashboard to the bypass list for this user)
+GATEWAY_SHELL_EXCLUDES=dashboard
+```
 
 ### RateLimitConfig
 

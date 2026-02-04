@@ -44,14 +44,25 @@ cors:
 
 # Config schema for Rancher UI
 config:
-  appShell:
+  shellDir:
     type: string
-    label: App Shell Path
+    label: Shell Directory
     description: |
       Absolute path to the micro-frontend shell application.
       When configured, all browser navigations are served through this shell.
     example: /data/apps/example-spa/1.0.0
-    env: GATEWAY_APP_SHELL
+    env: GATEWAY_SHELL_DIR
+
+  shellExcludes:
+    type: string
+    label: Shell Excludes
+    description: |
+      Basenames that bypass the shell (comma-separated).
+      Requests to these paths go directly to their workers instead of the shell.
+      Can also be set via GATEWAY_SHELL_EXCLUDES cookie for per-user overrides.
+    example: admin,legacy,reports
+    default: cpanel
+    env: GATEWAY_SHELL_EXCLUDES
 
   rateLimit:
     type: object

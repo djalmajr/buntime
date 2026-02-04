@@ -13,12 +13,17 @@ services:
     volumes:
       - ${RUNTIME_WORKER_DIRS:-./tmp/apps}:/data/apps
       - ${RUNTIME_PLUGIN_DIRS:-./tmp/plugins}:/data/plugins
+      # App shell (example-spa)
+      - ${GATEWAY_SHELL_DIR:-/tmp/apps/example-spa}:/data/apps/example-spa
     environment:
       RUNTIME_LOG_LEVEL: ${RUNTIME_LOG_LEVEL:-info}
       RUNTIME_WORKER_DIRS: /data/.apps:/data/apps
       RUNTIME_PLUGIN_DIRS: /data/.plugins:/data/plugins
       # Plugin: Database
       DATABASE_LIBSQL_URL: http://libsql:8080
+      # Plugin: Gateway
+      GATEWAY_SHELL_DIR: /data/apps/example-spa
+      GATEWAY_SHELL_EXCLUDES: ${GATEWAY_SHELL_EXCLUDES:-}
     depends_on:
       - libsql
     restart: unless-stopped
@@ -47,7 +52,7 @@ services:
       - ${RUNTIME_WORKER_DIRS:-./tmp/apps}:/data/apps
       - ${RUNTIME_PLUGIN_DIRS:-./tmp/plugins}:/data/plugins
       # App shell (example-spa)
-      - ${GATEWAY_APP_SHELL:-/tmp/apps/example-spa}:/data/apps/example-spa
+      - ${GATEWAY_SHELL_DIR:-/tmp/apps/example-spa}:/data/apps/example-spa
     environment:
       # Runtime
       NODE_ENV: development
@@ -60,7 +65,8 @@ services:
       # Plugin: Database
       DATABASE_LIBSQL_URL: http://libsql:8080
       # Plugin: Gateway
-      GATEWAY_APP_SHELL: /data/apps/example-spa
+      GATEWAY_SHELL_DIR: /data/apps/example-spa
+      GATEWAY_SHELL_EXCLUDES: ${GATEWAY_SHELL_EXCLUDES:-}
     depends_on:
       - libsql
     profiles:

@@ -25,7 +25,7 @@ export interface ConfigFieldBase {
   label: string;
   /** Description/help text */
   description?: string;
-  /** Environment variable name (e.g., GATEWAY_APP_SHELL) */
+  /** Environment variable name (e.g., GATEWAY_SHELL_DIR) */
   env?: string;
   /** Whether field is required */
   required?: boolean;
@@ -433,7 +433,7 @@ export interface PluginManifest {
    *   appShell:
    *     type: string
    *     label: App Shell Path
-   *     env: GATEWAY_APP_SHELL
+   *     env: GATEWAY_SHELL_DIR
    */
   config?: ConfigSchema;
 

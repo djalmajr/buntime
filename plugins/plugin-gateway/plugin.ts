@@ -5,6 +5,7 @@ import { createGatewayApi } from "./server/api";
 // import { ResponseCache } from "./server/cache"; // Cache disabled
 import { handlePreflight } from "./server/cors";
 import { parseWindow, RateLimiter } from "./server/rate-limit";
+import { parseBasenames, shouldBypassShell } from "./server/shell-bypass";
 import type { GatewayConfig } from "./server/types";
 
 // Type for the pool interface we need
@@ -43,6 +44,7 @@ let logger: PluginContext["logger"];
 // Micro-frontend shell state
 let pool: PoolLike | null = null;
 let shell: ResolvedShell | null = null;
+let shellExcludes: Set<string> = new Set();
 
 // Runtime API path (from context)
 let apiPath: string = "/api";
@@ -155,22 +157,29 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
 
       // Initialize micro-frontend shell
       // Check env var first, then config
-      const appShellPath = Bun.env.GATEWAY_APP_SHELL || config.appShell;
-      if (appShellPath && ctx.pool) {
+      const shellPath = Bun.env.GATEWAY_SHELL_DIR || config.shellDir;
+      if (shellPath && ctx.pool) {
         pool = ctx.pool as PoolLike;
 
         try {
           // Load and parse shell config using shared utilities
-          const manifestConfig = await loadManifestConfig(appShellPath);
+          const manifestConfig = await loadManifestConfig(shellPath);
           const shellConfig = parseWorkerConfig(manifestConfig);
 
           shell = {
-            dir: appShellPath,
+            dir: shellPath,
             config: shellConfig,
           };
-          logger.info(`Micro-frontend shell: ${appShellPath}`);
+          logger.info(`Micro-frontend shell: ${shellPath}`);
+
+          // Parse shell excludes from env var and config
+          const envExcludes = Bun.env.GATEWAY_SHELL_EXCLUDES || config.shellExcludes || "";
+          shellExcludes = parseBasenames(envExcludes);
+          if (shellExcludes.size > 0) {
+            logger.info(`Shell bypass basenames: ${Array.from(shellExcludes).join(", ")}`);
+          }
         } catch (err) {
-          logger.error(`Failed to load shell config from ${appShellPath}`, { error: err });
+          logger.error(`Failed to load shell config from ${shellPath}`, { error: err });
         }
       }
     },
@@ -187,6 +196,7 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
       // Shell serves all document navigations and root-level assets
       if (shell && pool) {
         const secFetchDest = req.headers.get(HttpHeaders.SEC_FETCH_DEST);
+        const cookieHeader = req.headers.get("cookie");
 
         // Document navigation (browser address bar, links, form submissions)
         const isDocument = secFetchDest === "document";
@@ -201,10 +211,13 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
         // API routes are handled by other parts of the system
         const isApiRoute = url.pathname === apiPath || url.pathname.startsWith(`${apiPath}/`);
 
+        // Check if basename is excluded from shell (via env or cookie)
+        const shouldBypass = shouldBypassShell(url.pathname, cookieHeader, shellExcludes);
+
         // Shell serves:
-        // 1. All document navigations (shell owns all pages)
+        // 1. All document navigations (shell owns all pages) - unless bypassed
         // 2. Root path requests that are not frame embeddings (shell's assets)
-        if (!isApiRoute && (isDocument || (isRootPath && !isFrameEmbedding))) {
+        if (!isApiRoute && !shouldBypass && (isDocument || (isRootPath && !isFrameEmbedding))) {
           logger.debug(`Shell serving: ${url.pathname} (dest: ${secFetchDest || "none"})`);
 
           // Add x-base header for <base href> injection (shell always serves from root)
@@ -217,6 +230,11 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
           reqWithBase.headers.set(HttpHeaders.BASE, "/");
 
           return pool.fetch(shell.dir, shell.config, reqWithBase);
+        }
+
+        // Log bypass for debugging
+        if (shouldBypass && isDocument) {
+          logger.debug(`Shell bypassed: ${url.pathname}`);
         }
       }
 

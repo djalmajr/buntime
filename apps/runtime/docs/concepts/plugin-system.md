@@ -179,7 +179,7 @@ const app = spa ? null : (await import(ENTRYPOINT)).default;
 > ```yaml
 > # WRONG
 > entrypoint: dist/client/index.html  # API in index.ts is ignored!
-> 
+>
 > # CORRECT - for serverless API
 > entrypoint: dist/index.js
 > ```
@@ -193,24 +193,24 @@ export default {
   routes: {
     // Static Response
     "/api/health": new Response("OK"),
-    
+
     // Handler function
     "/api/data": async (req) => new Response(JSON.stringify(data)),
-    
+
     // Method-specific handlers
     "/api/items/:id": {
       GET: (req) => getItem(req.params.id),
       POST: (req) => createItem(req),
       DELETE: (req) => deleteItem(req.params.id),
     },
-    
+
     // Hono app
     "/api/*": api.fetch,
-    
+
     // BunFile
     "/file": Bun.file("./public/index.html"),
   },
-  
+
   // Optional fallback for unmatched routes
   fetch: (req) => new Response("Not Found", { status: 404 }),
 };
@@ -223,7 +223,7 @@ export default {
 | Scope | Prefix | Examples |
 |-------|--------|----------|
 | Runtime Core | `RUNTIME_` | `RUNTIME_LOG_LEVEL`, `RUNTIME_POOL_SIZE`, `RUNTIME_WORKER_DIRS` |
-| Plugin Gateway | `GATEWAY_` | `GATEWAY_APP_SHELL`, `GATEWAY_CORS_ORIGIN` |
+| Plugin Gateway | `GATEWAY_` | `GATEWAY_SHELL_DIR`, `GATEWAY_SHELL_EXCLUDES`, `GATEWAY_CORS_ORIGIN` |
 | Plugin Database | `DATABASE_` | `DATABASE_LIBSQL_URL`, `DATABASE_LIBSQL_REPLICAS` |
 | Plugin Deployments | `DEPLOYMENTS_` | `DEPLOYMENTS_EXCLUDES` |
 | Plugin Authn | `AUTHN_` | `AUTHN_LOGIN_PATH` |
@@ -295,8 +295,8 @@ function parsePaths(value: string): string[] {
   return value.split(":").map(p => p.trim()).filter(Boolean);
 }
 
-const workerDirs = Bun.env.RUNTIME_WORKER_DIRS 
-  ? parsePaths(Bun.env.RUNTIME_WORKER_DIRS) 
+const workerDirs = Bun.env.RUNTIME_WORKER_DIRS
+  ? parsePaths(Bun.env.RUNTIME_WORKER_DIRS)
   : [];
 ```
 

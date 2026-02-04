@@ -9,8 +9,15 @@ image:
   tag: latest
   pullPolicy: Always
 
-imagePullSecrets:
-  - name: gitlab-registry
+# Test: GitLab local registry
+# image:
+#   repository: ghcr.io/zommehq/buntime
+#   tag: latest
+#   pullPolicy: Always
+# imagePullSecrets:
+#   - name: gitlab-registry
+
+imagePullSecrets: []
 
 nameOverride: ""
 fullnameOverride: ""

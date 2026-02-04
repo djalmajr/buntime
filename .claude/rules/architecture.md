@@ -155,11 +155,12 @@ When set (e.g., `/_`), moves **only the runtime internal API**:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GATEWAY_APP_SHELL` | App shell path | `""` |
-| `GATEWAY_CORS_ORIGIN` | Allowed origins | `*` |
 | `GATEWAY_CORS_CREDENTIALS` | Allow credentials | `false` |
+| `GATEWAY_CORS_ORIGIN` | Allowed origins | `*` |
 | `GATEWAY_RATE_LIMIT_REQUESTS` | Max requests | `100` |
 | `GATEWAY_RATE_LIMIT_WINDOW` | Time window | `1m` |
+| `GATEWAY_SHELL_DIR` | App shell path | `""` |
+| `GATEWAY_SHELL_EXCLUDES` | Basenames to bypass shell | `cpanel` |
 
 ### Plugin: Deployments
 

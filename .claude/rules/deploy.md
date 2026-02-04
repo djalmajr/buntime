@@ -148,7 +148,8 @@ kubectl -n zomme rollout restart deployment/buntime
 | `buntime.pluginDirs` | Plugin search paths | `/data/.plugins:/data/plugins` |
 | `buntime.workerDirs` | Worker search paths | `/data/.apps:/data/apps` |
 | `plugins.database.libsqlUrl` | LibSQL primary URL | `http://libsql:8080` |
-| `plugins.gateway.appShell` | Micro-frontend shell path | `""` |
+| `plugins.gateway.shellDir` | Micro-frontend shell path | `""` |
+| `plugins.gateway.shellExcludes` | Basenames to bypass shell | `cpanel` |
 | `ingress.host` | Ingress hostname | `""` (disabled) |
 | `ingress.tls.enabled` | Enable HTTPS | `false` |
 

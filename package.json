@@ -1,6 +1,7 @@
 {
   "name": "buntime",
   "version": "1.0.0",
+  "license": "SEE LICENSE IN LICENSE",
   "private": true,
   "type": "module",
   "workspaces": [

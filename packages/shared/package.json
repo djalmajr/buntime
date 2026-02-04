@@ -1,6 +1,7 @@
 {
   "name": "@buntime/shared",
   "version": "1.0.0",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "exports": {
     "./build": "./src/build.ts",

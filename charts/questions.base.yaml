@@ -52,7 +52,7 @@ questions:
     label: "API Prefix"
     description: "Prefix for runtime API routes (e.g., '/_' mounts API at '/_/api')"
     type: string
-    default: ""
+    default: "/_"
     group: "Runtime"
 
   - variable: buntime.pluginDirs
@@ -79,7 +79,7 @@ questions:
   # ==================== INGRESS ====================
   - variable: ingress.host
     label: "Ingress Hostname"
-    description: "Hostname for the ingress (e.g., buntime.example.com). Leave empty to disable ingress."
+    description: "Hostname only, no protocol/path (e.g., buntime.example.com or *.example.com). Leave empty to disable."
     type: hostname
     default: ""
     group: "Runtime"

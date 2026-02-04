@@ -29,7 +29,7 @@ service:
 # Ingress (Kubernetes)
 # Ingress is enabled when host is not empty
 ingress:
-  host: ""  # Set hostname to enable ingress (e.g., buntime.example.com)
+  host: ""  # Hostname only, no protocol/path (e.g., buntime.example.com or *.example.com)
   className: "traefik"  # nginx, traefik, alb, etc
   path: "/"
   annotations: {}
@@ -48,7 +48,7 @@ route:
 # Buntime runtime configuration
 buntime:
   # API prefix (e.g., "/_" mounts API at "/_/api")
-  apiPrefix: ""
+  apiPrefix: "/_"
 
   # Logging level (debug, info, warn, error)
   logLevel: "info"

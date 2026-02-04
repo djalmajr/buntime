@@ -28,15 +28,15 @@ jobs:
 
       - name: Prepare chart for sync
         run: |
-          mkdir -p /tmp/sync/charts/buntime
-          cp -r charts/* /tmp/sync/charts/buntime/
+          mkdir -p sync/buntime
+          cp -r charts/* sync/buntime/
 
       - name: Push charts to zommehq/charts
         uses: cpina/github-action-push-to-another-repository@main
         env:
           API_TOKEN_GITHUB: ${{ secrets.CHARTS_PAT }}
         with:
-          source-directory: "/tmp/sync/charts"
+          source-directory: "sync"
           destination-github-username: "zommehq"
           destination-repository-name: "charts"
           target-directory: "charts"

@@ -1,5 +1,6 @@
 stages:
   - build
+  - publish
 
 variables:
   DOCKER_TLS_CERTDIR: ""
@@ -26,6 +27,37 @@ docker-build:
     - docker build --cache-from $CI_REGISTRY_IMAGE:latest -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA -t $CI_REGISTRY_IMAGE:latest .
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
     - docker push $CI_REGISTRY_IMAGE:latest
+  only:
+    - test/gitlab-ci
+  tags:
+    - docker
+
+# =============================================================================
+# Helm Chart Sync (to zomme/charts repo)
+# =============================================================================
+helm-publish:
+  stage: publish
+  image: oven/bun:1.3
+  before_script:
+    - apt-get update && apt-get install -y git ca-certificates
+    - git config --global user.email "ci@gitlab.example.com"
+    - git config --global user.name "GitLab-CI"
+    - git config --global http.sslVerify false
+  script:
+    - bun install
+    - bun scripts/generate-helm.ts
+    # Prepare chart structure (flat -> buntime subfolder)
+    - mkdir -p /tmp/sync/charts/buntime
+    - cp -r charts/* /tmp/sync/charts/buntime/
+    # Clone destination repo and sync
+    - git clone https://root:${CHARTS_TOKEN}@gitlab.example.com/zomme/charts.git /tmp/charts
+    - rm -rf /tmp/charts/charts/buntime
+    - cp -r /tmp/sync/charts/buntime /tmp/charts/charts/
+    - |
+      cd /tmp/charts
+      git add .
+      git diff --staged --quiet || git commit -m "chore: sync buntime chart from buntime repo"
+      git push origin main
   only:
     - test/gitlab-ci
   tags:

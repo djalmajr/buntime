@@ -51,6 +51,7 @@ helm-publish:
     - cp -r charts/* sync/buntime/
     - git clone https://root:${CHARTS_TOKEN}@gitlab.example.com/zomme/charts.git /tmp/charts
     - mkdir -p /tmp/charts/charts
+    - rm -rf /tmp/charts/charts/buntime
     - cp -r sync/buntime /tmp/charts/charts/
     - cd /tmp/charts && git add .
     - cd /tmp/charts && git commit -m "sync buntime chart" || true

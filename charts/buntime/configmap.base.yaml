@@ -14,9 +14,7 @@ data:
   PLUGIN_DIRS: {{ .Values.buntime.pluginDirs | quote }}
   POOL_SIZE: {{ .Values.buntime.poolSize | quote }}
   PORT: {{ .Values.buntime.port | quote }}
-  {{- if .Values.buntime.apiPrefix }}
-  RUNTIME_API_PREFIX: {{ .Values.buntime.apiPrefix | quote }}
-  {{- end }}
+  RUNTIME_API_PREFIX: {{ .Values.buntime.apiPrefix | default "" | quote }}
   WORKER_DIRS: {{ .Values.buntime.workerDirs | quote }}
 
   # Plugin env vars - GENERATED SECTION

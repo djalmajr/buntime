@@ -1,0 +1,12 @@
+{
+  "name": "planning-enforcer",
+  "version": "1.0.0",
+  "description": "Unified planning workflow hook for Claude Code and OpenCode",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "cli": "bun run index.ts"
+  },
+  "keywords": ["claude-code", "opencode", "planning", "hooks"],
+  "license": "MIT"
+}

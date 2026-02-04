@@ -7,6 +7,7 @@
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { getChildLogger } from "@buntime/shared/logger";
+import { splitList } from "@buntime/shared/utils/string";
 import {
   BodySizeLimits,
   DELAY_MS,
@@ -66,11 +67,7 @@ function parsePoolSize(envValue: string | undefined, fallback: number): number {
 function expandDirs(dirs: string[], baseDir: string): string[] {
   return dirs.flatMap((dir) => {
     // Split by colon if env var contains multiple paths (PATH style)
-    return dir
-      .split(":")
-      .map((p) => p.trim())
-      .filter(Boolean)
-      .map((p) => (isAbsolute(p) ? p : resolve(baseDir, p)));
+    return splitList(dir, ":").map((p) => (isAbsolute(p) ? p : resolve(baseDir, p)));
   });
 }
 

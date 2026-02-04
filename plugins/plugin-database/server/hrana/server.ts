@@ -7,6 +7,7 @@
  */
 
 import type { PluginLogger } from "@buntime/shared/types";
+import { splitList } from "@buntime/shared/utils/string";
 import type { DatabaseAdapter, DatabaseService } from "../types";
 import {
   fromHranaValue,
@@ -431,10 +432,7 @@ export class HranaServer {
 
     try {
       // Split SQL into statements and execute each
-      const statements = request.sql
-        .split(";")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
+      const statements = splitList(request.sql, ";");
 
       for (const sql of statements) {
         await adapter.execute(sql);

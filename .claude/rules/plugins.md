@@ -4,9 +4,11 @@ summary: |
   - Plugins use manifest.yaml (not manifest.jsonc)
   - Entry points: pluginEntry (server), entrypoint (client)
   - Hooks: onInit, onRequest, onResponse, onShutdown
-  - Plugin routes use their own base path (e.g., /redirects/api/rules), NOT runtime API prefix
-  - Write tests for all plugin changes
-  - Run bun test after modifications
+  - Plugin routes at base path (e.g., /redirects/api/rules), NOT affected by RUNTIME_API_PREFIX
+  - RUNTIME_API_PREFIX only moves runtime internal API (/api -> /_/api)
+  - Plugins loaded from RUNTIME_PLUGIN_DIRS (PATH style, colon-separated: /data/.plugins:/data/plugins)
+  - Manifest config.*.env maps to Helm configmap with defaults
+  - Write tests for all plugin changes (bun test)
 ---
 
 # Buntime Plugin Quick Reference
@@ -196,3 +198,78 @@ POST /api/plugins/reload   # Rescan all
 - [ ] NOT writing to `Bun.env`
 - [ ] Declared dependencies in manifest
 - [ ] Sensitive vars NOT in `manifest.env`
+
+## Core vs External Plugins
+
+Plugins are loaded from `RUNTIME_PLUGIN_DIRS` (colon-separated, PATH style).
+
+**Default:** `/data/.plugins:/data/plugins` (core first, then external)
+
+| Type | Source | Runtime Location | Built into image | Helm integration |
+|------|--------|------------------|------------------|------------------|
+| **Core** | `plugins/` (repo) | `/data/.plugins` | Yes | Auto-generated from manifest |
+| **External** | Any | `/data/plugins` (PVC) | No | Manual deploy via kubectl |
+
+### External Plugin Deployment
+
+```bash
+# Structure required
+plugin-name/
+├── manifest.yaml
+└── dist/
+    └── plugin.js
+
+# Deploy to K8s
+POD=$(kubectl -n zomme get pods -l app=buntime -o jsonpath='{.items[0].metadata.name}')
+kubectl -n zomme exec $POD -- mkdir -p /data/plugins/plugin-name/dist
+kubectl -n zomme cp manifest.yaml $POD:/data/plugins/plugin-name/
+kubectl -n zomme cp dist/plugin.js $POD:/data/plugins/plugin-name/dist/
+kubectl -n zomme rollout restart deployment/buntime
+```
+
+## Helm Config Generation
+
+Plugin manifest `config` section generates Helm values:
+
+```yaml
+# manifest.yaml
+config:
+  myOption:
+    type: string
+    label: My Option
+    default: "default-value"
+    env: MYPLUGIN_MY_OPTION  # Maps to configmap
+```
+
+**Generated configmap.yaml:**
+```yaml
+MYPLUGIN_MY_OPTION: {{ .Values.plugins.myplugin.myOption | default "default-value" | quote }}
+```
+
+**Rules for config types:**
+- `string`, `number`, `enum`: Always output with default
+- `boolean`: Only output if true (conditional)
+- `array`: Conditional (optional)
+- `password`: Conditional (sensitive)
+
+## Public Routes (Auth Bypass)
+
+Plugins can define routes that bypass authentication:
+
+```yaml
+# manifest.yaml
+publicRoutes:
+  ALL: ["/health"]           # Any method
+  GET: ["/api/public/**"]    # GET only, wildcard
+  POST: ["/api/webhook"]     # POST only
+```
+
+**Proxy plugin per-rule publicRoutes:**
+```json
+{
+  "pattern": "^/api(/.*)?$",
+  "publicRoutes": {
+    "GET": ["/api/config/**"]
+  }
+}
+```

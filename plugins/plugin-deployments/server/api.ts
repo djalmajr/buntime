@@ -1,5 +1,6 @@
 import { basename, join } from "node:path";
 import { errorToResponse, NotFoundError, ValidationError } from "@buntime/shared/errors";
+import { splitList } from "@buntime/shared/utils/string";
 import { Hono } from "hono";
 import { DirInfo } from "./libs/dir-info";
 
@@ -10,17 +11,6 @@ let dirNameMap: Map<string, string> = new Map(); // dirName -> fullPath
 // Global excludes (folders to hide from listing)
 const DEFAULT_EXCLUDES = [".git", "node_modules"];
 let globalExcludes: string[] = [...DEFAULT_EXCLUDES];
-
-/**
- * Parse colon-separated paths (PATH style) into array
- * Example: "/data/.apps:/data/apps" -> ["/data/.apps", "/data/apps"]
- */
-function parsePaths(value: string): string[] {
-  return value
-    .split(":")
-    .map((p) => p.trim())
-    .filter(Boolean);
-}
 
 export function setWorkerDirs(dirs: string[]): void {
   workerDirs = dirs;
@@ -55,14 +45,15 @@ export function getExcludes(): string[] {
 // Initialize from env vars (same env vars used by runtime)
 // This runs when the module is first imported in the worker process
 if (Bun.env.RUNTIME_WORKER_DIRS) {
-  const dirs = parsePaths(Bun.env.RUNTIME_WORKER_DIRS);
+  const dirs = splitList(Bun.env.RUNTIME_WORKER_DIRS, ":");
   if (dirs.length > 0) {
     setWorkerDirs(dirs);
   }
 }
 
 if (Bun.env.DEPLOYMENTS_EXCLUDES) {
-  const excludes = parsePaths(Bun.env.DEPLOYMENTS_EXCLUDES);
+  // Excludes are comma-separated (e.g., ".cache, cli, runtime")
+  const excludes = splitList(Bun.env.DEPLOYMENTS_EXCLUDES);
   if (excludes.length > 0) {
     setExcludes(excludes);
   }
@@ -410,10 +401,7 @@ export const api = new Hono()
       throw new ValidationError("Paths are required", "PATHS_REQUIRED");
     }
 
-    const paths = pathsParam
-      .split(",")
-      .map((p) => p.trim())
-      .filter(Boolean);
+    const paths = splitList(pathsParam);
     if (!paths.length) {
       throw new ValidationError("Paths are required", "PATHS_REQUIRED");
     }

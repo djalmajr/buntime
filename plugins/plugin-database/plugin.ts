@@ -1,4 +1,5 @@
 import type { PluginContext, PluginImpl, PluginLogger } from "@buntime/shared/types";
+import { splitList } from "@buntime/shared/utils/string";
 import type { Server } from "bun";
 import manifest from "./manifest.yaml";
 import {
@@ -34,11 +35,7 @@ function detectLibSqlUrls(): string[] {
   // Replica URLs (optional): comma-separated list
   const replicas = process.env.DATABASE_LIBSQL_REPLICAS;
   if (replicas) {
-    const replicaUrls = replicas
-      .split(",")
-      .map((u) => u.trim())
-      .filter(Boolean);
-    urls.push(...replicaUrls);
+    urls.push(...splitList(replicas));
   }
 
   return urls;

@@ -28,6 +28,7 @@ interface ConfigFieldBase {
   description?: string;
   env?: string;
   required?: boolean;
+  default?: string | number | boolean;
 }
 
 interface ConfigFieldObject extends ConfigFieldBase {
@@ -50,6 +51,7 @@ interface EnvMapping {
   envVar: string;
   valuePath: string;
   type: ConfigType;
+  defaultValue?: string | number | boolean;
 }
 
 // Extract plugin short name from full name
@@ -75,6 +77,7 @@ function extractEnvVars(config: ConfigSchema, shortName: string, parentPath: str
         envVar: field.env,
         valuePath: currentPath,
         type: field.type,
+        defaultValue: field.default,
       });
     }
   }
@@ -94,13 +97,16 @@ function generatePluginSection(shortName: string, mappings: EnvMapping[]): strin
   for (const mapping of mappings) {
     // valuePath is like "libsqlUrl" or "cors.origin"
     const helmPath = `${pluginPath}.${mapping.valuePath}`;
+    const defaultStr = mapping.defaultValue !== undefined ? String(mapping.defaultValue) : "";
 
     // Handle different types
     if (mapping.type === "boolean") {
+      // Boolean: only set env var if true (conditional OK)
       lines.push(`  {{- if ${helmPath} }}`);
       lines.push(`  ${mapping.envVar}: "true"`);
       lines.push(`  {{- end }}`);
     } else if (mapping.type === "array") {
+      // Array: optional (e.g., replicas), conditional OK
       lines.push(`  {{- if ${helmPath} }}`);
       lines.push(`  {{- if kindIs "string" ${helmPath} }}`);
       lines.push(`  {{- /* Handle multiline string from Rancher UI */}}`);
@@ -120,11 +126,19 @@ function generatePluginSection(shortName: string, mappings: EnvMapping[]): strin
       lines.push(`  {{- end }}`);
       lines.push(`  {{- end }}`);
       lines.push(`  {{- end }}`);
-    } else {
-      // string, number, password, enum
+    } else if (mapping.type === "password") {
+      // Password: optional (e.g., auth tokens), conditional OK
       lines.push(`  {{- if ${helmPath} }}`);
       lines.push(`  ${mapping.envVar}: {{ ${helmPath} | quote }}`);
       lines.push(`  {{- end }}`);
+    } else {
+      // string, number, enum - ALWAYS output with default
+      if (defaultStr) {
+        lines.push(`  ${mapping.envVar}: {{ ${helmPath} | default "${defaultStr}" | quote }}`);
+      } else {
+        // No default: still output with empty string default
+        lines.push(`  ${mapping.envVar}: {{ ${helmPath} | default "" | quote }}`);
+      }
     }
   }
 

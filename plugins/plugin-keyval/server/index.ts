@@ -1,4 +1,5 @@
 import type { PluginContext } from "@buntime/shared/types";
+import { splitList } from "@buntime/shared/utils/string";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type {
@@ -436,7 +437,7 @@ export const api = new Hono()
       return ctx.json({ error: "Missing 'keys' query parameter" }, 400);
     }
 
-    const keys = keysParam.split(",").map((k) => validateKeyPath(k));
+    const keys = splitList(keysParam).map((k) => validateKeyPath(k));
     const emitInitial = ctx.req.query("initial") !== "false";
 
     return streamSSE(ctx, async (stream) => {
@@ -505,8 +506,8 @@ export const api = new Hono()
       return ctx.json({ error: "Missing 'keys' query parameter" }, 400);
     }
 
-    const keys = keysParam.split(",").map((k) => validateKeyPath(k));
-    const lastVersionstamps = versionstampsParam ? versionstampsParam.split(",") : [];
+    const keys = splitList(keysParam).map((k) => validateKeyPath(k));
+    const lastVersionstamps = versionstampsParam ? splitList(versionstampsParam) : [];
 
     const entries: Array<{ key: unknown[]; value: unknown; versionstamp: string | null }> = [];
     const currentVersionstamps: string[] = [];
@@ -628,7 +629,7 @@ export const api = new Hono()
     // Parse last versionstamps: "key1:vs1,key2:vs2"
     const lastVsMap = new Map<string, string>();
     if (lastVersionstampsParam) {
-      for (const pair of lastVersionstampsParam.split(",")) {
+      for (const pair of splitList(lastVersionstampsParam)) {
         const [key, vs] = pair.split(":");
         if (key && vs) {
           lastVsMap.set(key, vs);

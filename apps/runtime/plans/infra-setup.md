@@ -36,9 +36,11 @@ Este guia foi testado na seguinte configuração:
 | GitLab gitaly | 100m | 500m | 512 MB | 1 GB |
 | GitLab postgres | 100m | 500m | 512 MB | 1 GB |
 | GitLab redis | 50m | 250m | 256 MB | 512 MB |
+| GitLab registry | 50m | 200m | 128 MB | 256 MB |
 | GitLab outros | 100m | 300m | 256 MB | 512 MB |
-| **Total Requests** | ~1.75 | - | ~9.5 GB | - |
-| **Total Limits** | - | ~7.3 | - | ~16 GB |
+| GitLab Runner | 100m | 500m | 128 MB | 256 MB |
+| **Total Requests** | ~1.9 | - | ~9.75 GB | - |
+| **Total Limits** | - | ~8 | - | ~16.5 GB |
 
 ## Objetivo
 
@@ -735,20 +737,30 @@ global:
   minio:
     enabled: false
   appConfig:
+    # Object storage desabilitado para artifacts (evita problemas com MinIO)
+    # Artifacts usam filesystem local, outros recursos usam MinIO
     object_store:
+      enabled: false
+    artifacts:
+      enabled: false  # Usa filesystem local
+    lfs:
       enabled: true
-      proxy_download: true
+      bucket: gitlab-lfs
       connection:
         secret: gitlab-rails-storage
         key: connection
-    lfs:
-      bucket: gitlab-lfs
-    artifacts:
-      bucket: gitlab-artifacts
     uploads:
+      enabled: true
       bucket: gitlab-uploads
+      connection:
+        secret: gitlab-rails-storage
+        key: connection
     packages:
+      enabled: true
       bucket: gitlab-packages
+      connection:
+        secret: gitlab-rails-storage
+        key: connection
     backups:
       bucket: gitlab-backups
 
@@ -878,6 +890,374 @@ helm install rancher rancher-stable/rancher \
   --set replicas=1 \
   --set bootstrapPassword=REDACTED-LOCAL-PASSWORD \
   --set ingress.tls.source=rancher
+```
+
+#### 4.5.1 Configurar hostAliases para GitLab
+
+Para que o Rancher consiga acessar o GitLab (para Helm charts), adicione hostAliases:
+
+```bash
+kubectl patch deployment rancher -n cattle-system --type=strategic -p '{
+  "spec": {
+    "template": {
+      "spec": {
+        "hostAliases": [
+          {
+            "ip": "192.168.0.201",
+            "hostnames": ["gitlab.example.com", "registry.example.com"]
+          }
+        ]
+      }
+    }
+  }
+}'
+```
+
+#### 4.5.2 Adicionar Helm Charts Registry do GitLab
+
+Para usar Helm charts hospedados no GitLab:
+
+```bash
+# 1. Tornar o grupo e repo públicos (se necessário)
+curl -sk -X PUT "https://gitlab.example.com/api/v4/groups/5" \
+  -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"visibility": "public"}'
+
+curl -sk -X PUT "https://gitlab.example.com/api/v4/projects/2" \
+  -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"visibility": "public"}'
+
+# 2. Criar ClusterRepo no Rancher
+cat <<EOF | kubectl apply -f -
+apiVersion: catalog.cattle.io/v1
+kind: ClusterRepo
+metadata:
+  name: zomme
+spec:
+  gitRepo: https://gitlab.example.com/zomme/charts.git
+  gitBranch: main
+  insecureSkipTLSVerify: true
+EOF
+
+# 3. Verificar sync
+kubectl get clusterrepo zomme -o jsonpath='{.status.conditions}' | jq
+```
+
+> **Nota:** `insecureSkipTLSVerify: true` é necessário porque o GitLab usa certificado self-signed.
+
+### 4.6 GitLab Container Registry
+
+> **Nota:** O registry usa MinIO externo para storage e é acessível via `https://registry.example.com`.
+
+#### 4.6.1 Criar bucket no MinIO
+
+```bash
+# Criar bucket para o registry
+kubectl run minio-mc --restart=Never -n minio \
+  --image=minio/mc:latest \
+  --command -- sh -c "mc alias set minio http://minio:9000 admin 'REDACTED-LOCAL-PASSWORD' && mc mb minio/gitlab-registry --ignore-existing"
+
+# Aguardar e verificar
+sleep 10 && kubectl logs minio-mc -n minio && kubectl delete pod minio-mc -n minio
+```
+
+#### 4.6.2 Criar secret para storage
+
+> **Importante:** O `redirect: disable: true` é necessário para que o registry não redirecione pulls para a URL interna do MinIO (que não é acessível externamente).
+
+```bash
+cat > /tmp/registry-storage.yaml << 'EOF'
+s3:
+  bucket: gitlab-registry
+  accesskey: admin
+  secretkey: REDACTED-LOCAL-PASSWORD
+  region: us-east-1
+  regionendpoint: http://minio.minio.svc.cluster.local:9000
+  v4auth: true
+  secure: false
+  rootdirectory: /
+redirect:
+  disable: true
+EOF
+
+kubectl create secret generic gitlab-registry-storage -n gitlab \
+  --from-file=config=/tmp/registry-storage.yaml
+
+rm /tmp/registry-storage.yaml
+```
+
+#### 4.6.3 Habilitar registry via Helm upgrade
+
+```bash
+cat > /tmp/gitlab-registry-values.yaml << 'EOF'
+global:
+  hosts:
+    domain: gitlab.example.com
+    gitlab:
+      name: gitlab.example.com
+    registry:
+      name: registry.example.com
+    kas:
+      name: kas.gitlab.example.com
+
+registry:
+  enabled: true
+  storage:
+    secret: gitlab-registry-storage
+    key: config
+  ingress:
+    enabled: true
+    class: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: home-ca-issuer
+    tls:
+      secretName: gitlab-registry-tls
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 50m
+    limits:
+      memory: 256Mi
+      cpu: 200m
+EOF
+
+helm upgrade gitlab gitlab/gitlab \
+  --namespace gitlab \
+  --reuse-values \
+  -f /tmp/gitlab-registry-values.yaml \
+  --timeout 10m
+```
+
+#### 4.6.4 Copiar CA secret para namespace gitlab
+
+O GitLab instala seu próprio cert-manager no namespace `gitlab`. Para que o ClusterIssuer `home-ca-issuer` funcione, é necessário copiar o secret `home-ca-secret` do namespace `cert-manager` para `gitlab`:
+
+```bash
+kubectl get secret home-ca-secret -n cert-manager -o yaml | \
+  sed 's/namespace: cert-manager/namespace: gitlab/' | \
+  kubectl apply -f -
+```
+
+#### 4.6.5 Verificar instalação
+
+```bash
+# Verificar pods
+kubectl get pods -n gitlab | grep registry
+
+# Verificar ingress
+kubectl get ingress -n gitlab | grep registry
+
+# Testar endpoint (deve retornar UNAUTHORIZED - é esperado)
+curl -sk https://registry.example.com/v2/
+```
+
+#### 4.6.6 Configurar Docker Desktop (macOS/Windows)
+
+Como o registry usa certificado self-signed, é necessário configurar o Docker para confiar nele.
+
+**Editar `~/.docker/daemon.json`:**
+
+```json
+{
+  "insecure-registries": [
+    "registry.example.com",
+    "gitlab.example.com"
+  ]
+}
+```
+
+**Reiniciar Docker Desktop** após a alteração.
+
+#### 4.6.7 Usar o registry
+
+```bash
+# Login (usar credenciais do GitLab)
+docker login registry.example.com -u root -p 'REDACTED-LOCAL-PASSWORD'
+
+# Build e push
+docker build -t ghcr.io/zommehq/minha-app:latest .
+docker push ghcr.io/zommehq/minha-app:latest
+
+# Pull
+docker pull ghcr.io/zommehq/minha-app:latest
+```
+
+### 4.7 GitLab Runner (Kubernetes Executor)
+
+> **Nota:** O runner usa executor Kubernetes e roda jobs como pods no namespace `gitlab-runner`.
+
+#### 4.7.1 Criar namespace e recursos RBAC
+
+```bash
+kubectl create namespace gitlab-runner
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitlab-runner
+  namespace: gitlab-runner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gitlab-runner
+  namespace: gitlab-runner
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/exec", "pods/attach", "pods/log", "secrets", "configmaps"]
+  verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gitlab-runner
+  namespace: gitlab-runner
+subjects:
+- kind: ServiceAccount
+  name: gitlab-runner
+  namespace: gitlab-runner
+roleRef:
+  kind: Role
+  name: gitlab-runner
+  apiGroup: rbac.authorization.k8s.io
+EOF
+```
+
+#### 4.7.2 Obter token de registro do runner
+
+No GitLab, acesse **Admin Area > CI/CD > Runners** e copie o token de registro, ou crie via API:
+
+```bash
+# Criar runner via API (substitua o token)
+GITLAB_TOKEN="glpat-xxxxx"
+
+curl -sk -X POST "https://gitlab.example.com/api/v4/user/runners" \
+  -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "runner_type": "instance_type",
+    "tag_list": ["docker", "kubernetes"],
+    "description": "Kubernetes Runner"
+  }' | jq '.token'
+```
+
+#### 4.7.3 Criar ConfigMap do runner
+
+```bash
+# Substitua RUNNER_TOKEN pelo token obtido
+RUNNER_TOKEN="glrt-xxxxx"
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitlab-runner-config
+  namespace: gitlab-runner
+data:
+  config.toml: |
+    concurrent = 4
+    check_interval = 3
+    shutdown_timeout = 0
+
+    [session_server]
+      session_timeout = 1800
+
+    [[runners]]
+      name = "kubernetes-runner"
+      url = "https://gitlab.example.com/"
+      clone_url = "https://gitlab.example.com/"
+      token = "${RUNNER_TOKEN}"
+      executor = "kubernetes"
+      tls-ca-file = "/etc/gitlab-runner/certs/ca.crt"
+      environment = ["GIT_SSL_NO_VERIFY=1", "DOCKER_HOST=tcp://docker:2375", "DOCKER_TLS_CERTDIR="]
+      [runners.kubernetes]
+        namespace = "gitlab-runner"
+        service_account = "gitlab-runner"
+        image = "docker:24"
+        helper_image = "gitlab/gitlab-runner-helper:arm64-v18.8.0"
+        privileged = true
+        pull_policy = ["if-not-present"]
+        [[runners.kubernetes.host_aliases]]
+          ip = "192.168.0.201"
+          hostnames = ["gitlab.example.com", "kas.gitlab.example.com", "registry.example.com"]
+      [runners.kubernetes.node_selector]
+        "kubernetes.io/os" = "linux"
+EOF
+```
+
+> **Nota ARM64:** Se seu cluster for ARM64, use `helper_image = "gitlab/gitlab-runner-helper:arm64-v18.8.0"`. Para x86_64, remova essa linha ou use a imagem padrão.
+
+#### 4.7.4 Deploy do runner
+
+```bash
+cat <<EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-runner
+  namespace: gitlab-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitlab-runner
+  template:
+    metadata:
+      labels:
+        app: gitlab-runner
+    spec:
+      serviceAccountName: gitlab-runner
+      hostAliases:
+      - ip: "192.168.0.201"
+        hostnames:
+        - gitlab.example.com
+        - kas.gitlab.example.com
+        - registry.example.com
+      containers:
+      - name: gitlab-runner
+        image: gitlab/gitlab-runner:latest
+        command: ["gitlab-runner", "run", "--working-directory=/tmp"]
+        env:
+        - name: GIT_SSL_NO_VERIFY
+          value: "1"
+        securityContext:
+          runAsUser: 0
+        volumeMounts:
+        - name: config
+          mountPath: /etc/gitlab-runner
+          readOnly: true
+        - name: ca-cert
+          mountPath: /etc/gitlab-runner/certs
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: gitlab-runner-config
+      - name: ca-cert
+        secret:
+          secretName: gitlab-wildcard-tls-ca
+          items:
+          - key: cfssl_ca
+            path: ca.crt
+EOF
+```
+
+#### 4.7.5 Verificar runner
+
+```bash
+# Ver pod do runner
+kubectl get pods -n gitlab-runner
+
+# Ver logs do runner
+kubectl logs -n gitlab-runner -l app=gitlab-runner
+
+# Verificar no GitLab: Admin Area > CI/CD > Runners
 ```
 
 ---
@@ -1181,6 +1561,8 @@ Import-Certificate -FilePath "home-ca.crt" -CertStoreLocation Cert:\LocalMachine
 | libSQL (read) | https://libsql-ro.home | - |
 | libSQL (namespaces) | https://{namespace}.libsql.home | - |
 | libSQL Admin API | http://libsql:9090 | interno k8s (namespace zomme) |
+| GitLab Registry | https://registry.example.com | (usa credenciais GitLab) |
+| GitLab KAS | https://kas.gitlab.example.com | (agentes Kubernetes) |
 
 > **Nota:** O GitLab mantém a senha original pois o reset via rails console requer mais recursos.
 > Para alterar, use a interface web: Admin Area > Users > root > Edit > Password.
@@ -1402,6 +1784,178 @@ env:
   value: "false"
 - name: KC_HTTP_ENABLED
   value: "true"
+```
+
+### 17. GitLab Registry - Storage connection error
+**Problema:** Registry não consegue conectar ao MinIO.
+**Erro:** `level=error msg="error authorizing context" err="s3aws: AccessDenied"`
+**Solução:** Verificar secret de storage:
+```bash
+# Verificar secret existe
+kubectl get secret gitlab-registry-storage -n gitlab
+
+# Verificar conteúdo do secret
+kubectl get secret gitlab-registry-storage -n gitlab -o jsonpath='{.data.config}' | base64 -d
+
+# Verificar conectividade com MinIO
+kubectl run test-minio --rm -it --restart=Never -n gitlab \
+  --image=curlimages/curl -- curl -s http://minio.minio.svc.cluster.local:9000/minio/health/live
+```
+
+### 18. GitLab Runner - Job pods não conseguem resolver DNS
+**Problema:** Jobs falham porque pods não conseguem resolver `gitlab.example.com` ou `registry.example.com`.
+**Erro:** `dial tcp: lookup gitlab.example.com: no such host`
+**Solução:** Adicionar hostAliases no ConfigMap do runner:
+```toml
+[[runners.kubernetes.host_aliases]]
+  ip = "192.168.0.201"
+  hostnames = ["gitlab.example.com", "kas.example.com", "registry.home"]
+```
+E também no Deployment do runner:
+```yaml
+hostAliases:
+- ip: "192.168.0.201"
+  hostnames:
+  - gitlab.example.com
+  - kas.example.com
+  - registry.home
+```
+
+### 19. GitLab Runner - Docker build falha com TLS error
+**Problema:** Docker-in-Docker não consegue fazer push para registry com certificado self-signed.
+**Erro:** `x509: certificate signed by unknown authority`
+**Solução:** Usar `--insecure-registry` no DinD:
+```yaml
+services:
+  - name: docker:24-dind
+    alias: docker
+    command: ["--tls=false", "--insecure-registry=registry.example.com"]
+```
+E desabilitar TLS no Docker:
+```yaml
+variables:
+  DOCKER_TLS_CERTDIR: ""
+  DOCKER_HOST: tcp://docker:2375
+```
+
+### 20. GitLab Runner - Helper image incompatível com ARM64
+**Problema:** Em clusters ARM64, o helper image padrão é x86 e falha.
+**Erro:** `exec format error`
+**Solução:** Especificar helper image ARM64 no config.toml:
+```toml
+[runners.kubernetes]
+  helper_image = "gitlab/gitlab-runner-helper:arm64-v18.8.0"
+```
+
+### 21. GitLab cert-manager - ClusterIssuer não encontra secret
+**Problema:** Quando GitLab instala seu próprio cert-manager (namespace `gitlab`), o ClusterIssuer `home-ca-issuer` não encontra o secret `home-ca-secret` que está no namespace `cert-manager`.
+**Erro:** `Error getting keypair for CA issuer: secrets "home-ca-secret" not found`
+**Causa:** O cert-manager do GitLab tem o leader lease e procura secrets apenas no namespace `gitlab`.
+**Solução:** Copiar o secret para o namespace `gitlab`:
+```bash
+kubectl get secret home-ca-secret -n cert-manager -o yaml | \
+  sed 's/namespace: cert-manager/namespace: gitlab/' | \
+  kubectl apply -f -
+```
+
+### 22. GitLab Registry - Redirect para MinIO interno falha
+**Problema:** Ao fazer `docker pull`, o registry redireciona para URL interna do MinIO que não é acessível externamente.
+**Erro:** `dial tcp: lookup minio.minio.svc.cluster.local: no such host`
+**Solução:** Desabilitar redirect no storage config:
+```bash
+cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitlab-registry-storage
+  namespace: gitlab
+type: Opaque
+stringData:
+  config: |
+    s3:
+      bucket: gitlab-registry
+      accesskey: admin
+      secretkey: "REDACTED-LOCAL-PASSWORD"
+      region: us-east-1
+      regionendpoint: http://minio.minio.svc.cluster.local:9000
+      v4auth: true
+      secure: false
+      rootdirectory: /
+    redirect:
+      disable: true
+EOF
+
+kubectl rollout restart deployment/gitlab-registry -n gitlab
+```
+
+### 23. GitLab CI - Jobs ficam travados em "running"
+**Problema:** Jobs completam no runner mas GitLab não atualiza o status. Runner fica em loop "Submitting job to coordinator...accepted, but not yet completed".
+**Causa:** Sidekiq não consegue salvar trace chunks no MinIO (senha com caracteres especiais causa `SignatureDoesNotMatch`).
+**Solução:** Desabilitar object storage para artifacts (usar filesystem):
+```bash
+cat > /tmp/gitlab-no-object-storage.yaml << 'EOF'
+global:
+  appConfig:
+    object_store:
+      enabled: false
+    artifacts:
+      enabled: false
+EOF
+
+helm upgrade gitlab gitlab/gitlab \
+  --namespace gitlab \
+  --reuse-values \
+  -f /tmp/gitlab-no-object-storage.yaml \
+  --timeout 10m
+```
+
+### 24. Docker - Registry com certificado self-signed
+**Problema:** Docker não confia no certificado self-signed do registry.
+**Erro:** `x509: certificate signed by unknown authority`
+**Solução:** Adicionar registry como insecure no Docker Desktop (`~/.docker/daemon.json`):
+```json
+{
+  "insecure-registries": [
+    "registry.example.com",
+    "gitlab.example.com"
+  ]
+}
+```
+Reiniciar Docker Desktop após a alteração.
+
+### 25. Rancher ClusterRepo - Could not resolve host
+**Problema:** Rancher não consegue clonar repo Git do GitLab porque não resolve `gitlab.example.com`.
+**Erro:** `fatal: unable to access 'https://gitlab.example.com/...': Could not resolve host: gitlab.example.com`
+**Solução:** Adicionar hostAliases no deployment do Rancher:
+```bash
+kubectl patch deployment rancher -n cattle-system --type=strategic -p '{
+  "spec": {
+    "template": {
+      "spec": {
+        "hostAliases": [
+          {
+            "ip": "192.168.0.201",
+            "hostnames": ["gitlab.example.com", "registry.example.com"]
+          }
+        ]
+      }
+    }
+  }
+}'
+```
+Após o patch, recriar o ClusterRepo para forçar novo sync:
+```bash
+kubectl delete clusterrepo zomme
+kubectl apply -f - <<EOF
+apiVersion: catalog.cattle.io/v1
+kind: ClusterRepo
+metadata:
+  name: zomme
+spec:
+  gitRepo: https://gitlab.example.com/zomme/charts.git
+  gitBranch: main
+  insecureSkipTLSVerify: true
+EOF
 ```
 
 ---

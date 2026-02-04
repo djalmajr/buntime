@@ -17,6 +17,10 @@ spec:
       labels:
         {{- include "buntime.selectorLabels" . | nindent 8 }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -33,34 +37,26 @@ spec:
                 name: {{ include "buntime.fullname" . }}
             {{- end }}
           volumeMounts:
-            {{- if .Values.persistence.plugins.enabled }}
             - name: plugins
               mountPath: /data/plugins
-            {{- end }}
-            {{- if .Values.persistence.apps.enabled }}
             - name: apps
               mountPath: /data/apps
-            {{- end }}
           livenessProbe:
             httpGet:
-              path: /api/health/live
+              path: {{ .Values.buntime.apiPrefix }}/api/health/live
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /api/health/ready
+              path: {{ .Values.buntime.apiPrefix }}/api/health/ready
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
       volumes:
-        {{- if .Values.persistence.plugins.enabled }}
         - name: plugins
           persistentVolumeClaim:
             claimName: {{ include "buntime.fullname" . }}-plugins
-        {{- end }}
-        {{- if .Values.persistence.apps.enabled }}
         - name: apps
           persistentVolumeClaim:
             claimName: {{ include "buntime.fullname" . }}-apps
-        {{- end }}

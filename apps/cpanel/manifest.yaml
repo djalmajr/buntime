@@ -1,2 +1,3 @@
 entrypoint: dist/index.html
 visibility: protected
+injectBase: true

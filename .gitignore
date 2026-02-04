@@ -23,6 +23,14 @@ charts/buntime/values.yaml
 charts/buntime/templates/configmap.yaml
 charts/buntime/questions.yml
 
-# Planning (local state, not shared)
-.opencode/plans/
-.opencode/planning-state.json
+# Agents
+.claude/*
+!.claude/commands/
+!.claude/hooks/
+!.claude/rules/
+!.claude/settings.json
+.claude/hooks/**/.bypass
+.claude/hooks/**/store.db
+.opencode/*
+!.opencode/commands/
+!.opencode/plugins/

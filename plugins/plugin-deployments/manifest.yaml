@@ -19,8 +19,8 @@ excludes:
 # Config schema for Rancher UI
 config:
   excludes:
-    type: array
+    type: string
     label: Exclude Patterns
-    description: Additional folder patterns to exclude from app listing
-    default: [".cache", "cli", "runtime"]
+    description: "Folder patterns to exclude, comma-separated (e.g., .cache, cli, runtime)"
+    default: ".cache, cli, runtime"
     env: DEPLOYMENTS_EXCLUDES

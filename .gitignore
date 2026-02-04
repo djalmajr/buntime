@@ -19,9 +19,9 @@ packages/cli-go/buntime-cli
 runtime/data
 
 # Helm generated files (regenerate with: bun scripts/generate-helm.ts)
-charts/buntime/values.yaml
-charts/buntime/templates/configmap.yaml
-charts/buntime/questions.yml
+charts/values.yaml
+charts/templates/configmap.yaml
+charts/questions.yml
 
 # Agents
 .claude/*

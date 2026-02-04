@@ -5,7 +5,7 @@
  *
  * Synchronizes version between:
  * - apps/runtime/package.json (version)
- * - charts/buntime/Chart.yaml (appVersion)
+ * - charts/Chart.yaml (appVersion)
  *
  * Usage:
  *   bun scripts/bump-version.ts patch   # 1.0.0 → 1.0.1
@@ -23,7 +23,7 @@ import { parseArgs } from "node:util";
 import { $ } from "bun";
 
 const RUNTIME_PKG_PATH = "apps/runtime/package.json";
-const CHART_PATH = "charts/buntime/Chart.yaml";
+const CHART_PATH = "charts/Chart.yaml";
 
 type BumpType = "patch" | "minor" | "major";
 

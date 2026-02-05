@@ -5,7 +5,7 @@ summary: |
   - Pool manages worker lifecycle (create, reuse, terminate)
   - WorkerConfig: timeout, ttl, idleTimeout, maxRequests, maxBodySize
   - TTL=0: ephemeral (new worker per request), TTL>0: persistent (reused)
-  - Workers receive limited env vars (sensitive vars blocked)
+  - Workers receive env vars from manifest.yaml and .env file
   - RUNTIME_WORKER_DIRS: colon-separated paths to search for apps
 ---
 
@@ -32,7 +32,8 @@ Apps live in directories under `RUNTIME_WORKER_DIRS`:
 ```
 /data/apps/
 ├── my-app/
-│   ├── buntime.yaml     # Optional: worker config
+│   ├── manifest.yaml    # Optional: worker config
+│   ├── .env             # Optional: environment variables
 │   ├── index.ts         # Entrypoint
 │   ├── package.json
 │   └── ...
@@ -40,7 +41,7 @@ Apps live in directories under `RUNTIME_WORKER_DIRS`:
     └── index.ts
 ```
 
-## Worker Config (buntime.yaml)
+## Worker Config (manifest.yaml)
 
 ```yaml
 # Optional configuration for the worker
@@ -113,6 +114,31 @@ maxRequests: 1000 # Recycle after 1000 requests
 
 ## Environment Variables
 
+Workers receive environment variables from two sources:
+
+### 1. manifest.yaml (env:)
+
+```yaml
+# manifest.yaml
+env:
+  API_URL: https://api.example.com
+  PUBLIC_APP_NAME: My App
+```
+
+### 2. .env file (higher priority)
+
+```bash
+# .env
+API_URL=https://api.staging.com  # overrides manifest.yaml
+DATABASE_URL=postgres://...       # only in .env
+```
+
+**Priority order (lower to higher):**
+1. `manifest.yaml` (env:)
+2. `.env` file
+
+Variables in `.env` override those from `manifest.yaml`.
+
 ### Passed to Workers
 
 ```bash
@@ -127,17 +153,9 @@ NODE_ENV=production
 RUNTIME_WORKER_DIRS=/data/.apps:/data/apps
 RUNTIME_PLUGIN_DIRS=/data/.plugins:/data/plugins
 
-# Custom from buntime.yaml env section
+# Custom from manifest.yaml env section and .env file
 MY_VAR=value
 ```
-
-### Blocked from Workers (Security)
-
-These patterns are **never** passed to workers:
-
-- `DATABASE_*`, `DB_*`
-- `*_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`
-- `AWS_*`, `GITHUB_*`, `OPENAI_*`, `ANTHROPIC_*`, `STRIPE_*`
 
 ## Pool Metrics
 

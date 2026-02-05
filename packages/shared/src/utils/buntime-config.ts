@@ -13,6 +13,72 @@ export interface ManifestConfig {
 const MANIFEST_FILES = ["manifest.yaml", "manifest.yml"] as const;
 
 /**
+ * Parse .env file content into key-value pairs
+ * Supports: comments (#), empty lines, quoted values ("" or '')
+ */
+function parseEnvContent(content: string): Record<string, string> {
+  const env: Record<string, string> = {};
+
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+
+    // Skip empty lines and comments
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex === -1) continue;
+
+    const key = trimmed.slice(0, eqIndex).trim();
+    let value = trimmed.slice(eqIndex + 1).trim();
+
+    // Remove surrounding quotes if present
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    env[key] = value;
+  }
+
+  return env;
+}
+
+/**
+ * Load .env file from directory (async version for runtime)
+ *
+ * @returns Empty object if no .env found
+ */
+export async function loadEnvFile(dir: string): Promise<Record<string, string>> {
+  const envPath = join(dir, ".env");
+  const file = Bun.file(envPath);
+
+  if (await file.exists()) {
+    const content = await file.text();
+    return parseEnvContent(content);
+  }
+
+  return {};
+}
+
+/**
+ * Load .env file from directory (sync version for build scripts)
+ *
+ * @returns Empty object if no .env found
+ */
+export function loadEnvFileSync(dir: string): Record<string, string> {
+  const envPath = join(dir, ".env");
+
+  if (existsSync(envPath)) {
+    const content = readFileSync(envPath, "utf-8");
+    return parseEnvContent(content);
+  }
+
+  return {};
+}
+
+/**
  * Load manifest config from directory (sync version for build scripts)
  *
  * Tries in order:

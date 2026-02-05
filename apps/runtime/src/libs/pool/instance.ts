@@ -9,49 +9,6 @@ const logger = getChildLogger("WorkerInstance");
 
 const WORKER_PATH = IS_COMPILED ? "./libs/pool/wrapper.ts" : join(import.meta.dir, "wrapper.ts");
 
-/**
- * Security: Patterns that match sensitive environment variable names
- * These are filtered out to prevent accidental secret leakage to workers
- */
-const SensitiveEnvPatterns = [
-  /^(DATABASE|DB)_/i,
-  /^(API|AUTH|SECRET|PRIVATE)_?KEY/i,
-  /_TOKEN$/i,
-  /_SECRET$/i,
-  /_PASSWORD$/i,
-  /^AWS_/i,
-  /^GITHUB_/i,
-  /^OPENAI_/i,
-  /^ANTHROPIC_/i,
-  /^STRIPE_/i,
-] as const;
-
-/**
- * Filter out sensitive environment variables from worker config
- * Logs a warning when sensitive vars are blocked
- */
-function filterSensitiveEnv(env: Record<string, string> | undefined): Record<string, string> {
-  if (!env) return {};
-
-  const filtered: Record<string, string> = {};
-  const blocked: string[] = [];
-
-  for (const [key, value] of Object.entries(env)) {
-    const isSensitive = SensitiveEnvPatterns.some((pattern) => pattern.test(key));
-    if (isSensitive) {
-      blocked.push(key);
-    } else {
-      filtered[key] = value;
-    }
-  }
-
-  if (blocked.length > 0) {
-    logger.warn("Blocked sensitive env vars from worker", { blocked });
-  }
-
-  return filtered;
-}
-
 export class WorkerInstance {
   private createdAt = Date.now();
   private errorCount = 0;
@@ -74,16 +31,12 @@ export class WorkerInstance {
 
     this.id = crypto.randomUUID();
 
-    // Security: Workers only receive explicit env vars, never inherit from runtime
-    // Sensitive env vars are filtered out to prevent accidental secret leakage
-    const safeEnv = filterSensitiveEnv(config.env);
-
     // Runtime config passed to workers
     const runtimePort = Bun.env.RUNTIME_PORT ?? Bun.env.PORT ?? "8000";
 
     this.worker = new Worker(WORKER_PATH, {
       env: {
-        ...safeEnv,
+        ...config.env,
         // App-specific
         APP_DIR: appDir,
         ENTRYPOINT,

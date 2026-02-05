@@ -38,8 +38,8 @@ cd /data/apps/example-spa
 
 ```
 example-spa/
-├── manifest.yaml
-├── buntime.yaml
+├── manifest.yaml        # Worker config + metadata
+├── .env                 # Optional: environment variables
 ├── package.json
 ├── src/
 │   ├── App.tsx          # Main component
@@ -57,11 +57,6 @@ example-spa/
 name: "@buntime/example-spa"
 base: "/"
 visibility: public
-```
-
-### buntime.yaml
-
-```yaml
 entrypoint: dist/index.html
 ttl: 300
 idleTimeout: 60

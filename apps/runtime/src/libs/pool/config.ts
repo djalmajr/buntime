@@ -1,5 +1,5 @@
 import { getChildLogger } from "@buntime/shared/logger";
-import { loadManifestConfig } from "@buntime/shared/utils/buntime-config";
+import { loadEnvFile, loadManifestConfig } from "@buntime/shared/utils/buntime-config";
 import {
   parseWorkerConfig,
   type WorkerConfig,
@@ -61,16 +61,21 @@ class WorkerConfigError extends Error {
 }
 
 /**
- * Load worker configuration from manifest.yaml
+ * Load worker configuration from manifest.yaml and .env file
  *
  * 1. Loads and validates manifest with Zod schema
- * 2. Parses to normalized format (ms/bytes) via parseWorkerConfig
- * 3. Applies runtime-specific limits (bodySize ceiling)
- * 4. Validates config relationships (ttl >= timeout, etc.)
+ * 2. Loads .env file from app directory (if exists)
+ * 3. Merges env vars: manifest.env < .env file (higher priority)
+ * 4. Parses to normalized format (ms/bytes) via parseWorkerConfig
+ * 5. Applies runtime-specific limits (bodySize ceiling)
+ * 6. Validates config relationships (ttl >= timeout, etc.)
  */
 export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
   // Load config using shared utility
   const rawConfig = await loadManifestConfig(appDir);
+
+  // Load .env file (if exists)
+  const envFileVars = await loadEnvFile(appDir);
 
   // Validate schema and apply defaults
   const { data, error } = workerConfigSchema.safeParse(rawConfig || {});
@@ -82,6 +87,10 @@ export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
 
   // Parse to normalized format (ms/bytes)
   const config = parseWorkerConfig(data as WorkerManifest);
+
+  // Merge env vars: manifest.env < .env file (higher priority)
+  const mergedEnv = { ...config.env, ...envFileVars };
+  const hasEnvVars = Object.keys(mergedEnv).length > 0;
 
   // Apply runtime-specific bodySize limits
   const { bodySize } = getConfig();
@@ -140,6 +149,7 @@ export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
 
   return {
     ...config,
+    env: hasEnvVars ? mergedEnv : undefined,
     idleTimeoutMs,
     maxBodySizeBytes,
   };

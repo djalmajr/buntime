@@ -56,7 +56,7 @@ echo ""
 # 1. Clean destination
 info "Preparing destination..."
 rm -rf "$DEST"
-mkdir -p "$DEST/apps" "$DEST/plugins" "$DEST/data/db"
+mkdir -p "$DEST/apps" "$DEST/plugins" "$DEST/.cache/sqlite"
 
 # 2. Build plugins
 step "Building Plugins"

@@ -38,7 +38,24 @@ menus:
 
 adapters:
   # ---------------------------------------------------------------------------
-  # LibSQL Adapter (Default)
+  # SQLite Adapter (Default for local development)
+  # ---------------------------------------------------------------------------
+  # Best for: Local development, standalone deployments, edge/embedded
+  # Requires: Nothing! Just filesystem access
+  #
+  # Options:
+  #   baseDir - Directory for database files (creates {tenant}.db per tenant)
+  #   url     - Explicit file path (e.g., sqlite:///path/to/db.sqlite)
+  #
+  # Multi-tenancy: Creates separate .db file per tenant
+  #   Base: ./.cache/sqlite/_default.db → Tenant: ./.cache/sqlite/{tenant}.db
+  # ---------------------------------------------------------------------------
+  - type: sqlite
+    baseDir: ./.cache/sqlite/
+    default: true
+
+  # ---------------------------------------------------------------------------
+  # LibSQL Adapter
   # ---------------------------------------------------------------------------
   # Best for: Kubernetes, Docker, production deployments
   # Requires: Running LibSQL server (e.g., docker-compose service)
@@ -51,31 +68,14 @@ adapters:
   # Multi-tenancy: Uses namespaces with subdomain routing
   #   Base: http://libsql:8080 → Tenant: http://{tenant}.libsql:8080
   # ---------------------------------------------------------------------------
-  - type: libsql
-    urls: []  # Auto-detected from DATABASE_LIBSQL_URL env var
-    # urls:
-    #   - http://libsql:8080           # Primary (writes + reads)
-    #   - http://libsql-replica:8080   # Replica (reads only)
-    # authToken: "${DATABASE_LIBSQL_AUTH_TOKEN}"
-    default: true
-
-  # ---------------------------------------------------------------------------
-  # SQLite Adapter
-  # ---------------------------------------------------------------------------
-  # Best for: Local development, standalone deployments, edge/embedded
-  # Requires: Nothing! Just filesystem access
-  #
-  # Options:
-  #   baseDir - Directory for database files (creates {tenant}.db per tenant)
-  #   url     - Explicit file path (e.g., sqlite:///path/to/db.sqlite)
-  #
-  # Multi-tenancy: Creates separate .db file per tenant
-  #   Base: ./data/db/_default.db → Tenant: ./data/db/{tenant}.db
-  # ---------------------------------------------------------------------------
-  # - type: sqlite
-  #   baseDir: ./data/db
+  # - type: libsql
+  #   urls: []  # Auto-detected from DATABASE_LIBSQL_URL env var
+  #   # urls:
+  #   #   - http://libsql:8080           # Primary (writes + reads)
+  #   #   - http://libsql-replica:8080   # Replica (reads only)
+  #   # authToken: "${DATABASE_LIBSQL_AUTH_TOKEN}"
   #   default: true
-  #
+
   # # Or with explicit file path:
   # - type: sqlite
   #   url: sqlite:///var/lib/buntime/main.db

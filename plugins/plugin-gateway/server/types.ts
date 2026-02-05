@@ -1,5 +1,87 @@
 import type { BasePluginConfig } from "@buntime/shared/types";
 import type { CorsConfig } from "./cors";
+import type { MetricsSnapshot, ShellExcludeEntry } from "./persistence";
+import type { BucketInfo, RateLimitMetrics } from "./rate-limit";
+import type { RequestLogEntry } from "./request-log";
+
+// Re-export types for convenience
+export type { BucketInfo, MetricsSnapshot, RateLimitMetrics, RequestLogEntry, ShellExcludeEntry };
+
+/**
+ * SSE data sent to clients in real-time
+ */
+export interface GatewaySSEData {
+  /** Timestamp of this snapshot */
+  timestamp: number;
+
+  /** Rate limiting information */
+  rateLimit: {
+    /** Aggregated metrics */
+    metrics: RateLimitMetrics;
+    /** Configuration */
+    config: {
+      requests: number;
+      window: string;
+      keyBy: "ip" | "user";
+    };
+  } | null;
+
+  /** CORS configuration */
+  cors: {
+    enabled: boolean;
+    origin: string | string[];
+    credentials: boolean;
+    methods: string[];
+  } | null;
+
+  /** Shell configuration */
+  shell: {
+    enabled: boolean;
+    dir: string;
+    excludes: ShellExcludeEntry[];
+  } | null;
+
+  /** Recent log entries */
+  recentLogs: RequestLogEntry[];
+}
+
+/**
+ * Complete gateway stats (for /api/stats endpoint)
+ */
+export interface GatewayStats {
+  /** Rate limiting stats */
+  rateLimit: {
+    enabled: boolean;
+    metrics: RateLimitMetrics | null;
+    config: RateLimitConfig | null;
+  };
+
+  /** CORS stats */
+  cors: {
+    enabled: boolean;
+    config: CorsConfig | null;
+  };
+
+  /** Cache stats (currently disabled) */
+  cache: {
+    enabled: boolean;
+  };
+
+  /** Shell stats */
+  shell: {
+    enabled: boolean;
+    dir: string | null;
+    excludesCount: number;
+  };
+
+  /** Request log stats */
+  logs: {
+    total: number;
+    rateLimited: number;
+    byStatus: Record<string, number>;
+    avgDuration: number;
+  };
+}
 
 export interface RateLimitConfig {
   /**

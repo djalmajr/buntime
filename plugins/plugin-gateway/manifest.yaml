@@ -4,6 +4,7 @@ enabled: true
 
 optionalDependencies:
   - "@buntime/plugin-authn"
+  - "@buntime/plugin-keyval"
 
 entrypoint: dist/client/index.html
 pluginEntry: dist/plugin.js

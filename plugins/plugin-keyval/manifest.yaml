@@ -46,8 +46,8 @@ menus:
 # If you change plugin-database to use sqlite, change this to: sqlite
 # =============================================================================
 
-database: libsql
-# database: sqlite
+# database: libsql
+database: sqlite
 # database: postgres
 
 # =============================================================================

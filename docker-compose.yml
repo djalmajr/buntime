@@ -17,8 +17,8 @@ services:
       - ${GATEWAY_SHELL_DIR:-/tmp/apps/example-spa}:/data/apps/example-spa
     environment:
       RUNTIME_LOG_LEVEL: ${RUNTIME_LOG_LEVEL:-info}
-      RUNTIME_WORKER_DIRS: /data/.apps:/data/apps
       RUNTIME_PLUGIN_DIRS: /data/.plugins:/data/plugins
+      RUNTIME_WORKER_DIRS: /data/.apps:/data/apps
       # Plugin: Database
       DATABASE_LIBSQL_URL: http://libsql:8080
       # Plugin: Gateway

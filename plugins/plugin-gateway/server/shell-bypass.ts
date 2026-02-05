@@ -41,22 +41,36 @@ export function parseCookieValue(cookieHeader: string | null, name: string): str
 
 /**
  * Check if request should bypass shell
+ *
+ * @param pathname - Request pathname
+ * @param cookieHeader - Cookie header value
+ * @param envExcludes - Excludes from environment/config (non-removable)
+ * @param keyvalExcludes - Excludes from KeyVal persistence (removable via dashboard)
  */
 export function shouldBypassShell(
   pathname: string,
   cookieHeader: string | null,
   envExcludes: Set<string>,
+  keyvalExcludes: Set<string> = new Set(),
 ): boolean {
   const basename = extractBasename(pathname);
   if (!basename) return false;
 
-  // 1. Check env excludes
+  // 1. Check env excludes (from environment variable or config)
   if (envExcludes.has(basename)) {
     return true;
   }
 
-  // 2. Check cookie excludes
-  const cookieValue = parseCookieValue(cookieHeader, "GATEWAY_SHELL_EXCLUDES");
+  // 2. Check keyval excludes (from dashboard/persistence)
+  if (keyvalExcludes.has(basename)) {
+    return true;
+  }
+
+  // 3. Check cookie excludes (case-insensitive - accept both lowercase and uppercase)
+  const cookieValue =
+    parseCookieValue(cookieHeader, "gateway_shell_excludes") ||
+    parseCookieValue(cookieHeader, "GATEWAY_SHELL_EXCLUDES");
+
   if (cookieValue) {
     const cookieExcludes = parseBasenames(cookieValue);
     if (cookieExcludes.has(basename)) {

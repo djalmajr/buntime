@@ -387,4 +387,95 @@ describe("loadWorkerConfig", () => {
       expect(config.env).toBeUndefined();
     });
   });
+
+  describe(".env file support", () => {
+    it("should load env variables from .env file", async () => {
+      const uniqueDir = join(baseTestDir, `dotenv-only-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      writeFileSync(join(uniqueDir, ".env"), "FOO=bar\nBAZ=qux");
+
+      const config = await loadWorkerConfig(uniqueDir);
+
+      expect(config.env).toEqual({ FOO: "bar", BAZ: "qux" });
+    });
+
+    it("should merge .env with manifest.yaml env (dotenv has higher priority)", async () => {
+      const uniqueDir = join(baseTestDir, `dotenv-merge-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      writeManifest(uniqueDir, {
+        env: {
+          FOO: "from-manifest",
+          ONLY_MANIFEST: "manifest-value",
+        },
+      });
+      writeFileSync(join(uniqueDir, ".env"), "FOO=from-dotenv\nONLY_DOTENV=dotenv-value");
+
+      const config = await loadWorkerConfig(uniqueDir);
+
+      expect(config.env).toEqual({
+        FOO: "from-dotenv", // .env wins
+        ONLY_MANIFEST: "manifest-value", // from manifest
+        ONLY_DOTENV: "dotenv-value", // from .env
+      });
+    });
+
+    it("should handle .env with comments and empty lines", async () => {
+      const uniqueDir = join(baseTestDir, `dotenv-comments-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      writeFileSync(
+        join(uniqueDir, ".env"),
+        "# This is a comment\nFOO=bar\n\n# Another comment\nBAZ=qux",
+      );
+
+      const config = await loadWorkerConfig(uniqueDir);
+
+      expect(config.env).toEqual({ FOO: "bar", BAZ: "qux" });
+    });
+
+    it("should handle .env with quoted values", async () => {
+      const uniqueDir = join(baseTestDir, `dotenv-quotes-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      writeFileSync(
+        join(uniqueDir, ".env"),
+        "DOUBLE=\"value with spaces\"\nSINGLE='another value'",
+      );
+
+      const config = await loadWorkerConfig(uniqueDir);
+
+      expect(config.env).toEqual({
+        DOUBLE: "value with spaces",
+        SINGLE: "another value",
+      });
+    });
+
+    it("should handle .env with complex values (URLs, special chars)", async () => {
+      const uniqueDir = join(baseTestDir, `dotenv-complex-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      writeFileSync(
+        join(uniqueDir, ".env"),
+        "DATABASE_URL=postgres://user:pass@host:5432/db?ssl=true\nAPI_KEY=abc123!@#$%",
+      );
+
+      const config = await loadWorkerConfig(uniqueDir);
+
+      expect(config.env).toEqual({
+        DATABASE_URL: "postgres://user:pass@host:5432/db?ssl=true",
+        API_KEY: "abc123!@#$%",
+      });
+    });
+
+    it("should return undefined env when neither manifest nor .env has env vars", async () => {
+      const uniqueDir = join(baseTestDir, `dotenv-none-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      const config = await loadWorkerConfig(uniqueDir);
+
+      expect(config.env).toBeUndefined();
+    });
+  });
 });

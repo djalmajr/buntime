@@ -166,7 +166,7 @@ When set (e.g., `/_`), moves **only the runtime internal API**:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DEPLOYMENTS_EXCLUDES` | Excluded folders | `.cache, cli, runtime` |
+| `DEPLOYMENTS_EXCLUDES` | Excluded folders | `.cache, lost+found` |
 
 ## Proxy Rules
 

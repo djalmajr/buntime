@@ -8,7 +8,7 @@
  * @example
  * ```typescript
  * // Comma-separated (default)
- * splitList(".cache, cli, runtime")     // [".cache", "cli", "runtime"]
+ * splitList(".cache, lost+found")     // [".cache", "lost+found"]
  * splitList("a,b,,c")                   // ["a", "b", "c"]
  *
  * // Colon-separated (PATH-style)

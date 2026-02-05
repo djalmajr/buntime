@@ -13,22 +13,122 @@ menus:
     path: /gateway
     title: Gateway
 
-# Rate limiting configuration
+# =============================================================================
+# Micro-Frontend Shell (AppShell)
+# =============================================================================
+# When configured, all browser navigations are served through a central shell
+# application. This enables micro-frontend architecture where multiple apps
+# share a common layout/navigation.
+#
+# shellDir: Path to the shell application (must have manifest.yaml + dist/)
+# shellExcludes: Apps that bypass the shell and render standalone
+#
+# How it works:
+#   1. Browser navigation (Sec-Fetch-Dest: document) → Shell serves the page
+#   2. Shell loads the target app via iframe/web component
+#   3. Excluded apps (shellExcludes) render directly without shell
+#
+# Example:
+#   shellDir: /data/apps/example-spa
+#   shellExcludes: cpanel,admin,legacy
+#
+#   GET /dashboard    → Shell renders, loads /dashboard app inside
+#   GET /cpanel       → CPanel renders directly (excluded)
+#   GET /admin/users  → Admin renders directly (excluded)
+# =============================================================================
+
+# shellDir: ""
+# shellExcludes: cpanel
+
+# =============================================================================
+# Rate Limiting
+# =============================================================================
+# Token bucket algorithm per client (identified by keyBy).
+#
+# Options:
+#   requests     - Max requests per window (bucket size)
+#   window       - Time window: 30s, 1m, 5m, 15m, 1h
+#   keyBy        - Client identifier: ip, header:X-User-Id, cookie:session
+#   excludePaths - Paths that bypass rate limiting (glob patterns)
+#
+# Examples:
+#   # Strict API limits
+#   rateLimit:
+#     requests: 60
+#     window: "1m"
+#     keyBy: "header:Authorization"
+#
+#   # Per-user limits
+#   rateLimit:
+#     requests: 1000
+#     window: "1h"
+#     keyBy: "header:X-User-Id"
+# =============================================================================
+
 rateLimit:
   requests: 100
   window: "1m"
   keyBy: ip
   excludePaths:
     - "/health"
+    - "/_/api/health"
+    # - "/api/public/**"
 
-# Response cache configuration (disabled)
+# =============================================================================
+# Response Cache
+# =============================================================================
+# In-memory cache for GET responses. Useful for expensive computations
+# or external API calls.
+#
+# Options:
+#   ttl        - Cache duration in seconds
+#   methods    - HTTP methods to cache (usually just GET)
+#   maxEntries - Max cached responses (LRU eviction)
+#   varyBy     - Headers to include in cache key
+#
+# Cache key format: method:path:varyHeaders
+#
+# Example:
+#   cache:
+#     ttl: 300
+#     methods: [GET]
+#     maxEntries: 5000
+#     varyBy: [Accept-Language, X-Tenant-Id]
+# =============================================================================
+
 # cache:
 #   ttl: 60
 #   methods:
 #     - GET
 #   maxEntries: 1000
+#   varyBy: []
 
-# CORS configuration
+# =============================================================================
+# CORS (Cross-Origin Resource Sharing)
+# =============================================================================
+# Configure how the server responds to cross-origin requests.
+#
+# Options:
+#   origin      - Allowed origins: "*" for all, or comma-separated list
+#   methods     - Allowed HTTP methods
+#   headers     - Allowed request headers (in addition to simple headers)
+#   credentials - Allow cookies/auth headers (requires specific origin, not "*")
+#   maxAge      - Preflight cache duration in seconds
+#   preflight   - Handle OPTIONS requests automatically
+#
+# Examples:
+#   # Development (allow all)
+#   cors:
+#     origin: "*"
+#     credentials: false
+#
+#   # Production (specific origins with credentials)
+#   cors:
+#     origin: "https://app.example.com,https://admin.example.com"
+#     credentials: true
+#     methods: [GET, POST, PUT, DELETE]
+# =============================================================================
+
 cors:
   origin: "*"
   methods:
@@ -38,11 +138,16 @@ cors:
     - PATCH
     - POST
     - DELETE
+  # headers:
+  #   - X-Custom-Header
   credentials: false
   maxAge: 86400
   preflight: true
 
-# Config schema for Rancher UI
+# =============================================================================
+# Config Schema for Helm/Rancher UI
+# =============================================================================
+
 config:
   shellDir:
     type: string

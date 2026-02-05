@@ -17,30 +17,136 @@ menus:
         path: /database/studio
         title: Studio
 
-# Database adapters configuration
-adapters:
-  - type: libsql
-    # urls[0] = primary, urls[1..n] = replicas
-    # Empty array = use LIBSQL_URL_0 env var
-    urls: []
-    # authToken: "${LIBSQL_AUTH_TOKEN}"
-    default: true
-  # MySQL/PostgreSQL example:
-  # - type: mysql
-  #   url: "mysql://user:pass@localhost:3306/db"
-  # SQLite example:
-  # - type: sqlite
-  #   baseDir: "./data"
+# =============================================================================
+# Database Adapters Configuration
+# =============================================================================
+# Configure one or more database adapters below.
+# Mark one adapter with `default: true` - this will be used by other plugins
+# (keyval, proxy, etc.) unless they explicitly specify a different type.
+#
+# Supported adapter types:
+#   - libsql   : LibSQL/Turso (recommended for production)
+#   - sqlite   : SQLite (great for local development, no dependencies)
+#   - postgres : PostgreSQL
+#   - mysql    : MySQL/MariaDB
+#
+# To switch from LibSQL to SQLite:
+#   1. Comment out the libsql adapter section
+#   2. Uncomment the sqlite adapter section
+#   3. Set DATABASE_LIBSQL_URL= (empty) in .env
+# =============================================================================
 
-# Multi-tenancy configuration
+adapters:
+  # ---------------------------------------------------------------------------
+  # LibSQL Adapter (Default)
+  # ---------------------------------------------------------------------------
+  # Best for: Kubernetes, Docker, production deployments
+  # Requires: Running LibSQL server (e.g., docker-compose service)
+  #
+  # Environment variables:
+  #   DATABASE_LIBSQL_URL      - Primary server URL (required)
+  #   DATABASE_LIBSQL_REPLICAS - Comma-separated replica URLs (optional)
+  #   DATABASE_LIBSQL_AUTH_TOKEN - Authentication token (optional)
+  #
+  # Multi-tenancy: Uses namespaces with subdomain routing
+  #   Base: http://libsql:8080 → Tenant: http://{tenant}.libsql:8080
+  # ---------------------------------------------------------------------------
+  - type: libsql
+    urls: []  # Auto-detected from DATABASE_LIBSQL_URL env var
+    # urls:
+    #   - http://libsql:8080           # Primary (writes + reads)
+    #   - http://libsql-replica:8080   # Replica (reads only)
+    # authToken: "${DATABASE_LIBSQL_AUTH_TOKEN}"
+    default: true
+
+  # ---------------------------------------------------------------------------
+  # SQLite Adapter
+  # ---------------------------------------------------------------------------
+  # Best for: Local development, standalone deployments, edge/embedded
+  # Requires: Nothing! Just filesystem access
+  #
+  # Options:
+  #   baseDir - Directory for database files (creates {tenant}.db per tenant)
+  #   url     - Explicit file path (e.g., sqlite:///path/to/db.sqlite)
+  #
+  # Multi-tenancy: Creates separate .db file per tenant
+  #   Base: ./data/db/_default.db → Tenant: ./data/db/{tenant}.db
+  # ---------------------------------------------------------------------------
+  # - type: sqlite
+  #   baseDir: ./data/db
+  #   default: true
+  #
+  # # Or with explicit file path:
+  # - type: sqlite
+  #   url: sqlite:///var/lib/buntime/main.db
+  #   default: true
+  #
+  # # Or in-memory (for testing):
+  # - type: sqlite
+  #   url: sqlite://:memory:
+  #   default: true
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Adapter
+  # ---------------------------------------------------------------------------
+  # Best for: Existing PostgreSQL infrastructure, complex queries
+  #
+  # Connection URL format:
+  #   postgres://user:password@host:port/database
+  #   postgres://user:password@host:port/database?sslmode=require
+  #
+  # Multi-tenancy: Uses schemas (1 tenant = 1 schema)
+  # ---------------------------------------------------------------------------
+  # - type: postgres
+  #   url: postgres://buntime:secret@localhost:5432/buntime
+  #   default: false
+
+  # ---------------------------------------------------------------------------
+  # MySQL Adapter
+  # ---------------------------------------------------------------------------
+  # Best for: Existing MySQL/MariaDB infrastructure
+  #
+  # Connection URL format:
+  #   mysql://user:password@host:port/database
+  #
+  # Multi-tenancy: Uses databases (1 tenant = 1 database)
+  # ---------------------------------------------------------------------------
+  # - type: mysql
+  #   url: mysql://buntime:secret@localhost:3306/buntime
+  #   default: false
+
+# =============================================================================
+# Multi-Tenancy Configuration
+# =============================================================================
+# Enable to isolate data per tenant (customer, workspace, organization, etc.)
+#
+# How it works:
+#   1. Tenant ID is extracted from HTTP header (default: x-tenant-id)
+#   2. Each adapter isolates data differently:
+#      - libsql: namespaces (subdomain routing)
+#      - sqlite: separate .db files
+#      - postgres: schemas
+#      - mysql: databases
+#   3. If autoCreate=true, tenant is created on first request
+#
+# Example request:
+#   curl -H "x-tenant-id: acme-corp" http://localhost:8000/database/api/query
+# =============================================================================
+
 tenancy:
   enabled: false
-  header: x-tenant-id
-  defaultTenant: default
-  autoCreate: true
-  maxTenants: 1000
+  header: x-tenant-id       # HTTP header containing tenant ID
+  defaultTenant: default    # Used when header is missing
+  autoCreate: true          # Auto-create tenant on first request
+  maxTenants: 1000          # Max cached tenant connections (LRU eviction)
 
-# Config schema for Rancher UI
+# =============================================================================
+# Config Schema for Helm/Rancher UI
+# =============================================================================
+# These fields generate Helm values.yaml and Rancher questions.yml
+# They map to environment variables for Kubernetes deployments
+# =============================================================================
+
 config:
   libsqlUrl:
     type: string

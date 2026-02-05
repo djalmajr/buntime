@@ -13,18 +13,106 @@ menus:
     path: /redirects
     title: Redirects
 
-# Static proxy rules (dynamic rules via keyval plugin)
+# =============================================================================
+# Proxy Rules Configuration
+# =============================================================================
+# Define HTTP reverse proxy rules. Requests matching a pattern are forwarded
+# to a target URL with optional path rewriting.
+#
+# Rules can be defined here (static) or managed via the KeyVal API (dynamic).
+# Dynamic rules are stored in the database and take precedence over static rules.
+#
+# Rule options:
+#   id            - Unique identifier
+#   name          - Human-readable name
+#   pattern       - Regex pattern to match request path
+#   target        - Destination URL (protocol + host)
+#   rewrite       - Path rewrite pattern (use $1, $2 for capture groups)
+#   changeOrigin  - Rewrite Host header to target host
+#   secure        - Verify SSL certificates
+#   ws            - Enable WebSocket proxying
+#   base          - Base path to strip before forwarding
+#   relativePaths - Convert absolute paths in response to relative
+#   headers       - Custom headers to add to proxied request
+#   publicRoutes  - Paths that bypass authentication (per HTTP method)
+#
+# Dynamic rules API:
+#   GET    /redirects/api/rules      - List all rules
+#   POST   /redirects/api/rules      - Create rule
+#   PUT    /redirects/api/rules/:id  - Update rule
+#   DELETE /redirects/api/rules/:id  - Delete rule
+# =============================================================================
+
 rules: []
-  # Example: Proxy /app/* to localhost:4000
-  # - id: app-proxy
-  #   name: App Proxy
-  #   pattern: "^/app(/.*)?$"
-  #   target: http://localhost:4000
+
+  # ---------------------------------------------------------------------------
+  # Example: API Gateway
+  # ---------------------------------------------------------------------------
+  # Proxy /api/* to a backend service
+  #
+  # - id: api-backend
+  #   name: Backend API
+  #   pattern: "^/api(/.*)?$"
+  #   target: http://backend:3000
   #   rewrite: "$1"
   #   changeOrigin: true
-  #   secure: true
-  #   ws: true
-  #   base: /app
-  #   relativePaths: false
+  #   publicRoutes:
+  #     GET: ["/api/health", "/api/config"]
+  #     POST: ["/api/webhooks/**"]
+
+  # ---------------------------------------------------------------------------
+  # Example: Legacy Application
+  # ---------------------------------------------------------------------------
+  # Proxy /legacy/* to an old application, stripping the prefix
+  #
+  # - id: legacy-app
+  #   name: Legacy App
+  #   pattern: "^/legacy(/.*)?$"
+  #   target: http://legacy-server:8080
+  #   rewrite: "$1"
+  #   base: /legacy
+  #   changeOrigin: true
   #   headers:
-  #     X-Custom-Header: value
+  #     X-Forwarded-Prefix: /legacy
+
+  # ---------------------------------------------------------------------------
+  # Example: WebSocket Proxy
+  # ---------------------------------------------------------------------------
+  # Proxy WebSocket connections to a real-time service
+  #
+  # - id: ws-realtime
+  #   name: Realtime WebSocket
+  #   pattern: "^/ws(/.*)?$"
+  #   target: ws://realtime-service:9000
+  #   rewrite: "$1"
+  #   ws: true
+  #   changeOrigin: true
+
+  # ---------------------------------------------------------------------------
+  # Example: External API with Auth
+  # ---------------------------------------------------------------------------
+  # Proxy to external API, adding authentication header
+  #
+  # - id: external-api
+  #   name: External API
+  #   pattern: "^/external(/.*)?$"
+  #   target: https://api.external-service.com
+  #   rewrite: "/v2$1"
+  #   secure: true
+  #   changeOrigin: true
+  #   headers:
+  #     Authorization: "Bearer ${EXTERNAL_API_TOKEN}"
+  #     X-Client-Id: buntime
+
+  # ---------------------------------------------------------------------------
+  # Example: Static Assets CDN
+  # ---------------------------------------------------------------------------
+  # Proxy static assets to a CDN
+  #
+  # - id: cdn-assets
+  #   name: CDN Assets
+  #   pattern: "^/cdn(/.*)?$"
+  #   target: https://cdn.example.com
+  #   rewrite: "/assets$1"
+  #   secure: true
+  #   changeOrigin: true

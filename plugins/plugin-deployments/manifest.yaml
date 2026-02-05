@@ -10,17 +10,68 @@ menus:
     path: /deployments
     title: Deployments
 
-# Folder patterns to exclude from listing (merged with defaults: [".git", "node_modules"])
+# =============================================================================
+# Deployments Plugin
+# =============================================================================
+# Manages deployed applications in the runtime.
+#
+# Features:
+#   - List all deployed apps with versions
+#   - Upload new apps (tar.gz archives)
+#   - Download apps as archives
+#   - Delete app versions
+#   - View app manifests and files
+#
+# App structure (in RUNTIME_WORKER_DIRS):
+#   /data/apps/
+#   ├── my-app/
+#   │   ├── 1.0.0/
+#   │   │   ├── manifest.yaml
+#   │   │   └── dist/
+#   │   └── 1.0.1/
+#   │       ├── manifest.yaml
+#   │       └── dist/
+#   └── another-app/
+#       └── latest/
+#           ├── manifest.yaml
+#           └── dist/
+#
+# API:
+#   GET    /deployments/api/apps           - List all apps
+#   GET    /deployments/api/apps/:name     - Get app details
+#   POST   /deployments/api/apps/:name     - Upload new version
+#   DELETE /deployments/api/apps/:name/:version - Delete version
+#   GET    /deployments/api/apps/:name/:version/download - Download as tar.gz
+# =============================================================================
+
+# =============================================================================
+# Exclude Patterns
+# =============================================================================
+# Folder patterns to exclude from app listings.
+# These are merged with defaults: [".git", "node_modules"]
+#
+# Common excludes:
+#   - .cache      : Build cache directories
+#   - lost+found  : Linux filesystem recovery directory
+#   - .DS_Store   : macOS metadata (file, not folder)
+#   - __pycache__ : Python cache
+#   - .next       : Next.js build output (if not deploying)
+# =============================================================================
+
 excludes:
   - ".cache"
-  - cli
-  - runtime
+  - "lost+found"
+  # - "__pycache__"
+  # - ".next"
 
-# Config schema for Rancher UI
+# =============================================================================
+# Config Schema for Helm/Rancher UI
+# =============================================================================
+
 config:
   excludes:
     type: string
     label: Exclude Patterns
-    description: "Folder patterns to exclude, comma-separated (e.g., .cache, cli, runtime)"
-    default: ".cache, cli, runtime"
+    description: "Folder patterns to exclude, comma-separated (e.g., .cache, lost+found)"
+    default: ".cache, lost+found"
     env: DEPLOYMENTS_EXCLUDES

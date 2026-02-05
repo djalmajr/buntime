@@ -52,7 +52,7 @@ if (Bun.env.RUNTIME_WORKER_DIRS) {
 }
 
 if (Bun.env.DEPLOYMENTS_EXCLUDES) {
-  // Excludes are comma-separated (e.g., ".cache, cli, runtime")
+  // Excludes are comma-separated (e.g., ".cache, lost+found")
   const excludes = splitList(Bun.env.DEPLOYMENTS_EXCLUDES);
   if (excludes.length > 0) {
     setExcludes(excludes);

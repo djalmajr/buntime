@@ -35,15 +35,73 @@ menus:
         path: /keyval/metrics
         title: Metrics
 
-# Database adapter type
-database: libsql
+# =============================================================================
+# Database Adapter Selection
+# =============================================================================
+# Which database adapter to use from plugin-database.
+# Must match one of the adapter types configured in plugin-database/manifest.yaml
+#
+# Options: libsql, sqlite, postgres, mysql
+#
+# If you change plugin-database to use sqlite, change this to: sqlite
+# =============================================================================
 
-# Metrics configuration
+database: libsql
+# database: sqlite
+# database: postgres
+
+# =============================================================================
+# Metrics Configuration
+# =============================================================================
+# Track read/write/delete operations for monitoring.
+#
+# Options:
+#   persistent    - Store metrics in database (survives restarts)
+#   flushInterval - How often to flush in-memory metrics to DB (ms)
+#
+# When persistent=false, metrics are in-memory only and reset on restart.
+# =============================================================================
+
 metrics:
   persistent: false
-  flushInterval: 30000
+  flushInterval: 30000  # 30 seconds
 
-# Queue configuration
+# =============================================================================
+# Queue Configuration
+# =============================================================================
+# Built-in message queue backed by the same database.
+#
+# Options:
+#   cleanupInterval - How often to remove completed/expired jobs (ms)
+#   lockDuration    - How long a job stays locked while processing (ms)
+#
+# Queue features:
+#   - FIFO ordering with priorities
+#   - At-least-once delivery
+#   - Dead letter queue for failed jobs
+#   - Delayed/scheduled jobs
+# =============================================================================
+
 queue:
-  cleanupInterval: 60000
-  lockDuration: 30000
+  cleanupInterval: 60000   # 1 minute
+  lockDuration: 30000      # 30 seconds
+
+# =============================================================================
+# Watch Configuration (Real-time Updates)
+# =============================================================================
+# Server-Sent Events (SSE) for real-time key change notifications.
+#
+# Options:
+#   enabled     - Enable/disable watch functionality
+#   maxWatchers - Max concurrent SSE connections
+#   heartbeat   - Keep-alive interval (ms)
+#
+# Usage:
+#   GET /keyval/api/watch?key=mykey
+#   GET /keyval/api/watch?prefix=config:
+# =============================================================================
+
+# watch:
+#   enabled: true
+#   maxWatchers: 1000
+#   heartbeat: 30000

@@ -5,12 +5,12 @@ describe("splitList", () => {
   describe("default separator (comma)", () => {
     it("should split comma-separated values", () => {
       expect(splitList("a,b,c")).toEqual(["a", "b", "c"]);
-      expect(splitList(".cache,cli,runtime")).toEqual([".cache", "cli", "runtime"]);
+      expect(splitList(".cache,lost+found")).toEqual([".cache", "lost+found"]);
     });
 
     it("should trim whitespace from values", () => {
       expect(splitList("  a , b , c  ")).toEqual(["a", "b", "c"]);
-      expect(splitList(".cache, cli, runtime")).toEqual([".cache", "cli", "runtime"]);
+      expect(splitList(".cache, lost+found")).toEqual([".cache", "lost+found"]);
     });
 
     it("should filter empty values", () => {

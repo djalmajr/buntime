@@ -73,8 +73,9 @@ if (!ENTRYPOINT) throw new Error(Errors.INVALID_ENTRY);
 // Security: Validate entrypoint is within APP_DIR to prevent path traversal
 // This prevents malicious configs from loading files outside the app directory
 const { resolve } = await import("node:path");
-const resolvedEntry = resolve(APP_DIR, ENTRYPOINT);
-if (!resolvedEntry.startsWith(APP_DIR)) {
+const resolvedAppDir = resolve(APP_DIR);
+const resolvedEntry = resolve(ENTRYPOINT);
+if (!resolvedEntry.startsWith(resolvedAppDir)) {
   throw new Error(`Security: Entrypoint "${ENTRYPOINT}" escapes app directory`);
 }
 

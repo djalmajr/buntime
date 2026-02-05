@@ -1,4 +1,37 @@
 /**
+ * Rate limiter metrics
+ */
+export interface RateLimitMetrics {
+  /** Total requests processed */
+  totalRequests: number;
+  /** Requests that were blocked (rate limited) */
+  blockedRequests: number;
+  /** Requests that were allowed */
+  allowedRequests: number;
+  /** Number of active buckets (unique keys being tracked) */
+  activeBuckets: number;
+  /** Configuration */
+  config: {
+    capacity: number;
+    windowSeconds: number;
+  };
+}
+
+/**
+ * Information about an active bucket
+ */
+export interface BucketInfo {
+  /** The key (IP, user ID, etc.) */
+  key: string;
+  /** Current tokens available */
+  tokens: number;
+  /** Seconds until next token (0 if tokens available) */
+  retryAfter: number;
+  /** Last activity timestamp */
+  lastActivity: number;
+}
+
+/**
  * Token Bucket Rate Limiter
  *
  * Algorithm:
@@ -10,6 +43,7 @@
 export class TokenBucket {
   private tokens: number;
   private lastRefill: number;
+  private _lastActivity: number;
 
   constructor(
     private capacity: number,
@@ -17,6 +51,14 @@ export class TokenBucket {
   ) {
     this.tokens = capacity;
     this.lastRefill = Date.now();
+    this._lastActivity = Date.now();
+  }
+
+  /**
+   * Get last activity timestamp
+   */
+  get lastActivity(): number {
+    return this._lastActivity;
   }
 
   /**
@@ -25,6 +67,7 @@ export class TokenBucket {
    */
   consume(): boolean {
     this.refill();
+    this._lastActivity = Date.now();
 
     if (this.tokens < 1) {
       return false;
@@ -61,11 +104,16 @@ export class TokenBucket {
 }
 
 /**
- * Rate Limiter with per-key buckets
+ * Rate Limiter with per-key buckets and metrics
  */
 export class RateLimiter {
   private buckets: Map<string, TokenBucket> = new Map();
   private cleanupInterval: Timer | null = null;
+
+  // Metrics counters
+  private _totalRequests = 0;
+  private _blockedRequests = 0;
+  private _allowedRequests = 0;
 
   constructor(
     private capacity: number,
@@ -91,7 +139,93 @@ export class RateLimiter {
     const remaining = bucket.getTokens();
     const retryAfter = bucket.getRetryAfter();
 
+    // Update metrics
+    this._totalRequests++;
+    if (allowed) {
+      this._allowedRequests++;
+    } else {
+      this._blockedRequests++;
+    }
+
     return { allowed, remaining, retryAfter };
+  }
+
+  /**
+   * Get aggregated metrics
+   */
+  getMetrics(): RateLimitMetrics {
+    return {
+      totalRequests: this._totalRequests,
+      blockedRequests: this._blockedRequests,
+      allowedRequests: this._allowedRequests,
+      activeBuckets: this.buckets.size,
+      config: {
+        capacity: this.capacity,
+        windowSeconds: this.windowSeconds,
+      },
+    };
+  }
+
+  /**
+   * Get information about all active buckets
+   */
+  getActiveBuckets(): BucketInfo[] {
+    const buckets: BucketInfo[] = [];
+
+    for (const [key, bucket] of this.buckets) {
+      buckets.push({
+        key,
+        tokens: bucket.getTokens(),
+        retryAfter: bucket.getRetryAfter(),
+        lastActivity: bucket.lastActivity,
+      });
+    }
+
+    // Sort by last activity (most recent first)
+    return buckets.sort((a, b) => b.lastActivity - a.lastActivity);
+  }
+
+  /**
+   * Get top N clients by request volume (estimated by tokens consumed)
+   */
+  getTopClients(limit = 10): BucketInfo[] {
+    const buckets = this.getActiveBuckets();
+
+    // Sort by tokens consumed (capacity - current tokens = consumed since last refill)
+    return buckets
+      .map((b) => ({
+        ...b,
+        consumed: this.capacity - b.tokens,
+      }))
+      .sort((a, b) => b.consumed - a.consumed)
+      .slice(0, limit);
+  }
+
+  /**
+   * Clear a specific bucket
+   * @returns true if bucket existed and was removed
+   */
+  clearBucket(key: string): boolean {
+    return this.buckets.delete(key);
+  }
+
+  /**
+   * Clear all buckets
+   * @returns number of buckets cleared
+   */
+  clearAllBuckets(): number {
+    const count = this.buckets.size;
+    this.buckets.clear();
+    return count;
+  }
+
+  /**
+   * Reset metrics counters (useful for testing)
+   */
+  resetMetrics(): void {
+    this._totalRequests = 0;
+    this._blockedRequests = 0;
+    this._allowedRequests = 0;
   }
 
   /**
@@ -121,7 +255,7 @@ export class RateLimiter {
   }
 
   /**
-   * Clear all buckets
+   * Clear all buckets (legacy method for compatibility)
    */
   clear(): void {
     this.buckets.clear();

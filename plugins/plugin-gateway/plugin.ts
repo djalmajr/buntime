@@ -1,10 +1,16 @@
 import type { PluginContext, PluginImpl } from "@buntime/shared/types";
 import { loadManifestConfig } from "@buntime/shared/utils/buntime-config";
 import { parseWorkerConfig, type WorkerConfig } from "@buntime/shared/utils/worker-config";
-import { createGatewayApi } from "./server/api";
-// import { ResponseCache } from "./server/cache"; // Cache disabled
+import { createGatewayApi, type GatewayApiDeps } from "./server/api";
 import { handlePreflight } from "./server/cors";
+import {
+  createPersistence,
+  type GatewayPersistence,
+  type KvLike,
+  type MetricsSnapshot,
+} from "./server/persistence";
 import { parseWindow, RateLimiter } from "./server/rate-limit";
+import { RequestLogger } from "./server/request-log";
 import { parseBasenames, shouldBypassShell } from "./server/shell-bypass";
 import type { GatewayConfig } from "./server/types";
 
@@ -34,20 +40,25 @@ interface ResolvedShell {
   config: WorkerConfig;
 }
 
+// Module-level state
 let rateLimiter: RateLimiter | null = null;
-// let responseCache: ResponseCache | null = null; // Cache disabled
+let requestLogger: RequestLogger;
+let persistence: GatewayPersistence;
 let config: GatewayConfig = {};
 let rateLimitExcludePatterns: RegExp[] = [];
-// let cacheExcludePatterns: RegExp[] = []; // Cache disabled
 let logger: PluginContext["logger"];
 
 // Micro-frontend shell state
 let pool: PoolLike | null = null;
 let shell: ResolvedShell | null = null;
-let shellExcludes: Set<string> = new Set();
+let shellEnvExcludes: Set<string> = new Set();
+let shellKeyValExcludes: Set<string> = new Set();
 
 // Runtime API path (from context)
 let apiPath: string = "/api";
+
+// Note: onResponse doesn't receive original request, so we log in onRequest only
+// This means we log rate-limited requests and shell requests, but not others
 
 function getClientIp(req: Request): string {
   return (
@@ -85,12 +96,28 @@ function isExcluded(pathname: string, patterns: RegExp[]): boolean {
 }
 
 /**
+ * Create a metrics snapshot from current state
+ */
+function createMetricsSnapshot(): MetricsSnapshot {
+  const metrics = rateLimiter?.getMetrics();
+  return {
+    timestamp: Date.now(),
+    totalRequests: metrics?.totalRequests ?? 0,
+    blockedRequests: metrics?.blockedRequests ?? 0,
+    allowedRequests: metrics?.allowedRequests ?? 0,
+    activeBuckets: metrics?.activeBuckets ?? 0,
+  };
+}
+
+/**
  * Gateway plugin for Buntime
  *
  * Provides:
  * - Rate limiting (token bucket algorithm)
- * - Response caching (in-memory)
  * - CORS handling
+ * - Micro-frontend shell
+ * - Request logging
+ * - Metrics persistence
  *
  * @example
  * ```yaml
@@ -102,10 +129,6 @@ function isExcluded(pathname: string, patterns: RegExp[]): boolean {
  *   requests: 100
  *   window: 1m
  *   keyBy: ip
- * cache:
- *   ttl: 300
- *   methods:
- *     - GET
  * cors:
  *   origin: "*"
  *   credentials: false
@@ -114,11 +137,33 @@ function isExcluded(pathname: string, patterns: RegExp[]): boolean {
 export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginImpl {
   config = pluginConfig;
 
-  const routes = createGatewayApi(
-    () => config,
-    () => (rateLimiter ? { enabled: true } : null),
-    () => null, // responseCache Cache disabled
-  );
+  // Initialize request logger (always available)
+  requestLogger = new RequestLogger(100);
+
+  // Initialize persistence (will connect to KeyVal in onInit)
+  persistence = createPersistence();
+
+  // Create API dependencies
+  const apiDeps: GatewayApiDeps = {
+    getConfig: () => config,
+    getRateLimiter: () => rateLimiter,
+    getResponseCache: () => null, // Cache disabled
+    getRequestLogger: () => requestLogger,
+    getPersistence: () => persistence,
+    getShellConfig: () =>
+      shell
+        ? {
+            dir: shell.dir,
+            envExcludes: shellEnvExcludes,
+            keyvalExcludes: shellKeyValExcludes,
+            addKeyValExclude: (basename: string) => shellKeyValExcludes.add(basename),
+            removeKeyValExclude: (basename: string) => shellKeyValExcludes.delete(basename),
+          }
+        : null,
+    sseInterval: 1000,
+  };
+
+  const routes = createGatewayApi(apiDeps);
 
   return {
     async onInit(ctx: PluginContext) {
@@ -138,31 +183,17 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
         logger.info(`Rate limiting: ${requests} requests per ${config.rateLimit.window ?? "1m"}`);
       }
 
-      // Initialize cache (disabled)
-      // if (config.cache) {
-      //   responseCache = new ResponseCache(config.cache.maxEntries ?? 1000);
-      //   responseCache.startCleanup();
-      //
-      //   cacheExcludePatterns = (config.cache.excludePaths ?? []).map((p) => new RegExp(p));
-      //
-      //   logger.info(
-      //     `Response caching: TTL ${config.cache.ttl ?? 60}s, methods ${(config.cache.methods ?? ["GET"]).join(", ")}`,
-      //   );
-      // }
-
       // Log CORS config
       if (config.cors) {
         logger.info(`CORS enabled: origin=${JSON.stringify(config.cors.origin)}`);
       }
 
       // Initialize micro-frontend shell
-      // Check env var first, then config
       const shellPath = Bun.env.GATEWAY_SHELL_DIR || config.shellDir;
       if (shellPath && ctx.pool) {
         pool = ctx.pool as PoolLike;
 
         try {
-          // Load and parse shell config using shared utilities
           const manifestConfig = await loadManifestConfig(shellPath);
           const shellConfig = parseWorkerConfig(manifestConfig);
 
@@ -174,54 +205,77 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
 
           // Parse shell excludes from env var and config
           const envExcludes = Bun.env.GATEWAY_SHELL_EXCLUDES || config.shellExcludes || "";
-          shellExcludes = parseBasenames(envExcludes);
-          if (shellExcludes.size > 0) {
-            logger.info(`Shell bypass basenames: ${Array.from(shellExcludes).join(", ")}`);
+          shellEnvExcludes = parseBasenames(envExcludes);
+          if (shellEnvExcludes.size > 0) {
+            logger.info(`Shell bypass basenames: ${Array.from(shellEnvExcludes).join(", ")}`);
           }
         } catch (err) {
           logger.error(`Failed to load shell config from ${shellPath}`, { error: err });
         }
       }
+
+      // Initialize persistence with KeyVal
+      try {
+        const keyval = ctx.getPlugin("@buntime/plugin-keyval") as KvLike | null;
+        if (keyval && typeof keyval.get === "function") {
+          await persistence.init(keyval, logger);
+
+          // Load persisted shell excludes into memory
+          const persistedExcludes = await persistence.getShellExcludes();
+          shellKeyValExcludes = new Set(persistedExcludes);
+          if (persistedExcludes.length > 0) {
+            logger.info(
+              `Loaded ${persistedExcludes.length} shell excludes from KeyVal: ${persistedExcludes.join(", ")}`,
+            );
+          }
+
+          // Start metrics snapshot collection
+          if (rateLimiter) {
+            persistence.startSnapshotCollection(createMetricsSnapshot);
+            logger.debug("Started metrics snapshot collection");
+          }
+        } else {
+          logger.warn("KeyVal plugin not available, persistence disabled");
+        }
+      } catch (err) {
+        logger.warn("Failed to initialize persistence", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     },
 
-    onShutdown() {
+    async onShutdown() {
       rateLimiter?.stopCleanup();
-      // responseCache?.stopCleanup(); // Cache disabled
+      await persistence.shutdown();
     },
 
     async onRequest(req, _app) {
       const url = new URL(req.url);
+      const startTime = performance.now();
+      const ip = getClientIp(req);
 
       // 0. Micro-frontend shell
-      // Shell serves all document navigations and root-level assets
       if (shell && pool) {
         const secFetchDest = req.headers.get(HttpHeaders.SEC_FETCH_DEST);
         const cookieHeader = req.headers.get("cookie");
 
-        // Document navigation (browser address bar, links, form submissions)
         const isDocument = secFetchDest === "document";
-
-        // Frame embeddings should go to their respective workers, not shell
         const isFrameEmbedding =
           secFetchDest === "iframe" || secFetchDest === "embed" || secFetchDest === "object";
-
-        // Root path = no subpath (e.g., "/chunk.css" not "/deployments/chunk.css")
         const isRootPath = !url.pathname.slice(1).includes("/");
-
-        // API routes are handled by other parts of the system
         const isApiRoute = url.pathname === apiPath || url.pathname.startsWith(`${apiPath}/`);
 
-        // Check if basename is excluded from shell (via env or cookie)
-        const shouldBypass = shouldBypassShell(url.pathname, cookieHeader, shellExcludes);
+        // Check env excludes, keyval excludes, and cookie excludes
+        const shouldBypass = shouldBypassShell(
+          url.pathname,
+          cookieHeader,
+          shellEnvExcludes,
+          shellKeyValExcludes,
+        );
 
-        // Shell serves:
-        // 1. All document navigations (shell owns all pages) - unless bypassed
-        // 2. Root path requests that are not frame embeddings (shell's assets)
         if (!isApiRoute && !shouldBypass && (isDocument || (isRootPath && !isFrameEmbedding))) {
           logger.debug(`Shell serving: ${url.pathname} (dest: ${secFetchDest || "none"})`);
 
-          // Add x-base header for <base href> injection (shell always serves from root)
-          // This enables SPAs with relative asset paths to work under any route
           const reqWithBase = new Request(req.url, {
             method: req.method,
             headers: new Headers(req.headers),
@@ -232,7 +286,6 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
           return pool.fetch(shell.dir, shell.config, reqWithBase);
         }
 
-        // Log bypass for debugging
         if (shouldBypass && isDocument) {
           logger.debug(`Shell bypassed: ${url.pathname}`);
         }
@@ -253,6 +306,16 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
 
         if (!result.allowed) {
           logger.debug(`Rate limited: ${key}`);
+
+          // Log the rate limited request
+          requestLogger.log({
+            ip,
+            method: req.method,
+            path: url.pathname,
+            status: 429,
+            duration: performance.now() - startTime,
+            rateLimited: true,
+          });
 
           return new Response(JSON.stringify({ error: "Too Many Requests" }), {
             status: 429,
@@ -277,42 +340,16 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
         req = newReq;
       }
 
-      // 3. Check cache (disabled)
-      // if (responseCache && !isExcluded(url.pathname, cacheExcludePatterns)) {
-      //   const methods = config.cache?.methods ?? ["GET"];
-      //
-      //   if (responseCache.isCacheable(req, methods)) {
-      //     const key = responseCache.getKey(req);
-      //     const cached = responseCache.get(key);
-      //
-      //     if (cached) {
-      //       logger.debug(`Cache hit: ${key}`);
-      //
-      //       // Add CORS headers if needed
-      //       if (config.cors) {
-      //         return addCorsHeaders(req, cached, config.cors);
-      //       }
-      //
-      //       return cached;
-      //     }
-      //   }
-      // }
-
       // Continue to next handler
       return;
     },
 
     async onResponse(res, _app) {
-      // Store in cache (disabled)
-      // if (responseCache) {
-      //   // Need access to original request - not available here
-      //   // Cache storing is handled in a different way (would need middleware pattern)
-      // }
+      // Note: onResponse doesn't receive original request, so we can't log here
+      // Requests are logged in onRequest for rate-limited cases
 
       // Add CORS headers
       if (config.cors) {
-        // Need access to original request for origin check
-        // For now, add permissive headers
         const headers = new Headers(res.headers);
 
         if (config.cors.origin === "*") {
@@ -344,8 +381,8 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
 // Named exports
 export { gatewayPlugin };
 export type { GatewayRoutesType } from "./server/api";
-// export { ResponseCache } from "./server/cache"; // Cache disabled
 export type { CorsConfig } from "./server/cors";
+export { createPersistence, GatewayPersistence } from "./server/persistence";
 export { parseWindow, RateLimiter, TokenBucket } from "./server/rate-limit";
-export type { GatewayConfig, RateLimitConfig } from "./server/types";
-// export type { CacheConfig } from "./server/types"; // Cache disabled
+export { RequestLogger } from "./server/request-log";
+export type { GatewayConfig, GatewaySSEData, GatewayStats, RateLimitConfig } from "./server/types";

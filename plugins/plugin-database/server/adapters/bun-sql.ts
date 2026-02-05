@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { SQL } from "bun";
 import type { BunSqlAdapterConfig, DatabaseAdapter, Statement, TransactionAdapter } from "../types";
 
@@ -30,6 +31,8 @@ export class BunSqlAdapter implements DatabaseAdapter {
     } else if (config.url) {
       url = config.url;
     } else if (config.type === "sqlite" && config.baseDir) {
+      // Ensure directory exists (creates if needed)
+      mkdirSync(config.baseDir, { recursive: true });
       // Root adapter uses _default.db when no URL is provided
       url = `sqlite://${config.baseDir}/_default.db`;
     } else {

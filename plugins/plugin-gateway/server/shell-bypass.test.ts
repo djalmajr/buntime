@@ -110,7 +110,7 @@ describe("shouldBypassShell", () => {
     expect(shouldBypassShell("/app/home", null, envExcludes)).toBe(false);
   });
 
-  it("bypasses when basename in cookie excludes", () => {
+  it("bypasses when basename in cookie excludes (uppercase)", () => {
     const cookies = "GATEWAY_SHELL_EXCLUDES=dashboard,reports";
     expect(shouldBypassShell("/dashboard", cookies, envExcludes)).toBe(true);
     expect(shouldBypassShell("/reports/monthly", cookies, envExcludes)).toBe(true);
@@ -133,5 +133,73 @@ describe("shouldBypassShell", () => {
   it("handles empty env excludes", () => {
     const emptySet = new Set<string>();
     expect(shouldBypassShell("/admin", null, emptySet)).toBe(false);
+  });
+});
+
+describe("shouldBypassShell with keyvalExcludes", () => {
+  const envExcludes = new Set(["admin"]);
+  const keyvalExcludes = new Set(["dashboard", "reports"]);
+
+  it("bypasses when basename in keyval excludes", () => {
+    expect(shouldBypassShell("/dashboard", null, envExcludes, keyvalExcludes)).toBe(true);
+    expect(shouldBypassShell("/reports/monthly", null, envExcludes, keyvalExcludes)).toBe(true);
+  });
+
+  it("env excludes still work with keyval", () => {
+    expect(shouldBypassShell("/admin", null, envExcludes, keyvalExcludes)).toBe(true);
+  });
+
+  it("does not bypass when not in any excludes", () => {
+    expect(shouldBypassShell("/other", null, envExcludes, keyvalExcludes)).toBe(false);
+  });
+
+  it("handles empty keyval excludes", () => {
+    expect(shouldBypassShell("/dashboard", null, envExcludes, new Set())).toBe(false);
+  });
+
+  it("combines env, keyval, and cookie excludes", () => {
+    const cookies = "gateway_shell_excludes=cookie-app";
+    // admin from env
+    expect(shouldBypassShell("/admin", cookies, envExcludes, keyvalExcludes)).toBe(true);
+    // dashboard from keyval
+    expect(shouldBypassShell("/dashboard", cookies, envExcludes, keyvalExcludes)).toBe(true);
+    // cookie-app from cookie
+    expect(shouldBypassShell("/cookie-app", cookies, envExcludes, keyvalExcludes)).toBe(true);
+    // not in any
+    expect(shouldBypassShell("/unknown", cookies, envExcludes, keyvalExcludes)).toBe(false);
+  });
+});
+
+describe("cookie case-insensitive", () => {
+  const envExcludes = new Set<string>();
+
+  it("accepts lowercase cookie name", () => {
+    const cookies = "gateway_shell_excludes=dashboard";
+    expect(shouldBypassShell("/dashboard", cookies, envExcludes)).toBe(true);
+  });
+
+  it("accepts uppercase cookie name", () => {
+    const cookies = "GATEWAY_SHELL_EXCLUDES=dashboard";
+    expect(shouldBypassShell("/dashboard", cookies, envExcludes)).toBe(true);
+  });
+
+  it("prefers lowercase over uppercase if both present", () => {
+    // lowercase comes first in the check, so it wins
+    // When lowercase is found, uppercase is NOT checked (short-circuit OR)
+    const cookies = "gateway_shell_excludes=lower-app; GATEWAY_SHELL_EXCLUDES=upper-app";
+    expect(shouldBypassShell("/lower-app", cookies, envExcludes)).toBe(true);
+    // uppercase is NOT checked when lowercase is present
+    expect(shouldBypassShell("/upper-app", cookies, envExcludes)).toBe(false);
+  });
+
+  it("checks uppercase when lowercase is empty", () => {
+    // If lowercase cookie exists but is empty, uppercase is checked
+    const cookies = "gateway_shell_excludes=; GATEWAY_SHELL_EXCLUDES=upper-app";
+    expect(shouldBypassShell("/upper-app", cookies, envExcludes)).toBe(true);
+  });
+
+  it("falls back to uppercase if lowercase not present", () => {
+    const cookies = "other=value; GATEWAY_SHELL_EXCLUDES=dashboard";
+    expect(shouldBypassShell("/dashboard", cookies, envExcludes)).toBe(true);
   });
 });

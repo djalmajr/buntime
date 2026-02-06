@@ -6,6 +6,7 @@
 .cache
 .dirinfo
 .tanstack
+.DS_Store
 
 # Build and dependencies
 dist

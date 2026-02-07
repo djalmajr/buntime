@@ -3,7 +3,7 @@ name: buntime
 description: A Helm chart for Buntime - Worker Pool Runtime for Bun applications
 type: application
 version: 0.2.12
-appVersion: "1.0.2"
+appVersion: "1.0.3"
 icon: https://bun.sh/logo.svg
 keywords:
   - buntime

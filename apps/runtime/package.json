@@ -1,6 +1,6 @@
 {
   "name": "@buntime/runtime",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "exports": {

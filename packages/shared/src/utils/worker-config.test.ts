@@ -4,6 +4,7 @@ import { parseWorkerConfig, WorkerConfigDefaults } from "./worker-config";
 describe("WorkerConfigDefaults", () => {
   it("should have correct default values", () => {
     expect(WorkerConfigDefaults.autoInstall).toBe(false);
+    expect(WorkerConfigDefaults.envPrefix).toEqual(["PUBLIC_", "VITE_"]);
     expect(WorkerConfigDefaults.idleTimeout).toBe(60);
     expect(WorkerConfigDefaults.injectBase).toBe(false);
     expect(WorkerConfigDefaults.lowMemory).toBe(false);
@@ -16,6 +17,7 @@ describe("WorkerConfigDefaults", () => {
     const keys = Object.keys(WorkerConfigDefaults).sort();
     expect(keys).toEqual([
       "autoInstall",
+      "envPrefix",
       "idleTimeout",
       "injectBase",
       "lowMemory",
@@ -47,6 +49,7 @@ describe("parseWorkerConfig", () => {
     const config = parseWorkerConfig(null);
 
     expect(config.autoInstall).toBe(WorkerConfigDefaults.autoInstall);
+    expect(config.envPrefix).toEqual([...WorkerConfigDefaults.envPrefix]);
     expect(config.injectBase).toBe(WorkerConfigDefaults.injectBase);
     expect(config.lowMemory).toBe(WorkerConfigDefaults.lowMemory);
     expect(config.maxRequests).toBe(WorkerConfigDefaults.maxRequests);
@@ -140,5 +143,24 @@ describe("parseWorkerConfig", () => {
       GET: ["/api/users"],
       POST: ["/api/webhook"],
     });
+  });
+
+  it("should use default envPrefix when not specified", () => {
+    const config = parseWorkerConfig({});
+    expect(config.envPrefix).toEqual(["PUBLIC_", "VITE_"]);
+  });
+
+  it("should preserve custom envPrefix", () => {
+    const config = parseWorkerConfig({
+      envPrefix: ["NEXT_PUBLIC_"],
+    });
+    expect(config.envPrefix).toEqual(["NEXT_PUBLIC_"]);
+  });
+
+  it("should allow empty envPrefix to disable injection", () => {
+    const config = parseWorkerConfig({
+      envPrefix: [],
+    });
+    expect(config.envPrefix).toEqual([]);
   });
 });

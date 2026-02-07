@@ -36,7 +36,8 @@ const sizeSchema = z.union([z.number().positive(), z.string()]);
 const workerConfigSchema = z.object({
   autoInstall: boolean(WorkerConfigDefaults.autoInstall, z.boolean()),
   entrypoint: z.string().optional(),
-  env: z.record(z.string(), z.string()).optional(),
+  env: z.record(z.string(), z.coerce.string()).optional(),
+  envPrefix: z.array(z.string()).default([...WorkerConfigDefaults.envPrefix]),
   idleTimeout: durationSchema.default(WorkerConfigDefaults.idleTimeout),
   injectBase: boolean(WorkerConfigDefaults.injectBase, z.boolean()),
   lowMemory: boolean(WorkerConfigDefaults.lowMemory, z.boolean()),

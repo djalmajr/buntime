@@ -15,6 +15,7 @@ export type AppVisibility = "internal" | "protected" | "public";
  */
 export const WorkerConfigDefaults = {
   autoInstall: false,
+  envPrefix: ["PUBLIC_", "VITE_"] as readonly string[],
   idleTimeout: 60,
   injectBase: false,
   lowMemory: false,
@@ -45,6 +46,14 @@ export interface WorkerManifest {
    * Additional environment variables to pass to the worker
    */
   env?: Record<string, string>;
+
+  /**
+   * Prefixes for env vars to expose on the client via window.__env__
+   * Only env vars matching one of these prefixes are injected into HTML responses
+   * @default ["PUBLIC_", "VITE_"]
+   * @example ["PUBLIC_", "VITE_", "NEXT_PUBLIC_"]
+   */
+  envPrefix?: string[];
 
   /**
    * Time before idle worker is terminated
@@ -118,6 +127,7 @@ export interface WorkerConfig {
   autoInstall: boolean;
   entrypoint?: string;
   env?: Record<string, string>;
+  envPrefix: string[];
   idleTimeoutMs: number;
   injectBase: boolean;
   lowMemory: boolean;
@@ -149,6 +159,7 @@ export function parseWorkerConfig(manifest: WorkerManifest | null | undefined): 
     autoInstall: manifest?.autoInstall ?? WorkerConfigDefaults.autoInstall,
     entrypoint: manifest?.entrypoint,
     env: manifest?.env,
+    envPrefix: manifest?.envPrefix ?? [...WorkerConfigDefaults.envPrefix],
     idleTimeoutMs: parseDurationToMs(manifest?.idleTimeout ?? WorkerConfigDefaults.idleTimeout),
     injectBase: manifest?.injectBase ?? WorkerConfigDefaults.injectBase,
     lowMemory: manifest?.lowMemory ?? WorkerConfigDefaults.lowMemory,

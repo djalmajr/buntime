@@ -159,10 +159,16 @@ self.onmessage = async ({ data }) => {
     let body = await response.arrayBuffer();
     const isHtml = headers["content-type"]?.includes("text/html");
 
-    // Filter PUBLIC_* env vars for client-side injection (security: never expose server-only vars)
-    const publicEnv = config.env
-      ? Object.fromEntries(Object.entries(config.env).filter(([key]) => key.startsWith("PUBLIC_")))
-      : null;
+    // Filter env vars by configured prefixes for client-side injection (security: never expose server-only vars)
+    const prefixes = config.envPrefix ?? ["PUBLIC_", "VITE_"];
+    const publicEnv =
+      config.env && prefixes.length > 0
+        ? Object.fromEntries(
+            Object.entries(config.env).filter(([key]) =>
+              prefixes.some((prefix) => key.startsWith(prefix)),
+            ),
+          )
+        : null;
     const hasPublicEnv = publicEnv && Object.keys(publicEnv).length > 0;
 
     // Inject <base href> and/or window.__env__ into HTML responses
@@ -178,7 +184,7 @@ self.onmessage = async ({ data }) => {
         }
       }
 
-      // Inject window.__env__ with PUBLIC_* vars only (implicit via naming convention)
+      // Inject window.__env__ with vars matching configured prefixes
       if (hasPublicEnv) {
         // Escape </script> in values to prevent XSS
         const safeJson = JSON.stringify(publicEnv).replace(/<\/script>/gi, "<\\/script>");

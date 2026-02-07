@@ -138,7 +138,7 @@ adapters:
 name: "@buntime/plugin-gateway"
 base: "/gateway"
 rateLimit:
-  requests: 100
+  requests: 1000
   window: "1m"
   keyBy: ip
 cache:

@@ -386,6 +386,33 @@ describe("loadWorkerConfig", () => {
 
       expect(config.env).toBeUndefined();
     });
+
+    it("should coerce non-string env values to strings", async () => {
+      const uniqueDir = join(baseTestDir, `env-coerce-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      writeManifest(uniqueDir, {
+        env: {
+          DEBUG: true,
+          DEV: false,
+          GITLAB_PROJECT_ID: 12345,
+          MINIO_PORT: 9000,
+          MINIO_USE_SSL: false,
+          NORMAL_STRING: "hello",
+        },
+      });
+
+      const config = await loadWorkerConfig(uniqueDir);
+
+      expect(config.env).toEqual({
+        DEBUG: "true",
+        DEV: "false",
+        GITLAB_PROJECT_ID: "12345",
+        MINIO_PORT: "9000",
+        MINIO_USE_SSL: "false",
+        NORMAL_STRING: "hello",
+      });
+    });
   });
 
   describe(".env file support", () => {

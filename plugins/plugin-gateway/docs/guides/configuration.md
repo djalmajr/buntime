@@ -18,7 +18,7 @@ shellDir: /data/apps/example-spa
 shellExcludes: cpanel,admin
 
 rateLimit:
-  requests: 100
+  requests: 1000
   window: "1m"
   keyBy: ip
   excludePaths:
@@ -455,7 +455,7 @@ cors:
   credentials: false
 
 rateLimit:
-  requests: 100
+  requests: 1000
   window: "1m"
   keyBy: ip
   excludePaths:
@@ -472,7 +472,7 @@ plugins:
     shellDir: ""
     shellExcludes: "cpanel"
     rateLimit:
-      requests: 100
+      requests: 1000
       window: "1m"
     cors:
       origin: "*"

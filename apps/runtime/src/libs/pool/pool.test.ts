@@ -12,6 +12,7 @@ const createMockConfig = (overrides: Partial<WorkerConfig> = {}): WorkerConfig =
   autoInstall: false,
   entrypoint: "index.ts",
   env: {},
+  envPrefix: ["PUBLIC_", "VITE_"],
   idleTimeoutMs: 60000,
   injectBase: false,
   lowMemory: false,
@@ -602,7 +603,7 @@ describe("WorkerPool", () => {
       );
     };
 
-    it("should inject window.__env__ with PUBLIC_* vars only", async () => {
+    it("should inject window.__env__ with default prefix vars only", async () => {
       const appDir = join(TEST_DIR, "env-inject-app@1.0.0");
       createHtmlApp(appDir);
 
@@ -612,6 +613,7 @@ describe("WorkerPool", () => {
         env: {
           PUBLIC_API_URL: "https://api.example.com",
           PUBLIC_APP_NAME: "MyApp",
+          VITE_ENGINE_URL: "http://localhost:8000/engine",
           SECRET_KEY: "should-not-appear",
           DATABASE_URL: "postgres://localhost/db",
         },
@@ -631,7 +633,11 @@ describe("WorkerPool", () => {
         expect(html).toContain("PUBLIC_APP_NAME");
         expect(html).toContain("MyApp");
 
-        // Should NOT contain non-PUBLIC vars
+        // Should contain VITE_* vars (default prefix)
+        expect(html).toContain("VITE_ENGINE_URL");
+        expect(html).toContain("http://localhost:8000/engine");
+
+        // Should NOT contain non-matching vars
         expect(html).not.toContain("SECRET_KEY");
         expect(html).not.toContain("should-not-appear");
         expect(html).not.toContain("DATABASE_URL");
@@ -642,7 +648,7 @@ describe("WorkerPool", () => {
       }
     });
 
-    it("should not inject window.__env__ when no PUBLIC_* vars exist", async () => {
+    it("should not inject window.__env__ when no matching prefix vars exist", async () => {
       const appDir = join(TEST_DIR, "no-public-env@1.0.0");
       createHtmlApp(appDir);
 
@@ -661,6 +667,69 @@ describe("WorkerPool", () => {
         const html = await res.text();
 
         // Should NOT contain window.__env__ script
+        expect(html).not.toContain("window.__env__");
+      } finally {
+        pool.shutdown();
+        await Bun.sleep(100);
+      }
+    });
+
+    it("should inject env vars matching custom envPrefix", async () => {
+      const appDir = join(TEST_DIR, "custom-prefix@1.0.0");
+      createHtmlApp(appDir);
+
+      const pool = new WorkerPool({ maxSize: 5 });
+      const config = createMockConfig({
+        entrypoint: "index.html",
+        envPrefix: ["NEXT_PUBLIC_"],
+        env: {
+          NEXT_PUBLIC_API: "https://next.example.com",
+          PUBLIC_IGNORED: "should-not-appear",
+          VITE_IGNORED: "should-not-appear-either",
+          SECRET: "never",
+        },
+      });
+
+      try {
+        const req = new Request("http://localhost/");
+        const res = await pool.fetch(appDir, config, req);
+        const html = await res.text();
+
+        // Should contain NEXT_PUBLIC_* vars
+        expect(html).toContain("window.__env__=");
+        expect(html).toContain("NEXT_PUBLIC_API");
+        expect(html).toContain("https://next.example.com");
+
+        // Should NOT contain vars from other prefixes
+        expect(html).not.toContain("PUBLIC_IGNORED");
+        expect(html).not.toContain("VITE_IGNORED");
+        expect(html).not.toContain("SECRET");
+      } finally {
+        pool.shutdown();
+        await Bun.sleep(100);
+      }
+    });
+
+    it("should not inject window.__env__ when envPrefix is empty array", async () => {
+      const appDir = join(TEST_DIR, "empty-prefix@1.0.0");
+      createHtmlApp(appDir);
+
+      const pool = new WorkerPool({ maxSize: 5 });
+      const config = createMockConfig({
+        entrypoint: "index.html",
+        envPrefix: [],
+        env: {
+          PUBLIC_API: "https://api.example.com",
+          VITE_URL: "http://localhost",
+        },
+      });
+
+      try {
+        const req = new Request("http://localhost/");
+        const res = await pool.fetch(appDir, config, req);
+        const html = await res.text();
+
+        // Should NOT inject anything with empty prefix array
         expect(html).not.toContain("window.__env__");
       } finally {
         pool.shutdown();

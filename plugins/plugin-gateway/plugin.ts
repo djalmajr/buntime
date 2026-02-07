@@ -126,7 +126,7 @@ function createMetricsSnapshot(): MetricsSnapshot {
  * base: /gateway
  * enabled: true
  * rateLimit:
- *   requests: 100
+ *   requests: 1000
  *   window: 1m
  *   keyBy: ip
  * cors:

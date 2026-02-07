@@ -53,7 +53,7 @@ enabled: true
 
 # Rate limiting
 rateLimit:
-  requests: 100
+  requests: 1000
   window: "1m"
   keyBy: ip
   excludePaths:

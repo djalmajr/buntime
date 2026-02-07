@@ -46,7 +46,7 @@ refillRate = 100 / 60 = 1.67 tokens/sec
 
 ```yaml
 rateLimit:
-  requests: 100      # Bucket capacity
+  requests: 1000     # Bucket capacity
   window: "1m"       # Time window
   keyBy: ip          # Client identifier
   excludePaths:      # Paths that bypass rate limit

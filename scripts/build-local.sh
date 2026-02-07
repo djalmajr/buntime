@@ -120,7 +120,7 @@ RUNTIME_WORKER_DIRS=./apps
 RUNTIME_PLUGIN_DIRS=./plugins
 
 # Gateway
-GATEWAY_SHELL_DIR=./apps/example-spa
+# GATEWAY_SHELL_DIR=./apps/example-spa
 GATEWAY_SHELL_EXCLUDES=cpanel
 EOF
 

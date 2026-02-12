@@ -91,9 +91,9 @@ async function main() {
     console.error(`Current version: ${currentVersion}`);
     console.error(`Suggested version: ${suggestedVersion}\n`);
     console.error("To fix, run one of:");
-    console.error("  bun scripts/bump-chart.ts patch   # Recommended for fixes");
-    console.error("  bun scripts/bump-chart.ts minor   # For new features");
-    console.error("  bun scripts/bump-chart.ts major   # For breaking changes\n");
+    console.error("  bun scripts/bump-version.ts --chart=patch   # Recommended for fixes");
+    console.error("  bun scripts/bump-version.ts --chart=minor   # For new features");
+    console.error("  bun scripts/bump-version.ts --chart=major   # For breaking changes\n");
     process.exit(1);
   }
 
@@ -113,9 +113,9 @@ async function main() {
     console.error(`Current version: ${currentVersion}`);
     console.error(`Suggested version: ${suggestedVersion}\n`);
     console.error("To fix, run one of:");
-    console.error("  bun scripts/bump-chart.ts patch");
-    console.error("  bun scripts/bump-chart.ts minor");
-    console.error("  bun scripts/bump-chart.ts major\n");
+    console.error("  bun scripts/bump-version.ts --chart=patch");
+    console.error("  bun scripts/bump-version.ts --chart=minor");
+    console.error("  bun scripts/bump-version.ts --chart=major\n");
     process.exit(1);
   }
 

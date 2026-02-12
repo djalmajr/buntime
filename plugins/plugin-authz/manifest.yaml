@@ -1,6 +1,7 @@
 name: "@buntime/plugin-authz"
 base: "/authz"
 enabled: false
+injectBase: true
 
 dependencies:
   - "@buntime/plugin-authn"

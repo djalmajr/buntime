@@ -1,6 +1,7 @@
 name: "@buntime/plugin-database"
 base: "/database"
 enabled: true
+injectBase: true
 
 entrypoint: dist/client/index.html
 pluginEntry: dist/plugin.js

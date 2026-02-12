@@ -1,6 +1,7 @@
 name: "@buntime/plugin-gateway"
 base: "/gateway"
 enabled: true
+injectBase: true
 
 optionalDependencies:
   - "@buntime/plugin-authn"

@@ -1,6 +1,7 @@
 name: "@buntime/plugin-proxy"
 base: "/redirects"
 enabled: true
+injectBase: true
 
 dependencies:
   - "@buntime/plugin-keyval"

@@ -1,11 +1,13 @@
 ---
 name: versioning
 summary: |
-  - Chart.yaml has TWO independent versions: `version` (project/chart) and `appVersion` (runtime)
-  - Runtime/plugin changes → `bun scripts/bump-version.ts` (bumps appVersion + chart version minor + creates git tag)
-  - Chart-only changes (templates/, values) → `bun scripts/bump-chart.ts` (bumps chart version patch, no git tag)
-  - Git tags track chart/project version (v0.x.x), NOT appVersion
-  - Lefthook pre-commit hooks enforce version sync
+  - Single script: `bun scripts/bump-version.ts --chart=<bump> [--app=<bump>] [--tag]`
+  - `--chart` is REQUIRED (always bumps chart version)
+  - `--app` is OPTIONAL (only when runtime source code changes)
+  - `--tag` creates git tag → triggers Docker image build via CI
+  - appVersion tracks ONLY the runtime (apps/runtime/), never plugins
+  - Docker image contains runtime + plugins; rebuild via --tag when either changes
+  - Chart-only changes (templates, values) don't need --tag (no image rebuild)
 ---
 
 # Versioning
@@ -28,63 +30,114 @@ The buntime project uses **semantic versioning** with two independent version tr
 
 **Git tags** follow the **chart/project version** (`v0.3.0`, `v0.3.1`, etc.), not appVersion.
 
-## Bump Scripts
+## Key Concepts
 
-### `bump-version.ts` — Runtime or plugin changes
+### appVersion vs Docker image
 
-Use when runtime source code or any plugin changes.
+- `appVersion` tracks **only** the runtime source code (`apps/runtime/`). It does NOT change when plugins change.
+- The **Docker image** contains both runtime AND plugins. A new image is needed when either changes.
+- Image rebuilds are triggered by **git tags** (`v*.*.*`), created via `--tag` flag.
+- The `--tag` flag is tied to chart version bumps, NOT to appVersion.
 
-```bash
-bun scripts/bump-version.ts patch   # runtime: 1.0.3 → 1.0.4
-bun scripts/bump-version.ts minor   # runtime: 1.0.3 → 1.1.0
-bun scripts/bump-version.ts major   # runtime: 1.0.3 → 2.0.0
-```
+### When to use --tag
 
-This script updates **4 files**:
+| What changed | Needs `--tag`? | Needs `--app`? |
+|-------------|----------------|----------------|
+| Runtime source code (`apps/runtime/`) | YES | YES |
+| Plugin code or manifest (`plugins/`) | YES | NO |
+| Chart templates/values (`charts/`) | NO | NO |
+| Chart + runtime together | YES | YES |
 
-| File | Field | Action |
-|------|-------|--------|
-| `apps/runtime/package.json` | `version` | Bump per argument (patch/minor/major) |
-| `charts/Chart.yaml` | `appVersion` | Synced with runtime version |
-| `charts/Chart.yaml` | `version` | Auto-bump **minor** |
-| `package.json` (root) | `version` | Synced with chart version |
-
-Git operations (disable with `--no-commit`, `--no-tag`, `--no-push`):
-- Commits all 4 files
-- Creates git tag from **chart version** (e.g., `v0.3.0`)
-- Pushes to origin with tags (triggers Docker + Helm CI/CD)
-
-### `bump-chart.ts` — Chart infrastructure changes only
-
-Use when modifying only chart templates, values, or structure (no runtime/plugin code changes).
+## Unified Bump Script
 
 ```bash
-bun scripts/bump-chart.ts patch   # 0.2.12 → 0.2.13 (default for infra fixes)
-bun scripts/bump-chart.ts minor   # 0.2.12 → 0.3.0
-bun scripts/bump-chart.ts major   # 0.2.12 → 1.0.0
+bun scripts/bump-version.ts --chart=<bump> [--app=<bump>] [--tag] [--no-commit] [--no-push]
 ```
 
-This script updates **2 files**:
+### Flags
 
-| File | Field | Action |
-|------|-------|--------|
-| `charts/Chart.yaml` | `version` | Bump per argument |
-| `package.json` (root) | `version` | Synced with chart version |
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--chart=patch\|minor\|major\|x.y.z` | **YES** | Bumps `Chart.yaml:version` + root `package.json:version` |
+| `--app=patch\|minor\|major\|x.y.z` | No | Bumps `apps/runtime/package.json:version` + `Chart.yaml:appVersion` |
+| `--tag` | No | Creates git tag `v{chartVersion}` (triggers Docker build CI) |
+| `--no-commit` | No | Skip git commit |
+| `--no-push` | No | Skip git push (push happens by default when `--tag`) |
 
-Git operations (disable with `--no-commit`):
-- Commits the 2 files
-- **No git tag** (no Docker image rebuild needed)
-- **No push** (push manually; helm-publish triggers on `charts/**` path match)
+### Files updated
 
-### Bump type guidelines
+| Flag | Files modified |
+|------|---------------|
+| `--chart` (always) | `charts/Chart.yaml` version, root `package.json` version |
+| `--app` (optional) | `apps/runtime/package.json` version, `charts/Chart.yaml` appVersion |
 
-| What changed | Script | Chart version bump |
-|-------------|--------|-------------------|
-| Runtime source code | `bump-version.ts` | **minor** (auto) |
-| Plugin source/manifest | `bump-version.ts` | **minor** (auto) |
-| Chart templates/values (infra) | `bump-chart.ts` | **patch** |
-| New chart features | `bump-chart.ts` | **minor** |
-| Breaking chart changes | `bump-chart.ts` | **major** |
+### Validations
+
+- Missing `--chart` → error (always required)
+- `--app` without `--tag` → warning (appVersion changes but no Docker rebuild)
+
+## Examples
+
+### Example 1: Chart template fix (no image rebuild)
+
+```bash
+# 1. Edit charts/templates/ingress.yaml
+# 2. Bump chart version
+bun scripts/bump-version.ts --chart=patch
+# → chart: 0.2.14 → 0.2.15, root: 0.2.15
+# → commits (no tag, no push)
+
+# 3. Push manually
+git push origin main
+# → helm-publish triggers (path match on charts/**)
+# → No Docker rebuild
+```
+
+### Example 2: Plugin manifest or code change (image rebuild needed)
+
+```bash
+# 1. Edit plugins/plugin-deployments/manifest.yaml
+# 2. Bump chart version with tag
+bun scripts/bump-version.ts --chart=patch --tag
+# → chart: 0.2.14 → 0.2.15, root: 0.2.15
+# → commits, tags v0.2.15, pushes
+# → docker-publish triggers (tag v0.2.15)
+# → helm-publish triggers (charts/** changed)
+```
+
+### Example 3: Runtime change (image rebuild needed)
+
+```bash
+# 1. Edit apps/runtime/src/
+# 2. Bump both versions with tag
+bun scripts/bump-version.ts --chart=patch --app=patch --tag
+# → runtime: 1.0.3 → 1.0.4, appVersion: "1.0.4"
+# → chart: 0.2.14 → 0.2.15, root: 0.2.15
+# → commits, tags v0.2.15, pushes
+# → docker-publish triggers (tag v0.2.15)
+# → helm-publish triggers (charts/** changed)
+```
+
+### Example 4: Runtime + chart changes together
+
+```bash
+# 1. Edit both apps/runtime/ and charts/
+# 2. Bump both
+bun scripts/bump-version.ts --chart=minor --app=minor --tag
+# → runtime: 1.0.3 → 1.1.0, appVersion: "1.1.0"
+# → chart: 0.2.14 → 0.3.0, root: 0.3.0
+# → commits, tags v0.3.0, pushes
+```
+
+### Example 5: Prepare without committing
+
+```bash
+bun scripts/bump-version.ts --chart=patch --app=patch --no-commit
+# → Updates files only, no git operations
+# → Useful when you want to include version bump in a manual commit
+git add .
+git commit -m "fix: correct API response and add injectBase to plugins"
+```
 
 ## Pre-commit Hooks (Lefthook)
 
@@ -96,7 +149,7 @@ Git operations (disable with `--no-commit`):
 1. `apps/runtime/package.json:version` === `Chart.yaml:appVersion`
 2. `package.json:version` === `Chart.yaml:version`
 
-**Fix:** `bun scripts/bump-version.ts <patch|minor|major>`
+**Fix:** `bun scripts/bump-version.ts --chart=<bump> [--app=<bump>]`
 
 ### `chart-version` Hook
 
@@ -104,100 +157,52 @@ Git operations (disable with `--no-commit`):
 
 **Validates:** If chart files changed, `Chart.yaml:version` must also be bumped
 
-**Fix:** `bun scripts/bump-chart.ts patch`
-
-## Examples
-
-### Example 1: Fix chart template bug
-
-```bash
-# 1. Edit templates/ingress.yaml
-# 2. Bump chart version (patch for infra fix)
-bun scripts/bump-chart.ts patch
-# → chart: 0.2.12 → 0.2.13, root: 0.2.13
-# → commits, no tag, no push
-
-# 3. Push manually
-git push origin main
-# → helm-publish triggers (path match on charts/**)
-```
-
-### Example 2: Runtime feature
-
-```bash
-# 1. Edit apps/runtime/src/
-# 2. Bump version
-bun scripts/bump-version.ts minor
-# → runtime: 1.0.3 → 1.1.0, appVersion: "1.1.0"
-# → chart: 0.2.12 → 0.3.0, root: 0.3.0
-# → commits, tags v0.3.0, pushes
-# → docker-publish triggers (tag v0.3.0)
-# → helm-publish triggers (charts/** changed)
-```
-
-### Example 3: Plugin change
-
-```bash
-# 1. Edit plugins/plugin-deployments/
-# 2. Bump version (plugins are part of app release)
-bun scripts/bump-version.ts patch
-# → runtime: 1.0.3 → 1.0.4, appVersion: "1.0.4"
-# → chart: 0.2.12 → 0.3.0, root: 0.3.0
-# → commits, tags v0.3.0, pushes
-```
-
-### Example 4: Chart + runtime changes
-
-```bash
-# 1. Edit both
-# 2. Use bump-version.ts (handles both tracks)
-bun scripts/bump-version.ts patch --no-commit --no-tag --no-push
-# 3. Commit manually
-git add .
-git commit -m "fix: correct API response and Helm values"
-```
+**Fix:** `bun scripts/bump-version.ts --chart=patch`
 
 ## CI/CD Integration
 
 ### Docker image (GitHub Actions)
 
-Triggered by git tags `v*.*.*` (from `bump-version.ts`):
-- Builds `ghcr.io/zommehq/buntime` with tags derived from git tag
-- Uses `Chart.yaml:appVersion` as default image tag in deployment template
+Triggered by git tags `v*.*.*` (from `--tag` flag):
+- Builds `ghcr.io/zommehq/buntime` with tags: `latest`, `{version}`, `{major}.{minor}`, `{major}`
+- Image contains runtime + all builtin plugins
+- Deployment template uses `image.tag` from Helm values (default: `latest`)
 
 ### Helm chart (GitHub Actions)
 
-Triggered by push to `main` with `charts/**` path changes:
+Triggered by push to `main` with `charts/**` or `plugins/*/manifest.yaml` path changes:
 - Regenerates Helm files from base + plugin manifests
 - Syncs to `zommehq/charts` repository
 - Rancher detects new `Chart.yaml:version` → shows "Upgrade Available"
 
-### GitLab CI
-
-- `docker-build`: triggered by `only: tags`
-- `helm-publish`: triggered on `test/gitlab-ci` branch
-
 ## Version Flow
 
 ```
-Developer changes runtime or plugins
-  → bun scripts/bump-version.ts patch
+Plugin or manifest changed (no runtime change)
+  → bun scripts/bump-version.ts --chart=patch --tag
+    → charts/Chart.yaml:version            = 0.2.15  (patch bump)
+    → package.json:version                 = 0.2.15  (synced)
+    → git tag v0.2.15 + push
+      → CI: Docker image ghcr.io/zommehq/buntime:latest (rebuilt)
+      → CI: Helm chart synced (version 0.2.15)
+      → Rancher: sees 0.2.15 > 0.2.14 → "Upgrade Available"
+
+Runtime changed
+  → bun scripts/bump-version.ts --chart=patch --app=patch --tag
     → apps/runtime/package.json:version    = 1.0.4
     → charts/Chart.yaml:appVersion         = "1.0.4"
-    → charts/Chart.yaml:version            = 0.3.0   (minor bump)
-    → package.json:version                 = 0.3.0   (synced)
-    → git tag v0.3.0 + push
-      → CI: Docker image ghcr.io/zommehq/buntime:1.0.4
-      → CI: Helm chart synced (version 0.3.0)
-      → Rancher: sees 0.3.0 > 0.2.12 → "Upgrade Available"
+    → charts/Chart.yaml:version            = 0.2.15  (patch bump)
+    → package.json:version                 = 0.2.15  (synced)
+    → git tag v0.2.15 + push
+      → CI: Docker image ghcr.io/zommehq/buntime:latest (rebuilt)
+      → CI: Helm chart synced (version 0.2.15)
 
-Developer changes chart infra only
-  → bun scripts/bump-chart.ts patch
-    → charts/Chart.yaml:version            = 0.3.1   (patch bump)
-    → package.json:version                 = 0.3.1   (synced)
+Chart infra changed (no image rebuild needed)
+  → bun scripts/bump-version.ts --chart=patch
+    → charts/Chart.yaml:version            = 0.2.15  (patch bump)
+    → package.json:version                 = 0.2.15  (synced)
     → git commit (no tag, no push)
     → git push origin main
-      → CI: Helm chart synced (version 0.3.1)
-      → Rancher: sees 0.3.1 > 0.3.0 → "Upgrade Available"
+      → CI: Helm chart synced (version 0.2.15)
       → No Docker rebuild (same image, chart-only change)
 ```

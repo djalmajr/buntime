@@ -113,6 +113,16 @@ questions:
     default: "5Gi"
     group: "Runtime"
 
+  - variable: persistence.plugins.accessMode
+    label: "Plugins Access Mode"
+    description: "PVC access mode (ReadWriteMany recommended for rolling updates and scaling)"
+    type: enum
+    default: "ReadWriteMany"
+    options:
+      - "ReadWriteOnce"
+      - "ReadWriteMany"
+    group: "Runtime"
+
   - variable: persistence.plugins.storageClass
     label: "Plugins Storage Class"
     description: "Storage class for plugins volume (leave empty for default)"
@@ -125,6 +135,16 @@ questions:
     description: "Size of persistent volume for user applications"
     type: string
     default: "10Gi"
+    group: "Runtime"
+
+  - variable: persistence.apps.accessMode
+    label: "Apps Access Mode"
+    description: "PVC access mode (ReadWriteMany recommended for rolling updates and scaling)"
+    type: enum
+    default: "ReadWriteMany"
+    options:
+      - "ReadWriteOnce"
+      - "ReadWriteMany"
     group: "Runtime"
 
   - variable: persistence.apps.storageClass

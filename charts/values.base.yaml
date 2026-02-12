@@ -71,12 +71,12 @@ persistence:
   # Custom plugins (core plugins are in /data/.plugins from image)
   plugins:
     size: 5Gi
-    accessMode: ReadWriteOnce
+    accessMode: ReadWriteMany
     storageClass: ""  # Use default if empty
   # User applications
   apps:
     size: 10Gi
-    accessMode: ReadWriteOnce
+    accessMode: ReadWriteMany
     storageClass: ""  # Use default if empty
 
 # Plugin configurations - GENERATED SECTION

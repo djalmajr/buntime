@@ -32,6 +32,7 @@ ingress:
   host: ""  # Hostname only, no protocol/path (e.g., buntime.example.com or *.example.com)
   className: "traefik"  # nginx, traefik, alb, etc
   path: "/"
+  maxBodySize: "100m"  # Nginx max request body size (e.g., "100m", "0" for unlimited)
   annotations: {}
   tls:
     enabled: false

@@ -4,7 +4,7 @@
 pre-commit:
   commands:
     version-sync:
-      glob: "{apps/runtime/package.json,charts/Chart.yaml}"
+      glob: "{package.json,apps/runtime/package.json,charts/Chart.yaml}"
       run: bun scripts/check-version-sync.ts
       fail_text: "Version mismatch! Run 'bun scripts/bump-version.ts <patch|minor|major>' to sync."
 

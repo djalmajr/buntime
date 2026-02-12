@@ -91,6 +91,13 @@ questions:
     default: "traefik"
     group: "Runtime"
 
+  - variable: ingress.maxBodySize
+    label: "Max Upload Size"
+    description: "Maximum request body size for nginx (e.g., 100m, 0 for unlimited)"
+    type: string
+    default: "100m"
+    group: "Runtime"
+
   - variable: ingress.tls.enabled
     label: "Enable TLS"
     description: "Enable HTTPS with TLS certificate"

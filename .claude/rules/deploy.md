@@ -48,6 +48,8 @@ bun scripts/generate-helm-questions.ts
 
 **When to regenerate:** After modifying any `plugins/*/manifest.yaml` config section.
 
+**After regenerating:** Bump the chart version with `bun scripts/bump-version.ts --chart=patch` (add `--tag` if plugin code/manifest changed and needs image rebuild).
+
 ## Key Principles
 
 ### 1. Volumes are MANDATORY

@@ -2,6 +2,7 @@ name: "@buntime/plugin-deployments"
 base: "/deployments"
 enabled: true
 
+injectBase: true
 entrypoint: dist/index.js
 pluginEntry: dist/plugin.js
 

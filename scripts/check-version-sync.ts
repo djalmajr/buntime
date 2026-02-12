@@ -64,7 +64,9 @@ async function main() {
   }
 
   if (hasError) {
-    console.error("Run 'bun scripts/bump-version.ts <patch|minor|major>' to sync versions.\n");
+    console.error(
+      "Run 'bun scripts/bump-version.ts --chart=<bump> [--app=<bump>]' to sync versions.\n",
+    );
     process.exit(1);
   }
 

@@ -1,6 +1,7 @@
 name: "@buntime/plugin-logs"
 base: "/logs"
 enabled: false
+injectBase: true
 
 entrypoint: dist/client/index.html
 pluginEntry: dist/plugin.js

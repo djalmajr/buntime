@@ -1,7 +1,7 @@
 /**
  * Auth provider types supported by plugin-authn
  */
-export type AuthProviderType = "email-password" | "keycloak" | "auth0" | "okta" | "generic-oidc";
+export type AuthProviderType = "email-password" | "keycloak" | "auth0" | "okta" | "generic-oidc" | "google";
 
 /**
  * Base config for OAuth providers
@@ -12,6 +12,19 @@ export interface BaseOAuthProviderConfig {
   clientSecret: string;
   displayName?: string;
   icon?: string;
+}
+
+/**
+ * Google OAuth provider config (uses better-auth socialProviders)
+ */
+export interface GoogleProviderConfig extends BaseOAuthProviderConfig {
+  type: "google";
+  /** Restrict login to a Google Workspace domain (e.g., "example.com") */
+  hd?: string;
+  /** OAuth prompt behavior */
+  prompt?: "none" | "consent" | "select_account";
+  /** Request offline access for refresh tokens */
+  accessType?: "offline" | "online";
 }
 
 /**
@@ -69,7 +82,8 @@ export type ProviderConfig =
   | KeycloakProviderConfig
   | Auth0ProviderConfig
   | OktaProviderConfig
-  | GenericOIDCProviderConfig;
+  | GenericOIDCProviderConfig
+  | GoogleProviderConfig;
 
 /**
  * Provider info returned to client for login UI
@@ -95,6 +109,7 @@ export interface AuthProvider {
       requireEmailVerification?: boolean;
     };
     plugins?: unknown[];
+    socialProviders?: Record<string, unknown>;
   };
 
   /**

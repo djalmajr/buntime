@@ -2,9 +2,9 @@
 /**
  * Task Plan CLI
  * Command-line interface for managing plans
- * 
+ *
  * Usage: bun run cli.ts <command> [options]
- * 
+ *
  * Commands:
  *   show              - Show the active plan
  *   list              - List all plans
@@ -16,14 +16,14 @@
 
 import { loadConfig } from "./config";
 import {
-  getActivePlan,
-  listPlans,
-  createPlan,
   activatePlan,
   completePlan,
+  createPlan,
   deletePlan,
-  getTasks,
+  getActivePlan,
   getTaskCounts,
+  getTasks,
+  listPlans,
 } from "./core/plan";
 
 const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
@@ -42,11 +42,11 @@ function formatDate(date: string | undefined): string {
 
 function showPlan(): void {
   const plan = getActivePlan(projectDir, config);
-  
+
   if (!plan) {
     console.log("No active plan.");
     console.log("");
-    console.log("Create one with: /plan-new");
+    console.log("Plans are created automatically when editing starts.");
     return;
   }
 
@@ -89,25 +89,28 @@ function showPlan(): void {
 
 function listAllPlans(): void {
   const plans = listPlans(projectDir, config);
-  
+
   if (plans.length === 0) {
     console.log("No plans found.");
     console.log("");
-    console.log("Create one with: /plan-new");
+    console.log("A plan will be created automatically on first edit.");
     return;
   }
 
   console.log("| ID | Summary | Status | Progress | Updated |");
   console.log("|:---|:--------|:-------|:---------|:--------|");
-  
+
   plans.forEach((plan) => {
     const counts = getTaskCounts(projectDir, config, plan.id);
     const active = plan.isActive ? " *" : "";
     const progress = formatProgress(counts.completed, counts.total);
     const updated = plan.updatedAt.split("T")[0];
     // Truncate summary for table display
-    const summaryShort = plan.summary.length > 50 ? plan.summary.slice(0, 47) + "..." : plan.summary;
-    console.log(`| ${plan.id}${active} | ${summaryShort} | ${plan.status} | ${progress} | ${updated} |`);
+    const summaryShort =
+      plan.summary.length > 50 ? plan.summary.slice(0, 47) + "..." : plan.summary;
+    console.log(
+      `| ${plan.id}${active} | ${summaryShort} | ${plan.status} | ${progress} | ${updated} |`,
+    );
   });
 
   console.log("");
@@ -116,7 +119,7 @@ function listAllPlans(): void {
 
 function create(): void {
   const args = process.argv.slice(3);
-  
+
   let id = "";
   let title = "";
   let summary = "";
@@ -139,7 +142,9 @@ function create(): void {
   }
 
   if (!id || !title || !summary || !description) {
-    console.error("Usage: create --id <id> --title <title> --summary <text> --description <text> [--task <task>...]");
+    console.error(
+      "Usage: create --id <id> --title <title> --summary <text> --description <text> [--task <task>...]",
+    );
     console.error("");
     console.error("Required:");
     console.error("  --id           Plan identifier (kebab-case)");
@@ -152,7 +157,15 @@ function create(): void {
     process.exit(1);
   }
 
-  const plan = createPlan(projectDir, config, id, title, summary, description, tasks.length > 0 ? tasks : undefined);
+  const plan = createPlan(
+    projectDir,
+    config,
+    id,
+    title,
+    summary,
+    description,
+    tasks.length > 0 ? tasks : undefined,
+  );
   console.log(`Created plan: ${plan.id}`);
   console.log(`Title: ${plan.title}`);
   console.log(`Summary: ${plan.summary}`);
@@ -163,14 +176,14 @@ function create(): void {
 
 function activate(): void {
   const id = process.argv[3];
-  
+
   if (!id) {
     console.error("Usage: activate <plan-id>");
     process.exit(1);
   }
 
   const plan = activatePlan(projectDir, config, id);
-  
+
   if (!plan) {
     console.error(`Plan not found: ${id}`);
     process.exit(1);
@@ -183,20 +196,20 @@ function activate(): void {
 
 function complete(): void {
   const plan = getActivePlan(projectDir, config);
-  
+
   if (!plan) {
     console.error("No active plan to complete.");
     process.exit(1);
   }
 
   const counts = getTaskCounts(projectDir, config, plan.id);
-  
+
   if (counts.pending > 0) {
     console.log(`Warning: ${counts.pending} tasks still pending.`);
   }
 
   const completed = completePlan(projectDir, config, plan.id);
-  
+
   if (completed) {
     console.log(`Completed plan: ${completed.id}`);
     console.log(`Title: ${completed.title}`);
@@ -206,14 +219,14 @@ function complete(): void {
 
 function remove(): void {
   const id = process.argv[3];
-  
+
   if (!id) {
     console.error("Usage: delete <plan-id>");
     process.exit(1);
   }
 
   const deleted = deletePlan(projectDir, config, id);
-  
+
   if (deleted) {
     console.log(`Deleted plan: ${id}`);
   } else {
@@ -238,7 +251,7 @@ function showHelp(): void {
   console.log("Examples:");
   console.log("");
   console.log("  # Create a plan");
-  console.log('  bun run cli.ts create \\');
+  console.log("  bun run cli.ts create \\");
   console.log('    --id "add-auth" \\');
   console.log('    --title "Add Authentication" \\');
   console.log('    --summary "Implement JWT auth for API endpoints" \\');

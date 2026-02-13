@@ -3,31 +3,20 @@
  * Runs when a session begins - loads state and shows context
  */
 
-import type { HandlerContext, ClaudeHookInput, Plan, Task } from "../types";
-import { getActivePlan, getTasks, getTaskCounts, listPlans } from "../core/plan";
 import { getDb } from "../core/db";
+import { getActivePlan, getTaskCounts, getTasks } from "../core/plan";
+import type { ClaudeHookInput, HandlerContext, Plan, Task } from "../types";
 
-export async function sessionStart(
-  ctx: HandlerContext,
-  _input: ClaudeHookInput
-): Promise<string> {
+export async function sessionStart(ctx: HandlerContext, _input: ClaudeHookInput): Promise<string> {
   const { projectDir, config, client } = ctx;
-  
+
   // Initialize database (creates if not exists)
   getDb(projectDir, config.dbFile);
 
-  // Reset stop attempts on new session
   const plan = getActivePlan(projectDir, config);
-  
-  if (plan) {
-    // Reset stop attempts
-    const db = getDb(projectDir, config.dbFile);
-    db.prepare(`UPDATE plans SET stop_attempts = 0 WHERE id = ?`).run(plan.id);
 
-    const tasks = getTasks(projectDir, config, plan.id);
-    const counts = getTaskCounts(projectDir, config, plan.id);
-
-    const message = formatActivePlanMessage(plan, tasks, counts);
+  if (!plan) {
+    const message = formatNoActivePlanMessage();
 
     if (client) {
       await client.app.log({
@@ -40,11 +29,13 @@ export async function sessionStart(
     return message;
   }
 
-  // No active plan - show instructions
-  const existingPlans = listPlans(projectDir, config);
-  const pendingPlans = existingPlans.filter(p => p.status === "Pending");
+  // Reset stop attempts on new session
+  const db = getDb(projectDir, config.dbFile);
+  db.prepare(`UPDATE plans SET stop_attempts = 0 WHERE id = ?`).run(plan.id);
 
-  const message = formatNoPlanMessage(pendingPlans);
+  const tasks = getTasks(projectDir, config, plan.id);
+  const counts = getTaskCounts(projectDir, config, plan.id);
+  const message = formatActivePlanMessage(plan, tasks, counts);
 
   if (client) {
     await client.app.log({
@@ -60,13 +51,15 @@ export async function sessionStart(
 function formatActivePlanMessage(
   plan: Plan,
   tasks: Task[],
-  counts: { total: number; completed: number; pending: number }
+  counts: { total: number; completed: number; pending: number },
 ): string {
   const lines = [
     "",
     "=".repeat(60),
-    "PLANNING ENFORCER - Active Plan",
+    "PLANNING ENFORCER - Automatic Plan",
     "=".repeat(60),
+    `Auto-plan active: "${plan.id}"`,
+    "",
     `# ${plan.title}`,
     "",
     `**TL;DR:** ${plan.summary}`,
@@ -89,42 +82,24 @@ function formatActivePlanMessage(
   lines.push("");
 
   lines.push("-".repeat(60));
-  lines.push("Use TodoWrite with task IDs to track progress.");
-  lines.push("Commands: /plan, /plan-list, /plan-done");
+  lines.push("Planning is automatic. No manual /plan commands are required.");
+  lines.push("Use TodoWrite normally; progress sync is automatic.");
   lines.push("=".repeat(60));
   lines.push("");
 
   return lines.join("\n");
 }
 
-function formatNoPlanMessage(pendingPlans: Plan[]): string {
-  const lines = [
+function formatNoActivePlanMessage(): string {
+  return [
     "",
     "=".repeat(60),
-    "PLANNING ENFORCER - No Active Plan",
+    "PLANNING ENFORCER - Automatic Plan",
+    "=".repeat(60),
+    "No active plan yet.",
+    "A plan will be created or reused automatically from your next prompt context.",
+    "Fallback: the first file edit also triggers automatic plan resolution.",
     "=".repeat(60),
     "",
-    "Before modifying files, create a plan using /plan-new",
-    "",
-    "Or activate an existing plan with:",
-    "  bun run .claude/hooks/planning/cli.ts activate <plan-id>",
-    "",
-  ];
-
-  if (pendingPlans.length > 0) {
-    lines.push("Pending plans:");
-    for (const plan of pendingPlans.slice(0, 5)) {
-      lines.push(`  - ${plan.id}: ${plan.summary}`);
-    }
-    if (pendingPlans.length > 5) {
-      lines.push(`  ... and ${pendingPlans.length - 5} more`);
-    }
-    lines.push("");
-  }
-
-  lines.push("Exempt from planning: .claude/*, .opencode/*, test files, .env*");
-  lines.push("=".repeat(60));
-  lines.push("");
-
-  return lines.join("\n");
+  ].join("\n");
 }

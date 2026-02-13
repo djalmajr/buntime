@@ -2,40 +2,43 @@
 /**
  * Task Plan CLI
  * Entry point for Claude Code hooks
- * 
+ *
  * Usage: bun run .claude/hooks/task-plan/index.ts <hook-name>
- * 
+ *
  * Hooks:
  *   session-start  - Load state, show context
- *   pre-tool-use   - Block edits without active plan
+ *   user-prompt-submit - Resolve plan from prompt context
+ *   pre-tool-use   - Ensure active plan for edits
  *   pre-bash       - (Reserved for future use)
  *   post-tool-use  - Activate plans, track modified files
  *   todo-updated   - Sync TodoWrite with plan checklist
- *   stop           - Block if tasks pending
- * 
- * Internal (invoked by slash commands only):
- *   set-bypass <type>  - Set bypass flag (plan|stop)
- * 
+ *   stop           - Report remaining tasks (non-blocking)
+ *
  * Note: Git operations are handled by the separate git-guard hook.
  */
 
 import { loadConfig } from "./config";
-import { sessionStart } from "./handlers/session-start";
-import { preToolUse } from "./handlers/pre-tool-use";
-import { preBash } from "./handlers/pre-bash";
-import { postToolUse } from "./handlers/post-tool-use";
-import { todoUpdated } from "./handlers/todo-updated";
-import { stop } from "./handlers/stop";
 import { handleBypass } from "./handlers/bypass";
-import type { HandlerContext, ClaudeHookInput, TodoEvent } from "./types";
+import { postToolUse } from "./handlers/post-tool-use";
+import { preBash } from "./handlers/pre-bash";
+import { preToolUse } from "./handlers/pre-tool-use";
+import { sessionStart } from "./handlers/session-start";
+import { stop } from "./handlers/stop";
+import { todoUpdated } from "./handlers/todo-updated";
+import { userPromptSubmit } from "./handlers/user-prompt-submit";
+import type { ClaudeHookInput, HandlerContext, TodoEvent } from "./types";
 
 // Standard handlers (ClaudeHookInput)
-const standardHandlers: Record<string, (ctx: HandlerContext, input: ClaudeHookInput) => Promise<unknown>> = {
+const standardHandlers: Record<
+  string,
+  (ctx: HandlerContext, input: ClaudeHookInput) => Promise<unknown>
+> = {
   "session-start": sessionStart,
+  "user-prompt-submit": userPromptSubmit,
   "pre-tool-use": preToolUse,
   "pre-bash": preBash,
   "post-tool-use": postToolUse,
-  "stop": stop,
+  stop: stop,
 };
 
 // Special handlers with different input types
@@ -43,14 +46,14 @@ const specialHandlers = {
   "todo-updated": todoUpdated,
 };
 
-// Handle set-bypass command separately (requires additional argument)
+// Maintenance command (kept for backward compatibility)
 async function handleSetBypass(ctx: HandlerContext): Promise<string> {
   const type = process.argv[3] as "plan" | "stop";
-  
+
   if (!type || !["plan", "stop"].includes(type)) {
     throw new Error("Usage: set-bypass <plan|stop>");
   }
-  
+
   return handleBypass(ctx, type);
 }
 
@@ -62,20 +65,21 @@ async function main() {
     console.error("");
     console.error("Available hooks:");
     console.error("  session-start  - Load state, show context");
-    console.error("  pre-tool-use   - Block edits without active plan");
+    console.error("  user-prompt-submit - Resolve plan from prompt context");
+    console.error("  pre-tool-use   - Ensure active plan for edits");
     console.error("  pre-bash       - (Reserved for future use)");
     console.error("  post-tool-use  - Activate plans, track modified files");
     console.error("  todo-updated   - Sync TodoWrite with plan checklist");
-    console.error("  stop           - Block if tasks pending");
+    console.error("  stop           - Report remaining tasks (non-blocking)");
     process.exit(1);
   }
 
-  // Handle set-bypass separately (internal command for slash commands)
+  // Handle set-bypass separately
   if (hook === "set-bypass") {
     const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
     const config = loadConfig(projectDir);
     const ctx: HandlerContext = { projectDir, config };
-    
+
     try {
       const output = await handleSetBypass(ctx);
       console.log(output);

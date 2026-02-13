@@ -19,7 +19,7 @@ bun run "$CLAUDE_PROJECT_DIR"/.claude/hooks/code-quality/index.ts verify
 ```
 
 If verification fails, show the errors and ask the user to fix them before completing.
-If user wants to skip verification, they can use `/bypass-quality`.
+If verification fails, stop and report the issues clearly.
 
 If all checks pass (or bypassed), mark the plan as complete:
 
@@ -30,3 +30,5 @@ bun run "$CLAUDE_PROJECT_DIR"/.claude/hooks/task-plan/cli.ts complete
 Then suggest next steps:
 1. Review changes: `git status` and `git diff`
 2. Commit manually when ready
+
+This command is optional; plan lifecycle is automatic.

@@ -58,7 +58,7 @@ export interface HandlerContext {
   // OpenCode specific - optional client for logging
   client?: {
     app: {
-      log: (opts: { service: string; level: string; message: string }) => Promise<void>;
+      log: (opts?: unknown) => unknown;
     };
   };
 }
@@ -73,6 +73,7 @@ export interface ClaudeHookInput {
   cwd?: string;
   permission_mode?: string;
   hook_event_name?: string;
+  prompt?: string;
   tool_name?: string;
   tool_input?: {
     file_path?: string;

@@ -1,29 +1,17 @@
 /**
  * Stop Handler
- * Runs when session is ending - blocks if tasks are pending
+ * Runs when session is ending - reports status without blocking
  */
 
-import type { HandlerContext, ClaudeHookInput, ClaudeHookOutput } from "../types";
-import { consumeBypass, incrementStop } from "../core/state";
-import { getActivePlan, getTasks, getTaskCounts } from "../core/plan";
+import { getActivePlan, getTaskCounts, getTasks } from "../core/plan";
+import { incrementStop } from "../core/state";
+import type { ClaudeHookInput, ClaudeHookOutput, HandlerContext } from "../types";
 
 export async function stop(
   ctx: HandlerContext,
-  _input: ClaudeHookInput
+  _input: ClaudeHookInput,
 ): Promise<ClaudeHookOutput | void> {
   const { projectDir, config, client } = ctx;
-
-  // Check for force-stop bypass first
-  if (consumeBypass(projectDir, config, "stop")) {
-    if (client) {
-      await client.app.log({
-        service: "task-plan",
-        level: "warn",
-        message: "Force stop executed. Pending tasks ignored.",
-      });
-    }
-    return; // Allow stop
-  }
 
   const plan = getActivePlan(projectDir, config);
 
@@ -35,54 +23,29 @@ export async function stop(
   const tasks = getTasks(projectDir, config, plan.id);
   const pendingTasks = tasks.filter((t) => !t.done);
 
-  // Increment stop attempts
-  const stopAttempts = incrementStop(projectDir, config);
+  incrementStop(projectDir, config);
 
   if (counts.pending > 0) {
-    // Has pending tasks - block or warn
+    // Has pending tasks - warn only
     const tasksList = pendingTasks
       .slice(0, 5)
       .map((t) => `  - ${t.text}`)
       .join("\n");
     const moreText = counts.pending > 5 ? `\n  ... and ${counts.pending - 5} more` : "";
 
-    if (stopAttempts >= config.maxStopAttempts) {
-      // Offer escape hatch
-      const message = formatEscapeHatchMessage(counts.pending, tasksList, moreText, stopAttempts);
-      
-      if (client) {
-        await client.app.log({
-          service: "task-plan",
-          level: "warn",
-          message,
-        });
-      }
+    const message = formatPendingMessage(counts.pending, tasksList, moreText);
 
-      return {
-        decision: "block",
-        reason: message,
-      };
-    } else {
-      // Normal block
-      const message = formatBlockMessage(counts.pending, tasksList, moreText);
-      
-      if (client) {
-        await client.app.log({
-          service: "task-plan",
-          level: "warn",
-          message,
-        });
-      }
-
-      return {
-        decision: "block",
-        reason: message,
-      };
+    if (client) {
+      await client.app.log({
+        service: "task-plan",
+        level: "warn",
+        message,
+      });
     }
   } else if (counts.completed > 0) {
-    // All tasks done but plan still active
+    // All tasks done and plan still active
     const message = formatCompletedMessage();
-    
+
     if (client) {
       await client.app.log({
         service: "task-plan",
@@ -90,50 +53,19 @@ export async function stop(
         message,
       });
     }
-
-    return {
-      decision: "block",
-      reason: message,
-    };
   }
 }
 
-function formatBlockMessage(pendingCount: number, tasksList: string, moreText: string): string {
+function formatPendingMessage(pendingCount: number, tasksList: string, moreText: string): string {
   return `
 ${"=".repeat(60)}
-STOP BLOCKED: ${pendingCount} task(s) pending
+Session ending with ${pendingCount} pending task(s)
 ${"=".repeat(60)}
 
 Pending tasks:
 ${tasksList}${moreText}
 
-Complete the tasks or use /plan done to finish.
-
-Tip: Use /force-stop to exit anyway.
-${"=".repeat(60)}
-`.trim();
-}
-
-function formatEscapeHatchMessage(
-  pendingCount: number,
-  tasksList: string,
-  moreText: string,
-  attempts: number
-): string {
-  return `
-${"=".repeat(60)}
-STOP BLOCKED: ${pendingCount} task(s) pending
-${"=".repeat(60)}
-
-Pending tasks:
-${tasksList}${moreText}
-
-You've tried to stop ${attempts} times.
-
-Options:
-  1. Complete the pending tasks
-  2. Use /plan done to mark as complete
-  3. Use /force-stop to exit anyway
+Planning is automatic; this is informational only.
 ${"=".repeat(60)}
 `.trim();
 }
@@ -144,10 +76,7 @@ ${"=".repeat(60)}
 All tasks completed!
 ${"=".repeat(60)}
 
-Next steps:
-  1. Run tests if applicable
-  2. Use /plan done to mark as complete
-  3. Review changes: git status
+Plan can be auto-reused or replaced in the next session.
 ${"=".repeat(60)}
 `.trim();
 }

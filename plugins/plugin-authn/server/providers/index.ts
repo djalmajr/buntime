@@ -1,6 +1,7 @@
 import { Auth0Provider } from "./auth0";
 import { EmailPasswordProvider } from "./email-password";
 import { GenericOIDCProvider } from "./generic-oidc";
+import { GoogleProvider } from "./google";
 import { KeycloakProvider } from "./keycloak";
 import { OktaProvider } from "./okta";
 import type { AuthProvider, ProviderConfig, ProviderInfo } from "./types";
@@ -12,6 +13,7 @@ export type {
   BaseOAuthProviderConfig,
   EmailPasswordProviderConfig,
   GenericOIDCProviderConfig,
+  GoogleProviderConfig,
   KeycloakProviderConfig,
   OktaProviderConfig,
 } from "./types";
@@ -31,6 +33,8 @@ export function createProvider(config: ProviderConfig): AuthProvider {
       return new OktaProvider(config);
     case "generic-oidc":
       return new GenericOIDCProvider(config);
+    case "google":
+      return new GoogleProvider(config);
     default:
       throw new Error(`Unknown provider type: ${(config as ProviderConfig).type}`);
   }
@@ -53,6 +57,7 @@ export function mergeBetterAuthConfigs(providers: AuthProvider[]): {
     requireEmailVerification?: boolean;
   };
   plugins: unknown[];
+  socialProviders: Record<string, unknown>;
 } {
   const result: {
     emailAndPassword?: {
@@ -61,8 +66,10 @@ export function mergeBetterAuthConfigs(providers: AuthProvider[]): {
       requireEmailVerification?: boolean;
     };
     plugins: unknown[];
+    socialProviders: Record<string, unknown>;
   } = {
     plugins: [],
+    socialProviders: {},
   };
 
   for (const provider of providers) {
@@ -79,6 +86,11 @@ export function mergeBetterAuthConfigs(providers: AuthProvider[]): {
     // Merge plugins
     if (config.plugins) {
       result.plugins.push(...config.plugins);
+    }
+
+    // Merge social providers
+    if (config.socialProviders) {
+      Object.assign(result.socialProviders, config.socialProviders);
     }
   }
 

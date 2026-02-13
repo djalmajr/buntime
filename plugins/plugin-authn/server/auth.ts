@@ -26,6 +26,7 @@ export function createBetterAuth(config: BetterAuthConfig) {
       schema,
     }),
     emailAndPassword: providerConfigs.emailAndPassword,
+    socialProviders: providerConfigs.socialProviders,
     // biome-ignore lint/suspicious/noExplicitAny: better-auth plugin types are complex
     plugins: providerConfigs.plugins as any,
     session: {

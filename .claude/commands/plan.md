@@ -17,4 +17,4 @@ Display the results showing:
 - Full description
 - Modified files (if any)
 
-If no active plan exists, inform the user and suggest creating one with `/plan-new`.
+If no active plan exists, inform the user that planning is automatic and the plan will be created/reused on the next prompt or file edit.

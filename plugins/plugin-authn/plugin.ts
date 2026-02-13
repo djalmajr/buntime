@@ -37,6 +37,7 @@ import type {
   Auth0ProviderConfig,
   EmailPasswordProviderConfig,
   GenericOIDCProviderConfig,
+  GoogleProviderConfig,
   KeycloakProviderConfig,
   OktaProviderConfig,
   ProviderConfig,
@@ -73,6 +74,10 @@ type ProviderConfigInput =
       clientId: string;
       clientSecret: string;
       issuer: string;
+    })
+  | (Omit<GoogleProviderConfig, "clientId" | "clientSecret"> & {
+      clientId: string;
+      clientSecret: string;
     });
 
 /**
@@ -372,6 +377,7 @@ export type {
   AuthProviderType,
   EmailPasswordProviderConfig,
   GenericOIDCProviderConfig,
+  GoogleProviderConfig,
   KeycloakProviderConfig,
   OktaProviderConfig,
   ProviderConfig,

@@ -214,6 +214,58 @@ describe("auth module", () => {
   });
 });
 
+describe("social providers integration", () => {
+  it("should merge Google provider into socialProviders", () => {
+    const googleProvider = createProvider({
+      clientId: "test-google",
+      clientSecret: "secret",
+      type: "google",
+    });
+
+    const merged = mergeBetterAuthConfigs([googleProvider]);
+
+    expect(merged.socialProviders).toBeDefined();
+    expect(merged.socialProviders.google).toBeDefined();
+  });
+
+  it("should combine social and OIDC providers", () => {
+    const googleProvider = createProvider({
+      clientId: "test-google",
+      clientSecret: "secret",
+      type: "google",
+    });
+
+    const auth0Provider = createProvider({
+      clientId: "test-auth0",
+      clientSecret: "secret",
+      domain: "test.auth0.com",
+      type: "auth0",
+    });
+
+    const merged = mergeBetterAuthConfigs([googleProvider, auth0Provider]);
+
+    expect(merged.socialProviders.google).toBeDefined();
+    expect(merged.plugins.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("should combine Google with email-password provider", () => {
+    const emailProvider = new EmailPasswordProvider({
+      type: "email-password",
+    });
+
+    const googleProvider = createProvider({
+      clientId: "test-google",
+      clientSecret: "secret",
+      type: "google",
+    });
+
+    const merged = mergeBetterAuthConfigs([emailProvider, googleProvider]);
+
+    expect(merged.emailAndPassword?.enabled).toBe(true);
+    expect(merged.socialProviders.google).toBeDefined();
+  });
+});
+
 describe("better-auth configuration", () => {
   describe("email and password options", () => {
     it("should enable email verification when configured", () => {

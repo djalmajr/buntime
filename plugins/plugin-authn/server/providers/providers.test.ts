@@ -15,10 +15,12 @@ import { GenericOIDCProvider } from "./generic-oidc";
 import { createProvider, createProviders, getProvidersInfo, mergeBetterAuthConfigs } from "./index";
 import { KeycloakProvider } from "./keycloak";
 import { OktaProvider } from "./okta";
+import { GoogleProvider } from "./google";
 import type {
   Auth0ProviderConfig,
   EmailPasswordProviderConfig,
   GenericOIDCProviderConfig,
+  GoogleProviderConfig,
   KeycloakProviderConfig,
   OktaProviderConfig,
   ProviderConfig,
@@ -147,6 +149,20 @@ describe("createProvider", () => {
     expect(info.type).toBe("generic-oidc");
     // Provider ID is generated from issuer hostname (oidc.example.com -> oidc-example-com)
     expect(info.providerId).toBe("oidc-example-com");
+  });
+
+  it("should create GoogleProvider for google type", () => {
+    const config: GoogleProviderConfig = {
+      clientId: "test-client",
+      clientSecret: "test-secret",
+      type: "google",
+    };
+    const provider = createProvider(config);
+
+    const info = provider.getProviderInfo();
+    expect(info.type).toBe("google");
+    expect(info.providerId).toBe("google");
+    expect(info.displayName).toBe("Google");
   });
 
   it("should throw for unknown provider type", () => {
@@ -915,6 +931,137 @@ describe("GenericOIDCProvider configuration", () => {
 
     const config = provider.getBetterAuthConfig();
     expect(config.plugins).toHaveLength(1);
+  });
+});
+
+describe("Google provider", () => {
+  it("should create with minimal config", () => {
+    const config: GoogleProviderConfig = {
+      clientId: "test-client",
+      clientSecret: "test-secret",
+      type: "google",
+    };
+    const provider = createProvider(config);
+    const info = provider.getProviderInfo();
+
+    expect(info.type).toBe("google");
+    expect(info.providerId).toBe("google");
+    expect(info.displayName).toBe("Google");
+    expect(info.icon).toBe("simple-icons:google");
+  });
+
+  it("should use custom display name and icon", () => {
+    const config: GoogleProviderConfig = {
+      clientId: "test",
+      clientSecret: "secret",
+      displayName: "Login with Google",
+      icon: "custom:google",
+      type: "google",
+    };
+    const provider = createProvider(config);
+    const info = provider.getProviderInfo();
+
+    expect(info.displayName).toBe("Login with Google");
+    expect(info.icon).toBe("custom:google");
+  });
+
+  it("should generate socialProviders config", () => {
+    const config: GoogleProviderConfig = {
+      clientId: "my-client-id",
+      clientSecret: "my-secret",
+      type: "google",
+    };
+    const provider = createProvider(config);
+    const authConfig = provider.getBetterAuthConfig();
+
+    expect(authConfig.socialProviders).toBeDefined();
+    expect(authConfig.socialProviders?.google).toBeDefined();
+    expect(authConfig.plugins).toBeUndefined();
+    expect(authConfig.emailAndPassword).toBeUndefined();
+  });
+
+  it("should include Google-specific options when provided", () => {
+    const config: GoogleProviderConfig = {
+      accessType: "offline",
+      clientId: "test",
+      clientSecret: "secret",
+      hd: "example.com",
+      prompt: "select_account",
+      type: "google",
+    };
+    const provider = createProvider(config);
+    const authConfig = provider.getBetterAuthConfig();
+    const googleConfig = authConfig.socialProviders?.google as Record<string, unknown>;
+
+    expect(googleConfig.hd).toBe("example.com");
+    expect(googleConfig.prompt).toBe("select_account");
+    expect(googleConfig.accessType).toBe("offline");
+  });
+
+  it("should not include optional fields when not provided", () => {
+    const config: GoogleProviderConfig = {
+      clientId: "test",
+      clientSecret: "secret",
+      type: "google",
+    };
+    const provider = createProvider(config);
+    const authConfig = provider.getBetterAuthConfig();
+    const googleConfig = authConfig.socialProviders?.google as Record<string, unknown>;
+
+    expect(googleConfig.hd).toBeUndefined();
+    expect(googleConfig.prompt).toBeUndefined();
+    expect(googleConfig.accessType).toBeUndefined();
+  });
+
+  it("should not have getLogoutUrl method", () => {
+    const config: GoogleProviderConfig = {
+      clientId: "test",
+      clientSecret: "secret",
+      type: "google",
+    };
+    const provider = createProvider(config);
+
+    expect(provider.getLogoutUrl).toBeUndefined();
+  });
+});
+
+describe("mergeBetterAuthConfigs with social providers", () => {
+  it("should merge Google socialProviders config", () => {
+    const providers = createProviders([
+      {
+        clientId: "google-id",
+        clientSecret: "google-secret",
+        type: "google",
+      },
+    ]);
+    const merged = mergeBetterAuthConfigs(providers);
+
+    expect(merged.socialProviders.google).toBeDefined();
+    expect(merged.emailAndPassword?.enabled).toBe(false);
+    expect(merged.plugins).toEqual([]);
+  });
+
+  it("should combine Google with email-password and OIDC providers", () => {
+    const providers = createProviders([
+      { type: "email-password" },
+      {
+        clientId: "google-id",
+        clientSecret: "google-secret",
+        type: "google",
+      },
+      {
+        clientId: "kc-id",
+        clientSecret: "kc-secret",
+        issuer: "https://keycloak.example.com",
+        realm: "test",
+        type: "keycloak",
+      },
+    ]);
+    const merged = mergeBetterAuthConfigs(providers);
+
+    expect(merged.emailAndPassword?.enabled).toBe(true);
+    expect(merged.socialProviders.google).toBeDefined();
+    expect(merged.plugins.length).toBeGreaterThanOrEqual(1);
   });
 });
 

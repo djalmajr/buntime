@@ -10,7 +10,7 @@
     }
   },
   "scripts": {
-    "build": "echo 'Skipping disabled plugin'",
+    "build": "NODE_ENV=production bun scripts/build.ts",
     "dev": "bun scripts/build.ts --watch",
     "lint": "bun run lint:format && bun run lint:types",
     "lint:format": "bun biome check --write",
@@ -23,11 +23,18 @@
   "dependencies": {
     "@buntime/plugin-database": "workspace:*",
     "@buntime/shared": "workspace:*",
+    "@iconify-icon/react": "^2.3.0",
     "@libsql/client": "^0.15.0",
+    "@radix-ui/react-label": "^2.1.0",
+    "@radix-ui/react-slot": "^1.2.3",
     "better-auth": "^1.4.6",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "drizzle-orm": "^0.38.3",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "tailwind-merge": "^3.3.1",
+    "tw-animate-css": "^1.3.4"
   },
   "peerDependencies": {
     "hono": "^4.0.0",

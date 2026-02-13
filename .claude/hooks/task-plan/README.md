@@ -12,75 +12,40 @@ The Planning Enforcer ensures that all code changes are preceded by a well-docum
 
 ## Quick Start
 
-### 1. Create a Plan
+### 1. Start working
 
-Use the `/plan-new` command (or run the CLI directly):
+No manual plan command is required in OpenCode. The plugin will:
 
-```bash
-bun run .claude/hooks/planning/cli.ts create \
-  --id "add-feature" \
-  --title "Add User Authentication" \
-  --summary "Implement JWT-based auth for API endpoints" \
-  --description "## Context
-Need authentication for security.
+- Create a plan automatically when none exists
+- Reuse a matching plan when context is the same
+- Create a new plan when context is different or uncertain
+- Inform the user about every decision (create/reuse + reason)
 
-## Scope
-- JWT tokens
-- Login/logout endpoints
-- Middleware
+### 2. Work on tasks
 
-## Approach
-Use existing auth library...
+Use TodoWrite normally. Task status sync and modified-file tracking are automatic.
 
-## Acceptance Criteria
-- [ ] Login works
-- [ ] Protected routes require auth" \
-  --task "Create auth middleware" \
-  --task "Add login endpoint" \
-  --task "Add tests"
-```
+### 3. Optional manual maintenance
 
-### 2. Activate the Plan
-
-```bash
-bun run .claude/hooks/planning/cli.ts activate add-feature
-```
-
-### 3. Work on Tasks
-
-The plan is now active. Use TodoWrite to track progress on tasks.
-Modified files are tracked automatically.
-
-### 4. Complete the Plan
-
-```bash
-bun run .claude/hooks/planning/cli.ts complete
-```
+The CLI still exists for inspection/maintenance, but it is not required in the normal OpenCode flow.
 
 ## Commands
 
 ### Slash Commands
 
-Available in both Claude Code and OpenCode:
-
-| Command | Description |
-|---------|-------------|
-| `/plan` | Show the active plan |
-| `/plan-list` | List all plans |
-| `/plan-new` | Create a new plan interactively |
-| `/plan-done` | Mark the active plan as complete |
+OpenCode no longer requires slash commands for planning. The lifecycle is automatic.
 
 ### CLI Commands
 
 ```bash
 # Show active plan
-bun run .claude/hooks/planning/cli.ts show
+bun run .claude/hooks/task-plan/cli.ts show
 
 # List all plans
-bun run .claude/hooks/planning/cli.ts list
+bun run .claude/hooks/task-plan/cli.ts list
 
 # Create a plan
-bun run .claude/hooks/planning/cli.ts create \
+bun run .claude/hooks/task-plan/cli.ts create \
   --id <id> \
   --title <title> \
   --summary <summary> \
@@ -88,16 +53,16 @@ bun run .claude/hooks/planning/cli.ts create \
   [--task <task>...]
 
 # Activate a plan
-bun run .claude/hooks/planning/cli.ts activate <plan-id>
+bun run .claude/hooks/task-plan/cli.ts activate <plan-id>
 
 # Mark active plan as done
-bun run .claude/hooks/planning/cli.ts complete
+bun run .claude/hooks/task-plan/cli.ts complete
 
 # Delete a plan
-bun run .claude/hooks/planning/cli.ts delete <plan-id>
+bun run .claude/hooks/task-plan/cli.ts delete <plan-id>
 
 # Show help
-bun run .claude/hooks/planning/cli.ts help
+bun run .claude/hooks/task-plan/cli.ts help
 ```
 
 ## Plan Structure
@@ -156,7 +121,7 @@ Tasks are actionable steps tracked via TodoWrite:
 Plans and tasks are stored in SQLite (`store.db`):
 
 ```
-.claude/hooks/planning/store.db
+.claude/hooks/task-plan/store.db
 ```
 
 The database is created automatically on first use and should be in `.gitignore`.
@@ -193,7 +158,7 @@ CREATE TABLE tasks (
 ## Directory Structure
 
 ```
-.claude/hooks/planning/
+.claude/hooks/task-plan/
 ├── cli.ts              # CLI entry point
 ├── index.ts            # Hook entry point
 ├── config.ts           # Configuration
@@ -318,13 +283,11 @@ When asked to create a PR:
 
 ## Bypass Commands
 
-For emergencies:
+Only git bypass is relevant for OpenCode command flow:
 
 | Command | Description |
 |---------|-------------|
-| `/bypass-plan` | Allow next file edit without active plan |
-| `/bypass-git` | Allow next git command |
-| `/force-stop` | Force end session with pending tasks |
+| `/bypass-git` | Allow next blocked git command |
 
 ## Platform Integration
 
@@ -334,14 +297,14 @@ Hooks configured in `.claude/settings.json` call the index.ts entry point.
 
 ### OpenCode
 
-Uses the thin adapter in `.opencode/plugins/planning-enforcer.ts` which imports shared handlers.
+Uses the thin adapter in `.opencode/plugins/task-plan.ts` which imports shared handlers.
 
 ## Troubleshooting
 
 ### Hook not running
 
 1. Check Bun is installed: `bun --version`
-2. Test CLI directly: `bun run .claude/hooks/planning/cli.ts show`
+2. Test CLI directly: `bun run .claude/hooks/task-plan/cli.ts show`
 
 ### Database issues
 

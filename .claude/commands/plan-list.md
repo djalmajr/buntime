@@ -17,7 +17,4 @@ Display the results as a table showing:
 - Progress (completed/total tasks)
 - Last updated date
 
-If the user wants to activate a plan, use:
-```bash
-bun run "$CLAUDE_PROJECT_DIR"/.claude/hooks/task-plan/cli.ts activate <plan-id>
-```
+Mention that activation/selection is automatic based on the current context.

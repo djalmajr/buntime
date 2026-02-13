@@ -1,16 +1,17 @@
 /**
  * Pre Tool Use Handler (Edit|Write)
- * Runs before file modifications - blocks without active plan
+ * Runs before file modifications - ensures active plan automatically
  */
 
-import type { HandlerContext, ClaudeHookInput, OpenCodeHookInput } from "../types";
-import { consumeBypass } from "../core/state";
-import { getActivePlan, getTasks } from "../core/plan";
+import { ensureActivePlan } from "../core/auto-plan";
 import { isExempt } from "../core/parser";
+import { getActivePlan, getTasks } from "../core/plan";
+import { consumeBypass } from "../core/state";
+import type { ClaudeHookInput, HandlerContext, OpenCodeHookInput } from "../types";
 
 export async function preToolUse(
   ctx: HandlerContext,
-  input: ClaudeHookInput | OpenCodeHookInput
+  input: ClaudeHookInput | OpenCodeHookInput,
 ): Promise<void> {
   const { projectDir, config, client } = ctx;
 
@@ -26,7 +27,7 @@ export async function preToolUse(
   }
 
   // Check for active plan
-  const plan = getActivePlan(projectDir, config);
+  let plan = getActivePlan(projectDir, config);
 
   if (!plan) {
     // Check for bypass
@@ -41,18 +42,28 @@ export async function preToolUse(
       return; // Allow this operation
     }
 
-    const error = formatNoPlanError(relativePath);
-    throw new Error(error);
+    const ensured = ensureActivePlan(projectDir, config, {
+      contextTitle: `Edit ${relativePath}`,
+    });
+    plan = ensured.plan;
+
+    if (client) {
+      await client.app.log({
+        service: "task-plan",
+        level: "info",
+        message: `Task plan: ${ensured.action === "created" ? "created" : "reused"} "${ensured.plan.id}" (${ensured.reason}).`,
+      });
+    }
   }
 
   // Warn if file not in plan (optional)
   if (config.warnOnUnexpectedFiles) {
     const tasks = getTasks(projectDir, config, plan.id);
-    const expectedFiles = extractFilesFromTasks(tasks.map(t => t.text));
-    
+    const expectedFiles = extractFilesFromTasks(tasks.map((t) => t.text));
+
     if (expectedFiles.length > 0 && !isFileExpected(filePath, expectedFiles)) {
       const warning = `File not referenced in active plan checklist:\n  - ${relativePath}\n\nConsider updating the plan to include this file.`;
-      
+
       if (client) {
         await client.app.log({
           service: "task-plan",
@@ -89,36 +100,20 @@ function normalizeRelativePath(filePath: string, projectDir: string): string {
   return relativePath;
 }
 
-function formatNoPlanError(filePath: string): string {
-  return `
-${"=".repeat(60)}
-BLOCKED: No active plan
-${"=".repeat(60)}
-
-File: ${filePath}
-
-Create a plan first with /plan new
-Or activate an existing plan with /plan activate <id>
-
-Tip: Use /bypass-plan to allow this operation once.
-${"=".repeat(60)}
-`.trim();
-}
-
 /**
  * Extract file paths from task texts (from backticks)
  */
 function extractFilesFromTasks(texts: string[]): string[] {
   const files: string[] = [];
-  const regex = /\`([^`]+\.[a-zA-Z0-9]+)\`/g;
-  
+  const regex = /`([^`]+\.[a-zA-Z0-9]+)`/g;
+
   for (const text of texts) {
     let match: RegExpExecArray | null;
     while ((match = regex.exec(text)) !== null) {
       files.push(match[1]);
     }
   }
-  
+
   return [...new Set(files)]; // unique
 }
 
@@ -127,7 +122,5 @@ function extractFilesFromTasks(texts: string[]): string[] {
  */
 function isFileExpected(filePath: string, expectedFiles: string[]): boolean {
   const normalizedPath = filePath.replace(/\\/g, "/");
-  return expectedFiles.some(
-    (f) => normalizedPath.endsWith(f) || normalizedPath.includes(f)
-  );
+  return expectedFiles.some((f) => normalizedPath.endsWith(f) || normalizedPath.includes(f));
 }

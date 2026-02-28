@@ -18,7 +18,9 @@
     "publish:plugins": "bun run --filter '@zomme/bun-plugin-*' publish:npm",
     "test:coverage": "bun run --filter '*' test:coverage",
     "test:watch": "bun run --filter '*' test:watch",
-    "test": "bun run --filter '*' test"
+    "test": "bun run --filter '*' test",
+    "jsr:publish": "cd packages/shared && bunx jsr publish --allow-dirty",
+    "jsr:dry-run": "cd packages/shared && bunx jsr publish --dry-run --allow-dirty"
   },
   "overrides": {
     "hono": "^4.10.8"

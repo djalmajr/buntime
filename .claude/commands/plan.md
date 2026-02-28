@@ -1,20 +1,47 @@
 ---
-description: Show the active plan with tasks and progress
+description: Plan implementation and create GitHub issue
 ---
 
-Show the active plan from the planning database.
+Plan an implementation task using plan mode, then create a GitHub issue with the result.
 
-Run this command to get the plan details:
+## Workflow
+
+1. **Enter plan mode** — explore the codebase, design the approach
+2. **Write plan** to `.claude/plans/` (local draft, gitignored)
+3. **Exit plan mode** — present plan for user approval
+4. **After approval** — create a GitHub issue with the plan content:
 
 ```bash
-bun run "$CLAUDE_PROJECT_DIR"/.claude/hooks/task-plan/cli.ts show
+gh issue create --repo user/asciimark \
+  --title "<plan title>" \
+  --body "<plan content>" \
+  --label "<appropriate label>"
 ```
 
-Display the results showing:
-- Title and status
-- Summary (TL;DR)
-- Task checklist with completion status and IDs
-- Full description
-- Modified files (if any)
+5. **Report** the issue URL to the user
+6. **Implement** — reference the issue number when relevant
 
-If no active plan exists, inform the user that planning is automatic and the plan will be created/reused on the next prompt or file edit.
+## Labels
+
+Pick based on scope: `desktop`, `site`, `core`, `ui`, `infra`
+
+## Issue body format
+
+```markdown
+## Contexto
+(from plan)
+
+## Arquivos
+(from plan)
+
+## Detalhamento
+(from plan)
+
+## Tarefas
+- [ ] Items from plan
+
+## Verificacao
+(from plan)
+```
+
+The local `.claude/plans/` file is a temporary draft. The GitHub issue is the source of truth.

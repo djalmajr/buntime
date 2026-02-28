@@ -2,7 +2,7 @@ import type { HTTPResponseError } from "hono/types";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { getLogger } from "./logger";
 
-const IS_PRODUCTION = Bun.env.NODE_ENV === "production";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const logger = getLogger().child("errors");
 
 export class AppError extends Error {

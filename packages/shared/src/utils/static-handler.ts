@@ -17,7 +17,7 @@ import { join } from "node:path";
  * } satisfies Parameters<typeof Bun.serve>[0];
  * ```
  */
-export function createStaticHandler(baseDir: string) {
+export function createStaticHandler(baseDir: string): (req: Bun.BunRequest) => Promise<Response> {
   return async (req: Bun.BunRequest): Promise<Response> => {
     const path = new URL(req.url).pathname;
     const name = path !== "/" ? path : "index.html";

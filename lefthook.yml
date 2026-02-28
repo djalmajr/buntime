@@ -8,6 +8,11 @@ pre-commit:
       run: bun scripts/check-version-sync.ts
       fail_text: "Version mismatch! Run 'bun scripts/bump-version.ts --chart=<bump> [--app=<bump>]' to sync."
 
+    jsr-version-sync:
+      glob: "packages/shared/{package.json,jsr.json}"
+      run: bun scripts/check-jsr-version-sync.ts
+      fail_text: "packages/shared version mismatch between package.json and jsr.json!"
+
     chart-version:
       glob: "charts/**"
       run: bun scripts/check-chart-version.ts

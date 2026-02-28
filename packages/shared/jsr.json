@@ -12,12 +12,12 @@
     "./utils/size": "./src/utils/size.ts",
     "./utils/static-handler": "./src/utils/static-handler.ts",
     "./utils/string": "./src/utils/string.ts",
-    "./utils/worker-config": "./src/utils/worker-config.ts",
-    "./utils/zod-helpers": "./src/utils/zod-helpers.ts"
+    "./utils/worker-config": "./src/utils/worker-config.ts"
   },
   "exclude": [
     "src/build.ts",
     "src/types/virtual-modules.d.ts",
+    "src/utils/zod-helpers.ts",
     "**/*.test.ts"
   ]
 }

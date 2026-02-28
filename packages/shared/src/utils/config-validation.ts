@@ -1,3 +1,8 @@
+/**
+ * @module
+ * Validation utilities for worker and plugin configuration values.
+ */
+
 import { parseDurationToMs } from "./duration";
 
 /**

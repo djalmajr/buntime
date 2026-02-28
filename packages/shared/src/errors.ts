@@ -1,3 +1,8 @@
+/**
+ * @module
+ * HTTP error classes with status codes for Buntime plugins.
+ */
+
 import type { HTTPResponseError } from "hono/types";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { getLogger } from "./logger";

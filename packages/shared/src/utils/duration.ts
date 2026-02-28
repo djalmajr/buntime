@@ -1,3 +1,8 @@
+/**
+ * @module
+ * Parse human-readable duration strings (e.g., "30s", "1h") to milliseconds.
+ */
+
 import ms, { type StringValue } from "ms";
 
 /**

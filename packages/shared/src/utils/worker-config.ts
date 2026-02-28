@@ -1,3 +1,8 @@
+/**
+ * @module
+ * Worker configuration types and defaults for Buntime apps.
+ */
+
 import type { PublicRoutesConfig } from "../types/plugin";
 import { type Duration, parseDurationToMs } from "./duration";
 import { parseSizeToBytes, type Size } from "./size";

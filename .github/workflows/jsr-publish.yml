@@ -1,0 +1,42 @@
+name: JSR Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g., 1.0.2). Leave empty to publish current version."
+        required: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      - name: Set version
+        if: inputs.version != ''
+        working-directory: packages/shared
+        env:
+          TARGET_VERSION: ${{ inputs.version }}
+        run: |
+          bun -e "
+            const fs = require('fs');
+            const version = process.env.TARGET_VERSION;
+            for (const file of ['jsr.json', 'package.json']) {
+              const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+              json.version = version;
+              fs.writeFileSync(file, JSON.stringify(json, null, 2) + '\n');
+            }
+          "
+
+      - name: Publish to JSR
+        working-directory: packages/shared
+        run: bunx jsr publish --allow-dirty

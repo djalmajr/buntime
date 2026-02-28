@@ -1,4 +1,9 @@
 /**
+ * @module
+ * String utilities for splitting and manipulating delimited lists.
+ */
+
+/**
  * Split a string by separator, trim whitespace, and filter empty values.
  *
  * @param value - String to split

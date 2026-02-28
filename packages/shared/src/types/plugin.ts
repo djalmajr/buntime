@@ -1,3 +1,8 @@
+/**
+ * @module
+ * Type definitions for Buntime plugins, hooks, and configuration.
+ */
+
 import type { BunFile, Server, ServerWebSocket } from "bun";
 import type { Hono, MiddlewareHandler } from "hono";
 

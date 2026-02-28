@@ -1,3 +1,8 @@
+/**
+ * @module
+ * Structured logger with pluggable transports (console, file).
+ */
+
 import { createLogger } from "./logger";
 import type { Logger, LoggerConfig } from "./types";
 

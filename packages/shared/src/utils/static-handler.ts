@@ -1,3 +1,8 @@
+/**
+ * @module
+ * Static file handler with SPA fallback for Bun.serve.
+ */
+
 import { join } from "node:path";
 
 /**

@@ -1,4 +1,9 @@
 /**
+ * @module
+ * Parse human-readable size strings (e.g., "10mb", "1gb") to bytes.
+ */
+
+/**
  * A size value, either as bytes (number) or a string like "10mb", "1gb"
  *
  * @example

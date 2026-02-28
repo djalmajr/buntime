@@ -1,8 +1,6 @@
 /**
- * @fileoverview Glob pattern matching utilities
- *
- * Provides functions to convert glob patterns to regular expressions
- * for route matching in plugins.
+ * @module
+ * Convert glob patterns to regex for route matching.
  */
 
 import type { PublicRoutesConfig } from "../types/plugin";

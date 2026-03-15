@@ -288,8 +288,7 @@ export function createAppBuilder(config: AppBuildConfig = {}): AppBuilder {
   const cwd = process.cwd();
   const name = resolveName(cwd, config.name);
 
-  // @buntime/shared is provided by runtime
-  const external = ["@buntime/shared", ...(config.external ?? [])];
+  const external = config.external ?? [];
   const srcDir = config.srcDir ?? "./src";
   const watchDirs =
     config.watchDirs ?? (config.clientOnly ? [srcDir] : ["./client", "./server", "."]);

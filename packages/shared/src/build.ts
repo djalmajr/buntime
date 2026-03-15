@@ -56,14 +56,24 @@
  * bun scripts/build.ts --watch
  * ```
  */
-import { existsSync, rmSync, watch } from "node:fs";
+import { existsSync, readFileSync, rmSync, watch } from "node:fs";
 import { basename, join } from "node:path";
 import type { BunPlugin } from "bun";
 import { isEnabledSync } from "./utils/buntime-config";
 
+function resolveName(cwd: string, configName?: string): string {
+  if (configName) return configName;
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8"));
+    return pkg.name || basename(cwd);
+  } catch {
+    return basename(cwd);
+  }
+}
+
 export interface PluginBuildConfig {
-  /** Plugin name for logging (e.g., "plugin-health") */
-  name: string;
+  /** Plugin name for logging (e.g., "plugin-health"). Falls back to package.json name or directory name */
+  name?: string;
   /** Build client (looks for client/index.html) */
   client?: boolean;
   /** External dependencies to exclude from bundle */
@@ -79,9 +89,10 @@ export interface PluginBuilder {
 /**
  * Create a plugin builder with watch mode support
  */
-export function createPluginBuilder(config: PluginBuildConfig): PluginBuilder {
+export function createPluginBuilder(config: PluginBuildConfig = {}): PluginBuilder {
   const isWatch = process.argv.includes("--watch");
   const cwd = process.cwd();
+  const name = resolveName(cwd, config.name);
 
   // Bundle everything by default - plugins should be self-contained
   const external = config.external ?? [];
@@ -95,7 +106,7 @@ export function createPluginBuilder(config: PluginBuildConfig): PluginBuilder {
       rmSync(join(cwd, "dist"), { recursive: true, force: true });
     } catch {}
 
-    console.log(`Building ${config.name}...`);
+    console.log(`Building ${name}...`);
 
     // Build plugin definition (plugin.ts → dist/plugin.js)
     const hasPluginTs = existsSync(join(cwd, "plugin.ts"));
@@ -156,7 +167,8 @@ export function createPluginBuilder(config: PluginBuildConfig): PluginBuilder {
 
         for (const name of pluginNames) {
           try {
-            const { default: plugin } = await import(name);
+            const resolved = require.resolve(name, { paths: [cwd] });
+            const { default: plugin } = await import(resolved);
             plugins.push(plugin);
           } catch {
             console.warn(`Plugin ${name} not available, skipping`);
@@ -172,7 +184,8 @@ export function createPluginBuilder(config: PluginBuildConfig): PluginBuilder {
 
         for (const name of defaultPlugins) {
           try {
-            const { default: plugin } = await import(name);
+            const resolved = require.resolve(name, { paths: [cwd] });
+            const { default: plugin } = await import(resolved);
             plugins.push(plugin);
           } catch {
             // Plugin not available, skip
@@ -204,7 +217,7 @@ export function createPluginBuilder(config: PluginBuildConfig): PluginBuilder {
   async function run(): Promise<void> {
     // Check if plugin is enabled
     if (!isEnabledSync(cwd)) {
-      console.log(`Skipping ${config.name} (disabled in manifest.yaml)`);
+      console.log(`Skipping ${name} (disabled in manifest.yaml)`);
       return;
     }
 
@@ -250,8 +263,8 @@ export function inferPluginName(): string {
 // =============================================================================
 
 export interface AppBuildConfig {
-  /** App name for logging (e.g., "cpanel") */
-  name: string;
+  /** App name for logging (e.g., "cpanel"). Falls back to package.json name or directory name */
+  name?: string;
   /** Client-only mode: no server build (default: false) */
   clientOnly?: boolean;
   /** Extra external dependencies to exclude (added to @buntime/*) */
@@ -270,9 +283,10 @@ export interface AppBuilder {
  * Create an app builder with watch mode support
  * Apps can be server + client (default) or client-only (clientOnly: true)
  */
-export function createAppBuilder(config: AppBuildConfig): AppBuilder {
+export function createAppBuilder(config: AppBuildConfig = {}): AppBuilder {
   const isWatch = process.argv.includes("--watch");
   const cwd = process.cwd();
+  const name = resolveName(cwd, config.name);
 
   // @buntime/shared is provided by runtime
   const external = ["@buntime/shared", ...(config.external ?? [])];
@@ -293,7 +307,8 @@ export function createAppBuilder(config: AppBuildConfig): AppBuilder {
 
       for (const name of pluginNames) {
         try {
-          const { default: plugin } = await import(name);
+          const resolved = require.resolve(name, { paths: [cwd] });
+          const { default: plugin } = await import(resolved);
           plugins.push(plugin);
         } catch {
           console.warn(`Plugin ${name} not available, skipping`);
@@ -310,7 +325,8 @@ export function createAppBuilder(config: AppBuildConfig): AppBuilder {
 
       for (const name of defaultPlugins) {
         try {
-          const { default: plugin } = await import(name);
+          const resolved = require.resolve(name, { paths: [cwd] });
+          const { default: plugin } = await import(resolved);
           plugins.push(plugin);
         } catch {
           // Plugin not available, skip
@@ -327,7 +343,7 @@ export function createAppBuilder(config: AppBuildConfig): AppBuilder {
       rmSync(join(cwd, "dist"), { recursive: true, force: true });
     } catch {}
 
-    console.log(`Building ${config.name}...`);
+    console.log(`Building ${name}...`);
 
     // Load client plugins
     const plugins = await loadPlugins();

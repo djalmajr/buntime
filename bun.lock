@@ -150,7 +150,7 @@
     },
     "packages/shared": {
       "name": "@buntime/shared",
-      "version": "1.0.0",
+      "version": "1.1.1",
       "dependencies": {
         "ms": "^2.1.3",
       },
@@ -190,6 +190,7 @@
       "devDependencies": {
         "@types/react": "^19.2.6",
         "@types/react-dom": "^19.2.3",
+        "@zomme/bun-plugin-iconify": "^0.1.3",
         "@zomme/bun-plugin-tsr": "^0.1.1",
         "bun-plugin-tailwind": "^0.1.2",
         "tailwindcss": "^4.1.17",
@@ -256,6 +257,7 @@
       "devDependencies": {
         "@types/react": "^19.2.6",
         "@types/react-dom": "^19.2.3",
+        "@zomme/bun-plugin-iconify": "^0.1.3",
         "@zomme/bun-plugin-tsr": "^0.1.1",
         "bun-plugin-tailwind": "^0.1.2",
         "tailwindcss": "^4.1.17",
@@ -1293,11 +1295,15 @@
 
     "@buntime/plugin-authn/@libsql/client": ["@libsql/client@0.15.15", "", { "dependencies": { "@libsql/core": "^0.15.14", "@libsql/hrana-client": "^0.7.0", "js-base64": "^3.7.5", "libsql": "^0.5.22", "promise-limit": "^2.7.0" } }, "sha512-twC0hQxPNHPKfeOv3sNT6u2pturQjLcI+CnpTM0SjRpocEGgfiZ7DWKXLNnsothjyJmDqEsBQJ5ztq9Wlu470w=="],
 
+    "@buntime/plugin-authn/@zomme/bun-plugin-iconify": ["@zomme/bun-plugin-iconify@0.1.3", "", { "peerDependencies": { "@iconify-json/*": ">=1.0.0", "@iconify/json": ">=2.0.0" }, "optionalPeers": ["@iconify-json/*", "@iconify/json"] }, "sha512-+a6gY7KlRGimHdojksNXmlS386VGXSmURsXsA9tHsILhPQ0XzDW6mG+BwSAfxBHFVssE+UVf6KLgsjotvRn4sg=="],
+
     "@buntime/plugin-authz/@iconify-icon/react": ["@iconify-icon/react@2.3.0", "", { "dependencies": { "iconify-icon": "^2.3.0" }, "peerDependencies": { "react": ">=16" } }, "sha512-7at8wGF+igiCS2XMaIrkZokD0zxz0pNa5SZn5tJAkZMJezeJlYiFXI5rYkiEpUpMaNYhYTqGLB90I/0sKJZkUw=="],
 
     "@buntime/plugin-database/@iconify-icon/react": ["@iconify-icon/react@2.3.0", "", { "dependencies": { "iconify-icon": "^2.3.0" }, "peerDependencies": { "react": ">=16" } }, "sha512-7at8wGF+igiCS2XMaIrkZokD0zxz0pNa5SZn5tJAkZMJezeJlYiFXI5rYkiEpUpMaNYhYTqGLB90I/0sKJZkUw=="],
 
     "@buntime/plugin-database/@libsql/client": ["@libsql/client@0.15.15", "", { "dependencies": { "@libsql/core": "^0.15.14", "@libsql/hrana-client": "^0.7.0", "js-base64": "^3.7.5", "libsql": "^0.5.22", "promise-limit": "^2.7.0" } }, "sha512-twC0hQxPNHPKfeOv3sNT6u2pturQjLcI+CnpTM0SjRpocEGgfiZ7DWKXLNnsothjyJmDqEsBQJ5ztq9Wlu470w=="],
+
+    "@buntime/plugin-database/@zomme/bun-plugin-iconify": ["@zomme/bun-plugin-iconify@0.1.3", "", { "peerDependencies": { "@iconify-json/*": ">=1.0.0", "@iconify/json": ">=2.0.0" }, "optionalPeers": ["@iconify-json/*", "@iconify/json"] }, "sha512-+a6gY7KlRGimHdojksNXmlS386VGXSmURsXsA9tHsILhPQ0XzDW6mG+BwSAfxBHFVssE+UVf6KLgsjotvRn4sg=="],
 
     "@buntime/plugin-database/react-resizable-panels": ["react-resizable-panels@2.1.9", "", { "peerDependencies": { "react": "^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc", "react-dom": "^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc" } }, "sha512-z77+X08YDIrgAes4jl8xhnUu1LNIRp4+E7cv4xHmLOxxUPO/ML7PSrE813b90vj7xvQ1lcf7g2uA9GeMZonjhQ=="],
 
@@ -1316,6 +1322,8 @@
     "@buntime/runtime/@libsql/client": ["@libsql/client@0.17.0", "", { "dependencies": { "@libsql/core": "^0.17.0", "@libsql/hrana-client": "^0.9.0", "js-base64": "^3.7.5", "libsql": "^0.5.22", "promise-limit": "^2.7.0" } }, "sha512-TLjSU9Otdpq0SpKHl1tD1Nc9MKhrsZbCFGot3EbCxRa8m1E5R1mMwoOjKMMM31IyF7fr+hPNHLpYfwbMKNusmg=="],
 
     "@buntime/runtime/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
+
+    "@buntime/shared/@zomme/bun-plugin-iconify": ["@zomme/bun-plugin-iconify@0.1.3", "", { "peerDependencies": { "@iconify-json/*": ">=1.0.0", "@iconify/json": ">=2.0.0" }, "optionalPeers": ["@iconify-json/*", "@iconify/json"] }, "sha512-+a6gY7KlRGimHdojksNXmlS386VGXSmURsXsA9tHsILhPQ0XzDW6mG+BwSAfxBHFVssE+UVf6KLgsjotvRn4sg=="],
 
     "@buntime/shared/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 

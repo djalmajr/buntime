@@ -1,6 +1,6 @@
 name: "@buntime/plugin-authn"
 base: "/auth"
-enabled: true
+enabled: false
 injectBase: true
 
 dependencies:

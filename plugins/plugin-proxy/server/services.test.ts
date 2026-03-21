@@ -783,6 +783,39 @@ describe("matchRule with state", () => {
       expect(match).toBeNull();
     }
   });
+
+  it("should skip disabled rules", () => {
+    const rule1 = compileRule(
+      createRule({ id: "disabled-rule", enabled: false, pattern: "^/api/(.*)$", target: "http://disabled:8080" }),
+      false,
+    );
+    const rule2 = compileRule(
+      createRule({ id: "enabled-rule", pattern: "^/api/(.*)$", target: "http://enabled:8080" }),
+      false,
+    );
+
+    if (rule1 && rule2) {
+      setDynamicRules([rule1, rule2]);
+
+      const match = matchRule("/api/users");
+      expect(match).not.toBeNull();
+      expect(match?.rule.id).toBe("enabled-rule");
+    }
+  });
+
+  it("should return null when all matching rules are disabled", () => {
+    const rule = compileRule(
+      createRule({ id: "disabled-rule", enabled: false, pattern: "^/api/(.*)$" }),
+      false,
+    );
+
+    if (rule) {
+      setDynamicRules([rule]);
+
+      const match = matchRule("/api/users");
+      expect(match).toBeNull();
+    }
+  });
 });
 
 describe("handleProxyRequest", () => {
@@ -1150,6 +1183,7 @@ describe("loadDynamicRules", () => {
           yield { key: ["proxy", "rules", rule.id], value: rule };
         }
       }),
+      set: mock(() => Promise.resolve()),
     };
 
     const ctx = createMockContext({
@@ -1174,6 +1208,7 @@ describe("loadDynamicRules", () => {
           value: { id: "rule-2", pattern: "^/api$", target: "http://api" },
         };
       }),
+      set: mock(() => Promise.resolve()),
     };
 
     const ctx = createMockContext({

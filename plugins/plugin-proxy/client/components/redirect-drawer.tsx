@@ -17,6 +17,7 @@ import { Switch } from "./ui/switch";
 export interface RedirectData {
   base?: string;
   changeOrigin?: boolean;
+  enabled?: boolean;
   headers?: Record<string, string>;
   id?: string;
   name?: string;
@@ -145,7 +146,23 @@ export function RedirectDrawer({
                 : "Configure the redirect settings below."}
           </DrawerDescription>
         </DrawerHeader>
-        <div className="space-y-6 overflow-y-auto px-4">
+        <div className="space-y-6 overflow-y-auto px-4" data-vaul-no-drag>
+          {isEditMode && (
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="enabled">Enabled</Label>
+                <p className="text-sm text-muted-foreground">
+                  Disabled rules are skipped during request matching
+                </p>
+              </div>
+              <Switch
+                checked={formData.enabled !== false}
+                disabled={isViewMode}
+                id="enabled"
+                onCheckedChange={(checked: boolean) => setField("enabled", checked)}
+              />
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="name">Name</Label>
             <Input

@@ -6,9 +6,11 @@ const BASE = manifest.base;
 export interface ProxyRule {
   base?: string;
   changeOrigin?: boolean;
+  enabled?: boolean;
   headers?: Record<string, string>;
   id: string;
   name?: string;
+  order?: number;
   pattern: string;
   readonly?: boolean;
   relativePaths?: boolean;
@@ -90,6 +92,42 @@ export function useDeleteProxyRule() {
       });
       if (!res.ok) throw new Error("Failed to delete rule");
       return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["proxy-rules"] });
+    },
+  });
+}
+
+export function useToggleProxyRule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`${BASE}/api/rules/${id}/toggle`, {
+        method: "PATCH",
+      });
+      if (!res.ok) throw new Error("Failed to toggle rule");
+      return res.json() as Promise<ProxyRule>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["proxy-rules"] });
+    },
+  });
+}
+
+export function useReorderProxyRules() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      const res = await fetch(`${BASE}/api/rules/reorder`, {
+        body: JSON.stringify({ ids }),
+        headers: { "Content-Type": "application/json" },
+        method: "PUT",
+      });
+      if (!res.ok) throw new Error("Failed to reorder rules");
+      return res.json() as Promise<ProxyRule[]>;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["proxy-rules"] });

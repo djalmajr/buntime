@@ -28,14 +28,46 @@ jobs:
 
       - name: Sync to zommehq/charts
         run: |
+          VERSION=$(grep '^version:' charts/Chart.yaml | awk '{print $2}')
+          echo "Chart version: $VERSION"
+
+          # Prepare chart files
           mkdir -p sync/buntime
           cp -r charts/* sync/buntime/
+
+          # Inject release notes annotation if file exists
+          if [ -f charts/release-notes.md ]; then
+            python3 -c "
+          import yaml
+          with open('sync/buntime/Chart.yaml', 'r') as f:
+              chart = yaml.safe_load(f)
+          if 'annotations' not in chart:
+              chart['annotations'] = {}
+          chart['annotations']['catalog.cattle.io/release-notes'] = open('charts/release-notes.md').read()
+          with open('sync/buntime/Chart.yaml', 'w') as f:
+              yaml.dump(chart, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+          "
+          fi
+
+          # Clone charts repo
           git clone https://x-access-token:${{ secrets.CHARTS_PAT }}@github.com/zommehq/charts.git /tmp/charts
-          rm -rf /tmp/charts/charts/buntime
-          cp -r sync/buntime /tmp/charts/charts/
+
+          # Create versioned directory (preserves previous versions)
+          mkdir -p /tmp/charts/charts/buntime/"$VERSION"
+          cp -r sync/buntime/* /tmp/charts/charts/buntime/"$VERSION"/
+
+          # Remove flat files from previous layout (if they exist at charts/buntime/ root)
+          rm -f /tmp/charts/charts/buntime/Chart.yaml \
+                /tmp/charts/charts/buntime/values.yaml \
+                /tmp/charts/charts/buntime/values.base.yaml \
+                /tmp/charts/charts/buntime/configmap.base.yaml \
+                /tmp/charts/charts/buntime/questions.yml \
+                /tmp/charts/charts/buntime/questions.base.yaml
+          rm -rf /tmp/charts/charts/buntime/templates
+
           cd /tmp/charts
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
           git add .
-          git diff --staged --quiet || git commit -m "chore: sync buntime chart from buntime repo"
+          git diff --staged --quiet || git commit -m "chore: publish buntime chart v$VERSION"
           git push origin main

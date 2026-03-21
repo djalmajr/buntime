@@ -5,6 +5,12 @@ import type { Server, ServerWebSocket } from "bun";
 
 export interface ProxyRule {
   /**
+   * Whether the rule is active for request matching
+   * @default true
+   */
+  enabled?: boolean;
+
+  /**
    * Unique identifier for the rule (auto-generated for dynamic rules)
    */
   id?: string;
@@ -14,6 +20,12 @@ export interface ProxyRule {
    * @example "API Proxy"
    */
   name?: string;
+
+  /**
+   * Sort order for rule matching priority (lower = higher priority)
+   * Only applies to dynamic rules
+   */
+  order?: number;
 
   /**
    * Regex pattern to match request path
@@ -124,6 +136,7 @@ export function compileRule(rule: ProxyRule, readonly: boolean): CompiledRule | 
   try {
     return {
       ...rule,
+      enabled: rule.enabled !== false,
       id: rule.id || crypto.randomUUID(),
       readonly,
       regex: new RegExp(rule.pattern),
@@ -148,6 +161,7 @@ export function getAllRules(): CompiledRule[] {
 export function matchRule(pathname: string): MatchResult | null {
   const rules = getAllRules();
   for (const rule of rules) {
+    if (rule.enabled === false) continue;
     const match = pathname.match(rule.regex);
     if (match) {
       return { groups: match.slice(1), rule };
@@ -168,6 +182,8 @@ export function isProxyRoutePublic(pathname: string, method: string): boolean {
   const rules = getAllRules();
 
   for (const rule of rules) {
+    if (rule.enabled === false) continue;
+
     // Check if this rule matches the pathname
     const match = pathname.match(rule.regex);
     if (!match) continue;
@@ -424,6 +440,25 @@ export async function loadDynamicRules(): Promise<void> {
     }
   }
 
+  // Backward compatibility: assign order to rules that don't have one
+  let needsMigration = false;
+  for (let i = 0; i < rules.length; i++) {
+    if (rules[i].order == null) {
+      rules[i].order = i;
+      needsMigration = true;
+    }
+  }
+
+  // Sort by order
+  rules.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  // Persist migration
+  if (needsMigration) {
+    for (const rule of rules) {
+      await kv.set([...KV_PREFIX, rule.id], rule);
+    }
+  }
+
   dynamicRules = compileRules(rules, false);
   logger?.debug(`Loaded ${dynamicRules.length} dynamic proxy rules`);
 }
@@ -442,9 +477,11 @@ export function ruleToResponse(rule: CompiledRule) {
   return {
     base: rule.base,
     changeOrigin: rule.changeOrigin,
+    enabled: rule.enabled,
     headers: rule.headers,
     id: rule.id,
     name: rule.name,
+    order: rule.order,
     pattern: rule.pattern,
     publicRoutes: rule.publicRoutes,
     readonly: rule.readonly,
@@ -454,6 +491,30 @@ export function ruleToResponse(rule: CompiledRule) {
     target: rule.target,
     ws: rule.ws,
   };
+}
+
+export function ruleToStoredRule(rule: CompiledRule): StoredRule {
+  return {
+    base: rule.base,
+    changeOrigin: rule.changeOrigin,
+    enabled: rule.enabled,
+    headers: rule.headers,
+    id: rule.id!,
+    name: rule.name,
+    order: rule.order,
+    pattern: rule.pattern,
+    publicRoutes: rule.publicRoutes,
+    relativePaths: rule.relativePaths,
+    rewrite: rule.rewrite,
+    secure: rule.secure,
+    target: rule.target,
+    ws: rule.ws,
+  };
+}
+
+export function getNextOrder(): number {
+  const orders = dynamicRules.map((r) => r.order ?? 0);
+  return orders.length > 0 ? Math.max(...orders) + 1 : 0;
 }
 
 // ============================================================================

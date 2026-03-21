@@ -20,6 +20,7 @@
     "test:watch": "bun test --watch"
   },
   "dependencies": {
+    "@atlaskit/pragmatic-drag-and-drop": "^1.7.0",
     "@buntime/plugin-keyval": "workspace:*",
     "@buntime/shared": "workspace:*",
     "@iconify-icon/react": "^2.1.0",

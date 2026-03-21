@@ -35,12 +35,9 @@ jobs:
           mkdir -p sync/buntime
           cp -r charts/* sync/buntime/
 
-          # Copy release notes for Rancher UI
-          # app-readme.md: shown in chart listing (abstract)
-          # README.md: shown in chart detail and upgrade page (detailed description)
+          # Copy release notes as app-readme.md (shown in Rancher chart listing)
           if [ -f charts/release-notes.md ]; then
             cp charts/release-notes.md sync/buntime/app-readme.md
-            cp charts/release-notes.md sync/buntime/README.md
           fi
 
           # Clone charts repo

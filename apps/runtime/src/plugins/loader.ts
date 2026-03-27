@@ -148,6 +148,9 @@ export class PluginLoader {
   /**
    * Load all plugins from pluginDirs using auto-discovery
    * Plugins are sorted topologically based on dependencies from manifest
+   *
+   * Resilient: if a plugin fails to load, its dependents are skipped
+   * and the remaining plugins continue loading normally.
    */
   async load(): Promise<PluginRegistry> {
     const pluginDirs = this.pluginDirsOverride ?? getConfig().pluginDirs;
@@ -194,18 +197,41 @@ export class PluginLoader {
     // Topological sort
     const sorted = this.topologicalSort(parsedPlugins, configuredNames);
 
+    // Track plugins that failed to load so their dependents can be skipped
+    const failedPlugins = new Set<string>();
+    let loadedCount = 0;
+
     // Load plugins in sorted order
-    for (const { name, options } of sorted) {
+    for (const { name, options, dependencies } of sorted) {
+      // Check if any required dependency has failed
+      const failedRequiredDep = dependencies.find((dep) => failedPlugins.has(dep));
+      if (failedRequiredDep) {
+        logger.warn(
+          `Skipping plugin "${name}" because required dependency "${failedRequiredDep}" failed to load`,
+        );
+        failedPlugins.add(name);
+        continue;
+      }
+
       try {
         await this.loadPlugin(name, options);
+        loadedCount++;
       } catch (error) {
-        logger.error(`Failed to load plugin "${name}"`, { error: String(error) });
-        throw error;
+        logger.error(`Failed to load plugin "${name}", continuing with remaining plugins`, {
+          error: String(error),
+        });
+        failedPlugins.add(name);
       }
     }
 
-    if (sorted.length > 0) {
-      logger.info(`Loaded ${sorted.length} plugin(s)`);
+    if (loadedCount > 0) {
+      logger.info(`Loaded ${loadedCount} plugin(s)`);
+    }
+
+    if (failedPlugins.size > 0) {
+      logger.warn(
+        `${failedPlugins.size} plugin(s) failed to load: ${[...failedPlugins].join(", ")}`,
+      );
     }
 
     return this.registry;
@@ -214,21 +240,62 @@ export class PluginLoader {
   /**
    * Topological sort using Kahn's algorithm
    * Considers both required and optional dependencies
+   *
+   * Resilient: plugins with missing required dependencies are excluded
+   * from the sort (with a warning) instead of crashing the runtime.
+   * Their transitive dependents are also excluded.
    */
   private topologicalSort(plugins: ParsedPlugin[], configuredNames: Set<string>): ParsedPlugin[] {
+    // First pass: exclude plugins whose required dependencies are missing
+    const excluded = new Set<string>();
+    const pluginNames = new Set(plugins.map((p) => p.name));
+
+    // Iteratively remove plugins with unresolvable required dependencies
+    // (removing one plugin may cause others to become unresolvable)
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const plugin of plugins) {
+        if (excluded.has(plugin.name)) continue;
+
+        for (const dep of plugin.dependencies) {
+          if (!pluginNames.has(dep) || excluded.has(dep)) {
+            const isDisabled = configuredNames.has(dep);
+            const isExcluded = excluded.has(dep);
+            const reason = isExcluded
+              ? "was excluded due to its own errors"
+              : isDisabled
+                ? "disabled"
+                : "not installed";
+
+            logger.warn(
+              `Excluding plugin "${plugin.name}": required dependency "${dep}" is ${reason}. ` +
+                `${isDisabled && !isExcluded ? `Enable "${dep}" in its manifest.yaml.` : isExcluded ? "" : `Ensure "${dep}" is installed in pluginDirs.`}`,
+            );
+            excluded.add(plugin.name);
+            changed = true;
+            break;
+          }
+        }
+      }
+    }
+
+    // Filter to only includable plugins
+    const includedPlugins = plugins.filter((p) => !excluded.has(p.name));
+
     const pluginMap = new Map<string, ParsedPlugin>();
     const inDegree = new Map<string, number>();
     const graph = new Map<string, string[]>();
 
     // Initialize
-    for (const plugin of plugins) {
+    for (const plugin of includedPlugins) {
       pluginMap.set(plugin.name, plugin);
       inDegree.set(plugin.name, 0);
       graph.set(plugin.name, []);
     }
 
     // Build graph edges
-    for (const plugin of plugins) {
+    for (const plugin of includedPlugins) {
       const allDeps = [...plugin.dependencies, ...plugin.optionalDependencies];
 
       for (const dep of allDeps) {
@@ -236,17 +303,6 @@ export class PluginLoader {
         if (pluginMap.has(dep)) {
           graph.get(dep)?.push(plugin.name);
           inDegree.set(plugin.name, (inDegree.get(plugin.name) || 0) + 1);
-        }
-      }
-
-      // Validate required dependencies are enabled
-      for (const dep of plugin.dependencies) {
-        if (!pluginMap.has(dep)) {
-          const isDisabled = configuredNames.has(dep);
-          throw new Error(
-            `Plugin "${plugin.name}" requires "${dep}" which is ${isDisabled ? "disabled" : "not installed"}. ` +
-              `${isDisabled ? `Enable "${dep}" in its manifest.yaml.` : `Ensure "${dep}" is installed in pluginDirs.`}`,
-          );
         }
       }
     }
@@ -279,12 +335,14 @@ export class PluginLoader {
     }
 
     // Check for cycles
-    if (result.length !== plugins.length) {
+    if (result.length !== includedPlugins.length) {
       const resultNames = new Set(result.map((p) => p.name));
-      const remaining = plugins.filter((p) => !resultNames.has(p.name));
-      throw new Error(
-        `Circular dependency detected among plugins: ${remaining.map((p) => p.name).join(", ")}`,
+      const remaining = includedPlugins.filter((p) => !resultNames.has(p.name));
+      logger.error(
+        `Circular dependency detected among plugins: ${remaining.map((p) => p.name).join(", ")}. These plugins will not be loaded.`,
       );
+      // Return what we could sort instead of crashing
+      return result;
     }
 
     return result;
@@ -434,33 +492,47 @@ export class PluginLoader {
         continue;
       }
 
-      const entries = readdirSync(pluginDir);
+      let entries: string[];
+      try {
+        entries = readdirSync(pluginDir);
+      } catch (error) {
+        logger.error(`Failed to read plugin directory "${pluginDir}", skipping`, {
+          error: String(error),
+        });
+        continue;
+      }
 
       for (const entry of entries) {
-        const entryPath = join(pluginDir, entry);
-        const stat = statSync(entryPath);
+        try {
+          const entryPath = join(pluginDir, entry);
+          const stat = statSync(entryPath);
 
-        if (stat.isFile()) {
-          // Direct file: {pluginDir}/*.ts or {pluginDir}/*.js
-          const ext = entry.slice(entry.lastIndexOf("."));
-          if (extensions.includes(ext)) {
-            await this.tryRegisterPlugin(entryPath, pluginDir);
-          }
-        } else if (stat.isDirectory()) {
-          if (entry.startsWith("@")) {
-            // Scoped package: {pluginDir}/@scope/{name}/
-            await this.scanScopedPackage(entryPath, extensions);
-          } else {
-            // Subdirectory: {pluginDir}/{name}/
-            // Load manifest first to check for "pluginEntry" field
-            const manifest = await this.loadManifest(entryPath);
-            if (manifest) {
-              const pluginFile = this.findPluginFile(entryPath, extensions, manifest.pluginEntry);
-              if (pluginFile) {
-                await this.tryRegisterPluginWithManifest(pluginFile, entryPath, manifest);
+          if (stat.isFile()) {
+            // Direct file: {pluginDir}/*.ts or {pluginDir}/*.js
+            const ext = entry.slice(entry.lastIndexOf("."));
+            if (extensions.includes(ext)) {
+              await this.tryRegisterPlugin(entryPath, pluginDir);
+            }
+          } else if (stat.isDirectory()) {
+            if (entry.startsWith("@")) {
+              // Scoped package: {pluginDir}/@scope/{name}/
+              await this.scanScopedPackage(entryPath, extensions);
+            } else {
+              // Subdirectory: {pluginDir}/{name}/
+              // Load manifest first to check for "pluginEntry" field
+              const manifest = await this.loadManifest(entryPath);
+              if (manifest) {
+                const pluginFile = this.findPluginFile(entryPath, extensions, manifest.pluginEntry);
+                if (pluginFile) {
+                  await this.tryRegisterPluginWithManifest(pluginFile, entryPath, manifest);
+                }
               }
             }
           }
+        } catch (error) {
+          logger.error(`Failed to scan plugin entry "${entry}" in "${pluginDir}", skipping`, {
+            error: String(error),
+          });
         }
       }
     }
@@ -476,19 +548,34 @@ export class PluginLoader {
   private async scanScopedPackage(scopeDir: string, extensions: string[]): Promise<void> {
     if (!existsSync(scopeDir)) return;
 
-    const packages = readdirSync(scopeDir);
+    let packages: string[];
+    try {
+      packages = readdirSync(scopeDir);
+    } catch (error) {
+      logger.error(`Failed to read scoped package directory "${scopeDir}", skipping`, {
+        error: String(error),
+      });
+      return;
+    }
+
     for (const pkg of packages) {
-      const pkgPath = join(scopeDir, pkg);
-      const stat = statSync(pkgPath);
-      if (stat.isDirectory()) {
-        // Load manifest first to check for "pluginEntry" field
-        const manifest = await this.loadManifest(pkgPath);
-        if (manifest) {
-          const pluginFile = this.findPluginFile(pkgPath, extensions, manifest.pluginEntry);
-          if (pluginFile) {
-            await this.tryRegisterPluginWithManifest(pluginFile, pkgPath, manifest);
+      try {
+        const pkgPath = join(scopeDir, pkg);
+        const stat = statSync(pkgPath);
+        if (stat.isDirectory()) {
+          // Load manifest first to check for "pluginEntry" field
+          const manifest = await this.loadManifest(pkgPath);
+          if (manifest) {
+            const pluginFile = this.findPluginFile(pkgPath, extensions, manifest.pluginEntry);
+            if (pluginFile) {
+              await this.tryRegisterPluginWithManifest(pluginFile, pkgPath, manifest);
+            }
           }
         }
+      } catch (error) {
+        logger.error(`Failed to scan scoped package "${pkg}" in "${scopeDir}", skipping`, {
+          error: String(error),
+        });
       }
     }
   }

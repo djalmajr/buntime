@@ -396,11 +396,18 @@ export function createApp({ coreRoutes, getWorkerDir, pool, registry, workers }:
     const pluginAppResponse = await handlePluginApp(ctx);
     if (pluginAppResponse) return runOnResponse(pluginAppResponse);
 
-    // Fall back to worker routes
-    const workerReq = createProcessedRequest(ctx);
-    const response = await workers.fetch(workerReq);
+    // Fall back to worker routes (only if a worker app was resolved)
+    if (resolved) {
+      const workerReq = createProcessedRequest(ctx);
+      const response = await workers.fetch(workerReq);
+      return runOnResponse(response);
+    }
 
-    return runOnResponse(response);
+    // No handler found for this request
+    return new Response("Not Found", {
+      headers: { [Headers.REQUEST_ID]: requestId },
+      status: 404,
+    });
   });
 
   app.onError(errorToResponse);

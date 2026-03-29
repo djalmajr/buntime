@@ -127,6 +127,33 @@ export async function loadManifestConfig(dir: string): Promise<ManifestConfig | 
 }
 
 /**
+ * Read merged env for an app directory (.env > manifest.yaml)
+ *
+ * Priority: .env file keys override manifest.yaml env section.
+ * Keys that only exist in manifest are preserved.
+ *
+ * @returns Merged env object
+ */
+export async function readAppEnv(appDir: string): Promise<Record<string, string>> {
+  const manifest = await loadManifestConfig(appDir);
+  const manifestEnv: Record<string, string> = (manifest?.env as Record<string, string>) ?? {};
+  const envFromFile = await loadEnvFile(appDir);
+
+  return { ...manifestEnv, ...envFromFile };
+}
+
+/**
+ * Read merged env for an app directory (.env > manifest.yaml) — sync version
+ */
+export function readAppEnvSync(appDir: string): Record<string, string> {
+  const manifest = loadManifestConfigSync(appDir);
+  const manifestEnv: Record<string, string> = (manifest?.env as Record<string, string>) ?? {};
+  const envFromFile = loadEnvFileSync(appDir);
+
+  return { ...manifestEnv, ...envFromFile };
+}
+
+/**
  * Check if plugin/app is enabled
  *
  * @returns true if enabled or no config exists (enabled by default)

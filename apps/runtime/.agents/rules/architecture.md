@@ -49,6 +49,15 @@
 ## Plugin Resilience
 
 - Plugin loader must be resilient -- a failed plugin must not prevent others from loading
+- Failed plugins are tracked and their dependents are skipped with warnings
 - Circular dependencies are detected and those plugins are excluded (not crash)
 - Missing required dependencies cause the plugin and its dependents to be excluded
 - Each plugin's `onInit` has a 30-second timeout
+
+## Worker Route Fallback
+
+If no worker app is resolved for a request path, the runtime returns 404 instead of crashing.
+
+## `readAppEnv`
+
+`readAppEnv` in `@buntime/shared/utils/buntime-config` merges `.env` file over `manifest.yaml` env section (higher priority). Used by plugin-migrations and plugin-resource-tenant.

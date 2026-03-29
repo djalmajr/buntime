@@ -22,7 +22,15 @@ Set in `.env` in `apps/runtime/` (overrides root `.env`):
 
 ## Hot Reload
 
-`bun --hot src/index.ts` restarts the runtime on file changes. Plugins rebuild in parallel during hot reload.
+Use `--watch` instead of `--hot` for the runtime dev script. `--hot` causes issues with timers/cron (croner doesn't fire) and creates zombie port bindings.
+
+## Proxy Rules (KeyVal / SQLite)
+
+Values in KeyVal (SQLite) must be stored as blob (`Uint8Array`), not string. If manually editing the DB, ensure the value type matches.
+
+## PgBouncer (Dev)
+
+PgBouncer with Bitnami image: `auth_type=scram-sha-256` with plaintext userlist does NOT work. The PgBouncer always sends SCRAM to the client regardless of `auth_type` setting. Use direct PostgreSQL connection for dev.
 
 ## Plugin Development
 

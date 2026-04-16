@@ -4,7 +4,9 @@ summary: |
   - Workers are isolated Bun processes running user apps
   - Pool manages worker lifecycle (create, reuse, terminate)
   - WorkerConfig: timeout, ttl, idleTimeout, maxRequests, maxBodySize
-  - TTL=0: ephemeral (new worker per request), TTL>0: persistent (reused)
+  - TTL=0: ephemeral (new worker per request), TTL>0: persistent (reused, sliding TTL)
+  - TTL is sliding: resets on each request, worker stays alive while receiving traffic
+  - idleTimeout: notification-only (sends onIdle event), does NOT terminate worker
   - Workers receive env vars from manifest.yaml and .env file
   - RUNTIME_WORKER_DIRS: colon-separated paths to search for apps
 ---
@@ -84,14 +86,16 @@ ttl: 0
 ### Persistent (TTL > 0)
 
 - **Worker reused across requests**
-- Stays alive for `ttl` seconds
-- Best for: Stateful apps, WebSocket, SSE
+- TTL is **sliding**: resets on each request, worker stays alive while receiving traffic
+- `idleTimeout` sends `onIdle` event (cleanup notification), does NOT terminate
+- `maxRequests` is the safety net for forced recycling
+- Best for: Stateful apps, WebSocket, SSE, long-lived sessions (e.g. lowcode tools)
 - Lower latency after first request
 
 ```yaml
-ttl: 300          # 5 minutes
-idleTimeout: 60   # Terminate if idle for 60s
-maxRequests: 1000 # Recycle after 1000 requests
+ttl: 1h           # Worker stays alive while active (sliding)
+idleTimeout: 2m   # Send onIdle event after 2 min idle (app can close DB connections)
+maxRequests: 1000 # Recycle after 1000 requests (safety net)
 ```
 
 **Rules when TTL > 0:**
@@ -108,8 +112,9 @@ maxRequests: 1000 # Recycle after 1000 requests
 3. Worker processes request
 4. Response returned
 5. If TTL=0 → Terminate
-   If TTL>0 → Return to pool
-6. Idle workers terminated after idleTimeout
+   If TTL>0 → Return to pool (TTL renewed)
+6. Idle workers receive onIdle event after idleTimeout (cleanup only)
+7. Workers terminated when TTL expires without requests, or maxRequests reached
 ```
 
 ## Environment Variables
@@ -252,8 +257,8 @@ Runtime ↔ Worker communication uses structured messages:
 |--------|---------|-------------|
 | `entrypoint` | `index.ts` | Entry file |
 | `timeout` | `30` | Request timeout (seconds) |
-| `ttl` | `0` | Worker lifetime (0 = ephemeral) |
-| `idleTimeout` | `60` | Idle termination (seconds) |
+| `ttl` | `0` | Worker lifetime, sliding (0 = ephemeral) |
+| `idleTimeout` | `60` | Idle notification threshold — sends onIdle event (seconds) |
 | `maxRequests` | `1000` | Requests before recycle |
 | `maxBodySize` | `10mb` | Max request body |
 | `lowMemory` | `false` | Low memory mode |

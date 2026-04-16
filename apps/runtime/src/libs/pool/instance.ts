@@ -15,6 +15,7 @@ export class WorkerInstance {
   private hasCriticalError = false;
   private hasIdleBeenSent = false;
   private lastUsedAt = Date.now();
+  private ttlStartAt = Date.now();
   private readyPromise: Promise<void>;
   private requestCount = 0;
   private totalResponseTimeMs = 0;
@@ -209,11 +210,15 @@ export class WorkerInstance {
     // Critical errors make worker permanently unhealthy
     if (this.hasCriticalError) return false;
 
-    const { ageMs, idleMs } = this.getStats();
+    const now = Date.now();
 
+    // Send onIdle event if idle exceeds threshold (notification only, doesn't kill)
+    this.computeStatus(now - this.lastUsedAt);
+
+    // TTL is sliding: resets on each touch() via getOrCreate cache hit
+    // idleTimeout only triggers the IDLE event for app cleanup, not retirement
     return (
-      ageMs < this.config.ttlMs &&
-      idleMs < this.config.idleTimeoutMs &&
+      now - this.ttlStartAt < this.config.ttlMs &&
       this.requestCount < this.config.maxRequests
     );
   }
@@ -233,7 +238,14 @@ export class WorkerInstance {
     this.totalResponseTimeMs += durationMs;
   }
 
+  /**
+   * Mark worker as recently used (sliding TTL)
+   * Resets TTL expiration timer and idle state so the worker stays alive
+   * and can receive onIdle events again on the next idle period.
+   */
   touch() {
     this.lastUsedAt = Date.now();
+    this.ttlStartAt = Date.now();
+    this.hasIdleBeenSent = false;
   }
 }

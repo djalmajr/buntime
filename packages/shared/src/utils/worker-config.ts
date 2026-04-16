@@ -61,7 +61,9 @@ export interface WorkerManifest {
   envPrefix?: string[];
 
   /**
-   * Time before idle worker is terminated
+   * Time before idle worker receives onIdle event (cleanup notification).
+   * Does NOT terminate the worker — use ttl for that.
+   * Apps can implement onIdle() to close DB connections, flush caches, etc.
    * @default 60 (seconds)
    * @example "1m" or 60
    */
@@ -111,7 +113,9 @@ export interface WorkerManifest {
   timeout?: Duration;
 
   /**
-   * Worker time-to-live (0 = ephemeral, terminate after each request)
+   * Worker time-to-live with sliding window (0 = ephemeral).
+   * Resets on each request — worker stays alive as long as it receives traffic.
+   * Terminated after this duration of inactivity, or when maxRequests is reached.
    * @default 0
    * @example "1h" or 3600
    */

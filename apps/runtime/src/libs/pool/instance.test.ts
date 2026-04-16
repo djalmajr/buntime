@@ -327,7 +327,7 @@ describe("WorkerInstance", () => {
       }
     });
 
-    it("should return false when idle timeout exceeded", async () => {
+    it("should stay healthy when idle timeout exceeded (idle is event-only)", async () => {
       const appDir = join(TEST_DIR, "idle-exceeded-app");
       createWorkerApp(appDir);
 
@@ -340,6 +340,54 @@ describe("WorkerInstance", () => {
 
         // Wait for idle timeout
         await Bun.sleep(100);
+
+        // Worker should still be healthy — idleTimeout only sends onIdle event, doesn't kill
+        expect(instance.isHealthy()).toBe(true);
+        // But status should reflect idle state
+        expect(instance.getStatus()).toBe(WorkerState.IDLE);
+      } finally {
+        await instance.terminate();
+      }
+    });
+
+    it("should renew TTL on touch (sliding TTL)", async () => {
+      const appDir = join(TEST_DIR, "sliding-ttl-app");
+      createWorkerApp(appDir);
+
+      const config = createMockConfig({ ttlMs: 100 });
+      const instance = new WorkerInstance(appDir, "index.ts", config);
+
+      try {
+        const req = new Request("http://localhost/test");
+        await instance.fetch(req);
+
+        // Wait 70ms (within TTL)
+        await Bun.sleep(70);
+        instance.touch(); // Renew TTL
+
+        // Wait another 70ms (140ms total since creation, but only 70ms since touch)
+        await Bun.sleep(70);
+
+        // Should still be healthy because touch() renewed the TTL
+        expect(instance.isHealthy()).toBe(true);
+      } finally {
+        await instance.terminate();
+      }
+    });
+
+    it("should expire TTL when no touch (sliding TTL)", async () => {
+      const appDir = join(TEST_DIR, "expired-sliding-ttl-app");
+      createWorkerApp(appDir);
+
+      const config = createMockConfig({ ttlMs: 100 });
+      const instance = new WorkerInstance(appDir, "index.ts", config);
+
+      try {
+        const req = new Request("http://localhost/test");
+        await instance.fetch(req);
+
+        // Wait past TTL without touching
+        await Bun.sleep(150);
 
         expect(instance.isHealthy()).toBe(false);
       } finally {

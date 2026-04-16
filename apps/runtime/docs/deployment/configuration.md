@@ -260,7 +260,7 @@ publicRoutes:
 
 ### idleTimeout
 
-Time in seconds before an idle worker is terminated.
+Time in seconds before an idle worker receives the `onIdle` event. This is a **notification only** — the worker stays alive. Apps can use `onIdle()` to do partial cleanup (close DB connections, flush caches). The worker is only terminated when TTL expires or `maxRequests` is reached.
 
 | Type | `number` |
 |------|----------|
@@ -269,7 +269,7 @@ Time in seconds before an idle worker is terminated.
 
 ```yaml
 # manifest.yaml
-idleTimeout: 60  # Terminate worker after 60 seconds of inactivity
+idleTimeout: 120  # Send onIdle event after 2 minutes of inactivity
 ```
 
 ### lowMemory
@@ -339,20 +339,20 @@ timeout: 30  # Terminate request after 30 seconds
 
 ### ttl
 
-Time to live in seconds for the worker instance.
+Worker time-to-live with **sliding window**. The TTL resets on each request, so the worker stays alive as long as it receives traffic. When no request arrives within the TTL window, the worker is terminated.
 
 | Type | `number` |
 |------|----------|
-| Default | `0` (no TTL limit) |
-| Example | `60` |
+| Default | `0` (ephemeral — new worker per request) |
+| Example | `3600` (1 hour) |
 
 ```yaml
 # manifest.yaml
-ttl: 60  # Terminate worker after 60 seconds regardless of activity
+ttl: 3600  # Worker stays alive while receiving requests; terminated after 1h of inactivity
 ```
 
 > [!NOTE]
-> When set to `0` (default), workers have no TTL limit and will be terminated only based on `idleTimeout` or `maxRequests`.
+> When set to `0` (default), workers are ephemeral and terminated after each request. Use `ttl > 0` for apps with expensive warm-up (DB connections, caches).
 
 ### visibility (plugin-deployments)
 

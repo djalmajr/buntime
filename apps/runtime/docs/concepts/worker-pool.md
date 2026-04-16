@@ -90,8 +90,8 @@ The pool implements LRU cache with time-based policies:
 | Policy | Behavior |
 |--------|----------|
 | `ttl = 0` | Worker is discarded after each request (stateless) |
-| `ttl > 0` | Worker remains in cache until TTL expires |
-| Cache hit | Existing healthy worker is reused |
+| `ttl > 0` | Worker remains in cache; TTL is **sliding** (resets on each request) |
+| Cache hit | Existing healthy worker is reused, TTL renewed |
 | Cache miss | New worker is created and stored in cache |
 | Eviction | Oldest worker is terminated when cache is full |
 
@@ -150,9 +150,9 @@ flowchart TD
     end
 
     subgraph health["Health checks"]
-        AgeCheck["age < ttlMs"]
-        IdleCheck["idle < idleTimeoutMs"]
+        TtlCheck["(now - ttlStartAt) < ttlMs (sliding)"]
         ReqCheck["requestCount < maxRequests"]
+        IdleEvent["idle > idleTimeoutMs → send onIdle (notification only)"]
     end
 
     subgraph term["terminate()"]
@@ -383,8 +383,10 @@ export default {
   fetch(req: Request) { ... },
 
   onIdle() {
-    // Called when worker becomes idle (idleTimeoutMs)
-    console.log("Worker idle, can do cleanup");
+    // Called when worker becomes idle (idleTimeoutMs exceeded)
+    // Use for partial cleanup: close DB connections, flush caches
+    // Worker stays alive — TTL controls actual termination
+    console.log("Worker idle, closing connections");
   },
 
   onTerminate() {
@@ -524,7 +526,7 @@ interface WorkerConfigFile {
   // Environment variables specific to the worker
   env?: Record<string, string>;
 
-  // Timeout after idle period
+  // Idle notification threshold (sends onIdle event, doesn't terminate)
   idleTimeout?: number | string;  // default: 60 (seconds)
 
   // Low-memory mode (Bun smol)
@@ -542,7 +544,7 @@ interface WorkerConfigFile {
   // Timeout per request
   timeout?: number | string;  // default: 30 (seconds)
 
-  // Worker time to live in cache
+  // Worker time to live — sliding, resets on each request (0 = stateless)
   ttl?: number | string;  // default: 0 (stateless)
 }
 ```
@@ -655,7 +657,7 @@ const response = await pool.fetch("/apps/todos-kv/v1", config, req);
 // Internally (private getOrCreate):
 // - Cache hit - existing worker returned
 // - metrics.recordHit()
-// - worker.touch() - updates lastUsedAt
+// - worker.touch() - updates lastUsedAt + resets TTL (sliding)
 ```
 
 ## Cache Miss (Worker Created)
@@ -690,12 +692,13 @@ The pool performs periodic health checks on each worker. A worker is considered 
 
 | Criterion | Condition | Description |
 |-----------|-----------|-------------|
-| Age | `ageMs < ttlMs` | Worker hasn't exceeded configured time to live |
-| Inactivity | `idleMs < idleTimeoutMs` | Worker hasn't been idle too long |
+| TTL (sliding) | `(now - ttlStartAt) < ttlMs` | Worker hasn't exceeded TTL since last request |
 | Requests | `requestCount < maxRequests` | Worker hasn't reached request limit |
 | Critical Errors | `hasCriticalError === false` | Worker hasn't had critical initialization or execution failures |
 
 A worker fails the health check (is considered unhealthy) if any of these conditions is false.
+
+> **Note:** `idleTimeout` does NOT affect health. It only triggers the `onIdle` event, giving the app a chance to do partial cleanup (close DB connections, flush caches). The worker stays alive until TTL expires or `maxRequests` is reached.
 
 ### Check Interval
 
@@ -734,11 +737,14 @@ isHealthy(): boolean {
   // Critical errors make worker permanently unhealthy
   if (this.hasCriticalError) return false;
 
-  const { ageMs, idleMs } = this.getStats();
+  const now = Date.now();
 
+  // Send onIdle event if idle (notification only, doesn't kill)
+  this.computeStatus(now - this.lastUsedAt);
+
+  // TTL is sliding: resets on each touch() via cache hit
   return (
-    ageMs < this.config.ttlMs &&
-    idleMs < this.config.idleTimeoutMs &&
+    now - this.ttlStartAt < this.config.ttlMs &&
     this.requestCount < this.config.maxRequests
   );
 }
@@ -805,14 +811,14 @@ new Worker(WORKER_PATH, {
 
 - Use `ttl > 0` for apps with state (DB connections, caches)
 - Configure `maxRequests` to avoid memory leaks
-- Use `idleTimeout` to free resources
+- Use `idleTimeout` to trigger cleanup (close DB connections) before TTL expires
 - Configure appropriate `timeout` for long operations
 - Use `publicRoutes` for endpoints without authentication
 
 ```yaml
-ttl: 10m           # Cache worker for 10 minutes
-maxRequests: 1000  # Recycle after 1000 requests
-idleTimeout: 2m    # Terminate if idle for 2 minutes
+ttl: 1h            # Worker stays alive while receiving requests (sliding)
+maxRequests: 1000  # Recycle after 1000 requests (safety net)
+idleTimeout: 2m    # Send onIdle event after 2 min of inactivity
 timeout: 30s       # 30s timeout per request
 ```
 

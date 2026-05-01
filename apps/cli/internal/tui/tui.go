@@ -4,10 +4,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/buntime/bubblenav"
-	"github.com/buntime/bubbleui"
 	"github.com/buntime/cli/internal/api"
 	"github.com/buntime/cli/internal/db"
+	"github.com/buntime/cli/internal/tui/components"
 	"github.com/buntime/cli/internal/tui/messages"
 	"github.com/buntime/cli/internal/tui/screens"
 	tea "github.com/charmbracelet/bubbletea"
@@ -42,7 +41,7 @@ type Model struct {
 	api *api.Client
 
 	// Navigation
-	router       *bubblenav.Router[Screen]
+	router       *router[Screen]
 	screenModels map[Screen]tea.Model
 
 	// Connection state
@@ -54,7 +53,7 @@ type Model struct {
 	height int
 
 	// Toast notifications
-	toast *bubbleui.Toast
+	toast *components.ToastModel
 
 	// Flags
 	quitting    bool
@@ -63,12 +62,12 @@ type Model struct {
 
 // NewModel creates a new TUI model
 func NewModel(database *db.DB) *Model {
-	toast := bubbleui.NewToast()
+	toast := components.NewToastModel()
 	toast.SetWidth(80)
 
 	return &Model{
 		db:           database,
-		router:       bubblenav.New(ScreenServerSelect),
+		router:       newRouter(ScreenServerSelect),
 		screenModels: make(map[Screen]tea.Model),
 		width:        80,
 		height:       24,
@@ -76,8 +75,26 @@ func NewModel(database *db.DB) *Model {
 	}
 }
 
+// NewConnectedModel creates a TUI model already connected to a server.
+func NewConnectedModel(database *db.DB, client *api.Client, server *db.Server) *Model {
+	model := NewModel(database)
+	model.api = client
+	model.currentServer = server
+	model.connected = true
+	model.router = newRouter(ScreenMainMenu)
+	return model
+}
+
 // Init initializes the model
 func (m *Model) Init() tea.Cmd {
+	if m.connected {
+		m.screenModels[ScreenMainMenu] = screens.NewMainMenuModel(m.api, m.currentServer, m.width, m.height)
+		return tea.Batch(
+			m.screenModels[ScreenMainMenu].Init(),
+			toastTick(),
+		)
+	}
+
 	// Initialize first screen
 	m.screenModels[ScreenServerSelect] = screens.NewServerSelectModel(m.db, m.width, m.height)
 	return tea.Batch(
@@ -116,20 +133,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	// Toast messages
-	case bubbleui.ShowToastMsg:
+	case messages.ShowToastMsg:
 		switch msg.Type {
-		case bubbleui.ToastError:
+		case components.ToastError:
 			m.toast.ShowError(msg.Message)
-		case bubbleui.ToastSuccess:
+		case components.ToastSuccess:
 			m.toast.ShowSuccess(msg.Message)
-		case bubbleui.ToastWarning:
+		case components.ToastWarning:
 			m.toast.ShowWarning(msg.Message)
-		case bubbleui.ToastInfo:
+		case components.ToastInfo:
 			m.toast.ShowInfo(msg.Message)
 		}
 		return m, nil
 
-	case bubbleui.ToastTickMsg:
+	case messages.ToastTickMsg:
 		m.toast.Update()
 		return m, toastTick()
 
@@ -141,7 +158,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentServer = nil
 			m.api = nil
 			// Reset router to clear history (ServerSelect is the root screen)
-			m.router.Reset(ScreenServerSelect, nil)
+			m.router.Reset(ScreenServerSelect)
 			m.initScreen(ScreenServerSelect, nil)
 			if screenModel, ok := m.screenModels[m.router.Current()]; ok {
 				return m, screenModel.Init()
@@ -158,7 +175,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentServer = msg.Server
 		m.connected = true
 		// Reset router and navigate to Main Menu
-		m.router.Reset(ScreenMainMenu, nil)
+		m.router.Reset(ScreenMainMenu)
 		m.initScreen(ScreenMainMenu, nil)
 		if screenModel, ok := m.screenModels[m.router.Current()]; ok {
 			return m, screenModel.Init()
@@ -183,7 +200,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	return m, nil
 }
-
 
 func (m *Model) handleNavigation(msg screens.NavigateMsg) (tea.Model, tea.Cmd) {
 	// Map screen constants
@@ -349,9 +365,9 @@ func (m *Model) navigateTo(screen Screen, data interface{}) (*Model, tea.Cmd) {
 func (m *Model) navigateToWithOptions(screen Screen, data interface{}, replaceHistory bool) (*Model, tea.Cmd) {
 	// Use router for navigation
 	if replaceHistory {
-		m.router.Replace(screen, data)
+		m.router.Replace(screen)
 	} else {
-		m.router.Push(screen, data)
+		m.router.Push(screen)
 	}
 
 	m.initScreen(screen, data)

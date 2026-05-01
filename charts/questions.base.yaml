@@ -158,6 +158,13 @@ questions:
     default: "/data/.plugins:/data/plugins"
     group: "Runtime"
 
+  - variable: buntime.masterKey
+    label: "Master Deploy Key"
+    description: "High-privilege key for CLI/TUI app and plugin uploads. Stored as a Kubernetes Secret."
+    type: password
+    default: ""
+    group: "Runtime"
+
   - variable: buntime.workerDirs
     label: "Worker Directories"
     description: "Colon-separated list of worker directories"

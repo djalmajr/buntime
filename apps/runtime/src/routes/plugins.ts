@@ -20,11 +20,12 @@ import {
   detectArchiveFormat,
   directoryExists,
   extractArchive,
-  getInstallPath,
+  getPackageRootPath,
   isPathSafe,
   parsePackageName,
   readPackageInfo,
   removeDirectory,
+  selectInstallDir,
 } from "@/libs/registry/packager";
 import type { PluginLoader } from "@/plugins/loader";
 import type { PluginRegistry } from "@/plugins/registry";
@@ -265,8 +266,13 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
             await extractArchive(file, tempDir, format);
 
             const packageInfo = await readPackageInfo(tempDir);
-            const targetDir = pluginDirs[0]!;
-            const installPath = getInstallPath(targetDir, packageInfo);
+            // Use the external/writable pluginDir and install directly at the
+            // package root because the plugin loader does not scan version dirs.
+            const targetDir = selectInstallDir(pluginDirs);
+            if (!targetDir) {
+              throw new ValidationError("No pluginDirs configured", "NO_PLUGIN_DIRS");
+            }
+            const installPath = getPackageRootPath(targetDir, packageInfo);
 
             if (!isPathSafe(targetDir, installPath)) {
               throw new ValidationError("Invalid package name (path traversal)", "PATH_TRAVERSAL");

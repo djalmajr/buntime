@@ -104,6 +104,8 @@ ingress:
 
 buntime:
   apiPrefix: "/_"
+  # High-privilege CLI/TUI deploy key. Store as a secret value in Rancher.
+  masterKey: ""
   port: 8000
   poolSize: 100
   ephemeralConcurrency: 2

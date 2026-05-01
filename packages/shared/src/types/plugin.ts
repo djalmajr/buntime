@@ -252,6 +252,9 @@ export interface GlobalPluginConfig {
   /** Maximum number of workers in the pool */
   poolSize: number;
 
+  /** Plugin directories containing runtime plugins (normalized to array) */
+  pluginDirs: string[];
+
   /** Worker directories containing worker apps (normalized to array) */
   workerDirs: string[];
 }

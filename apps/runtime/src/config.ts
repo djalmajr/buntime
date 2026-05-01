@@ -21,6 +21,7 @@ import {
 const logger = getChildLogger("Config");
 
 interface RuntimeConfig {
+  apiKey?: string;
   bodySize: {
     default: number;
     max: number;
@@ -113,6 +114,7 @@ export function initConfig(options: InitConfigOptions = {}): RuntimeConfig {
   const poolSize = parsePoolSize(Bun.env.RUNTIME_POOL_SIZE, envFallback);
 
   const config: RuntimeConfig = {
+    apiKey: Bun.env.RUNTIME_MASTER_KEY || Bun.env.BUNTIME_MASTER_KEY || undefined,
     bodySize: {
       default: BodySizeLimits.DEFAULT,
       max: BodySizeLimits.MAX,

@@ -24,6 +24,7 @@ import {
   parsePackageName,
   readPackageInfo,
   removeDirectory,
+  selectInstallDir,
 } from "@/libs/registry/packager";
 
 /**
@@ -260,8 +261,12 @@ export function createAppsRoutes() {
           // Read package info (only name and version)
           const packageInfo = await readPackageInfo(tempDir);
 
-          // Use first workerDir as installation target
-          const targetDir = workerDirs[0]!;
+          // Use the first external/writable workerDir as installation target.
+          // In Helm this avoids writing uploads into image-provided /data/.apps.
+          const targetDir = selectInstallDir(workerDirs);
+          if (!targetDir) {
+            throw new ValidationError("No workerDirs configured", "NO_WORKER_DIRS");
+          }
           const installPath = getInstallPath(targetDir, packageInfo);
 
           // Validate path is safe

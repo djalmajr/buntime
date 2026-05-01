@@ -290,6 +290,44 @@ describe("createApp", () => {
       const res = await app.fetch(req);
       expect(res.status).toBe(200);
     });
+
+    it("should require API key for protected API routes when configured", async () => {
+      Bun.env.RUNTIME_MASTER_KEY = "test-master-key";
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      try {
+        const app = createApp(createDeps());
+        const req = new Request(`http://localhost${API_PATH}/plugins`, {
+          headers: { host: "localhost" },
+        });
+        const res = await app.fetch(req);
+        expect(res.status).toBe(401);
+      } finally {
+        delete Bun.env.RUNTIME_MASTER_KEY;
+        initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+      }
+    });
+
+    it("should allow API key to bypass CSRF for deployment automation", async () => {
+      Bun.env.RUNTIME_MASTER_KEY = "test-master-key";
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      try {
+        const app = createApp(createDeps());
+        const req = new Request(`http://localhost${API_PATH}/plugins`, {
+          method: "POST",
+          headers: {
+            host: "localhost",
+            [Headers.API_KEY]: "test-master-key",
+          },
+        });
+        const res = await app.fetch(req);
+        expect(res.status).not.toBe(403);
+      } finally {
+        delete Bun.env.RUNTIME_MASTER_KEY;
+        initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+      }
+    });
   });
 
   describe("request ID tracking", () => {

@@ -69,14 +69,6 @@ func (m *PluginsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.plugins = msg.plugins
 		return m, nil
 
-	case pluginToggledMsg:
-		if msg.err != nil {
-			m.err = msg.err
-			return m, nil
-		}
-		m.loading = true
-		return m, m.loadPlugins()
-
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "up", "k":
@@ -86,10 +78,6 @@ func (m *PluginsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			if m.cursor < len(m.plugins)-1 {
 				m.cursor++
-			}
-		case " ", "space":
-			if len(m.plugins) > 0 && m.cursor < len(m.plugins) {
-				return m, m.togglePlugin(&m.plugins[m.cursor])
 			}
 		case "i":
 			return m, func() tea.Msg {
@@ -110,22 +98,6 @@ func (m *PluginsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
-}
-
-func (m *PluginsModel) togglePlugin(plugin *api.PluginInfo) tea.Cmd {
-	return func() tea.Msg {
-		var err error
-		if plugin.Enabled {
-			err = m.api.DisablePlugin(plugin.ID)
-		} else {
-			err = m.api.EnablePlugin(plugin.ID)
-		}
-		return pluginToggledMsg{err: err}
-	}
-}
-
-type pluginToggledMsg struct {
-	err error
 }
 
 func (m *PluginsModel) View() string {
@@ -236,7 +208,6 @@ func (m *PluginsModel) renderEmptyState(width int) string {
 func (m *PluginsModel) getShortcuts() []string {
 	shortcuts := []string{
 		styles.RenderShortcut("↑↓", "navigate"),
-		styles.RenderShortcut("space", "toggle"),
 		styles.RenderShortcut("i", "install"),
 	}
 

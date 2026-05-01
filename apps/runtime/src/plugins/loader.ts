@@ -411,6 +411,7 @@ export class PluginLoader {
     const context: PluginContext = {
       config: options,
       globalConfig: {
+        pluginDirs: runtimeConfig.pluginDirs,
         workerDirs: runtimeConfig.workerDirs,
         poolSize: runtimeConfig.poolSize,
       },

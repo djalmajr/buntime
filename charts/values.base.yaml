@@ -54,6 +54,10 @@ buntime:
   # Logging level (debug, info, warn, error)
   logLevel: "info"
 
+  # High-privilege deploy key for CLI/TUI automation.
+  # Stored in a Kubernetes Secret when set.
+  masterKey: ""
+
   # Max concurrent TTL=0 worker requests
   ephemeralConcurrency: 2
 

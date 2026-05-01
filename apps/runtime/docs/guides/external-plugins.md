@@ -57,6 +57,28 @@ menus:
 
 ## Installing External Plugins
 
+### Method 0: CLI/TUI Upload
+
+The CLI discovers the runtime API prefix from `/.well-known/buntime`, so it
+works with both `/api` and prefixed deployments such as `/_/api`.
+
+```bash
+buntime --url https://buntime.home --token "$RUNTIME_MASTER_KEY" --insecure plugin install ./my-plugin.zip
+```
+
+When using the TUI, add the runtime URL, enter the master deploy key when
+prompted, then choose **Plugins → Install**. Directory uploads are compressed
+locally before upload.
+
+The master deploy key must be configured with `RUNTIME_MASTER_KEY` in the
+runtime environment. In Kubernetes, set `buntime.masterKey` so Helm stores it in
+a Secret.
+
+The runtime API base is configurable. The CLI/TUI discovers it from
+`/.well-known/buntime`, so deployments using `RUNTIME_API_PREFIX="/_"` are
+called through `/_/api` automatically. Plugin routes, such as
+`/deployments/api/*`, are not moved by this prefix.
+
 ### Method 1: kubectl cp (Kubernetes)
 
 Copy plugin files directly to the running pod:
@@ -88,7 +110,7 @@ tar -czvf my-plugin.tgz -C ./my-plugin .
 
 # Upload via API
 curl -X POST https://buntime.home/_/api/plugins/upload \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-API-Key: $RUNTIME_MASTER_KEY" \
   -H "Origin: https://buntime.home" \
   -F "file=@my-plugin.tgz"
 ```
@@ -103,7 +125,7 @@ After installing or modifying plugins, trigger a reload:
 
 ```bash
 curl -X POST https://buntime.home/_/api/plugins/reload \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-API-Key: $RUNTIME_MASTER_KEY" \
   -H "Origin: https://buntime.home"
 ```
 
@@ -126,14 +148,14 @@ curl -X POST https://buntime.home/_/api/plugins/reload \
 
 ```bash
 GET /_/api/plugins/loaded
-Authorization: Bearer $TOKEN
+X-API-Key: <master-key>
 ```
 
 ### Reload All Plugins
 
 ```bash
 POST /_/api/plugins/reload
-Authorization: Bearer $TOKEN
+X-API-Key: <master-key>
 Origin: https://buntime.home
 ```
 
@@ -141,7 +163,7 @@ Origin: https://buntime.home
 
 ```bash
 DELETE /_/api/plugins/:name
-Authorization: Bearer $TOKEN
+X-API-Key: <master-key>
 Origin: https://buntime.home
 
 # Example (URL-encoded name)

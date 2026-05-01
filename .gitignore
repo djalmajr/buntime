@@ -14,6 +14,7 @@ node_modules
 tmp
 apps/runtime/.perf-fixtures
 apps/runtime/perf-results.json
+apps/runtime/perf-*-results.json
 
 # Go binaries
 packages/cli-go/buntime-cli

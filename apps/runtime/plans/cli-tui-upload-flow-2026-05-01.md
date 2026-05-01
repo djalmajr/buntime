@@ -25,6 +25,8 @@ armazenada como Secret no Helm/Rancher.
   `/data/apps` em vez de `/data/.apps`.
 - Uploads de plugins vão para o primeiro `pluginDir` externo, preferindo
   `/data/plugins` em vez de `/data/.plugins`.
+- O plugin `deployments` combina `RUNTIME_WORKER_DIRS` e
+  `RUNTIME_PLUGIN_DIRS` no worker serverless para listar `apps` e `plugins`.
 - Plugins são instalados diretamente em `/data/plugins/<name>`, sem segmento de
   versão, porque o loader escaneia a raiz do plugin.
 - Após upload de plugin, o CLI chama `POST /plugins/reload`.

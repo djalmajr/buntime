@@ -12,6 +12,8 @@
 dist
 node_modules
 tmp
+apps/runtime/.perf-fixtures
+apps/runtime/perf-results.json
 
 # Go binaries
 packages/cli-go/buntime-cli
@@ -35,3 +37,4 @@ charts/questions.yml
 .opencode/*
 !.opencode/commands/
 !.opencode/plugins/
+.playwright-mcp/

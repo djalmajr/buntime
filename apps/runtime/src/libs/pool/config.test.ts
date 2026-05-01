@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from "bu
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as runtimeConfig from "@/config";
-import { loadWorkerConfig } from "./config";
+import { clearWorkerConfigCache, loadWorkerConfig } from "./config";
 
 // Helper to write YAML manifest
 function writeManifest(dir: string, data: Record<string, unknown>) {
@@ -24,6 +24,7 @@ describe("loadWorkerConfig", () => {
   });
 
   beforeEach(() => {
+    clearWorkerConfigCache();
     spyOn(runtimeConfig, "getConfig").mockReturnValue({
       bodySize: { default: 10 * 1024 * 1024, max: 100 * 1024 * 1024 },
       delayMs: 100,
@@ -71,6 +72,24 @@ describe("loadWorkerConfig", () => {
       expect(config.timeoutMs).toBe(45 * 1000);
       expect(config.maxRequests).toBe(500);
       expect(config.lowMemory).toBe(true);
+    });
+
+    it("should cache config reads within the configured TTL", async () => {
+      const uniqueDir = join(baseTestDir, `manifest-cache-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      writeManifest(uniqueDir, { timeout: 45 });
+      const first = await loadWorkerConfig(uniqueDir);
+
+      writeManifest(uniqueDir, { timeout: 60 });
+      const second = await loadWorkerConfig(uniqueDir);
+
+      expect(second).toBe(first);
+      expect(second.timeoutMs).toBe(45 * 1000);
+
+      clearWorkerConfigCache(uniqueDir);
+      const third = await loadWorkerConfig(uniqueDir);
+      expect(third.timeoutMs).toBe(60 * 1000);
     });
 
     it("should use defaults when no manifest exists", async () => {

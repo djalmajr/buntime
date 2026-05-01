@@ -18,6 +18,7 @@ export class WorkerInstance {
   private ttlStartAt = Date.now();
   private readyPromise: Promise<void>;
   private requestCount = 0;
+  private terminated = false;
   private totalResponseTimeMs = 0;
   private worker: Worker;
 
@@ -95,6 +96,10 @@ export class WorkerInstance {
    * @param preReadBody - Optional pre-read body to avoid double-reading
    */
   async fetch(req: Request, preReadBody?: ArrayBuffer | null): Promise<Response> {
+    if (this.terminated) {
+      throw new Error("Worker has been terminated");
+    }
+
     // Wait for worker to be ready (only matters on first request)
     await this.readyPromise;
 
@@ -150,6 +155,9 @@ export class WorkerInstance {
 
       const timeout = setTimeout(() => {
         cleanup();
+        this.hasCriticalError = true;
+        this.errorCount++;
+        void this.terminate();
         reject(new Error(`Worker timeout after ${this.config.timeoutMs}ms`));
       }, this.config.timeoutMs);
 
@@ -171,6 +179,8 @@ export class WorkerInstance {
         this.worker.postMessage(message, [body]);
       } catch (err) {
         cleanup();
+        this.hasCriticalError = true;
+        this.errorCount++;
         reject(err instanceof Error ? err : new Error(String(err)));
       }
     });
@@ -200,13 +210,20 @@ export class WorkerInstance {
 
     if (!this.hasIdleBeenSent) {
       this.hasIdleBeenSent = true;
-      this.worker.postMessage({ type: MessageTypes.IDLE });
+      try {
+        this.worker.postMessage({ type: MessageTypes.IDLE });
+      } catch (err) {
+        this.hasCriticalError = true;
+        logger.debug("Failed to send idle event to worker", { error: err });
+      }
     }
 
     return WorkerState.IDLE;
   }
 
   isHealthy(): boolean {
+    if (this.terminated) return false;
+
     // Critical errors make worker permanently unhealthy
     if (this.hasCriticalError) return false;
 
@@ -217,13 +234,13 @@ export class WorkerInstance {
 
     // TTL is sliding: resets on each touch() via getOrCreate cache hit
     // idleTimeout only triggers the IDLE event for app cleanup, not retirement
-    return (
-      now - this.ttlStartAt < this.config.ttlMs &&
-      this.requestCount < this.config.maxRequests
-    );
+    return now - this.ttlStartAt < this.config.ttlMs && this.requestCount < this.config.maxRequests;
   }
 
   async terminate() {
+    if (this.terminated) return;
+    this.terminated = true;
+
     try {
       this.worker.postMessage({ type: MessageTypes.TERMINATE });
       await Bun.sleep(DELAY_MS);

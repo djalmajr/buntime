@@ -1,0 +1,28 @@
+{
+  "scenarios": {
+    "warm-noop": {
+      "maxErrors": 0,
+      "minRps": 300,
+      "maxP95Ms": 100,
+      "maxP99Ms": 250
+    },
+    "echo-1kb": {
+      "maxErrors": 0,
+      "minRps": 200,
+      "maxP95Ms": 120,
+      "maxP99Ms": 300
+    },
+    "slow-50ms": {
+      "maxErrors": 0,
+      "minRps": 40,
+      "maxP95Ms": 250,
+      "maxP99Ms": 500
+    },
+    "ephemeral-noop": {
+      "maxErrors": 0,
+      "minRps": 10,
+      "maxP95Ms": 1000,
+      "maxP99Ms": 1500
+    }
+  }
+}

@@ -152,6 +152,39 @@ describe("getWorkerDir", () => {
     });
   });
 
+  describe("cache", () => {
+    it("should cache positive results within the configured TTL", () => {
+      createFlatVersions("cached-api", ["1.0.0"]);
+      const resolver = createWorkerResolver([TEST_DIR], { cacheTtlMs: 60000 });
+
+      const first = resolver("cached-api@1.0.0");
+      rmSync(join(TEST_DIR, "cached-api@1.0.0"), { recursive: true, force: true });
+      const second = resolver("cached-api@1.0.0");
+
+      expect(first).toBe(join(TEST_DIR, "cached-api@1.0.0"));
+      expect(second).toBe(first);
+    });
+
+    it("should not cache missing workers by default", () => {
+      const resolver = createWorkerResolver([TEST_DIR], { cacheTtlMs: 60000 });
+
+      expect(resolver("new-api@1.0.0")).toBe("");
+      createFlatVersions("new-api", ["1.0.0"]);
+
+      expect(resolver("new-api@1.0.0")).toBe(join(TEST_DIR, "new-api@1.0.0"));
+    });
+
+    it("should allow cache to be disabled", () => {
+      createFlatVersions("uncached-api", ["1.0.0"]);
+      const resolver = createWorkerResolver([TEST_DIR], { cacheTtlMs: 0 });
+
+      expect(resolver("uncached-api@1.0.0")).toBe(join(TEST_DIR, "uncached-api@1.0.0"));
+      rmSync(join(TEST_DIR, "uncached-api@1.0.0"), { recursive: true, force: true });
+
+      expect(resolver("uncached-api@1.0.0")).toBe("");
+    });
+  });
+
   describe("latest tag handling", () => {
     it("should return explicit latest tag when requested", () => {
       createVersions("explicit-latest", ["1.0.0", "latest"]);

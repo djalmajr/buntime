@@ -600,6 +600,9 @@ interface PoolMetrics {
   activeWorkers: number;          // Active workers in cache
   avgResponseTimeMs: number;      // Average latency (last 100 requests)
   evictions: number;              // Total evictions
+  ephemeralConcurrency: number;   // Current ttl=0 requests running
+  ephemeralQueueDepth: number;    // Current ttl=0 requests waiting
+  ephemeralQueueLimit: number;    // Max ttl=0 queue depth before 503
   hitRate: number;                // % cache hits
   hits: number;                   // Total cache hits
   memoryUsageMB: number;          // Heap memory used
@@ -814,6 +817,7 @@ new Worker(WORKER_PATH, {
 - Use `idleTimeout` to trigger cleanup (close DB connections) before TTL expires
 - Configure appropriate `timeout` for long operations
 - Use `publicRoutes` for endpoints without authentication
+- Keep `ttl = 0` apps cheap to boot and tune `RUNTIME_EPHEMERAL_CONCURRENCY` plus `RUNTIME_EPHEMERAL_QUEUE_LIMIT` under load
 
 ```yaml
 ttl: 1h            # Worker stays alive while receiving requests (sliding)
@@ -825,6 +829,7 @@ timeout: 30s       # 30s timeout per request
 ## DON'T
 
 - Don't use `ttl = 0` for apps with expensive warm-up
+- Don't leave `ttl = 0` unbounded under burst traffic; queued excess returns `503` once the queue limit is reached
 - Don't configure `timeout` too low for slow operations
 - Don't use `autoInstall` in production (pre-install dependencies)
 - Don't store global state in worker (may be recycled)

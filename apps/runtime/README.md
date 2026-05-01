@@ -16,9 +16,11 @@ A modular runtime for Bun with plugin architecture, worker pool management, and 
   - [Local Development](docs/deployment/local.md)
   - [Kubernetes](docs/deployment/kubernetes.md)
   - [k3s with Rancher](docs/deployment/k3s-rancher.md)
+  - [Local GitLab Pipeline](docs/deployment/gitlab-local.md)
   - [Configuration](docs/deployment/configuration.md)
 - [Operations](#operations)
   - [Logging](docs/logging.md)
+  - [Performance](docs/performance.md)
 - [Architecture](#architecture)
   - [Micro-Frontend Architecture](docs/micro-frontend-architecture.md)
 - [Extras](#extras)
@@ -101,6 +103,10 @@ Helm chart deployment for Kubernetes and OpenShift/OKD with Ingress, Routes, and
 
 Specific instructions for deploying to k3s clusters with Rancher, Traefik, and cert-manager. See [k3s with Rancher](docs/deployment/k3s-rancher.md).
 
+### Local GitLab Pipeline
+
+GitLab CI setup for the local lab, including validation, performance smoke gates, image publishing, and manual Rancher deploy. See [Local GitLab Pipeline](docs/deployment/gitlab-local.md).
+
 ### Configuration
 
 Comprehensive configuration reference covering environment variables, plugin manifests, worker configuration, and build-time plugins. See [Configuration](docs/deployment/configuration.md).
@@ -144,6 +150,10 @@ docker compose up -d
 | `RUNTIME_WORKER_DIRS` | **Required** | Worker application directories (PATH style) |
 | `RUNTIME_PLUGIN_DIRS` | `./plugins` | Plugin directories (PATH style) |
 | `RUNTIME_POOL_SIZE` | `500` (prod) / `10` (dev) | Maximum worker pool size |
+| `RUNTIME_EPHEMERAL_CONCURRENCY` | `2` | Maximum concurrent `ttl: 0` worker requests |
+| `RUNTIME_EPHEMERAL_QUEUE_LIMIT` | `100` | Maximum queued `ttl: 0` requests before `503` |
+| `RUNTIME_WORKER_CONFIG_CACHE_TTL_MS` | `1000` | Worker manifest/config cache TTL |
+| `RUNTIME_WORKER_RESOLVER_CACHE_TTL_MS` | `1000` | Worker directory resolver cache TTL |
 | `RUNTIME_LOG_LEVEL` | `info` (prod) / `debug` (dev) | Log level |
 
 ## License

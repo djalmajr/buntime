@@ -29,6 +29,8 @@ armazenada como Secret no Helm/Rancher.
   `RUNTIME_PLUGIN_DIRS` no worker serverless para listar `apps` e `plugins`.
 - Plugins são instalados diretamente em `/data/plugins/<name>`, sem segmento de
   versão, porque o loader escaneia a raiz do plugin.
+- O runtime cria diretórios pais e faz fallback de `rename` para cópia
+  recursiva quando `/tmp` e o PVC estão em filesystems diferentes.
 - Após upload de plugin, o CLI chama `POST /plugins/reload`.
 
 ## Arquivos principais

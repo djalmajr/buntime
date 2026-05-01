@@ -4,8 +4,8 @@
  * Handles extraction and validation of .tgz and .zip packages uploaded via Core API.
  */
 
-import { rename as fsRename, mkdir, readdir, rm, stat } from "node:fs/promises";
-import { basename, join, resolve, sep } from "node:path";
+import { cp, rename as fsRename, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { basename, dirname, join, resolve, sep } from "node:path";
 
 /**
  * Package info extracted from manifest.yaml or package.json.
@@ -233,6 +233,27 @@ export function getPackageRootPath(baseDir: string, packageInfo: PackageInfo): s
  */
 export function selectInstallDir(dirs: string[]): string | undefined {
   return dirs.find((dir) => !basename(resolve(dir)).startsWith(".")) ?? dirs[0];
+}
+
+/**
+ * Move an extracted package into its final installation path.
+ *
+ * PVCs can live on a different filesystem from /tmp, where upload extraction
+ * happens. In that case rename fails with EXDEV, so fall back to recursive copy.
+ */
+export async function moveDirectory(sourcePath: string, targetPath: string): Promise<void> {
+  await mkdir(dirname(targetPath), { recursive: true });
+
+  try {
+    await fsRename(sourcePath, targetPath);
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error ? String(error.code) : undefined;
+    if (code !== "EXDEV") throw error;
+
+    await cp(sourcePath, targetPath, { recursive: true });
+    await rm(sourcePath, { force: true, recursive: true });
+  }
 }
 
 /**

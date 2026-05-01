@@ -98,3 +98,9 @@ including the monitoring commands used to compare Kubernetes CPU/memory before,
 during, and after the load. It is intentionally separate from the in-process
 worker harness above because it measures Ingress, TLS, Traefik, Kubernetes
 scheduling limits, and the packaged container rather than only runtime internals.
+
+For external worker/app route coverage, see
+[Rancher Worker Route Load Test - 2026-05-01](performance-rancher-worker-routes-2026-05-01.md).
+That report installs temporary worker apps in the Rancher runtime and measures
+warm persistent workers, POST body handling, a slow 50 ms worker, and a `ttl: 0`
+ephemeral worker route.

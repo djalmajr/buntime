@@ -21,6 +21,8 @@ armazenada como Secret no Helm/Rancher.
 - A chave master também bypassa CSRF e hooks `onRequest` de plugins para
   automação de deploy, incluindo `/deployments/api/*`.
 - O CLI/TUI descobre o caminho real da API via `/.well-known/buntime`.
+  Portanto o operador informa apenas a URL pública do runtime; o prefixo
+  configurável, como `/_`, não é codificado no TUI.
 - Uploads de apps vão para o primeiro `workerDir` externo, preferindo
   `/data/apps` em vez de `/data/.apps`.
 - Uploads de plugins vão para o primeiro `pluginDir` externo, preferindo
@@ -29,6 +31,10 @@ armazenada como Secret no Helm/Rancher.
   `RUNTIME_PLUGIN_DIRS` no worker serverless para listar `apps` e `plugins`.
 - Plugins são instalados diretamente em `/data/plugins/<name>`, sem segmento de
   versão, porque o loader escaneia a raiz do plugin.
+- Ao carregar um plugin, o runtime importa uma cópia irmã oculta do entrypoint
+  com hash do conteúdo no nome. Isso evita cache de import quando um upload
+  substitui `plugin.js` no mesmo caminho e permite `POST /plugins/reload` sem
+  reiniciar o pod.
 - O runtime cria diretórios pais e faz fallback de `rename` para cópia
   recursiva quando `/tmp` e o PVC estão em filesystems diferentes.
 - Após upload de plugin, o CLI chama `POST /plugins/reload`.
@@ -41,6 +47,8 @@ armazenada como Secret no Helm/Rancher.
 - `apps/runtime/src/routes/plugins.ts`: seleção do diretório externo de plugins.
 - `apps/runtime/src/libs/registry/packager.ts`: leitura de `manifest.yaml` e
   seleção de diretórios externos.
+- `apps/runtime/src/plugins/loader.ts`: carregamento do entrypoint hasheado
+  para suportar reload de plugins substituídos no mesmo caminho.
 - `apps/cli/internal/api/client.go`: descoberta do API base, upload e reload.
 - `apps/cli/internal/tui/tui.go`: inicialização conectada quando `--url` é usado.
 - `charts/templates/secret.yaml`: Secret com `RUNTIME_MASTER_KEY`.

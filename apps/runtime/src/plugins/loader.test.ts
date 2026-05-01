@@ -136,6 +136,25 @@ describe("PluginLoader", () => {
       expect(plugin?.base).toBe("/factory");
     });
 
+    it("should load updated plugin code after replacing the file in the same path", async () => {
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "reloadable");
+      mkdirSync(pluginDir, { recursive: true });
+      writeManifest(pluginDir, { name: "reloadable", base: "/reloadable" });
+
+      const pluginPath = join(pluginDir, "plugin.js");
+      writeFileSync(pluginPath, `export default { provides: () => ({ version: "v1" }) };`);
+
+      const firstLoader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
+      const firstRegistry = await firstLoader.load();
+      expect(firstRegistry.getPlugin<{ version: string }>("reloadable")?.version).toBe("v1");
+
+      writeFileSync(pluginPath, `export default { provides: () => ({ version: "v2" }) };`);
+
+      const secondLoader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
+      const secondRegistry = await secondLoader.load();
+      expect(secondRegistry.getPlugin<{ version: string }>("reloadable")?.version).toBe("v2");
+    });
+
     it("should ignore directory without manifest", async () => {
       const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "no-manifest");
       mkdirSync(pluginDir, { recursive: true });

@@ -1,9 +1,12 @@
 # API Reference
 
-The runtime exposes a REST API at `/api/*` for health checks, plugin management, and app management.
+The runtime exposes a REST API for health checks, plugin management, and app management.
+By default it is mounted at `/api/*`. When `RUNTIME_API_PREFIX="/_"`, the API
+is mounted at `/_/api/*`.
 
 > [!TIP]
-> Interactive API documentation is available at `/api/docs` (Scalar UI) and OpenAPI spec at `/api/openapi.json`.
+> Clients should read `/.well-known/buntime` and use the returned `api` path
+> instead of hardcoding `/api` or `/_/api`.
 
 ## Base URL
 
@@ -11,11 +14,24 @@ The runtime exposes a REST API at `/api/*` for health checks, plugin management,
 http://localhost:8000/api
 ```
 
+Prefixed deployment example:
+
+```
+https://buntime.home/_/api
+```
+
 ## Authentication
 
 API routes are protected by CSRF validation for state-changing requests (POST, PUT, DELETE, PATCH). Requests must include a valid `Origin` header matching the server's origin.
 
 For internal requests (worker-to-runtime), include the `X-Buntime-Internal: true` header to bypass CSRF validation.
+
+When `RUNTIME_MASTER_KEY` is configured, protected API routes also require
+`X-API-Key: <master-key>`. This key is intended for deploy automation such as
+CLI/TUI app and plugin uploads. It bypasses CSRF and plugin `onRequest` hooks,
+so store it as a secret and do not expose it to browsers.
+
+Helm exposes this as `buntime.masterKey`, stored in the runtime Secret.
 
 ## Health Endpoints
 

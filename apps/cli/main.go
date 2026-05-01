@@ -119,10 +119,8 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	}
 	defer database.Close()
 
-	// Create TUI model
-	model := tui.NewModel(database)
-
 	// If URL provided via CLI, skip server selection
+	var model *tui.Model
 	if serverURL != "" {
 		client := api.New(serverURL, token, insecure)
 		if err := client.Ping(); err != nil {
@@ -136,8 +134,20 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		// Save server if not exists
 		existing, _ := database.GetServerByURL(serverURL)
 		if existing == nil {
-			database.CreateServer("CLI", serverURL, &token, insecure)
+			existing, err = database.CreateServer("CLI", serverURL, &token, insecure)
+			if err != nil {
+				return fmt.Errorf("failed to save server: %w", err)
+			}
+		} else {
+			if err := database.UpdateServer(existing.ID, existing.Name, serverURL, &token, insecure); err != nil {
+				return fmt.Errorf("failed to update server: %w", err)
+			}
+			existing, _ = database.GetServer(existing.ID)
 		}
+
+		model = tui.NewConnectedModel(database, client, existing)
+	} else {
+		model = tui.NewModel(database)
 	}
 
 	// Run Bubble Tea
@@ -243,12 +253,7 @@ func runPluginRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	name := args[0]
-	id, err := findPluginByName(client, name)
-	if err != nil {
-		return err
-	}
-
-	if err := client.RemovePlugin(id); err != nil {
+	if err := client.RemovePluginByName(name); err != nil {
 		return err
 	}
 

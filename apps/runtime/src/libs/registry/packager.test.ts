@@ -1,8 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getPackageRootPath, isPathSafe, readPackageInfo, selectInstallDir } from "./packager";
+import {
+  getPackageRootPath,
+  isPathSafe,
+  moveDirectory,
+  readPackageInfo,
+  selectInstallDir,
+} from "./packager";
 
 let testDirs: string[] = [];
 
@@ -66,6 +72,19 @@ describe("packager", () => {
       expect(isPathSafe("/data/apps", "/data/apps/my-app")).toBe(true);
       expect(isPathSafe("/data/apps", "/data/apps2/my-app")).toBe(false);
       expect(isPathSafe("/data/apps", "/data/apps/../plugins/my-plugin")).toBe(false);
+    });
+
+    it("should create parent directories when moving packages into place", async () => {
+      const dir = await createTestDir();
+      const source = join(dir, "source");
+      const target = join(dir, "apps", "my-app", "1.0.0");
+      await mkdir(source, { recursive: true });
+      await writeFile(join(source, "index.ts"), "export default {};");
+
+      await moveDirectory(source, target);
+
+      expect(await Bun.file(join(target, "index.ts")).text()).toBe("export default {};");
+      expect(await Bun.file(join(source, "index.ts")).exists()).toBe(false);
     });
   });
 });

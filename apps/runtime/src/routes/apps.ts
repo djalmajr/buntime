@@ -7,7 +7,7 @@
  * - Removing apps
  */
 
-import { readdir, rename } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { NotFoundError, ValidationError } from "@buntime/shared/errors";
 import { Hono } from "hono";
@@ -21,6 +21,7 @@ import {
   extractArchive,
   getInstallPath,
   isPathSafe,
+  moveDirectory,
   parsePackageName,
   readPackageInfo,
   removeDirectory,
@@ -280,7 +281,7 @@ export function createAppsRoutes() {
           }
 
           // Move from temp to install path
-          await rename(tempDir, installPath);
+          await moveDirectory(tempDir, installPath);
 
           return ctx.json({
             data: {

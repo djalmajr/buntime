@@ -20,6 +20,10 @@
     "lint:format": "bun biome check --write",
     "lint:types": "bun tsc --noEmit",
     "lint": "bun run lint:format && bun run lint:types",
+    "perf": "bun scripts/perf.ts",
+    "perf:ci": "PERF_MODE=direct PERF_DURATION_MS=1000 PERF_WARMUP_MS=200 PERF_CONCURRENCY=5 PERF_POOL_SIZE=10 PERF_GATE_FILE=perf/thresholds.json PERF_OUTPUT_FILE=perf-results.json bun scripts/perf.ts",
+    "perf:gate": "PERF_GATE_FILE=perf/thresholds.json bun scripts/perf.ts",
+    "perf:smoke": "PERF_MODE=direct PERF_DURATION_MS=1000 PERF_WARMUP_MS=200 PERF_CONCURRENCY=5 PERF_POOL_SIZE=10 bun scripts/perf.ts",
     "test:coverage": "bun test --coverage 2>&1 | grep -vE '\\.\\./(packages|plugins)'",
     "test:watch": "bun test --watch",
     "test": "bun test"

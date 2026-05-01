@@ -9,13 +9,17 @@ metadata:
     {{- include "buntime.labels" . | nindent 4 }}
 data:
   # Runtime configuration
-  LOG_LEVEL: {{ .Values.buntime.logLevel | quote }}
   NODE_ENV: "production"
-  PLUGIN_DIRS: {{ .Values.buntime.pluginDirs | quote }}
-  POOL_SIZE: {{ .Values.buntime.poolSize | quote }}
   PORT: {{ .Values.buntime.port | quote }}
   RUNTIME_API_PREFIX: {{ .Values.buntime.apiPrefix | default "" | quote }}
-  WORKER_DIRS: {{ .Values.buntime.workerDirs | quote }}
+  RUNTIME_EPHEMERAL_CONCURRENCY: {{ .Values.buntime.ephemeralConcurrency | quote }}
+  RUNTIME_EPHEMERAL_QUEUE_LIMIT: {{ .Values.buntime.ephemeralQueueLimit | quote }}
+  RUNTIME_LOG_LEVEL: {{ .Values.buntime.logLevel | quote }}
+  RUNTIME_PLUGIN_DIRS: {{ .Values.buntime.pluginDirs | quote }}
+  RUNTIME_POOL_SIZE: {{ .Values.buntime.poolSize | quote }}
+  RUNTIME_WORKER_CONFIG_CACHE_TTL_MS: {{ .Values.buntime.workerConfigCacheTtlMs | quote }}
+  RUNTIME_WORKER_DIRS: {{ .Values.buntime.workerDirs | quote }}
+  RUNTIME_WORKER_RESOLVER_CACHE_TTL_MS: {{ .Values.buntime.workerResolverCacheTtlMs | quote }}
 
   # Plugin env vars - GENERATED SECTION
   # Do not edit below this line - values are generated from plugin manifests

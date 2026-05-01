@@ -4,6 +4,9 @@ import { roundTwoDecimals } from "./stats";
 export interface PoolMetrics {
   activeWorkers: number;
   avgResponseTimeMs: number;
+  ephemeralConcurrency: number;
+  ephemeralQueueDepth: number;
+  ephemeralQueueLimit: number;
   evictions: number;
   hitRate: number;
   hits: number;
@@ -94,6 +97,9 @@ export class WorkerMetrics {
     return {
       activeWorkers,
       avgResponseTimeMs: roundTwoDecimals(avgResponseTimeMs),
+      ephemeralConcurrency: 0,
+      ephemeralQueueDepth: 0,
+      ephemeralQueueLimit: 0,
       evictions: this.evictions,
       hitRate: roundTwoDecimals(hitRate * 100), // Percentage with 2 decimals
       hits: this.hits,

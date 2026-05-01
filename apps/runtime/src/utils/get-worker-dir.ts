@@ -11,6 +11,29 @@ const logger = getChildLogger("getWorkerDir");
  * Usage: workerDir/worker-name@latest/ or workerDir/worker-name/latest/
  */
 const LATEST = "latest";
+const DEFAULT_CACHE_TTL_MS = 1_000;
+
+export interface WorkerResolverOptions {
+  /**
+   * Positive result cache TTL. Set to 0 to disable cache.
+   * Missing workers are not cached by default so newly deployed apps can appear immediately.
+   */
+  cacheTtlMs?: number;
+  /** Cache missing results too. Useful only for static worker directories. */
+  cacheNegative?: boolean;
+}
+
+interface CacheEntry {
+  expiresAt: number;
+  value: string;
+}
+
+function parseCacheTtl(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
 
 /**
  * Extract version from a flat folder name (e.g., "hello-api@1.0.0" -> "1.0.0")
@@ -87,7 +110,13 @@ function findNestedVersions(
  * Creates a function to retrieve worker directories from multiple worker directory paths.
  * @param workerDirs - Array of worker directories to search for workers
  */
-export function createWorkerResolver(workerDirs: string[]) {
+export function createWorkerResolver(workerDirs: string[], options: WorkerResolverOptions = {}) {
+  const cache = new Map<string, CacheEntry>();
+  const cacheTtlMs =
+    options.cacheTtlMs ??
+    parseCacheTtl(Bun.env.RUNTIME_WORKER_RESOLVER_CACHE_TTL_MS, DEFAULT_CACHE_TTL_MS);
+  const cacheNegative = options.cacheNegative ?? false;
+
   /**
    * Retrieves the filesystem path for a given worker name.
    *
@@ -110,80 +139,102 @@ export function createWorkerResolver(workerDirs: string[]) {
    * @returns The full filesystem path to the worker directory, or an empty string if not found
    */
   return function getWorkerDir(workerName: string): string {
-    const [name, versionRange] = workerName.split("@");
-    if (!name) return "";
-
-    // Collect all versions from all directories
-    const allVersions: string[] = [];
-    const allDirs = new Map<string, string>();
-
-    for (const workerDir of workerDirs) {
-      // 1. Try flat format first (workerDir/worker-name@version/)
-      const flat = findFlatVersions(workerDir, name);
-      for (const version of flat.versions) {
-        if (!allDirs.has(version)) {
-          allVersions.push(version);
-          allDirs.set(version, flat.dirs.get(version)!);
-        }
-      }
-
-      // 2. Try nested format (workerDir/worker-name/version/)
-      const nested = findNestedVersions(workerDir, name);
-      for (const version of nested.versions) {
-        if (!allDirs.has(version)) {
-          allVersions.push(version);
-          allDirs.set(version, nested.dirs.get(version)!);
-        }
-      }
-
-      // 3. Try simple format (workerDir/worker-name/ without version subfolder)
-      // Treat as "latest" if the folder has package.json or manifest.yaml
-      if (!allDirs.has(LATEST)) {
-        const simpleDir = join(workerDir, name);
-        if (existsSync(simpleDir) && statSync(simpleDir).isDirectory()) {
-          const hasPackageJson = existsSync(join(simpleDir, "package.json"));
-          const hasManifest =
-            existsSync(join(simpleDir, "manifest.yaml")) ||
-            existsSync(join(simpleDir, "manifest.yml"));
-          if (hasPackageJson || hasManifest) {
-            allVersions.push(LATEST);
-            allDirs.set(LATEST, simpleDir);
-          }
-        }
-      }
+    const now = Date.now();
+    const cached = cache.get(workerName);
+    if (cached && cached.expiresAt > now) {
+      return cached.value;
     }
 
-    if (allVersions.length === 0) {
-      return "";
+    if (cached) {
+      cache.delete(workerName);
     }
 
-    // Handle "latest" tag explicitly
-    if (versionRange === LATEST) {
-      return allDirs.get(LATEST) ?? "";
+    const resolved = resolveWorkerDir(workerDirs, workerName);
+    if (cacheTtlMs > 0 && (resolved || cacheNegative)) {
+      cache.set(workerName, {
+        expiresAt: now + cacheTtlMs,
+        value: resolved,
+      });
     }
 
-    const hasLatest = allDirs.has(LATEST);
-    const semverVersions = allVersions.filter((v) => v !== LATEST);
-
-    if (!versionRange) {
-      // No version specified: prefer "latest" if exists, otherwise highest semver
-      if (hasLatest) {
-        return allDirs.get(LATEST)!;
-      }
-      if (semverVersions.length > 0) {
-        const sorted = rsort(semverVersions);
-        return allDirs.get(sorted[0]!) ?? "";
-      }
-      return "";
-    }
-
-    // Try to match version range against semver versions only
-    const matched = maxSatisfying(semverVersions, versionRange, { includePrerelease: true });
-    if (matched) {
-      return allDirs.get(matched) ?? "";
-    }
-
-    logger.error(`No version satisfies range: ${versionRange}`);
-    return "";
+    return resolved;
   };
+}
+
+function resolveWorkerDir(workerDirs: string[], workerName: string): string {
+  const [name, versionRange] = workerName.split("@");
+  if (!name) return "";
+
+  // Collect all versions from all directories
+  const allVersions: string[] = [];
+  const allDirs = new Map<string, string>();
+
+  for (const workerDir of workerDirs) {
+    // 1. Try flat format first (workerDir/worker-name@version/)
+    const flat = findFlatVersions(workerDir, name);
+    for (const version of flat.versions) {
+      if (!allDirs.has(version)) {
+        allVersions.push(version);
+        allDirs.set(version, flat.dirs.get(version)!);
+      }
+    }
+
+    // 2. Try nested format (workerDir/worker-name/version/)
+    const nested = findNestedVersions(workerDir, name);
+    for (const version of nested.versions) {
+      if (!allDirs.has(version)) {
+        allVersions.push(version);
+        allDirs.set(version, nested.dirs.get(version)!);
+      }
+    }
+
+    // 3. Try simple format (workerDir/worker-name/ without version subfolder)
+    // Treat as "latest" if the folder has package.json or manifest.yaml
+    if (!allDirs.has(LATEST)) {
+      const simpleDir = join(workerDir, name);
+      if (existsSync(simpleDir) && statSync(simpleDir).isDirectory()) {
+        const hasPackageJson = existsSync(join(simpleDir, "package.json"));
+        const hasManifest =
+          existsSync(join(simpleDir, "manifest.yaml")) ||
+          existsSync(join(simpleDir, "manifest.yml"));
+        if (hasPackageJson || hasManifest) {
+          allVersions.push(LATEST);
+          allDirs.set(LATEST, simpleDir);
+        }
+      }
+    }
+  }
+
+  if (allVersions.length === 0) {
+    return "";
+  }
+
+  // Handle "latest" tag explicitly
+  if (versionRange === LATEST) {
+    return allDirs.get(LATEST) ?? "";
+  }
+
+  const hasLatest = allDirs.has(LATEST);
+  const semverVersions = allVersions.filter((v) => v !== LATEST);
+
+  if (!versionRange) {
+    // No version specified: prefer "latest" if exists, otherwise highest semver
+    if (hasLatest) {
+      return allDirs.get(LATEST)!;
+    }
+    if (semverVersions.length > 0) {
+      const sorted = rsort(semverVersions);
+      return allDirs.get(sorted[0]!) ?? "";
+    }
+    return "";
+  }
+
+  // Try to match version range against semver versions only
+  const matched = maxSatisfying(semverVersions, versionRange, { includePrerelease: true });
+  if (matched) {
+    return allDirs.get(matched) ?? "";
+  }
+
+  logger.error(`No version satisfies range: ${versionRange}`);
+  return "";
 }

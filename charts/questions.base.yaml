@@ -28,6 +28,42 @@ questions:
     max: 1000
     group: "Runtime"
 
+  - variable: buntime.ephemeralConcurrency
+    label: "Ephemeral Worker Concurrency"
+    description: "Maximum concurrent ttl=0 worker requests before queueing"
+    type: int
+    default: 2
+    min: 1
+    max: 100
+    group: "Runtime"
+
+  - variable: buntime.ephemeralQueueLimit
+    label: "Ephemeral Worker Queue Limit"
+    description: "Maximum queued ttl=0 requests before returning 503"
+    type: int
+    default: 100
+    min: 0
+    max: 10000
+    group: "Runtime"
+
+  - variable: buntime.workerConfigCacheTtlMs
+    label: "Worker Config Cache TTL"
+    description: "Positive worker manifest/config cache TTL in milliseconds; use 0 to disable"
+    type: int
+    default: 1000
+    min: 0
+    max: 60000
+    group: "Runtime"
+
+  - variable: buntime.workerResolverCacheTtlMs
+    label: "Worker Resolver Cache TTL"
+    description: "Positive worker directory lookup cache TTL in milliseconds; use 0 to disable"
+    type: int
+    default: 1000
+    min: 0
+    max: 60000
+    group: "Runtime"
+
   - variable: replicaCount
     label: "Replica Count"
     description: "Number of Buntime pod replicas"
@@ -36,6 +72,66 @@ questions:
     min: 1
     max: 10
     group: "Runtime"
+
+  # ==================== SCALING ====================
+  - variable: autoscaling.enabled
+    label: "Enable Autoscaling"
+    description: "Enable Horizontal Pod Autoscaler"
+    type: boolean
+    default: false
+    group: "Scaling"
+
+  - variable: autoscaling.minReplicas
+    label: "Minimum Replicas"
+    description: "Minimum replicas when autoscaling is enabled"
+    type: int
+    default: 1
+    min: 1
+    max: 20
+    group: "Scaling"
+
+  - variable: autoscaling.maxReplicas
+    label: "Maximum Replicas"
+    description: "Maximum replicas when autoscaling is enabled"
+    type: int
+    default: 5
+    min: 1
+    max: 100
+    group: "Scaling"
+
+  - variable: autoscaling.targetCPUUtilizationPercentage
+    label: "Target CPU Utilization"
+    description: "Average CPU utilization percentage used by the HPA"
+    type: int
+    default: 70
+    min: 1
+    max: 100
+    group: "Scaling"
+
+  - variable: autoscaling.targetMemoryUtilizationPercentage
+    label: "Target Memory Utilization"
+    description: "Average memory utilization percentage used by the HPA"
+    type: int
+    default: 80
+    min: 1
+    max: 100
+    group: "Scaling"
+
+  - variable: podDisruptionBudget.enabled
+    label: "Enable PodDisruptionBudget"
+    description: "Keep at least one pod available during voluntary disruptions"
+    type: boolean
+    default: false
+    group: "Scaling"
+
+  - variable: podDisruptionBudget.minAvailable
+    label: "PDB Minimum Available"
+    description: "Minimum available pods for voluntary disruptions"
+    type: int
+    default: 1
+    min: 1
+    max: 20
+    group: "Scaling"
 
   - variable: service.type
     label: "Service Type"
@@ -104,6 +200,35 @@ questions:
     type: boolean
     default: false
     group: "Runtime"
+
+  # ==================== RESOURCES ====================
+  - variable: resources.requests.cpu
+    label: "CPU Request"
+    description: "CPU requested by each runtime pod"
+    type: string
+    default: "250m"
+    group: "Resources"
+
+  - variable: resources.requests.memory
+    label: "Memory Request"
+    description: "Memory requested by each runtime pod"
+    type: string
+    default: "256Mi"
+    group: "Resources"
+
+  - variable: resources.limits.cpu
+    label: "CPU Limit"
+    description: "CPU limit for each runtime pod"
+    type: string
+    default: "2"
+    group: "Resources"
+
+  - variable: resources.limits.memory
+    label: "Memory Limit"
+    description: "Memory limit for each runtime pod"
+    type: string
+    default: "1Gi"
+    group: "Resources"
 
   # ==================== STORAGE ====================
   - variable: persistence.plugins.size

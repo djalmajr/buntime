@@ -23,6 +23,10 @@ The runtime is configured exclusively via environment variables. There is no con
 | `RUNTIME_WORKER_DIRS` | string (PATH style) | **Required** | Worker application directories |
 | `RUNTIME_PLUGIN_DIRS` | string (PATH style) | `./plugins` | Plugin directories |
 | `RUNTIME_POOL_SIZE` | number | `500` (prod), `50` (staging), `10` (dev), `5` (test) | Maximum worker pool size |
+| `RUNTIME_EPHEMERAL_CONCURRENCY` | number | `2` | Maximum concurrent `ttl: 0` worker requests before queueing |
+| `RUNTIME_EPHEMERAL_QUEUE_LIMIT` | number | `100` | Maximum queued `ttl: 0` requests before returning `503` |
+| `RUNTIME_WORKER_CONFIG_CACHE_TTL_MS` | number | `1000` | Positive worker manifest/config cache TTL in milliseconds; `0` disables |
+| `RUNTIME_WORKER_RESOLVER_CACHE_TTL_MS` | number | `1000` | Positive worker directory lookup cache TTL in milliseconds; `0` disables |
 | `RUNTIME_LOG_LEVEL` | string | `info` (prod), `debug` (dev) | Log level (debug, info, warn, error) |
 | `DELAY_MS` | number | `100` | Delay in milliseconds for graceful operations |
 
@@ -45,6 +49,10 @@ PORT=8000
 RUNTIME_WORKER_DIRS=/apps:/external-apps
 RUNTIME_PLUGIN_DIRS=/plugins:/custom-plugins
 RUNTIME_POOL_SIZE=200
+RUNTIME_EPHEMERAL_CONCURRENCY=2
+RUNTIME_EPHEMERAL_QUEUE_LIMIT=100
+RUNTIME_WORKER_CONFIG_CACHE_TTL_MS=1000
+RUNTIME_WORKER_RESOLVER_CACHE_TTL_MS=1000
 RUNTIME_LOG_LEVEL=info
 ```
 

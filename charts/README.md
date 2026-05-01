@@ -25,9 +25,15 @@ Key values to configure:
 
 | Value | Description | Default |
 |-------|-------------|---------|
-| `buntime.apiPrefix` | API route prefix | `""` |
+| `buntime.apiPrefix` | API route prefix | `"/_"` |
 | `buntime.workerDirs` | Worker search paths | `/data/.apps:/data/apps` |
 | `buntime.pluginDirs` | Plugin search paths | `/data/.plugins:/data/plugins` |
+| `buntime.ephemeralConcurrency` | Max concurrent `ttl: 0` requests | `2` |
+| `buntime.ephemeralQueueLimit` | Max queued `ttl: 0` requests before `503` | `100` |
+| `resources.requests.cpu` | CPU request per pod | `250m` |
+| `resources.limits.cpu` | CPU limit per pod | `2` |
+| `autoscaling.enabled` | Enable HPA | `false` |
+| `podDisruptionBudget.enabled` | Enable PDB | `false` |
 | `plugins.database.libsqlUrl` | LibSQL primary URL | `http://libsql:8080` |
 | `plugins.gateway.cors.origin` | CORS allowed origins | `*` |
 | `plugins.gateway.shellDir` | Micro-frontend shell path | `""` |

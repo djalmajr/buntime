@@ -32,10 +32,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           cache-dependency-path: apps/cli/go.sum
           go-version: ${{ env.GO_VERSION }}
@@ -95,10 +95,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           cache-dependency-path: apps/cli/go.sum
           go-version: ${{ env.GO_VERSION }}
@@ -110,7 +110,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             gcc-aarch64-linux-gnu \
-            gcc-x86-64-linux-gnu
+            gcc-x86-64-linux-gnu \
+            libc6-dev-arm64-cross
 
       - name: Install Windows CGO toolchain
         if: runner.os == 'Windows'
@@ -181,7 +182,7 @@ jobs:
         run: Compress-Archive -Path "dist/cli/buntime-${{ matrix.target }}/buntime.exe" -DestinationPath "${{ matrix.artifact }}" -Force
 
       - name: Upload CLI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
           name: buntime-${{ matrix.target }}

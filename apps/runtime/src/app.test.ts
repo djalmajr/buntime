@@ -6,6 +6,7 @@ import type { Hono } from "hono";
 import { Hono as HonoApp } from "hono";
 import { initConfig } from "@/config";
 import { API_PATH, Headers } from "@/constants";
+import { ApiKeyStore } from "@/libs/api-keys";
 import type { WorkerPool } from "@/libs/pool/pool";
 import { PluginRegistry } from "@/plugins/registry";
 import { type AppDeps, createApp } from "./app";
@@ -327,6 +328,40 @@ describe("createApp", () => {
         delete Bun.env.RUNTIME_MASTER_KEY;
         initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
       }
+    });
+
+    it("should allow generated API keys with required permissions", async () => {
+      const apiKeys = new ApiKeyStore(join(TEST_DIR, "generated-api-keys.json"));
+      const created = await apiKeys.create({ name: "Deploy", role: "editor" });
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      const app = createApp(createDeps({ apiKeys }));
+      const req = new Request(`http://localhost${API_PATH}/plugins`, {
+        headers: {
+          host: "localhost",
+          [Headers.API_KEY]: created.key,
+        },
+      });
+      const res = await app.fetch(req);
+      expect(res.status).toBe(200);
+    });
+
+    it("should reject generated API keys without required permissions", async () => {
+      const apiKeys = new ApiKeyStore(join(TEST_DIR, "viewer-api-keys.json"));
+      const created = await apiKeys.create({ name: "Viewer", role: "viewer" });
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      const app = createApp(createDeps({ apiKeys }));
+      const req = new Request(`http://localhost${API_PATH}/plugins/reload`, {
+        headers: {
+          host: "localhost",
+          [Headers.API_KEY]: created.key,
+        },
+        method: "POST",
+      });
+      const res = await app.fetch(req);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ code: "PERMISSION_DENIED" });
     });
   });
 

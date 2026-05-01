@@ -23,6 +23,13 @@ armazenada como Secret no Helm/Rancher.
   `X-API-Key` válido.
 - A chave master também bypassa CSRF e hooks `onRequest` de plugins para
   automação de deploy, incluindo `/deployments/api/*`.
+- API keys geradas pelo runtime ficam em store file-based com hashes, por
+  padrão em `/data/plugins/.buntime/api-keys.json` no Helm. A master key deve
+  ser usada como bootstrap para criar chaves de deploy com papel `editor` e
+  depois pode ficar restrita à operação/administração.
+- As permissões são aplicadas nas rotas core: `viewer` é leitura, `editor`
+  instala/remove apps e plugins, `admin` gerencia tudo, e `custom` usa a lista
+  explícita de permissões.
 - O CLI/TUI descobre o caminho real da API via `/.well-known/buntime`.
   Portanto o operador informa apenas a URL pública do runtime; o prefixo
   configurável, como `/_`, não é codificado no TUI.
@@ -45,7 +52,10 @@ armazenada como Secret no Helm/Rancher.
 ## Arquivos principais
 
 - `apps/runtime/src/app.ts`: proteção por chave master e bypass de deploy.
-- `apps/runtime/src/config.ts`: leitura de `RUNTIME_MASTER_KEY`.
+- `apps/runtime/src/config.ts`: leitura de `RUNTIME_MASTER_KEY` e state dir.
+- `apps/runtime/src/libs/api-keys.ts`: store file-based, hashing, roles e
+  permissões.
+- `apps/runtime/src/routes/keys.ts`: endpoints `GET/POST/DELETE /keys`.
 - `apps/runtime/src/routes/apps.ts`: seleção do diretório externo de apps.
 - `apps/runtime/src/routes/plugins.ts`: seleção do diretório externo de plugins.
 - `apps/runtime/src/libs/registry/packager.ts`: leitura de `manifest.yaml` e

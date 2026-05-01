@@ -138,7 +138,7 @@ helm:publish-local:
     - cp -r sync/buntime/* "/tmp/charts/charts/buntime/$VERSION/"
     - cd /tmp/charts
     - git add .
-    - git diff --staged --quiet || git commit -m "chore: publish buntime chart v$VERSION"
+    - 'git diff --staged --quiet || git commit -m "chore: publish buntime chart v$VERSION"'
     - git push origin main
   rules:
     - when: manual

@@ -1,9 +1,12 @@
 # API Reference
 
-The runtime exposes a REST API at `/api/*` for health checks, plugin management, and app management.
+The runtime exposes a REST API for health checks, plugin management, and app management.
+By default it is mounted at `/api/*`. When `RUNTIME_API_PREFIX="/_"`, the API
+is mounted at `/_/api/*`.
 
 > [!TIP]
-> Interactive API documentation is available at `/api/docs` (Scalar UI) and OpenAPI spec at `/api/openapi.json`.
+> Clients should read `/.well-known/buntime` and use the returned `api` path
+> instead of hardcoding `/api` or `/_/api`.
 
 ## Base URL
 
@@ -11,11 +14,38 @@ The runtime exposes a REST API at `/api/*` for health checks, plugin management,
 http://localhost:8000/api
 ```
 
+Prefixed deployment example:
+
+```
+https://buntime.home/_/api
+```
+
 ## Authentication
 
 API routes are protected by CSRF validation for state-changing requests (POST, PUT, DELETE, PATCH). Requests must include a valid `Origin` header matching the server's origin.
 
 For internal requests (worker-to-runtime), include the `X-Buntime-Internal: true` header to bypass CSRF validation.
+
+When `RUNTIME_MASTER_KEY` is configured, protected API routes also require
+`X-API-Key: <key>` or `Authorization: Bearer <key>`. The master key is intended
+for bootstrap/admin automation such as creating scoped deploy keys from the
+CLI/TUI. It bypasses CSRF and plugin `onRequest` hooks, so store it as a secret
+and do not expose it to browsers.
+
+Helm exposes this as `buntime.masterKey`, stored in the runtime Secret.
+
+Runtime API keys created through `/api/keys` are stored as SHA-256 hashes in a
+file-backed store under `RUNTIME_STATE_DIR`. If `RUNTIME_STATE_DIR` is not set,
+the runtime uses the first external plugin directory, usually
+`/data/plugins/.buntime/api-keys.json` in the Helm chart. Roles are enforced on
+core API routes:
+
+| Role | Access |
+|------|--------|
+| `admin` | All permissions |
+| `editor` | Install/remove apps and plugins, plugin config, worker operations |
+| `viewer` | Read-only apps, plugins, workers, and keys |
+| `custom` | Explicit permissions selected at creation time |
 
 ## Health Endpoints
 
@@ -315,6 +345,79 @@ DELETE /api/apps/@buntime/my-app/1.0.0
 | 400 | `MISSING_PARAMS` | Scope, name and version are required |
 | 404 | `VERSION_NOT_FOUND` | App version not found |
 
+## API Key Endpoints
+
+### GET /api/keys/
+
+Lists non-revoked API keys. Secret key values are never returned by this
+endpoint.
+
+**Response**
+
+```json
+{
+  "keys": [
+    {
+      "id": 1,
+      "name": "Deploy CI",
+      "keyPrefix": "btk_abcd1234",
+      "role": "editor",
+      "permissions": ["apps:install", "plugins:install"],
+      "createdAt": 1777660000,
+      "lastUsedAt": 1777660300
+    }
+  ]
+}
+```
+
+### GET /api/keys/meta
+
+Returns supported roles and permissions for CLI/TUI forms.
+
+### POST /api/keys/
+
+Creates an API key. The full key is returned only once.
+
+**Request**
+
+```json
+{
+  "name": "Deploy CI",
+  "role": "editor",
+  "expiresIn": "1y"
+}
+```
+
+`expiresIn` accepts `never`, `30d`, `90d`, `1y`, or another compact duration
+such as `7d`, `2w`, `6m`.
+
+**Response**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "name": "Deploy CI",
+    "key": "btk_...",
+    "keyPrefix": "btk_abcd1234",
+    "role": "editor"
+  }
+}
+```
+
+### DELETE /api/keys/:id
+
+Revokes an API key.
+
+**Response**
+
+```json
+{
+  "success": true
+}
+```
+
 ## Documentation Endpoints
 
 ### GET /api/openapi.json
@@ -342,6 +445,8 @@ All error responses follow this format:
 
 | Header | Description |
 |--------|-------------|
+| `Authorization` | `Bearer <key>` alternative to `X-API-Key` |
+| `X-API-Key` | Runtime master key or generated API key |
 | `X-Buntime-Internal` | Set to `true` for internal requests (bypasses CSRF) |
 | `X-Request-Id` | Correlation ID for request tracing (auto-generated if not provided) |
 | `Origin` | Required for state-changing requests (CSRF protection) |

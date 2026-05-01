@@ -15,10 +15,12 @@ import { generateSpecs, openAPIRouteHandler } from "hono-openapi";
 import { createApp } from "@/app";
 import { initConfig } from "@/config";
 import { API_PATH, NODE_ENV, VERSION } from "@/constants";
+import { ApiKeyStore } from "@/libs/api-keys";
 import { WorkerPool } from "@/libs/pool/pool";
 import { PluginLoader } from "@/plugins/loader";
 import { createAppsRoutes } from "@/routes/apps";
 import { createHealthRoutes } from "@/routes/health";
+import { createKeysRoutes } from "@/routes/keys";
 import { createPluginsRoutes } from "@/routes/plugins";
 import { createWorkerRoutes } from "@/routes/worker";
 import { createWorkerResolver } from "@/utils/get-worker-dir";
@@ -42,6 +44,9 @@ const runtimeConfig = initConfig();
 // Create pool with config
 const pool = new WorkerPool({ maxSize: runtimeConfig.poolSize });
 
+// Create file-backed API key store. The master key remains the bootstrap/admin key.
+const apiKeys = ApiKeyStore.fromStateDir(runtimeConfig.stateDir);
+
 // Create worker resolver
 const getWorkerDir = createWorkerResolver(runtimeConfig.workerDirs);
 
@@ -62,6 +67,7 @@ const openApiDocumentation = {
     { description: "Runtime health checks", name: "Health" },
     { description: "Plugin information and management", name: "Plugins" },
     { description: "App management (install, remove)", name: "Apps" },
+    { description: "Runtime API key management", name: "API Keys" },
   ],
 };
 
@@ -71,6 +77,7 @@ const openApiDocumentation = {
 const coreRoutes = new Hono()
   .route("/apps", createAppsRoutes())
   .route("/health", createHealthRoutes())
+  .route("/keys", createKeysRoutes({ store: apiKeys }))
   .route("/plugins", createPluginsRoutes({ loader, registry }));
 
 // Add OpenAPI spec and Scalar UI endpoints
@@ -105,6 +112,7 @@ const workers = createWorkerRoutes({
 
 // Create app with routes and plugins
 const app = createApp({
+  apiKeys,
   coreRoutes,
   getWorkerDir,
   pool,
@@ -120,4 +128,14 @@ const pluginRoutes = registry.collectServerRoutes();
 const hasPluginRoutes = Object.keys(pluginRoutes).length > 0;
 
 // Export everything needed to start the server
-export { app, hasPluginRoutes, logger, pluginRoutes, pool, registry, runtimeConfig, websocket };
+export {
+  apiKeys,
+  app,
+  hasPluginRoutes,
+  logger,
+  pluginRoutes,
+  pool,
+  registry,
+  runtimeConfig,
+  websocket,
+};

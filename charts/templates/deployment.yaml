@@ -5,7 +5,9 @@ metadata:
   labels:
     {{- include "buntime.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -34,10 +36,12 @@ spec:
             - name: http
               containerPort: {{ .Values.buntime.port }}
               protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
           envFrom:
             - configMapRef:
                 name: {{ include "buntime.fullname" . }}
-            {{- if or .Values.buntime.rootKey .Values.buntime.libsqlAuthToken }}
+            {{- if or .Values.buntime.masterKey .Values.buntime.libsqlAuthToken }}
             - secretRef:
                 name: {{ include "buntime.fullname" . }}
             {{- end }}

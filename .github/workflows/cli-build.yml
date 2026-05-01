@@ -1,0 +1,190 @@
+name: Build CLI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/cli-build.yml"
+      - "apps/cli/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/cli-build.yml"
+      - "apps/cli/**"
+    tags:
+      - "v*.*.*"
+
+concurrency:
+  group: cli-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CLI_ARTIFACT_RETENTION_DAYS: "30"
+  GO_VERSION: "1.23"
+
+jobs:
+  test:
+    name: Test CLI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          cache-dependency-path: apps/cli/go.sum
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install CGO dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential
+
+      - name: Run CLI tests
+        working-directory: apps/cli
+        run: go test ./...
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact: dist/cli/buntime-linux-amd64.tar.gz
+            cc: x86_64-linux-gnu-gcc
+            exe: ""
+            goarch: amd64
+            goos: linux
+            os: ubuntu-latest
+            target: linux-amd64
+          - artifact: dist/cli/buntime-linux-arm64.tar.gz
+            cc: aarch64-linux-gnu-gcc
+            exe: ""
+            goarch: arm64
+            goos: linux
+            os: ubuntu-latest
+            target: linux-arm64
+          - artifact: dist/cli/buntime-windows-amd64.zip
+            cc: x86_64-w64-mingw32-gcc
+            exe: ".exe"
+            goarch: amd64
+            goos: windows
+            os: windows-latest
+            target: windows-amd64
+          - artifact: dist/cli/buntime-darwin-amd64.tar.gz
+            cc: clang -arch x86_64
+            exe: ""
+            goarch: amd64
+            goos: darwin
+            os: macos-latest
+            target: darwin-amd64
+          - artifact: dist/cli/buntime-darwin-arm64.tar.gz
+            cc: clang -arch arm64
+            exe: ""
+            goarch: arm64
+            goos: darwin
+            os: macos-latest
+            target: darwin-arm64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          cache-dependency-path: apps/cli/go.sum
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Linux CGO toolchain
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            gcc-aarch64-linux-gnu \
+            gcc-x86-64-linux-gnu \
+            libc6-dev-arm64-cross
+
+      - name: Install Windows CGO toolchain
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          install: mingw-w64-x86_64-gcc
+          msystem: MINGW64
+          path-type: inherit
+          update: true
+
+      - name: Resolve version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${GITHUB_SHA::7}"
+          fi
+          echo "VERSION=${version}" >> "${GITHUB_ENV}"
+
+      - name: Build CLI
+        if: runner.os != 'Windows'
+        env:
+          CC: ${{ matrix.cc }}
+          CGO_ENABLED: "1"
+          GOARCH: ${{ matrix.goarch }}
+          GOOS: ${{ matrix.goos }}
+        shell: bash
+        working-directory: apps/cli
+        run: |
+          set -euo pipefail
+          out_dir="../../dist/cli/buntime-${{ matrix.target }}"
+          mkdir -p "${out_dir}"
+          go build \
+            -trimpath \
+            -ldflags="-s -w -X main.version=${VERSION}" \
+            -o "${out_dir}/buntime${{ matrix.exe }}" \
+            .
+
+      - name: Build CLI
+        if: runner.os == 'Windows'
+        env:
+          CC: ${{ matrix.cc }}
+          CGO_ENABLED: "1"
+          GOARCH: ${{ matrix.goarch }}
+          GOOS: ${{ matrix.goos }}
+        shell: msys2 {0}
+        working-directory: apps/cli
+        run: |
+          set -euo pipefail
+          out_dir="../../dist/cli/buntime-${{ matrix.target }}"
+          mkdir -p "${out_dir}"
+          go build \
+            -trimpath \
+            -ldflags="-s -w -X main.version=${VERSION}" \
+            -o "${out_dir}/buntime${{ matrix.exe }}" \
+            .
+
+      - name: Package Unix artifact
+        if: runner.os != 'Windows'
+        shell: bash
+        run: tar -czf "${{ matrix.artifact }}" -C "dist/cli/buntime-${{ matrix.target }}" buntime
+
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "dist/cli/buntime-${{ matrix.target }}/buntime.exe" -DestinationPath "${{ matrix.artifact }}" -Force
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v7
+        with:
+          if-no-files-found: error
+          name: buntime-${{ matrix.target }}
+          path: ${{ matrix.artifact }}
+          retention-days: ${{ env.CLI_ARTIFACT_RETENTION_DAYS }}

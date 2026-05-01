@@ -54,17 +54,55 @@ buntime:
   # Logging level (debug, info, warn, error)
   logLevel: "info"
 
+  # High-privilege deploy key for CLI/TUI automation.
+  # Stored in a Kubernetes Secret when set.
+  masterKey: ""
+
+  # Max concurrent TTL=0 worker requests
+  ephemeralConcurrency: 2
+
+  # Max queued TTL=0 requests before returning 503
+  ephemeralQueueLimit: 100
+
   # Plugin directories (colon-separated, PATH style)
   pluginDirs: "/data/.plugins:/data/plugins"
 
   # Worker pool size
   poolSize: 100
 
+  # Worker config cache TTL in milliseconds (0 disables)
+  workerConfigCacheTtlMs: 1000
+
+  # Worker directory resolver cache TTL in milliseconds (0 disables)
+  workerResolverCacheTtlMs: 1000
+
   # HTTP port
   port: 8000
 
   # Worker directories (colon-separated, PATH style)
   workerDirs: "/data/.apps:/data/apps"
+
+# Container resources
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# PodDisruptionBudget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
 
 # Persistent storage (always enabled)
 persistence:

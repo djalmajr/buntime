@@ -9,6 +9,12 @@ export interface DeploymentsConfig extends BasePluginConfig {
   workerDirs?: string[];
 
   /**
+   * Directories containing deployable plugins.
+   * @default Uses globalConfig.pluginDirs
+   */
+  pluginDirs?: string[];
+
+  /**
    * Global folder patterns to exclude from listing.
    * These are merged with defaults and hidden across all app directories.
    *
@@ -48,9 +54,13 @@ export default function deploymentsPlugin(pluginConfig: DeploymentsConfig = {}):
 
     onInit(ctx: PluginContext) {
       const config = ctx.config as DeploymentsConfig;
-      // Use plugin-specific workerDirs if provided, otherwise use global config
+      // Use plugin-specific dirs if provided, otherwise use global runtime config.
+      // Hidden built-in dirs (e.g. /data/.apps, /data/.plugins) are kept for
+      // resolution but hidden from the deployments UI by server/api.ts.
       const workerDirs = config.workerDirs ?? ctx.globalConfig.workerDirs ?? ["./apps"];
-      setWorkerDirs(workerDirs);
+      const pluginDirs = config.pluginDirs ?? ctx.globalConfig.pluginDirs ?? [];
+      const deploymentDirs = [...workerDirs, ...pluginDirs];
+      setWorkerDirs(deploymentDirs);
 
       // Set global excludes (defaults applied in api.ts)
       if (config.excludes) {
@@ -68,7 +78,7 @@ export default function deploymentsPlugin(pluginConfig: DeploymentsConfig = {}):
         }));
       }
 
-      ctx.logger.info(`Deployments plugin initialized (workerDirs: ${workerDirs.join(", ")})`);
+      ctx.logger.info(`Deployments plugin initialized (roots: ${deploymentDirs.join(", ")})`);
     },
   };
 }

@@ -4,7 +4,14 @@ import type { AppInfo, WorkerManifest } from "@buntime/shared/types";
 import type { WorkerConfig } from "@buntime/shared/utils/worker-config";
 import type { Hono } from "hono";
 import { Hono as HonoApp } from "hono";
+import { getConfig } from "@/config";
 import { API_PATH, APP_NAME_PATTERN, Headers } from "@/constants";
+import {
+  type ApiKeyPrincipal,
+  type ApiKeyStore,
+  hasPermission,
+  type Permission,
+} from "@/libs/api-keys";
 import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
 import type { PluginRegistry } from "@/plugins/registry";
@@ -19,12 +26,20 @@ import {
 const logger = getChildLogger("App");
 
 export interface AppDeps {
+  /** Runtime API key store for generated deploy keys */
+  apiKeys?: ApiKeyStore;
   /** API routes mounted at /api/* */
   coreRoutes: Hono;
   getWorkerDir: (appName: string) => string | undefined;
   pool: WorkerPool;
   registry: PluginRegistry;
   workers: Hono;
+}
+
+interface ApiAuthResult {
+  master: boolean;
+  principal?: ApiKeyPrincipal;
+  valid: boolean;
 }
 
 /**
@@ -176,6 +191,106 @@ function createProcessedRequest(ctx: RoutingContext, newUrl?: URL): Request {
 }
 
 /**
+ * Check the runtime master deploy key.
+ *
+ * This is intentionally scoped as a high-privilege runtime key: it can bypass
+ * browser CSRF and plugin auth hooks for deployment automation.
+ */
+function extractApiKey(req: Request): string | undefined {
+  const headerKey = req.headers.get(Headers.API_KEY)?.trim();
+  if (headerKey) return headerKey;
+
+  const authorization = req.headers.get("authorization")?.trim();
+  const match = authorization?.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || undefined;
+}
+
+async function authenticateApiKey(req: Request, apiKeys?: ApiKeyStore): Promise<ApiAuthResult> {
+  const suppliedKey = extractApiKey(req);
+  if (!suppliedKey) return { master: false, valid: false };
+
+  const apiKey = getConfig().apiKey;
+  if (apiKey && suppliedKey === apiKey) {
+    return {
+      master: true,
+      principal: {
+        createdAt: 0,
+        id: 0,
+        isMaster: true,
+        keyPrefix: "master",
+        name: "master",
+        permissions: [],
+        role: "admin",
+      },
+      valid: true,
+    };
+  }
+
+  const principal = await apiKeys?.verify(suppliedKey);
+  return principal ? { master: false, principal, valid: true } : { master: false, valid: false };
+}
+
+function isPublicApiRoute(pathname: string): boolean {
+  const relative = pathname.slice(API_PATH.length) || "/";
+  return (
+    relative === "/health" ||
+    relative.startsWith("/health/") ||
+    relative === "/plugins/loaded" ||
+    relative === "/openapi.json" ||
+    relative === "/docs"
+  );
+}
+
+function unauthorizedResponse(): Response {
+  return new Response(JSON.stringify({ code: "AUTH_REQUIRED", error: "Unauthorized" }), {
+    headers: { "Content-Type": "application/json" },
+    status: 401,
+  });
+}
+
+function forbiddenResponse(permission: Permission): Response {
+  return new Response(
+    JSON.stringify({
+      code: "PERMISSION_DENIED",
+      error: `Missing permission: ${permission}`,
+    }),
+    {
+      headers: { "Content-Type": "application/json" },
+      status: 403,
+    },
+  );
+}
+
+function requiredPermissionForApiRoute(method: string, pathname: string): Permission | undefined {
+  const relative = pathname.slice(API_PATH.length) || "/";
+
+  if (relative === "/apps" || relative.startsWith("/apps/")) {
+    if (method === "GET") return "apps:read";
+    if (method === "POST") return "apps:install";
+    if (method === "DELETE") return "apps:remove";
+  }
+
+  if (relative === "/plugins" || relative.startsWith("/plugins/")) {
+    if (method === "GET") return "plugins:read";
+    if (method === "POST" || method === "PUT" || method === "PATCH") return "plugins:install";
+    if (method === "DELETE") return "plugins:remove";
+  }
+
+  if (relative === "/keys" || relative.startsWith("/keys/")) {
+    if (method === "GET") return "keys:read";
+    if (method === "POST") return "keys:create";
+    if (method === "DELETE") return "keys:revoke";
+  }
+
+  if (relative.startsWith("/workers")) {
+    if (method === "GET") return "workers:read";
+    return "workers:restart";
+  }
+
+  return undefined;
+}
+
+/**
  * Try plugin server.fetch handlers
  */
 async function handlePluginServerFetch(ctx: RoutingContext): Promise<Response | null> {
@@ -283,19 +398,33 @@ function validateCsrf(
 /**
  * Create the main Hono app with unified routing
  */
-export function createApp({ coreRoutes, getWorkerDir, pool, registry, workers }: AppDeps) {
+export function createApp({ apiKeys, coreRoutes, getWorkerDir, pool, registry, workers }: AppDeps) {
   const app = new HonoApp();
 
   // Middleware for API routes - CSRF protection
   app.use(`${API_PATH}/*`, async (c, next) => {
     const requestId = c.req.header(Headers.REQUEST_ID) ?? crypto.randomUUID();
+    const apiKeyConfigured = Boolean(getConfig().apiKey);
+    const generatedKeysConfigured = (await apiKeys?.hasKeys()) ?? false;
+    const authRequired = apiKeyConfigured || generatedKeysConfigured;
+    const auth = await authenticateApiKey(c.req.raw, apiKeys);
+
+    if (authRequired && !isPublicApiRoute(c.req.path) && !auth.valid) {
+      return unauthorizedResponse();
+    }
+
+    const permission = requiredPermissionForApiRoute(c.req.method, c.req.path);
+    if (auth.valid && !auth.master && permission && !hasPermission(auth.principal!, permission)) {
+      return forbiddenResponse(permission);
+    }
+
     const csrfResponse = validateCsrf(
       c.req.method,
       c.req.path,
       requestId,
       c.req.header("origin"),
       c.req.header("host"),
-      c.req.header(Headers.INTERNAL) === "true",
+      c.req.header(Headers.INTERNAL) === "true" || auth.valid,
     );
     if (csrfResponse) return csrfResponse;
 
@@ -366,9 +495,18 @@ export function createApp({ coreRoutes, getWorkerDir, pool, registry, workers }:
       });
     };
 
-    // Run plugin onRequest hooks (auth, etc.)
-    const processedReq = await registry.runOnRequest(honoCtx.req.raw, appInfo);
-    if (processedReq instanceof Response) return processedReq;
+    // Run plugin onRequest hooks (auth, etc.). The runtime master key is a
+    // deploy key and bypasses plugin-level auth for automation, including the
+    // deployments plugin API.
+    let processedReq: Request;
+    const auth = await authenticateApiKey(honoCtx.req.raw, apiKeys);
+    if (auth.valid) {
+      processedReq = honoCtx.req.raw;
+    } else {
+      const processed = await registry.runOnRequest(honoCtx.req.raw, appInfo);
+      if (processed instanceof Response) return processed;
+      processedReq = processed;
+    }
 
     // Build routing context
     const ctx: RoutingContext = {

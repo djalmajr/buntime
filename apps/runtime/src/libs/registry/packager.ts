@@ -4,11 +4,11 @@
  * Handles extraction and validation of .tgz and .zip packages uploaded via Core API.
  */
 
-import { rename as fsRename, mkdir, readdir, rm, stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { cp, rename as fsRename, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { basename, dirname, join, resolve, sep } from "node:path";
 
 /**
- * Package info extracted from manifest.yaml
+ * Package info extracted from manifest.yaml or package.json.
  */
 export interface PackageInfo {
   name: string;
@@ -125,15 +125,18 @@ async function extractZip(zipFile: Blob, destPath: string): Promise<void> {
 }
 
 /**
- * Read and validate manifest.yaml from extracted package
+ * Read package metadata from extracted package.
  *
- * Requires name and version fields in manifest.yaml.
- * The location (pluginDirs vs workerDirs) determines if it's a plugin or app.
+ * manifest.yaml is preferred, with package.json as a fallback. Version
+ * defaults to "latest" to support simple folder deploys from the TUI.
  *
  * @param packagePath - Path to the extracted package directory
  * @returns Package info with name and version
  */
 export async function readPackageInfo(packagePath: string): Promise<PackageInfo> {
+  let name: string | undefined;
+  let version: string | undefined;
+
   // Try manifest.yaml first, then manifest.yml
   for (const filename of ["manifest.yaml", "manifest.yml"]) {
     const manifestPath = join(packagePath, filename);
@@ -146,22 +149,30 @@ export async function readPackageInfo(packagePath: string): Promise<PackageInfo>
         version?: string;
       };
 
-      if (!manifest.name) {
-        throw new Error(`${filename} is missing 'name' field`);
-      }
-
-      if (!manifest.version) {
-        throw new Error(`${filename} is missing 'version' field`);
-      }
-
-      return {
-        name: manifest.name,
-        version: manifest.version,
-      };
+      name = manifest.name;
+      version = manifest.version;
+      break;
     }
   }
 
-  throw new Error("manifest.yaml not found in uploaded package");
+  const packageJson = Bun.file(join(packagePath, "package.json"));
+  if (await packageJson.exists()) {
+    const pkg = (await packageJson.json()) as {
+      name?: string;
+      version?: string;
+    };
+    name ??= pkg.name;
+    version ??= pkg.version;
+  }
+
+  if (!name) {
+    throw new Error("Package name not found: set manifest.yaml name or package.json name");
+  }
+
+  return {
+    name,
+    version: version ?? "latest",
+  };
 }
 
 /**
@@ -198,12 +209,60 @@ export function getInstallPath(baseDir: string, packageInfo: PackageInfo): strin
 }
 
 /**
+ * Get the package root path without a version segment.
+ *
+ * Plugins are loaded from pluginDirs/{name}; the runtime loader does not scan
+ * plugin version subdirectories.
+ */
+export function getPackageRootPath(baseDir: string, packageInfo: PackageInfo): string {
+  const { name, scope } = parsePackageName(packageInfo.name);
+
+  if (scope) {
+    return join(baseDir, scope, name);
+  }
+
+  return join(baseDir, name);
+}
+
+/**
+ * Select the writable/external install directory from configured dirs.
+ *
+ * Hidden dirs such as /data/.apps and /data/.plugins are image-provided
+ * built-ins in the Helm chart. Runtime uploads should prefer the first
+ * non-hidden external dir, then fall back to the first configured dir.
+ */
+export function selectInstallDir(dirs: string[]): string | undefined {
+  return dirs.find((dir) => !basename(resolve(dir)).startsWith(".")) ?? dirs[0];
+}
+
+/**
+ * Move an extracted package into its final installation path.
+ *
+ * PVCs can live on a different filesystem from /tmp, where upload extraction
+ * happens. In that case rename fails with EXDEV, so fall back to recursive copy.
+ */
+export async function moveDirectory(sourcePath: string, targetPath: string): Promise<void> {
+  await mkdir(dirname(targetPath), { recursive: true });
+
+  try {
+    await fsRename(sourcePath, targetPath);
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error ? String(error.code) : undefined;
+    if (code !== "EXDEV") throw error;
+
+    await cp(sourcePath, targetPath, { recursive: true });
+    await rm(sourcePath, { force: true, recursive: true });
+  }
+}
+
+/**
  * Validate that a path is safe (no path traversal)
  */
 export function isPathSafe(basePath: string, targetPath: string): boolean {
   const resolvedBase = resolve(basePath);
   const resolvedTarget = resolve(targetPath);
-  return resolvedTarget.startsWith(resolvedBase);
+  return resolvedTarget === resolvedBase || resolvedTarget.startsWith(`${resolvedBase}${sep}`);
 }
 
 /**

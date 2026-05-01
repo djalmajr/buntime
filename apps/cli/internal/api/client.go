@@ -8,14 +8,19 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
+const defaultAPIPath = "/api"
+
 type Client struct {
 	baseURL    string
+	apiPath    string
+	discovered bool
 	token      string
 	insecure   bool
 	httpClient *http.Client
@@ -50,7 +55,8 @@ func New(baseURL string, token string, insecure bool) *Client {
 	}
 
 	return &Client{
-		baseURL:  baseURL,
+		baseURL:  strings.TrimRight(baseURL, "/"),
+		apiPath:  defaultAPIPath,
 		token:    token,
 		insecure: insecure,
 		httpClient: &http.Client{
@@ -62,6 +68,57 @@ func New(baseURL string, token string, insecure bool) *Client {
 
 func (c *Client) SetToken(token string) {
 	c.token = token
+}
+
+func normalizeAPIPath(path string) string {
+	if path == "" || path == "/" {
+		return defaultAPIPath
+	}
+	path = "/" + strings.Trim(path, "/")
+	return path
+}
+
+func joinPath(prefix, path string) string {
+	prefix = strings.TrimRight(prefix, "/")
+	path = "/" + strings.TrimLeft(path, "/")
+	if prefix == "" {
+		return path
+	}
+	return prefix + path
+}
+
+func (c *Client) Discover() error {
+	if c.discovered {
+		return nil
+	}
+
+	resp, err := c.doRequest("GET", "/.well-known/buntime", nil, "")
+	if err != nil {
+		c.discovered = true
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		var config struct {
+			API string `json:"api"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&config); err == nil && config.API != "" {
+			c.apiPath = normalizeAPIPath(config.API)
+		}
+	}
+
+	c.discovered = true
+	return nil
+}
+
+func isStateChangingMethod(method string) bool {
+	switch method {
+	case "DELETE", "PATCH", "POST", "PUT":
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *Client) doRequest(method, path string, body io.Reader, contentType string) (*http.Response, error) {
@@ -81,12 +138,23 @@ func (c *Client) doRequest(method, path string, body io.Reader, contentType stri
 		req.Header.Set("Content-Type", contentType)
 	}
 
+	if isStateChangingMethod(method) {
+		req.Header.Set("Origin", c.baseURL)
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, c.classifyError(err)
 	}
 
 	return resp, nil
+}
+
+func (c *Client) doAPIRequest(method, path string, body io.Reader, contentType string) (*http.Response, error) {
+	if err := c.Discover(); err != nil {
+		return nil, err
+	}
+	return c.doRequest(method, joinPath(c.apiPath, path), body, contentType)
 }
 
 func (c *Client) classifyError(err error) *APIError {
@@ -180,7 +248,7 @@ type HealthInfo struct {
 }
 
 func (c *Client) GetHealth() (*HealthInfo, error) {
-	resp, err := c.doRequest("GET", "/api/health", nil, "")
+	resp, err := c.doAPIRequest("GET", "/health", nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +265,7 @@ func (c *Client) GetHealth() (*HealthInfo, error) {
 // Calls a protected endpoint to verify both connectivity and authentication
 func (c *Client) Ping() error {
 	// Call a protected endpoint to check auth status
-	resp, err := c.doRequest("GET", "/api/plugins", nil, "")
+	resp, err := c.doAPIRequest("GET", "/plugins", nil, "")
 	if err != nil {
 		return err
 	}
@@ -240,7 +308,7 @@ func (c *Client) Ping() error {
 
 // IsReachable checks if the server is reachable (any HTTP response = reachable)
 func (c *Client) IsReachable() bool {
-	resp, err := c.doRequest("GET", "/api/health", nil, "")
+	resp, err := c.doAPIRequest("GET", "/health", nil, "")
 	if err != nil {
 		return false
 	}
@@ -261,7 +329,7 @@ type PluginInfo struct {
 }
 
 func (c *Client) ListPlugins() ([]PluginInfo, error) {
-	resp, err := c.doRequest("GET", "/api/plugins", nil, "")
+	resp, err := c.doAPIRequest("GET", "/plugins", nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -271,11 +339,23 @@ func (c *Client) ListPlugins() ([]PluginInfo, error) {
 		return nil, err
 	}
 
+	for i := range plugins {
+		if plugins[i].Path != "" {
+			plugins[i].Enabled = true
+		}
+		if len(plugins[i].Versions) == 0 {
+			plugins[i].Versions = []string{"latest"}
+		}
+	}
+
 	return plugins, nil
 }
 
 func (c *Client) EnablePlugin(id int) error {
-	resp, err := c.doRequest("PUT", fmt.Sprintf("/api/plugins/%d/enable", id), nil, "")
+	if id == 0 {
+		return fmt.Errorf("plugin enable is not supported by this runtime API")
+	}
+	resp, err := c.doAPIRequest("PUT", fmt.Sprintf("/plugins/%d/enable", id), nil, "")
 	if err != nil {
 		return err
 	}
@@ -283,7 +363,10 @@ func (c *Client) EnablePlugin(id int) error {
 }
 
 func (c *Client) DisablePlugin(id int) error {
-	resp, err := c.doRequest("PUT", fmt.Sprintf("/api/plugins/%d/disable", id), nil, "")
+	if id == 0 {
+		return fmt.Errorf("plugin disable is not supported by this runtime API")
+	}
+	resp, err := c.doAPIRequest("PUT", fmt.Sprintf("/plugins/%d/disable", id), nil, "")
 	if err != nil {
 		return err
 	}
@@ -291,7 +374,18 @@ func (c *Client) DisablePlugin(id int) error {
 }
 
 func (c *Client) RemovePlugin(id int) error {
-	resp, err := c.doRequest("DELETE", fmt.Sprintf("/api/plugins/%d", id), nil, "")
+	if id == 0 {
+		return fmt.Errorf("plugin removal by numeric ID is not supported by this runtime API")
+	}
+	resp, err := c.doAPIRequest("DELETE", fmt.Sprintf("/plugins/%d", id), nil, "")
+	if err != nil {
+		return err
+	}
+	return c.handleResponse(resp, nil)
+}
+
+func (c *Client) RemovePluginByName(name string) error {
+	resp, err := c.doAPIRequest("DELETE", "/plugins/"+url.PathEscape(name), nil, "")
 	if err != nil {
 		return err
 	}
@@ -305,7 +399,22 @@ type InstallResult struct {
 }
 
 func (c *Client) InstallPlugin(filePath string) (*InstallResult, error) {
-	return c.uploadFile("/api/plugins/upload", filePath)
+	result, err := c.uploadAPIFile("/plugins/upload", filePath)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.ReloadPlugins(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) ReloadPlugins() error {
+	resp, err := c.doAPIRequest("POST", "/plugins/reload", nil, "")
+	if err != nil {
+		return err
+	}
+	return c.handleResponse(resp, nil)
 }
 
 // Apps API
@@ -317,7 +426,7 @@ type AppInfo struct {
 }
 
 func (c *Client) ListApps() ([]AppInfo, error) {
-	resp, err := c.doRequest("GET", "/api/apps", nil, "")
+	resp, err := c.doAPIRequest("GET", "/apps", nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -332,8 +441,8 @@ func (c *Client) ListApps() ([]AppInfo, error) {
 
 func (c *Client) RemoveApp(name, version string) error {
 	scope, pkgName := parsePackageName(name)
-	path := "/api/apps/" + scope + "/" + pkgName + "/" + version
-	resp, err := c.doRequest("DELETE", path, nil, "")
+	path := "/apps/" + scope + "/" + pkgName + "/" + version
+	resp, err := c.doAPIRequest("DELETE", path, nil, "")
 	if err != nil {
 		return err
 	}
@@ -356,7 +465,7 @@ func parsePackageName(fullName string) (scope, name string) {
 }
 
 func (c *Client) InstallApp(filePath string) (*InstallResult, error) {
-	return c.uploadFile("/api/apps/upload", filePath)
+	return c.uploadAPIFile("/apps/upload", filePath)
 }
 
 // Keys API
@@ -422,7 +531,7 @@ type CreateKeyResult struct {
 }
 
 func (c *Client) ListKeys() ([]ApiKeyInfo, error) {
-	resp, err := c.doRequest("GET", "/api/keys", nil, "")
+	resp, err := c.doAPIRequest("GET", "/keys", nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -438,7 +547,7 @@ func (c *Client) ListKeys() ([]ApiKeyInfo, error) {
 }
 
 func (c *Client) GetKeyMeta() (*KeyMetaInfo, error) {
-	resp, err := c.doRequest("GET", "/api/keys/meta", nil, "")
+	resp, err := c.doAPIRequest("GET", "/keys/meta", nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -457,7 +566,7 @@ func (c *Client) CreateKey(input CreateKeyInput) (*CreateKeyResult, error) {
 		return nil, fmt.Errorf("failed to marshal input: %w", err)
 	}
 
-	resp, err := c.doRequest("POST", "/api/keys", bytes.NewReader(body), "application/json")
+	resp, err := c.doAPIRequest("POST", "/keys", bytes.NewReader(body), "application/json")
 	if err != nil {
 		return nil, err
 	}
@@ -474,7 +583,7 @@ func (c *Client) CreateKey(input CreateKeyInput) (*CreateKeyResult, error) {
 }
 
 func (c *Client) RevokeKey(id int) error {
-	resp, err := c.doRequest("DELETE", fmt.Sprintf("/api/keys/%d", id), nil, "")
+	resp, err := c.doAPIRequest("DELETE", fmt.Sprintf("/keys/%d", id), nil, "")
 	if err != nil {
 		return err
 	}
@@ -482,6 +591,13 @@ func (c *Client) RevokeKey(id int) error {
 }
 
 // File upload helper
+func (c *Client) uploadAPIFile(endpoint, filePath string) (*InstallResult, error) {
+	if err := c.Discover(); err != nil {
+		return nil, err
+	}
+	return c.uploadFile(joinPath(c.apiPath, endpoint), filePath)
+}
+
 func (c *Client) uploadFile(endpoint, filePath string) (*InstallResult, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -510,10 +626,57 @@ func (c *Client) uploadFile(endpoint, filePath string) (*InstallResult, error) {
 		return nil, err
 	}
 
-	var result InstallResult
-	if err := c.handleResponse(resp, &result); err != nil {
+	var raw json.RawMessage
+	if err := c.handleResponse(resp, &raw); err != nil {
 		return nil, err
 	}
 
-	return &result, nil
+	result, err := parseInstallResult(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func parseInstallResult(raw json.RawMessage) (*InstallResult, error) {
+	var flat InstallResult
+	if err := json.Unmarshal(raw, &flat); err == nil && flat.Name != "" {
+		return &flat, nil
+	}
+
+	var wrapped struct {
+		Data struct {
+			App struct {
+				InstalledAt string `json:"installedAt"`
+				Name        string `json:"name"`
+				Version     string `json:"version"`
+			} `json:"app"`
+			Plugin struct {
+				InstalledAt string `json:"installedAt"`
+				Name        string `json:"name"`
+				Version     string `json:"version"`
+			} `json:"plugin"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err != nil {
+		return nil, err
+	}
+
+	if wrapped.Data.App.Name != "" {
+		return &InstallResult{
+			Name:    wrapped.Data.App.Name,
+			Path:    wrapped.Data.App.InstalledAt,
+			Version: wrapped.Data.App.Version,
+		}, nil
+	}
+	if wrapped.Data.Plugin.Name != "" {
+		return &InstallResult{
+			Name:    wrapped.Data.Plugin.Name,
+			Path:    wrapped.Data.Plugin.InstalledAt,
+			Version: wrapped.Data.Plugin.Version,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("unexpected install response: %s", string(raw))
 }

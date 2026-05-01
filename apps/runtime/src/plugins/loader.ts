@@ -1,5 +1,7 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, dirname, extname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { getChildLogger } from "@buntime/shared/logger";
 import type {
   BuntimePlugin,
@@ -66,6 +68,29 @@ function resolvePluginImpl(
 
   // Handle direct plugin object
   return mod as PluginImpl;
+}
+
+function getPluginModuleUrl(path: string): string {
+  try {
+    const contents = readFileSync(path);
+    const hash = createHash("sha256").update(contents).digest("hex").slice(0, 16);
+    const ext = extname(path);
+    const cachePath = join(dirname(path), `.buntime-${basename(path, ext)}-${hash}${ext}`);
+
+    if (!existsSync(cachePath)) {
+      copyFileSync(path, cachePath);
+    }
+
+    return pathToFileURL(cachePath).href;
+  } catch {
+    const url = pathToFileURL(path);
+    try {
+      url.searchParams.set("mtime", String(statSync(path).mtimeMs));
+    } catch {
+      // If stat fails, import will report the real module error below.
+    }
+    return url.href;
+  }
 }
 
 /**
@@ -368,7 +393,7 @@ export class PluginLoader {
 
     // Import module lazily - only when plugin is actually being loaded
     // This prevents disabled plugins from being imported
-    const module = await import(path);
+    const module = await import(getPluginModuleUrl(path));
 
     // Resolve implementation from module
     const impl = await resolvePluginImpl(module, options);
@@ -411,6 +436,7 @@ export class PluginLoader {
     const context: PluginContext = {
       config: options,
       globalConfig: {
+        pluginDirs: runtimeConfig.pluginDirs,
         workerDirs: runtimeConfig.workerDirs,
         poolSize: runtimeConfig.poolSize,
       },
@@ -503,6 +529,10 @@ export class PluginLoader {
       }
 
       for (const entry of entries) {
+        if (entry.startsWith(".")) {
+          continue;
+        }
+
         try {
           const entryPath = join(pluginDir, entry);
           const stat = statSync(entryPath);

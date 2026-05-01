@@ -27,7 +27,7 @@ type RemoveModel struct {
 	server       *db.Server
 	itemType     string // "app" or "plugin"
 	name         string
-	pluginID     int    // Only used for plugins (API uses ID)
+	pluginID     int // Only used for plugins (API uses ID)
 	versions     []string
 	selected     map[int]bool
 	cursor       int
@@ -186,7 +186,7 @@ func (m *RemoveModel) remove() tea.Cmd {
 	return func() tea.Msg {
 		// For plugins, use ID-based deletion (removes entire plugin)
 		if m.itemType == "plugin" {
-			err := m.api.RemovePlugin(m.pluginID)
+			err := m.api.RemovePluginByName(m.name)
 			return removeResultMsg{err: err}
 		}
 

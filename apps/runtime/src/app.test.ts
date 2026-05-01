@@ -5,7 +5,8 @@ import type { BuntimePlugin } from "@buntime/shared/types";
 import type { Hono } from "hono";
 import { Hono as HonoApp } from "hono";
 import { initConfig } from "@/config";
-import { Headers } from "@/constants";
+import { API_PATH, Headers } from "@/constants";
+import { ApiKeyStore } from "@/libs/api-keys";
 import type { WorkerPool } from "@/libs/pool/pool";
 import { PluginRegistry } from "@/plugins/registry";
 import { type AppDeps, createApp } from "./app";
@@ -66,7 +67,7 @@ describe("createApp", () => {
   beforeEach(() => {
     registry = new PluginRegistry();
     pool = createMockPool();
-    // Mock core routes - mounted at /api in the app
+    // Mock core routes - mounted at API_PATH in the app
     coreRoutes = new HonoApp()
       .get("/apps", (c) => c.json([]))
       .get("/config/plugins", (c) => c.json({ configs: {}, versions: [] }))
@@ -95,7 +96,7 @@ describe("createApp", () => {
 
     it("should handle /api/plugins/loaded route", async () => {
       const app = createApp(createDeps());
-      const req = new Request("http://localhost/api/plugins/loaded");
+      const req = new Request(`http://localhost${API_PATH}/plugins/loaded`);
       const res = await app.fetch(req);
       expect(res.status).toBe(200);
       const json = await res.json();
@@ -192,7 +193,7 @@ describe("createApp", () => {
   describe("CSRF protection", () => {
     it("should block state-changing requests without Origin header", async () => {
       const app = createApp(createDeps());
-      const req = new Request("http://localhost/api/data", {
+      const req = new Request(`http://localhost${API_PATH}/data`, {
         method: "POST",
         headers: { host: "localhost" },
       });
@@ -203,7 +204,7 @@ describe("createApp", () => {
     it("should allow internal requests with X-Buntime-Internal header", async () => {
       const workersMock = new HonoApp().all("*", () => new Response("ok"));
       const app = createApp(createDeps({ workers: workersMock }));
-      const req = new Request("http://localhost/api/data", {
+      const req = new Request(`http://localhost${API_PATH}/data`, {
         method: "POST",
         headers: {
           host: "localhost",
@@ -216,7 +217,7 @@ describe("createApp", () => {
 
     it("should block requests with mismatched Origin and Host", async () => {
       const app = createApp(createDeps());
-      const req = new Request("http://localhost/api/data", {
+      const req = new Request(`http://localhost${API_PATH}/data`, {
         method: "PUT",
         headers: {
           host: "localhost",
@@ -230,7 +231,7 @@ describe("createApp", () => {
     it("should allow requests with matching Origin and Host", async () => {
       const workersMock = new HonoApp().all("*", () => new Response("ok"));
       const app = createApp(createDeps({ workers: workersMock }));
-      const req = new Request("http://localhost/api/data", {
+      const req = new Request(`http://localhost${API_PATH}/data`, {
         method: "PATCH",
         headers: {
           host: "localhost",
@@ -243,7 +244,7 @@ describe("createApp", () => {
 
     it("should block requests with credentials in Origin", async () => {
       const app = createApp(createDeps());
-      const req = new Request("http://localhost/api/data", {
+      const req = new Request(`http://localhost${API_PATH}/data`, {
         method: "DELETE",
         headers: {
           host: "localhost",
@@ -256,7 +257,7 @@ describe("createApp", () => {
 
     it("should block requests with non-http Origin protocol", async () => {
       const app = createApp(createDeps());
-      const req = new Request("http://localhost/api/data", {
+      const req = new Request(`http://localhost${API_PATH}/data`, {
         method: "POST",
         headers: {
           host: "localhost",
@@ -269,7 +270,7 @@ describe("createApp", () => {
 
     it("should block requests with invalid Origin URL", async () => {
       const app = createApp(createDeps());
-      const req = new Request("http://localhost/api/data", {
+      const req = new Request(`http://localhost${API_PATH}/data`, {
         method: "POST",
         headers: {
           host: "localhost",
@@ -283,12 +284,84 @@ describe("createApp", () => {
     it("should allow GET requests without Origin", async () => {
       const workersMock = new HonoApp().all("*", () => new Response("ok"));
       const app = createApp(createDeps({ workers: workersMock }));
-      const req = new Request("http://localhost/api/data", {
+      const req = new Request(`http://localhost${API_PATH}/data`, {
         method: "GET",
         headers: { host: "localhost" },
       });
       const res = await app.fetch(req);
       expect(res.status).toBe(200);
+    });
+
+    it("should require API key for protected API routes when configured", async () => {
+      Bun.env.RUNTIME_MASTER_KEY = "test-master-key";
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      try {
+        const app = createApp(createDeps());
+        const req = new Request(`http://localhost${API_PATH}/plugins`, {
+          headers: { host: "localhost" },
+        });
+        const res = await app.fetch(req);
+        expect(res.status).toBe(401);
+      } finally {
+        delete Bun.env.RUNTIME_MASTER_KEY;
+        initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+      }
+    });
+
+    it("should allow API key to bypass CSRF for deployment automation", async () => {
+      Bun.env.RUNTIME_MASTER_KEY = "test-master-key";
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      try {
+        const app = createApp(createDeps());
+        const req = new Request(`http://localhost${API_PATH}/plugins`, {
+          method: "POST",
+          headers: {
+            host: "localhost",
+            [Headers.API_KEY]: "test-master-key",
+          },
+        });
+        const res = await app.fetch(req);
+        expect(res.status).not.toBe(403);
+      } finally {
+        delete Bun.env.RUNTIME_MASTER_KEY;
+        initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+      }
+    });
+
+    it("should allow generated API keys with required permissions", async () => {
+      const apiKeys = new ApiKeyStore(join(TEST_DIR, "generated-api-keys.json"));
+      const created = await apiKeys.create({ name: "Deploy", role: "editor" });
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      const app = createApp(createDeps({ apiKeys }));
+      const req = new Request(`http://localhost${API_PATH}/plugins`, {
+        headers: {
+          host: "localhost",
+          [Headers.API_KEY]: created.key,
+        },
+      });
+      const res = await app.fetch(req);
+      expect(res.status).toBe(200);
+    });
+
+    it("should reject generated API keys without required permissions", async () => {
+      const apiKeys = new ApiKeyStore(join(TEST_DIR, "viewer-api-keys.json"));
+      const created = await apiKeys.create({ name: "Viewer", role: "viewer" });
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      const app = createApp(createDeps({ apiKeys }));
+      const req = new Request(`http://localhost${API_PATH}/plugins/reload`, {
+        headers: {
+          host: "localhost",
+          [Headers.API_KEY]: created.key,
+        },
+        method: "POST",
+      });
+      const res = await app.fetch(req);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ code: "PERMISSION_DENIED" });
     });
   });
 
@@ -475,8 +548,8 @@ describe("createApp", () => {
         headers: { origin: "http://localhost", host: "localhost" },
       });
       const res = await app.fetch(req);
-      // Should fall through to workers
-      expect(await res.text()).toBe("fallback");
+      expect(res.status).toBe(404);
+      expect(await res.text()).toBe("Not Found");
     });
   });
 

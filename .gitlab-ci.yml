@@ -1,67 +1,135 @@
 stages:
-  - build
-  - publish
+  - image
+  - cli
 
 variables:
-  DOCKER_TLS_CERTDIR: ""
-  DOCKER_HOST: tcp://docker:2375
   DOCKER_DRIVER: overlay2
-  CI_REGISTRY: registry.example.com
-  CI_REGISTRY_IMAGE: ghcr.io/zommehq/buntime
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+  CLI_ARTIFACT_EXPIRE_IN: "30 days"
 
-# =============================================================================
-# Docker Build and Push (GitLab local registry - for testing)
-# =============================================================================
-docker-build:
-  stage: build
+image:build:
+  stage: image
   image: docker:24
+  tags:
+    - docker
   services:
     - name: docker:24-dind
       alias: docker
       command: ["--tls=false", "--insecure-registry=registry.example.com"]
   before_script:
-    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
-    - docker pull $CI_REGISTRY_IMAGE:latest || true
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker pull "$CI_REGISTRY_IMAGE:latest" || true
   script:
     - docker info
-    - docker build --cache-from $CI_REGISTRY_IMAGE:latest -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA -t $CI_REGISTRY_IMAGE:latest .
+    - docker build --cache-from "$CI_REGISTRY_IMAGE:latest" -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG" -t "$CI_REGISTRY_IMAGE:latest" .
     - |
       if [ -n "$CI_COMMIT_TAG" ]; then
-        docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG
-        docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG
+        docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG"
+        docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG"
       fi
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
-    - docker push $CI_REGISTRY_IMAGE:latest
-  only:
-    - tags
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
+    - docker push "$CI_REGISTRY_IMAGE:latest"
+  rules:
+    - if: "$CI_COMMIT_BRANCH"
+    - if: "$CI_COMMIT_TAG"
+
+cli:build:linux:
+  stage: cli
+  image: golang:1.23-bookworm
   tags:
     - docker
-
-# =============================================================================
-# Helm Charts Publish
-# =============================================================================
-helm-publish:
-  stage: publish
-  image: oven/bun:1.3
+  needs: []
   before_script:
     - apt-get update
-    - apt-get install -y git ca-certificates
-    - git config --global user.email ci@gitlab.example.com
-    - git config --global user.name GitLab-CI
-    - git config --global http.sslVerify false
+    - apt-get install -y --no-install-recommends build-essential ca-certificates gcc-aarch64-linux-gnu gcc-x86-64-linux-gnu gzip tar
   script:
-    - bun install
-    - bun scripts/generate-helm.ts
-    - mkdir -p sync/buntime
-    - cp -r charts/* sync/buntime/
-    - git clone https://root:${CHARTS_TOKEN}@gitlab.example.com/zomme/charts.git /tmp/charts
-    - mkdir -p /tmp/charts/charts
-    - rm -rf /tmp/charts/charts/buntime
-    - cp -r sync/buntime /tmp/charts/charts/
-    - cd /tmp/charts && git add .
-    - cd /tmp/charts && git commit -m "sync buntime chart" || true
-    - cd /tmp/charts && git push origin main || true
-  only:
-    - test/gitlab-ci
+    - mkdir -p dist/cli
+    - cd apps/cli
+    - go mod download
+    - export VERSION="${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}"
+    - |
+      build_linux() {
+        arch="$1"
+        cc="$2"
+        out_dir="../../dist/cli/buntime-linux-${arch}"
+        mkdir -p "$out_dir"
+        CGO_ENABLED=1 GOOS=linux GOARCH="$arch" CC="$cc" \
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+          -o "${out_dir}/buntime" .
+        tar -czf "../../dist/cli/buntime-linux-${arch}.tar.gz" -C "$out_dir" buntime
+      }
+      build_linux amd64 x86_64-linux-gnu-gcc
+      build_linux arm64 aarch64-linux-gnu-gcc
+  artifacts:
+    name: "buntime-cli-linux-${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
+    expire_in: "$CLI_ARTIFACT_EXPIRE_IN"
+    paths:
+      - dist/cli/buntime-linux-amd64.tar.gz
+      - dist/cli/buntime-linux-arm64.tar.gz
+  rules:
+    - if: "$CI_COMMIT_BRANCH"
+    - if: "$CI_COMMIT_TAG"
+
+cli:build:windows:
+  stage: cli
+  image: golang:1.23-bookworm
   tags:
     - docker
+  needs: []
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends ca-certificates gcc-mingw-w64-x86-64 zip
+  script:
+    - mkdir -p dist/cli
+    - cd apps/cli
+    - go mod download
+    - export VERSION="${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}"
+    - mkdir -p ../../dist/cli/buntime-windows-amd64
+    - CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o ../../dist/cli/buntime-windows-amd64/buntime.exe .
+    - cd ../../dist/cli/buntime-windows-amd64
+    - zip -9 ../buntime-windows-amd64.zip buntime.exe
+  artifacts:
+    name: "buntime-cli-windows-${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
+    expire_in: "$CLI_ARTIFACT_EXPIRE_IN"
+    paths:
+      - dist/cli/buntime-windows-amd64.zip
+  rules:
+    - if: "$CI_COMMIT_BRANCH"
+    - if: "$CI_COMMIT_TAG"
+
+cli:build:macos:
+  stage: cli
+  tags:
+    - macos
+  needs: []
+  script:
+    - mkdir -p dist/cli
+    - cd apps/cli
+    - go mod download
+    - export VERSION="${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}"
+    - |
+      build_darwin() {
+        arch="$1"
+        clang_arch="$2"
+        out_dir="../../dist/cli/buntime-darwin-${arch}"
+        mkdir -p "$out_dir"
+        CGO_ENABLED=1 GOOS=darwin GOARCH="$arch" CC="clang -arch ${clang_arch}" \
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+          -o "${out_dir}/buntime" .
+        tar -czf "../../dist/cli/buntime-darwin-${arch}.tar.gz" -C "$out_dir" buntime
+      }
+      build_darwin amd64 x86_64
+      build_darwin arm64 arm64
+  artifacts:
+    name: "buntime-cli-macos-${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
+    expire_in: "$CLI_ARTIFACT_EXPIRE_IN"
+    paths:
+      - dist/cli/buntime-darwin-amd64.tar.gz
+      - dist/cli/buntime-darwin-arm64.tar.gz
+  rules:
+    - if: "$CI_COMMIT_TAG"
+    - if: '$RUN_MACOS_CLI_BUILD == "1"'
+    - when: manual
+      allow_failure: true

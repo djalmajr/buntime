@@ -24,6 +24,7 @@ const _createMockWorkerConfig = (): WorkerConfig => ({
   autoInstall: false,
   entrypoint: "index.ts",
   env: {},
+  envPrefix: ["PUBLIC_", "VITE_"],
   idleTimeoutMs: 60000,
   injectBase: false,
   lowMemory: false,

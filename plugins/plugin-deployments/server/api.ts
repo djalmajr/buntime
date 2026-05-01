@@ -4,7 +4,7 @@ import { splitList } from "@buntime/shared/utils/string";
 import { Hono } from "hono";
 import { DirInfo } from "./libs/dir-info";
 
-// Multiple worker directories support (set via RUNTIME_WORKER_DIRS env var)
+// Multiple deployment roots support (workerDirs + pluginDirs)
 let workerDirs: string[] = [];
 let dirNameMap: Map<string, string> = new Map(); // dirName -> fullPath
 
@@ -42,13 +42,19 @@ export function getExcludes(): string[] {
   return globalExcludes;
 }
 
-// Initialize from env vars (same env vars used by runtime)
-// This runs when the module is first imported in the worker process
-if (Bun.env.RUNTIME_WORKER_DIRS) {
-  const dirs = splitList(Bun.env.RUNTIME_WORKER_DIRS, ":");
-  if (dirs.length > 0) {
-    setWorkerDirs(dirs);
-  }
+export function getDeploymentDirsFromEnv(): string[] {
+  return [
+    ...splitList(Bun.env.RUNTIME_WORKER_DIRS ?? "", ":"),
+    ...splitList(Bun.env.RUNTIME_PLUGIN_DIRS ?? "", ":"),
+  ];
+}
+
+// Initialize from env vars (same env vars used by runtime). This runs when the
+// module is first imported in the worker process, so it must read pluginDirs
+// from env instead of relying only on plugin.ts onInit in the main process.
+const deploymentDirsFromEnv = getDeploymentDirsFromEnv();
+if (deploymentDirsFromEnv.length > 0) {
+  setWorkerDirs(deploymentDirsFromEnv);
 }
 
 if (Bun.env.DEPLOYMENTS_EXCLUDES) {

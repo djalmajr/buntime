@@ -11,6 +11,14 @@ import z from "zod/v4";
 import { getConfig } from "@/config";
 
 const logger = getChildLogger("WorkerConfig");
+const DEFAULT_CACHE_TTL_MS = 1_000;
+
+interface WorkerConfigCacheEntry {
+  expiresAt: number;
+  promise: Promise<WorkerConfig>;
+}
+
+const workerConfigCache = new Map<string, WorkerConfigCacheEntry>();
 
 // Schema for publicRoutes - can be array or object with HTTP methods
 const publicRoutesSchema = z.union([
@@ -61,6 +69,23 @@ class WorkerConfigError extends Error {
   }
 }
 
+function getCacheTtlMs(): number {
+  const raw = Bun.env.RUNTIME_WORKER_CONFIG_CACHE_TTL_MS;
+  if (!raw) return DEFAULT_CACHE_TTL_MS;
+
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_CACHE_TTL_MS;
+}
+
+export function clearWorkerConfigCache(appDir?: string) {
+  if (appDir) {
+    workerConfigCache.delete(appDir);
+    return;
+  }
+
+  workerConfigCache.clear();
+}
+
 /**
  * Load worker configuration from manifest.yaml and .env file
  *
@@ -72,6 +97,38 @@ class WorkerConfigError extends Error {
  * 6. Validates config relationships (ttl >= timeout, etc.)
  */
 export async function loadWorkerConfig(appDir: string): Promise<WorkerConfig> {
+  const cacheTtlMs = getCacheTtlMs();
+  const now = Date.now();
+  const cached = workerConfigCache.get(appDir);
+
+  if (cacheTtlMs > 0 && cached && cached.expiresAt > now) {
+    return cached.promise;
+  }
+
+  if (cached) {
+    workerConfigCache.delete(appDir);
+  }
+
+  const promise = loadWorkerConfigUncached(appDir);
+  if (cacheTtlMs > 0) {
+    workerConfigCache.set(appDir, {
+      expiresAt: now + cacheTtlMs,
+      promise,
+    });
+  }
+
+  try {
+    return await promise;
+  } catch (error) {
+    const current = workerConfigCache.get(appDir);
+    if (current?.promise === promise) {
+      workerConfigCache.delete(appDir);
+    }
+    throw error;
+  }
+}
+
+async function loadWorkerConfigUncached(appDir: string): Promise<WorkerConfig> {
   // Load config using shared utility
   const rawConfig = await loadManifestConfig(appDir);
 

@@ -63,6 +63,14 @@ docker build -t registry.example.com/buntime:latest .
 docker push registry.example.com/buntime:latest
 ```
 
+For the local GitLab VM, use the GitLab registry host configured for the lab, for example:
+
+```bash
+docker login registry.example.com
+docker build -t ghcr.io/zommehq/buntime:latest .
+docker push ghcr.io/zommehq/buntime:latest
+```
+
 ## Create Namespace
 
 ```bash
@@ -80,12 +88,11 @@ Create a `values-k3s.yaml` file with Traefik configurations:
 replicaCount: 1
 
 image:
-  repository: buntime  # or registry.example.com/buntime
+  repository: buntime  # or ghcr.io/zommehq/buntime
   tag: latest
   pullPolicy: IfNotPresent  # Always if using registry
 
 ingress:
-  enabled: true
   className: traefik
   host: buntime.home
   path: "/"
@@ -96,19 +103,45 @@ ingress:
     secretName: buntime-tls
 
 buntime:
+  apiPrefix: "/_"
+  # High-privilege CLI/TUI deploy key. Store as a secret value in Rancher.
+  masterKey: ""
   port: 8000
   poolSize: 100
+  ephemeralConcurrency: 2
+  ephemeralQueueLimit: 100
+  workerConfigCacheTtlMs: 1000
+  workerResolverCacheTtlMs: 1000
   workerDirs: "/data/apps"
   pluginDirs: "/data/plugins"
   logLevel: "info"
 
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
 persistence:
   plugins:
-    enabled: true
     size: 5Gi
+    accessMode: ReadWriteMany
   apps:
-    enabled: true
     size: 10Gi
+    accessMode: ReadWriteMany
 ```
 
 > [!NOTE]
@@ -117,7 +150,7 @@ persistence:
 ## Install with Helm
 
 ```bash
-helm install buntime ./charts/buntime \
+helm install buntime ./charts \
   --namespace zomme \
   -f values-k3s.yaml
 ```
@@ -147,8 +180,8 @@ After deployment, access:
 
 - **Dashboard**: https://buntime.home
 - **Control Panel**: https://buntime.home/cpanel
-- **Plugins API**: https://buntime.home/api/plugins
-- **Health Check**: https://buntime.home/api/health
+- **Plugins API**: https://buntime.home/_/api/plugins
+- **Health Check**: https://buntime.home/_/api/health
 
 # Deploy via Rancher UI
 
@@ -197,9 +230,8 @@ Paste the contents of `values-k3s.yaml` or edit individual fields in the UI.
 
 | Field | Value | Description |
 |-------|-------|-------------|
-| `ingress.enabled` | `true` | Enable ingress |
+| `ingress.host` | `buntime.home` | Enable ingress for this hostname |
 | `ingress.className` | `traefik` | Use Traefik (k3s default) |
-| `ingress.host` | `buntime.home` | Service hostname |
 | `ingress.tls.enabled` | `true` | Enable HTTPS |
 | `ingress.annotations` | `cert-manager.io/cluster-issuer: home-ca-issuer` | Use cert-manager for TLS |
 
@@ -285,7 +317,7 @@ docker build -t buntime:latest .
 # Re-import to k3s or push to registry
 
 # Upgrade
-helm upgrade buntime ./charts/buntime \
+helm upgrade buntime ./charts \
   --namespace zomme \
   -f values-k3s.yaml
 
@@ -335,11 +367,9 @@ replicaCount: 3
 # PVC must be ReadWriteMany for multiple replicas
 persistence:
   plugins:
-    enabled: true
     size: 5Gi
     accessMode: ReadWriteMany  # Requires storage class that supports RWX
   apps:
-    enabled: true
     size: 10Gi
     accessMode: ReadWriteMany
 ```
@@ -360,6 +390,23 @@ resources:
     memory: 1Gi
 ```
 
+## Autoscaling and Availability
+
+```yaml
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+```
+
+When scaling above one replica, use storage that supports `ReadWriteMany` for the apps and plugins PVCs.
+
 ## Custom Environment Variables
 
 ```yaml
@@ -374,8 +421,8 @@ buntime:
 
 | Action | Command |
 |--------|---------|
-| Install | `helm install buntime ./charts/buntime -n zomme -f values-k3s.yaml` |
-| Upgrade | `helm upgrade buntime ./charts/buntime -n zomme -f values-k3s.yaml` |
+| Install | `helm install buntime ./charts -n zomme -f values-k3s.yaml` |
+| Upgrade | `helm upgrade buntime ./charts -n zomme -f values-k3s.yaml` |
 | Uninstall | `helm uninstall buntime -n zomme` |
 | View status | `helm status buntime -n zomme` |
 | View pods | `kubectl get pods -n zomme` |

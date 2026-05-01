@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { initConfig } from "@/config";
+import { RESERVED_PATHS } from "@/constants";
 import { PluginLoader } from "./loader";
 
 const TEST_DIR = join(import.meta.dir, ".test-loader");
@@ -77,26 +78,27 @@ describe("PluginLoader", () => {
       expect(registry.has("no-base")).toBe(true);
     });
 
-    it("should throw for invalid base path format", async () => {
+    it("should skip plugin with invalid base path format", async () => {
       const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "invalid-base");
       mkdirSync(pluginDir, { recursive: true });
       writeManifest(pluginDir, { name: "invalid-base", base: "/invalid base path" });
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      // Plugin is enabled by default, validation happens during loadPlugin
       const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
-      await expect(loader.load()).rejects.toThrow(/invalid base path/);
+      const registry = await loader.load();
+      expect(registry.has("invalid-base")).toBe(false);
     });
 
-    it("should throw for reserved path /api", async () => {
+    it("should skip plugin with reserved runtime path", async () => {
+      const reservedPath = RESERVED_PATHS[0] ?? "/api";
       const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "reserved-api");
       mkdirSync(pluginDir, { recursive: true });
-      writeManifest(pluginDir, { name: "reserved-api", base: "/api" });
+      writeManifest(pluginDir, { name: "reserved-api", base: reservedPath });
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      // Plugin is enabled by default, validation happens during loadPlugin
       const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
-      await expect(loader.load()).rejects.toThrow(/cannot use reserved path/);
+      const registry = await loader.load();
+      expect(registry.has("reserved-api")).toBe(false);
     });
 
     it("should throw for already loaded plugin", async () => {
@@ -132,6 +134,25 @@ describe("PluginLoader", () => {
 
       expect(plugin).toBeDefined();
       expect(plugin?.base).toBe("/factory");
+    });
+
+    it("should load updated plugin code after replacing the file in the same path", async () => {
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "reloadable");
+      mkdirSync(pluginDir, { recursive: true });
+      writeManifest(pluginDir, { name: "reloadable", base: "/reloadable" });
+
+      const pluginPath = join(pluginDir, "plugin.js");
+      writeFileSync(pluginPath, `export default { provides: () => ({ version: "v1" }) };`);
+
+      const firstLoader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
+      const firstRegistry = await firstLoader.load();
+      expect(firstRegistry.getPlugin<{ version: string }>("reloadable")?.version).toBe("v1");
+
+      writeFileSync(pluginPath, `export default { provides: () => ({ version: "v2" }) };`);
+
+      const secondLoader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
+      const secondRegistry = await secondLoader.load();
+      expect(secondRegistry.getPlugin<{ version: string }>("reloadable")?.version).toBe("v2");
     });
 
     it("should ignore directory without manifest", async () => {
@@ -287,7 +308,7 @@ describe("PluginLoader", () => {
       expect(registry.has("plugin-b")).toBe(true);
     });
 
-    it("should throw for missing required dependency", async () => {
+    it("should skip plugin with missing required dependency", async () => {
       const pluginDir = join(DEP_TEST_DIR, "plugins", "needs-dep");
       mkdirSync(pluginDir, { recursive: true });
       writeManifest(pluginDir, {
@@ -297,12 +318,12 @@ describe("PluginLoader", () => {
       });
       writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
 
-      // Plugin is enabled by default, validation happens during load
       const loader = new PluginLoader({ pluginDirs: [join(DEP_TEST_DIR, "plugins")] });
-      await expect(loader.load()).rejects.toThrow(/requires.*missing-dep.*not installed/);
+      const registry = await loader.load();
+      expect(registry.has("needs-dep")).toBe(false);
     });
 
-    it("should detect circular dependencies", async () => {
+    it("should skip plugins with circular dependencies", async () => {
       const cycleADir = join(DEP_TEST_DIR, "plugins", "cycle-a");
       const cycleBDir = join(DEP_TEST_DIR, "plugins", "cycle-b");
       mkdirSync(cycleADir, { recursive: true });
@@ -314,11 +335,12 @@ describe("PluginLoader", () => {
       writeManifest(cycleBDir, { name: "cycle-b", base: "/cycle-b", dependencies: ["cycle-a"] });
       writeFileSync(join(cycleBDir, "plugin.ts"), `export default {};`);
 
-      // Both plugins enabled by default, validation happens during load
       const loader = new PluginLoader({
         pluginDirs: [join(DEP_TEST_DIR, "plugins")],
       });
-      await expect(loader.load()).rejects.toThrow(/Circular dependency/);
+      const registry = await loader.load();
+      expect(registry.has("cycle-a")).toBe(false);
+      expect(registry.has("cycle-b")).toBe(false);
     });
 
     it("should filter optional dependencies to configured only", async () => {

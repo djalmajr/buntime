@@ -1,7 +1,15 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { api, getDirNames, getExcludes, getWorkerDirs, setExcludes, setWorkerDirs } from "./api";
+import {
+  api,
+  getDeploymentDirsFromEnv,
+  getDirNames,
+  getExcludes,
+  getWorkerDirs,
+  setExcludes,
+  setWorkerDirs,
+} from "./api";
 import { DirInfo } from "./libs/dir-info";
 
 const TEST_APPS_PATH = "/tmp/buntime-api-test/apps";
@@ -1107,6 +1115,36 @@ describe("api module functions", () => {
     });
   });
 
+  describe("getDeploymentDirsFromEnv", () => {
+    it("should combine workerDirs and pluginDirs from runtime env", () => {
+      const originalPluginDirs = Bun.env.RUNTIME_PLUGIN_DIRS;
+      const originalWorkerDirsEnv = Bun.env.RUNTIME_WORKER_DIRS;
+
+      try {
+        Bun.env.RUNTIME_WORKER_DIRS = "/data/.apps:/data/apps";
+        Bun.env.RUNTIME_PLUGIN_DIRS = "/data/.plugins:/data/plugins";
+
+        expect(getDeploymentDirsFromEnv()).toEqual([
+          "/data/.apps",
+          "/data/apps",
+          "/data/.plugins",
+          "/data/plugins",
+        ]);
+      } finally {
+        if (originalWorkerDirsEnv === undefined) {
+          delete Bun.env.RUNTIME_WORKER_DIRS;
+        } else {
+          Bun.env.RUNTIME_WORKER_DIRS = originalWorkerDirsEnv;
+        }
+        if (originalPluginDirs === undefined) {
+          delete Bun.env.RUNTIME_PLUGIN_DIRS;
+        } else {
+          Bun.env.RUNTIME_PLUGIN_DIRS = originalPluginDirs;
+        }
+      }
+    });
+  });
+
   describe("getDirNames", () => {
     it("should return directory names from workerDirs", () => {
       setWorkerDirs(["./apps", "./packages"]);
@@ -1246,7 +1284,8 @@ describe("Environment variable initialization", () => {
       env: {
         ...process.env,
         RUNTIME_WORKER_DIRS: "/test/apps:/test/packages",
-        DEPLOYMENTS_EXCLUDES: "dist:.cache",
+        RUNTIME_PLUGIN_DIRS: "/test/.plugins:/test/plugins",
+        DEPLOYMENTS_EXCLUDES: "dist,.cache",
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -1256,7 +1295,12 @@ describe("Environment variable initialization", () => {
     const output = await new Response(proc.stdout).text();
     const result = JSON.parse(output.trim());
 
-    expect(result.workerDirs).toEqual(["/test/apps", "/test/packages"]);
+    expect(result.workerDirs).toEqual([
+      "/test/apps",
+      "/test/packages",
+      "/test/.plugins",
+      "/test/plugins",
+    ]);
     expect(result.excludes).toContain("dist");
     expect(result.excludes).toContain(".cache");
   });
@@ -1276,6 +1320,7 @@ describe("Environment variable initialization", () => {
         env: {
           ...process.env,
           RUNTIME_WORKER_DIRS: "",
+          RUNTIME_PLUGIN_DIRS: "",
           DEPLOYMENTS_EXCLUDES: undefined,
         },
         stdout: "pipe",

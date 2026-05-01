@@ -87,3 +87,14 @@ Use the run as a baseline trend, not as an absolute production capacity number. 
 - Compare `http` and `direct` modes to separate runtime overhead from socket/client overhead.
 - Track `warm-noop` p95/p99 and pool hit rate after changes to routing, config loading, worker resolution, or plugin hooks.
 - Track `ephemeral-noop` separately because it measures cold worker churn, not steady-state throughput.
+
+## Rancher Pod Load Test
+
+For the current local Rancher/k3s environment, see
+[Rancher Pod Load Test - 2026-05-01](performance-rancher-pod-load-2026-05-01.md).
+
+That report covers an external k6 run against `https://buntime.home/_/api/health`,
+including the monitoring commands used to compare Kubernetes CPU/memory before,
+during, and after the load. It is intentionally separate from the in-process
+worker harness above because it measures Ingress, TLS, Traefik, Kubernetes
+scheduling limits, and the packaged container rather than only runtime internals.

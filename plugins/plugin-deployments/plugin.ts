@@ -78,9 +78,7 @@ export default function deploymentsPlugin(pluginConfig: DeploymentsConfig = {}):
         }));
       }
 
-      ctx.logger.info(
-        `Deployments plugin initialized (roots: ${deploymentDirs.join(", ")})`,
-      );
+      ctx.logger.info(`Deployments plugin initialized (roots: ${deploymentDirs.join(", ")})`);
     },
   };
 }

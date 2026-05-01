@@ -30,7 +30,7 @@ Artifacts are retained for `30` days by default through
 | Target | Runner | Artifact |
 | --- | --- | --- |
 | Linux amd64 | `ubuntu-latest` | `buntime-linux-amd64.tar.gz` |
-| Linux arm64 | `ubuntu-latest` with `aarch64-linux-gnu-gcc` | `buntime-linux-arm64.tar.gz` |
+| Linux arm64 | `ubuntu-latest` with `aarch64-linux-gnu-gcc` and `libc6-dev-arm64-cross` | `buntime-linux-arm64.tar.gz` |
 | Windows amd64 | `windows-latest` with MSYS2 MinGW | `buntime-windows-amd64.zip` |
 | macOS amd64 | `macos-latest` with `clang -arch x86_64` | `buntime-darwin-amd64.tar.gz` |
 | macOS arm64 | `macos-latest` with `clang -arch arm64` | `buntime-darwin-arm64.tar.gz` |
@@ -58,7 +58,7 @@ The version is injected with:
 Linux targets are built from Ubuntu with explicit C toolchains:
 
 - `x86_64-linux-gnu-gcc` for Linux amd64.
-- `aarch64-linux-gnu-gcc` for Linux arm64.
+- `aarch64-linux-gnu-gcc` and `libc6-dev-arm64-cross` for Linux arm64.
 
 Windows uses `msys2/setup-msys2` to install `mingw-w64-x86_64-gcc`.
 

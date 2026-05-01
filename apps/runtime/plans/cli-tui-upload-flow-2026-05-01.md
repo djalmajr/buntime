@@ -15,6 +15,9 @@ armazenada como Secret no Helm/Rancher.
 ## Decisões
 
 - A chave de automação é `RUNTIME_MASTER_KEY` ou `BUNTIME_MASTER_KEY`.
+- O runtime normaliza espaços e newline ao ler essa chave, o que permite usar
+  `helm --set-file buntime.masterKey=...` sem quebrar autenticação por causa de
+  newline final no arquivo.
 - O CLI/TUI envia a chave no header `X-API-Key`.
 - Quando a chave está configurada, rotas protegidas da API interna exigem
   `X-API-Key` válido.

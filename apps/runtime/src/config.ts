@@ -72,6 +72,14 @@ function expandDirs(dirs: string[], baseDir: string): string[] {
   });
 }
 
+function readOptionalEnv(...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = Bun.env[key]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
 interface InitConfigOptions {
   /** Base directory for resolving relative paths (default: process.cwd()) */
   baseDir?: string;
@@ -114,7 +122,7 @@ export function initConfig(options: InitConfigOptions = {}): RuntimeConfig {
   const poolSize = parsePoolSize(Bun.env.RUNTIME_POOL_SIZE, envFallback);
 
   const config: RuntimeConfig = {
-    apiKey: Bun.env.RUNTIME_MASTER_KEY || Bun.env.BUNTIME_MASTER_KEY || undefined,
+    apiKey: readOptionalEnv("RUNTIME_MASTER_KEY", "BUNTIME_MASTER_KEY"),
     bodySize: {
       default: BodySizeLimits.DEFAULT,
       max: BodySizeLimits.MAX,

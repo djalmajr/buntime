@@ -174,7 +174,8 @@ my-plugin.zip
 
 ## Release Artifacts
 
-The local GitLab pipeline publishes downloadable CLI artifacts for:
+GitHub Actions and the local GitLab pipeline publish downloadable CLI artifacts
+for:
 
 | Target | Artifact |
 | --- | --- |
@@ -184,5 +185,12 @@ The local GitLab pipeline publishes downloadable CLI artifacts for:
 | macOS amd64 | `buntime-darwin-amd64.tar.gz` |
 | macOS arm64 | `buntime-darwin-arm64.tar.gz` |
 
-See [Local GitLab Pipeline](../runtime/docs/deployment/gitlab-local.md) for
-runner requirements and artifact retention.
+The GitHub Actions workflow stores artifacts for `30` days. Download them from:
+
+```text
+Actions -> Build CLI -> <run> -> Artifacts
+```
+
+See [GitHub Actions](../runtime/docs/deployment/github-actions.md) and
+[Local GitLab Pipeline](../runtime/docs/deployment/gitlab-local.md) for runner
+requirements and artifact retention.

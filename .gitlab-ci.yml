@@ -1,10 +1,12 @@
 stages:
   - image
+  - cli
 
 variables:
   DOCKER_DRIVER: overlay2
   DOCKER_HOST: tcp://docker:2375
   DOCKER_TLS_CERTDIR: ""
+  CLI_ARTIFACT_EXPIRE_IN: "30 days"
 
 image:build:
   stage: image
@@ -32,3 +34,102 @@ image:build:
   rules:
     - if: "$CI_COMMIT_BRANCH"
     - if: "$CI_COMMIT_TAG"
+
+cli:build:linux:
+  stage: cli
+  image: golang:1.23-bookworm
+  tags:
+    - docker
+  needs: []
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends build-essential ca-certificates gcc-aarch64-linux-gnu gcc-x86-64-linux-gnu gzip tar
+  script:
+    - mkdir -p dist/cli
+    - cd apps/cli
+    - go mod download
+    - export VERSION="${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}"
+    - |
+      build_linux() {
+        arch="$1"
+        cc="$2"
+        out_dir="../../dist/cli/buntime-linux-${arch}"
+        mkdir -p "$out_dir"
+        CGO_ENABLED=1 GOOS=linux GOARCH="$arch" CC="$cc" \
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+          -o "${out_dir}/buntime" .
+        tar -czf "../../dist/cli/buntime-linux-${arch}.tar.gz" -C "$out_dir" buntime
+      }
+      build_linux amd64 x86_64-linux-gnu-gcc
+      build_linux arm64 aarch64-linux-gnu-gcc
+  artifacts:
+    name: "buntime-cli-linux-${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
+    expire_in: "$CLI_ARTIFACT_EXPIRE_IN"
+    paths:
+      - dist/cli/buntime-linux-amd64.tar.gz
+      - dist/cli/buntime-linux-arm64.tar.gz
+  rules:
+    - if: "$CI_COMMIT_BRANCH"
+    - if: "$CI_COMMIT_TAG"
+
+cli:build:windows:
+  stage: cli
+  image: golang:1.23-bookworm
+  tags:
+    - docker
+  needs: []
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends ca-certificates gcc-mingw-w64-x86-64 zip
+  script:
+    - mkdir -p dist/cli
+    - cd apps/cli
+    - go mod download
+    - export VERSION="${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}"
+    - mkdir -p ../../dist/cli/buntime-windows-amd64
+    - CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o ../../dist/cli/buntime-windows-amd64/buntime.exe .
+    - cd ../../dist/cli/buntime-windows-amd64
+    - zip -9 ../buntime-windows-amd64.zip buntime.exe
+  artifacts:
+    name: "buntime-cli-windows-${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
+    expire_in: "$CLI_ARTIFACT_EXPIRE_IN"
+    paths:
+      - dist/cli/buntime-windows-amd64.zip
+  rules:
+    - if: "$CI_COMMIT_BRANCH"
+    - if: "$CI_COMMIT_TAG"
+
+cli:build:macos:
+  stage: cli
+  tags:
+    - macos
+  needs: []
+  script:
+    - mkdir -p dist/cli
+    - cd apps/cli
+    - go mod download
+    - export VERSION="${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}"
+    - |
+      build_darwin() {
+        arch="$1"
+        clang_arch="$2"
+        out_dir="../../dist/cli/buntime-darwin-${arch}"
+        mkdir -p "$out_dir"
+        CGO_ENABLED=1 GOOS=darwin GOARCH="$arch" CC="clang -arch ${clang_arch}" \
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+          -o "${out_dir}/buntime" .
+        tar -czf "../../dist/cli/buntime-darwin-${arch}.tar.gz" -C "$out_dir" buntime
+      }
+      build_darwin amd64 x86_64
+      build_darwin arm64 arm64
+  artifacts:
+    name: "buntime-cli-macos-${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
+    expire_in: "$CLI_ARTIFACT_EXPIRE_IN"
+    paths:
+      - dist/cli/buntime-darwin-amd64.tar.gz
+      - dist/cli/buntime-darwin-arm64.tar.gz
+  rules:
+    - if: "$CI_COMMIT_TAG"
+    - if: '$RUN_MACOS_CLI_BUILD == "1"'
+    - when: manual
+      allow_failure: true

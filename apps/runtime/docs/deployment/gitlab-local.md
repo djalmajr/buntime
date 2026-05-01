@@ -1,18 +1,21 @@
 # Local GitLab Pipeline
 
-This repository includes a GitLab CI pipeline for the local lab at `gitlab.example.com` and deploys manually to the Rancher/k3s cluster reachable through `rancher.home`.
+This repository includes a minimal GitLab CI pipeline for the local lab at `gitlab.example.com`. Its only responsibility is building the Docker image and pushing it to the local GitLab registry so Rancher can deploy that image.
 
 ## Pipeline Jobs
 
 | Job | Stage | Purpose |
 | --- | --- | --- |
-| `helm:generate` | `prepare` | Generates `charts/values.yaml`, `charts/templates/configmap.yaml`, and `charts/questions.yml`. |
-| `runtime:test` | `validate` | Runs runtime type checks and unit tests. |
-| `helm:template` | `validate` | Runs `helm lint` and `helm template` against the generated chart. |
-| `runtime:performance` | `performance` | Runs the short direct-mode benchmark gate and stores `apps/runtime/perf-results.json`. |
-| `container:image` | `package` | Builds and pushes the image to the GitLab registry. Runs on tags/default branch or manually. |
-| `deploy:rancher` | `deploy` | Manual Helm deploy to the Rancher/k3s cluster. |
-| `helm:publish-local` | `publish` | Manual chart publication to `gitlab.example.com/zomme/charts`. |
+| `image:build` | `image` | Builds and pushes the image to the GitLab registry. |
+
+The job publishes these tags:
+
+| Tag | Purpose |
+| --- | --- |
+| `$CI_COMMIT_SHORT_SHA` | Immutable image for an exact commit. |
+| `$CI_COMMIT_REF_SLUG` | Stable branch/tag-friendly image for Rancher tests. |
+| `latest` | Convenience tag for local lab deploys. |
+| `$CI_COMMIT_TAG` | Release tag, only when the pipeline runs for a Git tag. |
 
 ## GitLab Runner
 
@@ -20,9 +23,9 @@ The pipeline assumes a Docker executor runner tagged `docker`.
 
 Required runner capabilities:
 
-- Pull `oven/bun:1.3.13`, `alpine/helm:3.14.4`, and `docker:24`.
-- Run Docker-in-Docker for `container:image`.
-- Reach the local GitLab registry and Rancher/k3s API.
+- Pull `docker:24`.
+- Run Docker-in-Docker for `image:build`.
+- Reach the local GitLab registry.
 
 For the lab registry, the Docker-in-Docker service is configured with:
 
@@ -34,22 +37,14 @@ If the registry is exposed as `gitlab.example.com:5050` instead, update `.gitlab
 
 ## CI/CD Variables
 
-Configure these in GitLab under **Settings > CI/CD > Variables**:
+No project-specific CI/CD variable is required for the image build. The job uses GitLab-provided registry variables:
 
-| Variable | Required | Description |
+| Variable | Source | Description |
 | --- | --- | --- |
-| `KUBECONFIG_B64` | deploy only | Base64-encoded kubeconfig exported from Rancher. |
-| `CHARTS_TOKEN` | publish only | Token with push access to `gitlab.example.com/zomme/charts`. |
-| `BUNTIME_IMAGE_REPOSITORY` | optional | Overrides the deploy image repository. Defaults to `$CI_REGISTRY_IMAGE`. |
-| `BUNTIME_IMAGE_TAG` | optional | Overrides the deploy image tag. Defaults to `$CI_COMMIT_SHORT_SHA`. |
-| `KUBE_NAMESPACE` | optional | Kubernetes namespace. Defaults to `zomme`. |
-| `BUNTIME_RELEASE_NAME` | optional | Helm release name. Defaults to `buntime`. |
-
-Encode the kubeconfig:
-
-```bash
-base64 -i kubeconfig.yaml
-```
+| `CI_REGISTRY` | GitLab | Registry host. |
+| `CI_REGISTRY_IMAGE` | GitLab | Project image repository. |
+| `CI_REGISTRY_USER` | GitLab | Registry username for the job token. |
+| `CI_REGISTRY_PASSWORD` | GitLab | Registry password for the job token. |
 
 ## Local DNS
 
@@ -66,10 +61,17 @@ In the current lab, `.home` names point to the fixed VM IP, while `dnsmasq` list
 ## Deploy Flow
 
 1. Push the branch to the local GitLab project.
-2. Let `runtime:test`, `helm:template`, and `runtime:performance` run.
-3. Run `container:image` manually when testing a branch image, or rely on automatic runs for tags/default branch.
-4. Run `deploy:rancher` manually after the image exists in the local registry.
-5. Verify through Rancher or CLI:
+2. Wait for `image:build` to push the image.
+3. In Rancher, use one of the pushed tags:
+
+```yaml
+image:
+  repository: ghcr.io/zommehq/buntime
+  tag: runtime-performance-resilience
+  pullPolicy: Always
+```
+
+4. Verify through Rancher or CLI:
 
 ```bash
 helm status buntime -n zomme
@@ -93,4 +95,3 @@ kubectl create secret docker-registry gitlab-registry \
 imagePullSecrets:
   - name: gitlab-registry
 ```
-

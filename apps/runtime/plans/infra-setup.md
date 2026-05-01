@@ -946,6 +946,29 @@ kubectl get clusterrepo zomme -o jsonpath='{.status.conditions}' | jq
 ```
 
 > **Nota:** `insecureSkipTLSVerify: true` é necessário porque o GitLab usa certificado self-signed.
+> **Nota:** A lista de charts do Rancher é lida do projeto GitLab `zomme/charts`, não diretamente do diretório `charts/` deste repositório. Ao alterar o chart aqui, publique a cópia atualizada em `https://gitlab.example.com/zomme/charts.git` e force o refresh do `ClusterRepo`.
+
+Fluxo usado para publicar uma nova versão do chart no catálogo local:
+
+```bash
+git clone https://gitlab.example.com/zomme/charts.git /tmp/zomme-charts
+rsync -a --delete ./charts/ /tmp/zomme-charts/charts/buntime/
+git -C /tmp/zomme-charts add charts/buntime
+git -C /tmp/zomme-charts commit -m "chore: publish buntime chart v0.2.25"
+git -C /tmp/zomme-charts push origin main
+
+kubectl annotate clusterrepo zomme cattle.io/force-update="$(date +%s)" --overwrite
+kubectl get clusterrepo zomme \
+  -o jsonpath='{.status.commit}{"\n"}{.status.conditions[?(@.type=="Downloaded")].status}{"\n"}{.status.downloadTime}{"\n"}'
+```
+
+Para validar o índice que o Rancher está usando:
+
+```bash
+INDEX_CM="$(kubectl get clusterrepo zomme -o jsonpath='{.status.indexConfigMapName}')"
+kubectl get configmap -n cattle-system "$INDEX_CM" \
+  -o jsonpath='{.binaryData.content}' | base64 -d | gzip -d
+```
 
 ### 4.6 GitLab Container Registry
 
@@ -1053,7 +1076,41 @@ kubectl get ingress -n gitlab | grep registry
 curl -sk https://registry.example.com/v2/
 ```
 
-#### 4.6.6 Configurar Docker Desktop (macOS/Windows)
+#### 4.6.6 Usar registry local no Buntime
+
+O deployment do Buntime no Rancher deve usar o registry do GitLab local. No chart/Rancher UI, configure:
+
+```yaml
+image:
+  repository: ghcr.io/zommehq/buntime
+  tag: runtime-performance-resilience
+  pullPolicy: Always
+imagePullSecrets:
+  - name: gitlab-registry
+```
+
+Para aplicar via Helm mantendo os demais valores da release:
+
+```bash
+helm upgrade buntime ./charts \
+  --namespace zomme \
+  --reuse-values \
+  --set image.repository=ghcr.io/zommehq/buntime \
+  --set image.tag=runtime-performance-resilience \
+  --set image.pullPolicy=Always \
+  --set 'imagePullSecrets[0].name=gitlab-registry'
+```
+
+Validação:
+
+```bash
+kubectl get deploy buntime -n zomme \
+  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}{.spec.template.spec.imagePullSecrets[*].name}{"\n"}'
+```
+
+Em 2026-05-01, a release local estava usando `ghcr.io/zommehq/buntime:runtime-performance-resilience` com o secret `gitlab-registry`.
+
+#### 4.6.7 Configurar Docker Desktop (macOS/Windows)
 
 Como o registry usa certificado self-signed, é necessário configurar o Docker para confiar nele.
 
@@ -1070,7 +1127,7 @@ Como o registry usa certificado self-signed, é necessário configurar o Docker 
 
 **Reiniciar Docker Desktop** após a alteração.
 
-#### 4.6.7 Usar o registry
+#### 4.6.8 Usar o registry
 
 ```bash
 # Login (usar credenciais do GitLab)
@@ -1959,6 +2016,23 @@ EOF
 ```
 
 ---
+
+### 26. Rancher Catalog - chart mostra versão antiga
+**Problema:** A tela de charts do Rancher mostra uma versão antiga do `buntime`, mesmo com o chart local atualizado.
+**Causa:** O Rancher indexa o `ClusterRepo` a partir do GitLab local (`https://gitlab.example.com/zomme/charts.git`). Mudanças feitas apenas no diretório `charts/` do repo principal não aparecem no catálogo até serem copiadas para esse repositório e o `ClusterRepo` ser reindexado.
+**Solução:**
+```bash
+git clone https://gitlab.example.com/zomme/charts.git /tmp/zomme-charts
+rsync -a --delete ./charts/ /tmp/zomme-charts/charts/buntime/
+git -C /tmp/zomme-charts add charts/buntime
+git -C /tmp/zomme-charts commit -m "chore: publish buntime chart v0.2.25"
+git -C /tmp/zomme-charts push origin main
+
+kubectl annotate clusterrepo zomme cattle.io/force-update="$(date +%s)" --overwrite
+kubectl get clusterrepo zomme -o jsonpath='{.status.commit}{"\n"}{.status.conditions[?(@.type=="Downloaded")].status}{"\n"}'
+```
+
+Em 2026-05-01, o catálogo local foi atualizado para o commit `1a988f4d5ece1b7f9262ba6e74035fc9008c049b`, anunciando `buntime` chart `0.2.25` e `appVersion` `1.1.0`.
 
 ## Troubleshooting
 

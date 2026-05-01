@@ -34,6 +34,7 @@ describe("loadWorkerConfig", () => {
       pluginDirs: ["./plugins"],
       poolSize: 10,
       port: 8000,
+      stateDir: "/tmp/.buntime",
       version: "1.0.0",
       workerDirs: ["/tmp"],
     });

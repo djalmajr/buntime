@@ -5,7 +5,7 @@
  * Plugin manifests are auto-discovered from PLUGIN_DIRS.
  */
 import { existsSync } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getChildLogger } from "@buntime/shared/logger";
 import { splitList } from "@buntime/shared/utils/string";
 import {
@@ -33,6 +33,7 @@ interface RuntimeConfig {
   pluginDirs: string[];
   poolSize: number;
   port: number;
+  stateDir: string;
   version: string;
   workerDirs: string[];
 }
@@ -80,6 +81,11 @@ function readOptionalEnv(...keys: string[]): string | undefined {
   return undefined;
 }
 
+function selectWritableStateBase(baseDir: string, dirs: string[]): string {
+  const preferred = dirs.find((dir) => !basename(resolve(dir)).startsWith("."));
+  return preferred ?? dirs[0] ?? baseDir;
+}
+
 interface InitConfigOptions {
   /** Base directory for resolving relative paths (default: process.cwd()) */
   baseDir?: string;
@@ -116,6 +122,10 @@ export function initConfig(options: InitConfigOptions = {}): RuntimeConfig {
     ? [Bun.env.RUNTIME_PLUGIN_DIRS]
     : ["./plugins"];
   const pluginDirs = expandDirs(pluginDirConfig, baseDir);
+  const stateDirConfig = readOptionalEnv("RUNTIME_STATE_DIR");
+  const stateDir = stateDirConfig
+    ? resolve(baseDir, stateDirConfig)
+    : join(selectWritableStateBase(baseDir, pluginDirs), ".buntime");
 
   // Get poolSize from env var or default by environment
   const envFallback = poolDefaults[NODE_ENV] ?? 100;
@@ -134,6 +144,7 @@ export function initConfig(options: InitConfigOptions = {}): RuntimeConfig {
     pluginDirs,
     poolSize,
     port: PORT,
+    stateDir,
     version: VERSION,
     workerDirs,
   };

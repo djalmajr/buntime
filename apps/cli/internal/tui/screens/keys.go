@@ -199,7 +199,7 @@ func (m *KeysModel) renderEmptyState(width int) string {
 
 	b.WriteString(layout.CenterText(styles.TextMuted.Render("No API keys created yet."), width) + "\n")
 	b.WriteString("\n")
-	b.WriteString(layout.CenterText(styles.TextMuted.Render("Press 'n' to create your first API key."), width) + "\n")
+	b.WriteString(layout.CenterText(styles.TextMuted.Render("Press 'a' to create your first API key."), width) + "\n")
 
 	return b.String()
 }

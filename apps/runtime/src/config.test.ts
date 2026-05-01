@@ -8,6 +8,7 @@ describe("config", () => {
     "BUNTIME_MASTER_KEY",
     "RUNTIME_MASTER_KEY",
     "RUNTIME_POOL_SIZE",
+    "RUNTIME_STATE_DIR",
     "RUNTIME_WORKER_DIRS",
     "RUNTIME_PLUGIN_DIRS",
   ] as const;
@@ -99,6 +100,20 @@ describe("config", () => {
 
       const result = initConfig({ workerDirs: ["/tmp"] });
       expect(result.pluginDirs).toContain("/custom/plugins");
+    });
+
+    it("should default stateDir under the external plugin dir", () => {
+      Bun.env.RUNTIME_PLUGIN_DIRS = "/data/.plugins:/data/plugins";
+
+      const result = initConfig({ workerDirs: ["/tmp"] });
+      expect(result.stateDir).toBe("/data/plugins/.buntime");
+    });
+
+    it("should use RUNTIME_STATE_DIR env var", () => {
+      Bun.env.RUNTIME_STATE_DIR = "/custom/state";
+
+      const result = initConfig({ workerDirs: ["/tmp"] });
+      expect(result.stateDir).toBe("/custom/state");
     });
 
     it("should trim master key env vars and ignore blank values", () => {

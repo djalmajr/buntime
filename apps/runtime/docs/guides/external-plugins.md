@@ -67,12 +67,14 @@ buntime --url https://buntime.home --token "$RUNTIME_MASTER_KEY" --insecure plug
 ```
 
 When using the TUI, add the runtime URL, enter the master deploy key when
-prompted, then choose **Plugins → Install**. Directory uploads are compressed
-locally before upload.
+prompted, then choose **API Keys → Add** to create an `editor` deploy key for
+day-to-day uploads. Use that generated key for **Plugins → Install** and
+**Apps → Install**. Directory uploads are compressed locally before upload.
 
 The master deploy key must be configured with `RUNTIME_MASTER_KEY` in the
 runtime environment. In Kubernetes, set `buntime.masterKey` so Helm stores it in
-a Secret.
+a Secret. Generated API keys are stored as hashes under the runtime state
+directory, which defaults to `/data/plugins/.buntime` in the Helm layout.
 
 The runtime API base is configurable. The CLI/TUI discovers it from
 `/.well-known/buntime`, so deployments using `RUNTIME_API_PREFIX="/_"` are

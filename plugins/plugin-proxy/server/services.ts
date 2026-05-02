@@ -443,8 +443,11 @@ export async function loadDynamicRules(): Promise<void> {
   // Backward compatibility: assign order to rules that don't have one
   let needsMigration = false;
   for (let i = 0; i < rules.length; i++) {
-    if (rules[i].order == null) {
-      rules[i].order = i;
+    const rule = rules[i];
+    if (!rule) continue;
+
+    if (rule.order == null) {
+      rule.order = i;
       needsMigration = true;
     }
   }

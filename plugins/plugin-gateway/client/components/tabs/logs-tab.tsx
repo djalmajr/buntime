@@ -115,18 +115,21 @@ export function LogsTab({ initialLogs }: LogsTabProps) {
             <div className="flex rounded-lg border overflow-hidden">
               <button
                 className={`px-3 py-1 text-sm ${filter === "all" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+                type="button"
                 onClick={() => setFilter("all")}
               >
                 All
               </button>
               <button
                 className={`px-3 py-1 text-sm border-l ${filter === "rateLimited" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+                type="button"
                 onClick={() => setFilter("rateLimited")}
               >
                 Rate Limited
               </button>
               <button
                 className={`px-3 py-1 text-sm border-l ${filter === "errors" ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+                type="button"
                 onClick={() => setFilter("errors")}
               >
                 Errors

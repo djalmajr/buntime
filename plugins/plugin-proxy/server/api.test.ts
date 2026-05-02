@@ -15,6 +15,7 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
     config: {},
     globalConfig: {
       poolSize: 10,
+      pluginDirs: ["./plugins"],
       workerDirs: ["./apps"],
     },
     getPlugin: mock(() => undefined),
@@ -23,6 +24,10 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
       error: mock(() => {}),
       info: mock(() => {}),
       warn: mock(() => {}),
+    },
+    runtime: {
+      api: "1.0.0",
+      version: "test",
     },
     ...overrides,
   };
@@ -551,10 +556,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const dynamicRule = compileRule(
-        { id: "rule-1", pattern: "^/a$", target: "http://a" },
-        false,
-      );
+      const dynamicRule = compileRule({ id: "rule-1", pattern: "^/a$", target: "http://a" }, false);
       if (dynamicRule) setDynamicRules([dynamicRule]);
 
       const req = new Request("http://localhost:8000/api/rules/reorder", {

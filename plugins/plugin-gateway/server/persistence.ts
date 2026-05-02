@@ -47,8 +47,6 @@ export class GatewayPersistence {
   private logger: PluginLogger | null = null;
   private snapshotInterval: Timer | null = null;
 
-  // Key prefixes
-  private static readonly KEY_PREFIX = "gateway";
   private static readonly METRICS_HISTORY_KEY = ["gateway", "metrics", "history"];
   private static readonly SHELL_EXCLUDES_KEY = ["gateway", "shell", "excludes"];
 

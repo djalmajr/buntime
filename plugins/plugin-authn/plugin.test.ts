@@ -17,6 +17,18 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 import type { AppInfo, PluginContext, PublicRoutesConfig } from "@buntime/shared/types";
 import { getPublicRoutesForMethod, globArrayToRegex } from "@buntime/shared/utils/glob";
 
+interface AuthWithMutableApi {
+  api: object;
+}
+
+function replaceGetSession(auth: AuthWithMutableApi, getSession: unknown): void {
+  Object.defineProperty(auth.api, "getSession", {
+    configurable: true,
+    value: getSession,
+    writable: true,
+  });
+}
+
 /**
  * Check if a route is public for the given worker
  * (This is an internal function of the plugin, recreated here for testing)
@@ -1035,17 +1047,19 @@ describe("session cookie with valid identity (through services)", () => {
     const auth = services.getAuth();
     if (auth) {
       const originalGetSession = auth.api.getSession;
-      auth.api.getSession = mock(async () => ({
-        session: { id: "session-123", userId: "user-123" },
-        user: {
-          id: "user-123",
-          email: "test@example.com",
-          name: "Test User",
-          roles: ["admin", "user"],
-          groups: ["group1"],
-        },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      })) as any;
+      replaceGetSession(
+        auth,
+        mock(async () => ({
+          session: { id: "session-123", userId: "user-123" },
+          user: {
+            email: "test@example.com",
+            groups: ["group1"],
+            id: "user-123",
+            name: "Test User",
+            roles: ["admin", "user"],
+          },
+        })),
+      );
 
       // Now test the plugin
       const { default: authnPlugin } = await import("./plugin");
@@ -1072,7 +1086,7 @@ describe("session cookie with valid identity (through services)", () => {
       expect(identity.roles).toContain("admin");
 
       // Restore
-      auth.api.getSession = originalGetSession;
+      replaceGetSession(auth, originalGetSession);
     }
 
     // Shutdown services

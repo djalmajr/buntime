@@ -22,6 +22,11 @@ packages/cli-go/buntime-cli
 # Local runtime config
 runtime/data
 
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+
 # Helm generated files (regenerate with: bun scripts/generate-helm.ts)
 charts/values.yaml
 charts/templates/configmap.yaml

@@ -1,7 +1,13 @@
 /**
  * Auth provider types supported by plugin-authn
  */
-export type AuthProviderType = "email-password" | "keycloak" | "auth0" | "okta" | "generic-oidc" | "google";
+export type AuthProviderType =
+  | "email-password"
+  | "keycloak"
+  | "auth0"
+  | "okta"
+  | "generic-oidc"
+  | "google";
 
 /**
  * Base config for OAuth providers

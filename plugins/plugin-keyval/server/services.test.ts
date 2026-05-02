@@ -10,11 +10,13 @@ describe("services", () => {
 
   // Mock DatabaseService
   const mockDatabaseService: DatabaseService = {
-    getAdapter: () => adapter,
+    createTenant: async () => {},
+    deleteTenant: async () => {},
+    getAdapter: async () => adapter,
+    getAvailableTypes: () => ["libsql"],
     getDefaultType: () => "libsql",
     getRootAdapter: () => adapter,
-    hasAdapter: () => true,
-    listAdapterTypes: () => ["libsql"],
+    listTenants: async () => [],
   };
 
   const mockLogger = {

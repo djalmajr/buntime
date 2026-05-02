@@ -141,7 +141,9 @@ class GatewayApi {
   /**
    * Add a shell exclude
    */
-  async addShellExclude(basename: string): Promise<{ added: boolean; basename: string; source: string }> {
+  async addShellExclude(
+    basename: string,
+  ): Promise<{ added: boolean; basename: string; source: string }> {
     return this.fetch("/api/shell/excludes", {
       method: "POST",
       body: JSON.stringify({ basename }),

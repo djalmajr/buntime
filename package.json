@@ -16,6 +16,7 @@
     "lint:types": "bun run --filter '*' lint:types",
     "lint": "bun run --filter '*' lint",
     "publish:plugins": "bun run --filter '@zomme/bun-plugin-*' publish:npm",
+    "test:e2e": "bun run --filter '@buntime/cpanel' build && playwright test",
     "test:coverage": "bun run --filter '*' test:coverage",
     "test:watch": "bun run --filter '*' test:watch",
     "test": "bun run --filter '*' test",
@@ -30,6 +31,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.8",
+    "@playwright/test": "^1.59.1",
     "@types/bun": "^1.3.11",
     "lefthook": "^2.0.16",
     "react-devtools-core": "^7.0.1",

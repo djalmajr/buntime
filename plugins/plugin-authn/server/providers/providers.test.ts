@@ -15,7 +15,6 @@ import { GenericOIDCProvider } from "./generic-oidc";
 import { createProvider, createProviders, getProvidersInfo, mergeBetterAuthConfigs } from "./index";
 import { KeycloakProvider } from "./keycloak";
 import { OktaProvider } from "./okta";
-import { GoogleProvider } from "./google";
 import type {
   Auth0ProviderConfig,
   EmailPasswordProviderConfig,

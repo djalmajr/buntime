@@ -203,9 +203,102 @@ codex mcp list
 codex mcp get qmd
 ```
 
-## Keeping the index up to date
+## Keeping the index and wiki boundary up to date
 
-Whenever you edit wiki content:
+### Automatic — via Claude Code and Codex hooks
+
+When working through Claude Code or Codex in this repo, wiki maintenance is enforced by local hooks:
+
+| Harness | Event | Hooks |
+|---|---|---|
+| Claude Code | `PostToolUse` | `.claude/hooks/wiki-policy-check.sh`, `.claude/hooks/wiki-reindex.sh` |
+| Claude Code | `SessionStart` | `.claude/hooks/wiki-drift-audit.sh` |
+| Claude Code | `Stop` | `.claude/hooks/wiki-suggest-ingest.sh` |
+| Codex | `PostToolUse` | `.codex/hooks/wiki-policy-check.sh`, `.codex/hooks/wiki-consider.sh`, `.codex/hooks/wiki-reindex.sh` |
+| Codex | `SessionStart` | `.codex/hooks/wiki-drift-audit.sh` |
+
+The hook set enforces three rules:
+
+1. **Markdown boundary**: canonical durable documentation belongs in `wiki/`. New `.md` files outside the allowlist are blocked; existing tracked drift warns only so legacy cleanup can happen intentionally.
+2. **Ingest consideration**: sensitive source paths (runtime routes, plugin APIs, package manifests, charts, CI, agent tooling) remind the agent to decide whether the wiki needs an update before the final response.
+3. **Index freshness**: edits under `wiki/**/*.md` debounce for 3 seconds, then run `qmd --index buntime update` and `qmd --index buntime embed` detached. Failures are written to `${TMPDIR:-/tmp}/qmd-buntime-reindex.log`.
+
+Allowed repo-local markdown outside `wiki/` is intentionally narrow: root `README.md`/`CLAUDE.md`/`AGENTS.md`, app/package/plugin `README.md`, `charts/README.md`, `charts/release-notes.md`, `.github/**/*.md`, `.claude/**/*.md`, and `.codex/**/*.md`. Anything else is treated as pending migration to the wiki.
+
+Codex hooks require the project-local feature flag in `.codex/config.toml`:
+
+```toml
+[features]
+codex_hooks = true
+```
+
+Inspect or disable the Claude hook in `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      { "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/wiki-policy-check.sh", "timeout": 5 },
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/wiki-reindex.sh", "timeout": 5 }
+        ] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/wiki-suggest-ingest.sh", "timeout": 10 }] }
+    ],
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/wiki-drift-audit.sh", "timeout": 5 }] }
+    ]
+  }
+}
+```
+
+Inspect or disable the Codex hook in `.codex/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch|Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/wiki-policy-check.sh\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/wiki-consider.sh\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/wiki-reindex.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/wiki-drift-audit.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Manual — outside the Claude Code harness
+
+Whenever you edit wiki content directly (e.g. via your editor, a script, or a teammate pushes changes):
 
 ```sh
 qmd --index buntime update    # rescans the filesystem and re-indexes what changed

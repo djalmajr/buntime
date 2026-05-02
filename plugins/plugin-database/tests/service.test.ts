@@ -1,8 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DatabaseServiceImpl } from "../server/service";
 
-// Use environment variable or default to local libSQL server (docker-compose)
-const LIBSQL_URL = process.env.LIBSQL_URL_0 ?? "http://localhost:8880";
+const TEST_DB_DIR = mkdtempSync(join(tmpdir(), "buntime-database-service-"));
+const LIBSQL_URL = process.env.LIBSQL_URL_0 ?? `file:${join(TEST_DB_DIR, "service.db")}`;
+
+afterAll(() => {
+  rmSync(TEST_DB_DIR, { force: true, recursive: true });
+});
 
 const mockLogger = {
   debug: mock(() => {}),

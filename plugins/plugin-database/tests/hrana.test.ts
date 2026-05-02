@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PluginLogger } from "@buntime/shared/types";
 import { api, setService } from "../server/api";
 import type {
@@ -10,8 +13,8 @@ import type {
 } from "../server/hrana/types";
 import { DatabaseServiceImpl } from "../server/service";
 
-// Use environment variable or default to local libSQL server (docker-compose)
-const LIBSQL_URL = process.env.LIBSQL_URL_0 ?? "http://localhost:8880";
+const TEST_DB_DIR = mkdtempSync(join(tmpdir(), "buntime-hrana-"));
+const LIBSQL_URL = process.env.LIBSQL_URL_0 ?? `file:${join(TEST_DB_DIR, "hrana.db")}`;
 
 // Mock logger factory
 function createMockLogger(): PluginLogger {
@@ -59,6 +62,7 @@ describe("HRANA Pipeline Integration", () => {
     const adapter = service.getRootAdapter();
     await adapter.execute("DROP TABLE IF EXISTS hrana_test");
     await service.close();
+    rmSync(TEST_DB_DIR, { force: true, recursive: true });
   });
 
   describe("POST /api/pipeline", () => {

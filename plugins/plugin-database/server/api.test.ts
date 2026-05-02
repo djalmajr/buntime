@@ -1,10 +1,17 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PluginLogger } from "@buntime/shared/types";
 import { api, setService } from "./api";
 import { DatabaseServiceImpl } from "./service";
 
-// Use environment variable or default to local libSQL server (docker-compose)
-const LIBSQL_URL = process.env.LIBSQL_URL_0 ?? "http://localhost:8880";
+const TEST_DB_DIR = mkdtempSync(join(tmpdir(), "buntime-database-api-"));
+const LIBSQL_URL = process.env.LIBSQL_URL_0 ?? `file:${join(TEST_DB_DIR, "api.db")}`;
+
+afterAll(() => {
+  rmSync(TEST_DB_DIR, { force: true, recursive: true });
+});
 
 // Mock logger factory
 function createMockLogger(): PluginLogger {

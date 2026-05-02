@@ -1,9 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PluginContext, PluginLogger } from "@buntime/shared/types";
 import databasePlugin, { databasePlugin as namedExport } from "./plugin";
 
-// Use environment variable or default to local libSQL server (docker-compose)
-const LIBSQL_URL = process.env.LIBSQL_URL ?? "http://localhost:8880";
+const TEST_DB_DIR = mkdtempSync(join(tmpdir(), "buntime-database-plugin-"));
+const LIBSQL_URL = process.env.LIBSQL_URL ?? `file:${join(TEST_DB_DIR, "plugin.db")}`;
 
 // Mock logger factory
 function createMockLogger(): PluginLogger {
@@ -25,6 +28,10 @@ function createMockContext(logger: PluginLogger): PluginContext {
 }
 
 describe("databasePlugin", () => {
+  afterAll(() => {
+    rmSync(TEST_DB_DIR, { force: true, recursive: true });
+  });
+
   describe("exports", () => {
     it("should export default function", () => {
       expect(typeof databasePlugin).toBe("function");

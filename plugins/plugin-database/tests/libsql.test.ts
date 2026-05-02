@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { LibSqlAdapter } from "../server/adapters/libsql";
 
-// Use environment variable or default to local libSQL server (docker-compose)
-const LIBSQL_URL = process.env.LIBSQL_URL_0 ?? "http://localhost:8880";
+const TEST_DB_DIR = mkdtempSync(join(tmpdir(), "buntime-libsql-"));
+const LIBSQL_URL = process.env.LIBSQL_URL_0 ?? `file:${join(TEST_DB_DIR, "libsql.db")}`;
 
 describe("LibSqlAdapter", () => {
   let adapter: LibSqlAdapter;
@@ -32,6 +35,7 @@ describe("LibSqlAdapter", () => {
     // Drop test table
     await adapter.execute("DROP TABLE IF EXISTS test");
     await adapter.close();
+    rmSync(TEST_DB_DIR, { force: true, recursive: true });
   });
 
   describe("execute", () => {

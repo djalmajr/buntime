@@ -1511,7 +1511,6 @@ function AdminSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
-              <Icon className="text-sidebar-primary size-6 shrink-0" icon="lucide:shield-check" />
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{t("admin.shell.name")}</span>
                 <span className="truncate text-xs">{t("admin.shell.description")}</span>

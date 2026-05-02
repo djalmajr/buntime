@@ -248,13 +248,10 @@ export function MainLayout({
                 {/* Expanded state: AppInfo + Toggle button */}
                 <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
                   {activeApp && (
-                    <>
-                      {activeApp.icon}
-                      <div className="grid flex-1 text-left text-sm leading-tight">
-                        <span className="truncate font-medium">{activeApp.name}</span>
-                        <span className="truncate text-xs">{activeApp.description}</span>
-                      </div>
-                    </>
+                    <div className="grid flex-1 text-left text-sm leading-tight">
+                      <span className="truncate font-medium">{activeApp.name}</span>
+                      <span className="truncate text-xs">{activeApp.description}</span>
+                    </div>
                   )}
                   <SidebarToggle />
                 </div>

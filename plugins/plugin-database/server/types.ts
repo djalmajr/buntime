@@ -1,5 +1,5 @@
 import type { BasePluginConfig, PluginLogger } from "@buntime/shared/types";
-import type { Client as LibSqlClient } from "@libsql/client/http";
+import type { Client as LibSqlClient } from "@libsql/client";
 
 /**
  * Supported database adapter types

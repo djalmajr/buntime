@@ -10,7 +10,7 @@
 
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { NotFoundError, ValidationError } from "@buntime/shared/errors";
+import { ForbiddenError, NotFoundError, ValidationError } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { getConfig } from "@/config";
@@ -20,8 +20,11 @@ import {
   detectArchiveFormat,
   directoryExists,
   extractArchive,
+  getInstallSource,
   getPackageRootPath,
+  type InstallSource,
   isPathSafe,
+  isRemovableInstallDir,
   moveDirectory,
   parsePackageName,
   readPackageInfo,
@@ -30,6 +33,7 @@ import {
 } from "@/libs/registry/packager";
 import type { PluginLoader } from "@/plugins/loader";
 import type { PluginRegistry } from "@/plugins/registry";
+import { readUploadFile } from "@/routes/upload-form";
 
 /**
  * Plugin info for API responses
@@ -37,13 +41,14 @@ import type { PluginRegistry } from "@/plugins/registry";
 interface PluginInfo {
   name: string;
   path: string;
+  removable: boolean;
+  source: InstallSource;
 }
 
 /**
  * List all installed plugins from pluginDirs
  */
-async function listInstalledPlugins(): Promise<PluginInfo[]> {
-  const { pluginDirs } = getConfig();
+async function listInstalledPlugins(pluginDirs: string[]): Promise<PluginInfo[]> {
   const plugins: PluginInfo[] = [];
 
   for (const pluginDir of pluginDirs) {
@@ -67,6 +72,8 @@ async function listInstalledPlugins(): Promise<PluginInfo[]> {
           plugins.push({
             name: `${name}/${scopeEntry.name}`,
             path: join(fullPath, scopeEntry.name),
+            removable: isRemovableInstallDir(pluginDir, pluginDirs),
+            source: getInstallSource(pluginDir, pluginDirs),
           });
         }
       } else {
@@ -74,6 +81,8 @@ async function listInstalledPlugins(): Promise<PluginInfo[]> {
         plugins.push({
           name,
           path: fullPath,
+          removable: isRemovableInstallDir(pluginDir, pluginDirs),
+          source: getInstallSource(pluginDir, pluginDirs),
         });
       }
     }
@@ -84,13 +93,20 @@ async function listInstalledPlugins(): Promise<PluginInfo[]> {
 
 interface PluginsRoutesDeps {
   loader: PluginLoader;
+  pluginDirs?: string[];
   registry: PluginRegistry;
+}
+
+function getPluginDirs(deps: PluginsRoutesDeps): string[] {
+  return deps.pluginDirs ?? getConfig().pluginDirs;
 }
 
 /**
  * Create plugins routes
  */
-export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
+export function createPluginsRoutes(deps: PluginsRoutesDeps) {
+  const { loader, registry } = deps;
+
   return (
     new Hono()
       // List loaded plugins (from registry - runtime state)
@@ -143,6 +159,8 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
                       properties: {
                         name: { type: "string" },
                         path: { type: "string" },
+                        removable: { type: "boolean" },
+                        source: { enum: ["built-in", "uploaded"], type: "string" },
                       },
                     },
                   },
@@ -152,7 +170,7 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
           },
         }),
         async (ctx) => {
-          const plugins = await listInstalledPlugins();
+          const plugins = await listInstalledPlugins(getPluginDirs(deps));
           return ctx.json(plugins);
         },
       )
@@ -243,18 +261,13 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
           },
         }),
         async (ctx) => {
-          const { pluginDirs } = getConfig();
+          const pluginDirs = getPluginDirs(deps);
 
           if (pluginDirs.length === 0) {
             throw new ValidationError("No pluginDirs configured", "NO_PLUGIN_DIRS");
           }
 
-          const formData = await ctx.req.formData();
-          const file = formData.get("file") as File | null;
-
-          if (!file) {
-            throw new ValidationError("No file provided", "NO_FILE_PROVIDED");
-          }
+          const file = await readUploadFile(ctx);
 
           const format = detectArchiveFormat(file.name);
           if (!format) {
@@ -326,7 +339,7 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
           },
         }),
         async (ctx) => {
-          const { pluginDirs } = getConfig();
+          const pluginDirs = getPluginDirs(deps);
           const name = decodeURIComponent(ctx.req.param("name"));
 
           if (!name) {
@@ -335,14 +348,20 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
 
           const { name: pkgName, scope: pkgScope } = parsePackageName(name);
 
-          // Find and remove plugin from pluginDirs
+          let builtInFound = false;
           let found = false;
+
           for (const pluginDir of pluginDirs) {
             const packagePath = pkgScope
               ? join(pluginDir, pkgScope, pkgName)
               : join(pluginDir, pkgName);
 
             if (await directoryExists(packagePath)) {
+              if (!isRemovableInstallDir(pluginDir, pluginDirs)) {
+                builtInFound = true;
+                continue;
+              }
+
               await removeDirectory(packagePath);
               found = true;
               break;
@@ -350,6 +369,13 @@ export function createPluginsRoutes({ loader, registry }: PluginsRoutesDeps) {
           }
 
           if (!found) {
+            if (builtInFound) {
+              throw new ForbiddenError(
+                `Built-in plugin cannot be removed: ${name}`,
+                "BUILT_IN_PLUGIN_REMOVE_FORBIDDEN",
+              );
+            }
+
             throw new NotFoundError(`Plugin files not found: ${name}`, "PLUGIN_NOT_FOUND");
           }
 

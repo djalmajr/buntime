@@ -1,3 +1,14 @@
 entrypoint: dist/index.html
 visibility: protected
 injectBase: true
+publicRoutes:
+  GET:
+    - /admin
+    - /admin/**
+    - /*.css
+    - /*.ico
+    - /*.js
+    - /*.png
+    - /*.svg
+    - /*.woff
+    - /*.woff2

@@ -5,9 +5,165 @@
     "goHome": "Go to Home",
     "logout": "Sign Out"
   },
+  "admin": {
+    "apps": {
+      "empty": "No apps installed.",
+      "listTitle": "Apps",
+      "nameColumn": "Name",
+      "pathColumn": "Path",
+      "removed": "App removed",
+      "removeVersion": "Remove version {{version}}",
+      "searchPlaceholder": "Search apps...",
+      "sourceColumn": "Source",
+      "uploaded": "App uploaded",
+      "uploadTitle": "Upload app",
+      "versionRemoved": "Version removed",
+      "versionsColumn": "Versions"
+    },
+    "common": {
+      "builtIn": "Built-in",
+      "copied": "Copied",
+      "exit": "Exit",
+      "loading": "Loading",
+      "noSearchResults": "No results for \"{{term}}\".",
+      "remove": "Remove",
+      "upload": "Upload",
+      "uploadArchiveDescription": "Choose a .zip, .tgz, or .tar.gz archive to upload.",
+      "uploadedSource": "Uploaded"
+    },
+    "header": {
+      "description": "Internal runtime operations",
+      "title": "Admin"
+    },
+    "keys": {
+      "actions": "Actions",
+      "create": "Create key",
+      "created": "Key created",
+      "createdAt": "Created: {{value}}",
+      "createdColumn": "Created",
+      "createdSecret": "Generated secret",
+      "createDescription": "Create an API key with the minimum role and permissions needed for the operation.",
+      "createTitle": "New key",
+      "current": "Current",
+      "description": "Description",
+      "empty": "No keys created.",
+      "expiration": {
+        "1y": "1 year",
+        "30d": "30 days",
+        "90d": "90 days",
+        "never": "Never"
+      },
+      "expiresAt": "Expires: {{value}}",
+      "expiresColumn": "Expires",
+      "expiresIn": "Expiration",
+      "lastUsedAt": "Last used: {{value}}",
+      "lastUsedColumn": "Last used",
+      "listTitle": "API keys",
+      "name": "Name",
+      "permissions": "Permissions",
+      "prefix": "Prefix: {{prefix}}",
+      "prefixColumn": "Prefix",
+      "revoke": "Revoke",
+      "revoked": "Key revoked",
+      "role": "Role"
+    },
+    "login": {
+      "apiKey": "API key",
+      "description": "Enter a runtime admin key.",
+      "submit": "Enter",
+      "title": "Admin access"
+    },
+    "overview": {
+      "activePermissions": "Active permissions",
+      "apps": "Apps",
+      "appsHelp": "{{count}} installed app(s)",
+      "capabilitiesDescription": "What the current key can operate in this runtime.",
+      "capabilitiesTitle": "Administrative capabilities",
+      "currentKey": "Current key",
+      "currentKeyHelp": "{{role}} access with prefix {{prefix}}",
+      "deploymentOps": "Deployments",
+      "fullAccess": "Full access",
+      "keyOps": "Key management",
+      "keys": "API keys",
+      "keysHelp": "{{count}} active key(s)",
+      "masterDescription": "Master key from RUNTIME_MASTER_KEY",
+      "masterKey": "Master key",
+      "noAccess": "No access",
+      "permissions": "Permissions",
+      "permissionsHelp": "Total permissions assigned to this session",
+      "pluginOps": "Plugins",
+      "plugins": "Plugins",
+      "pluginsHelp": "{{loaded}} loaded · {{installed}} installed",
+      "prefix": "Prefix",
+      "role": "Role",
+      "scope": "Scope",
+      "sessionTitle": "Current session",
+      "workerOps": "Workers"
+    },
+    "plugins": {
+      "baseColumn": "Base",
+      "dependencies": "Dependencies: {{value}}",
+      "empty": "No plugins installed.",
+      "emptyLoaded": "No plugins loaded.",
+      "installedStatus": "Installed",
+      "installedTitle": "Installed plugins",
+      "loadedStatus": "Loaded",
+      "loadedTitle": "Loaded plugins",
+      "nameColumn": "Name",
+      "pathColumn": "Path",
+      "reload": "Reload",
+      "reloaded": "Plugins reloaded",
+      "removed": "Plugin removed",
+      "searchPlaceholder": "Search plugins...",
+      "sourceColumn": "Source",
+      "statusColumn": "Status",
+      "uploaded": "Plugin uploaded",
+      "uploadTitle": "Upload plugin"
+    },
+    "roles": {
+      "admin": "Admin",
+      "custom": "Custom",
+      "editor": "Editor",
+      "viewer": "Viewer"
+    },
+    "shell": {
+      "backToCpanel": "Go to CPanel",
+      "description": "Internal operations",
+      "identity": "{{role}} · {{prefix}}",
+      "name": "Admin"
+    },
+    "tabs": {
+      "apps": "Apps",
+      "keys": "Keys",
+      "overview": "Overview",
+      "plugins": "Plugins"
+    },
+    "uploadValidation": {
+      "checking": "Checking archive structure...",
+      "errors": {
+        "emptyArchive": "The archive has no files.",
+        "emptyFile": "The selected file is empty.",
+        "missingAppEntrypoint": "The app archive must include index.html, index.ts, index.js, index.mjs, dist/index.html, or public/index.html.",
+        "missingMetadata": "The archive must include manifest.yaml, manifest.yml, or package.json at the runtime root.",
+        "missingPluginEntrypoint": "The plugin archive must include plugin.ts, plugin.js, index.ts, index.js, or dist/plugin.js.",
+        "pathTraversal": "The archive contains an unsafe path: {{entry}}.",
+        "tooLarge": "The archive exceeds the {{maxMb}} MB upload limit.",
+        "unsupportedType": "Select a .zip, .tgz, or .tar.gz archive.",
+        "wrappedFolder": "The archive is wrapped in {{folder}}/. Put files at the archive root or inside package/.",
+        "zipUnreadable": "The ZIP archive could not be inspected."
+      },
+      "valid": "Archive ready to upload. {{count}} file(s) checked.",
+      "warnings": {
+        "structureDeferred": "Archive type accepted. The runtime will validate the extracted structure after upload."
+      }
+    }
+  },
   "nav": {
+    "admin": "Admin",
+    "adminMode": "Go to Admin",
+    "administration": "Administration",
     "appDescription": "Worker Pool Runtime",
-    "appName": "Buntime",
+    "appName": "CPanel",
     "authz": "Authorization",
     "database": "Database",
     "deployments": "Deployments",

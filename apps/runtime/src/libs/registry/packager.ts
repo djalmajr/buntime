@@ -4,6 +4,7 @@
  * Handles extraction and validation of .tgz and .zip packages uploaded via Core API.
  */
 
+import { existsSync } from "node:fs";
 import { cp, rename as fsRename, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
@@ -14,6 +15,8 @@ export interface PackageInfo {
   name: string;
   version: string;
 }
+
+export type InstallSource = "built-in" | "uploaded";
 
 /**
  * Supported archive formats
@@ -224,15 +227,63 @@ export function getPackageRootPath(baseDir: string, packageInfo: PackageInfo): s
   return join(baseDir, name);
 }
 
+function isHiddenInstallDir(dir: string): boolean {
+  return basename(resolve(dir)).startsWith(".");
+}
+
+function findProjectRoot(startDir: string): string {
+  let current = resolve(startDir);
+
+  while (true) {
+    if (
+      existsSync(join(current, "package.json")) &&
+      existsSync(join(current, "apps")) &&
+      existsSync(join(current, "plugins"))
+    ) {
+      return current;
+    }
+
+    const parent = dirname(current);
+    if (parent === current) return resolve(startDir);
+    current = parent;
+  }
+}
+
+function isInsideDir(dir: string, parentDir: string): boolean {
+  const resolvedDir = resolve(dir);
+  const resolvedParent = resolve(parentDir);
+
+  return resolvedDir === resolvedParent || resolvedDir.startsWith(`${resolvedParent}${sep}`);
+}
+
+function isProjectInstallDir(dir: string): boolean {
+  return isInsideDir(dir, findProjectRoot(process.cwd()));
+}
+
+function selectUploadInstallDir(dirs: string[]): string | undefined {
+  return dirs.find((dir) => getInstallSource(dir, dirs) === "uploaded");
+}
+
+export function getInstallSource(dir: string, dirs: string[]): InstallSource {
+  if (isHiddenInstallDir(dir) || isProjectInstallDir(dir)) return "built-in";
+  return dirs.map((candidate) => resolve(candidate)).includes(resolve(dir))
+    ? "uploaded"
+    : "built-in";
+}
+
+export function isRemovableInstallDir(dir: string, dirs: string[]): boolean {
+  return getInstallSource(dir, dirs) === "uploaded";
+}
+
 /**
- * Select the writable/external install directory from configured dirs.
+ * Select the external upload directory from configured dirs.
  *
  * Hidden dirs such as /data/.apps and /data/.plugins are image-provided
- * built-ins in the Helm chart. Runtime uploads should prefer the first
- * non-hidden external dir, then fall back to the first configured dir.
+ * built-ins in the Helm chart. Local project dirs are also built-in. Runtime
+ * uploads must go into the first configured dir outside both categories.
  */
 export function selectInstallDir(dirs: string[]): string | undefined {
-  return dirs.find((dir) => !basename(resolve(dir)).startsWith(".")) ?? dirs[0];
+  return selectUploadInstallDir(dirs);
 }
 
 /**

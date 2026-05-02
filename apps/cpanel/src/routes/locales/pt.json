@@ -5,9 +5,165 @@
     "goHome": "Ir para Início",
     "logout": "Sair"
   },
+  "admin": {
+    "apps": {
+      "empty": "Nenhum app instalado.",
+      "listTitle": "Apps",
+      "nameColumn": "Nome",
+      "pathColumn": "Caminho",
+      "removed": "App removido",
+      "removeVersion": "Remover versão {{version}}",
+      "searchPlaceholder": "Buscar apps...",
+      "sourceColumn": "Origem",
+      "uploaded": "App enviado",
+      "uploadTitle": "Enviar app",
+      "versionRemoved": "Versão removida",
+      "versionsColumn": "Versões"
+    },
+    "common": {
+      "builtIn": "Built-in",
+      "copied": "Copiado",
+      "exit": "Sair",
+      "loading": "Carregando",
+      "noSearchResults": "Nenhum resultado para \"{{term}}\".",
+      "remove": "Remover",
+      "upload": "Enviar",
+      "uploadArchiveDescription": "Escolha um pacote .zip, .tgz ou .tar.gz para enviar.",
+      "uploadedSource": "Avulso"
+    },
+    "header": {
+      "description": "Operação interna do runtime",
+      "title": "Admin"
+    },
+    "keys": {
+      "actions": "Ações",
+      "create": "Criar chave",
+      "created": "Chave criada",
+      "createdAt": "Criada: {{value}}",
+      "createdColumn": "Criada",
+      "createdSecret": "Segredo gerado",
+      "createDescription": "Crie uma chave de API com o menor perfil e as permissões necessárias para a operação.",
+      "createTitle": "Nova chave",
+      "current": "Atual",
+      "description": "Descrição",
+      "empty": "Nenhuma chave criada.",
+      "expiration": {
+        "1y": "1 ano",
+        "30d": "30 dias",
+        "90d": "90 dias",
+        "never": "Nunca"
+      },
+      "expiresAt": "Expira: {{value}}",
+      "expiresColumn": "Expira",
+      "expiresIn": "Expiração",
+      "lastUsedAt": "Último uso: {{value}}",
+      "lastUsedColumn": "Último uso",
+      "listTitle": "Chaves de API",
+      "name": "Nome",
+      "permissions": "Permissões",
+      "prefix": "Prefixo: {{prefix}}",
+      "prefixColumn": "Prefixo",
+      "revoke": "Revogar",
+      "revoked": "Chave revogada",
+      "role": "Perfil"
+    },
+    "login": {
+      "apiKey": "Chave de API",
+      "description": "Informe uma chave administrativa do runtime.",
+      "submit": "Entrar",
+      "title": "Acesso administrativo"
+    },
+    "overview": {
+      "activePermissions": "Permissões ativas",
+      "apps": "Apps",
+      "appsHelp": "{{count}} app(s) instalado(s)",
+      "capabilitiesDescription": "O que a chave atual pode operar neste runtime.",
+      "capabilitiesTitle": "Capacidades administrativas",
+      "currentKey": "Chave atual",
+      "currentKeyHelp": "Acesso {{role}} com prefixo {{prefix}}",
+      "deploymentOps": "Deployments",
+      "fullAccess": "Acesso total",
+      "keyOps": "Gestão de chaves",
+      "keys": "Chaves de API",
+      "keysHelp": "{{count}} chave(s) ativa(s)",
+      "masterDescription": "Chave master de RUNTIME_MASTER_KEY",
+      "masterKey": "Chave master",
+      "noAccess": "Sem acesso",
+      "permissions": "Permissões",
+      "permissionsHelp": "Total de permissões atribuídas a esta sessão",
+      "pluginOps": "Plugins",
+      "plugins": "Plugins",
+      "pluginsHelp": "{{loaded}} carregados · {{installed}} instalados",
+      "prefix": "Prefixo",
+      "role": "Perfil",
+      "scope": "Escopo",
+      "sessionTitle": "Sessão atual",
+      "workerOps": "Workers"
+    },
+    "plugins": {
+      "baseColumn": "Base",
+      "dependencies": "Dependências: {{value}}",
+      "empty": "Nenhum plugin instalado.",
+      "emptyLoaded": "Nenhum plugin carregado.",
+      "installedStatus": "Instalado",
+      "installedTitle": "Plugins instalados",
+      "loadedStatus": "Carregado",
+      "loadedTitle": "Plugins carregados",
+      "nameColumn": "Nome",
+      "pathColumn": "Caminho",
+      "reload": "Recarregar",
+      "reloaded": "Plugins recarregados",
+      "removed": "Plugin removido",
+      "searchPlaceholder": "Buscar plugins...",
+      "sourceColumn": "Origem",
+      "statusColumn": "Status",
+      "uploaded": "Plugin enviado",
+      "uploadTitle": "Enviar plugin"
+    },
+    "roles": {
+      "admin": "Admin",
+      "custom": "Custom",
+      "editor": "Editor",
+      "viewer": "Viewer"
+    },
+    "shell": {
+      "backToCpanel": "Ir para o CPanel",
+      "description": "Operação interna",
+      "identity": "{{role}} · {{prefix}}",
+      "name": "Admin"
+    },
+    "tabs": {
+      "apps": "Apps",
+      "keys": "Chaves",
+      "overview": "Visão geral",
+      "plugins": "Plugins"
+    },
+    "uploadValidation": {
+      "checking": "Verificando a estrutura do pacote...",
+      "errors": {
+        "emptyArchive": "O pacote não possui arquivos.",
+        "emptyFile": "O arquivo selecionado está vazio.",
+        "missingAppEntrypoint": "O pacote do app deve incluir index.html, index.ts, index.js, index.mjs, dist/index.html ou public/index.html.",
+        "missingMetadata": "O pacote deve incluir manifest.yaml, manifest.yml ou package.json na raiz do runtime.",
+        "missingPluginEntrypoint": "O pacote do plugin deve incluir plugin.ts, plugin.js, index.ts, index.js ou dist/plugin.js.",
+        "pathTraversal": "O pacote contém um caminho inseguro: {{entry}}.",
+        "tooLarge": "O pacote excede o limite de upload de {{maxMb}} MB.",
+        "unsupportedType": "Selecione um pacote .zip, .tgz ou .tar.gz.",
+        "wrappedFolder": "O pacote está dentro de {{folder}}/. Coloque os arquivos na raiz do pacote ou dentro de package/.",
+        "zipUnreadable": "Não foi possível inspecionar o pacote ZIP."
+      },
+      "valid": "Pacote pronto para upload. {{count}} arquivo(s) verificado(s).",
+      "warnings": {
+        "structureDeferred": "Tipo de pacote aceito. O runtime validará a estrutura extraída após o upload."
+      }
+    }
+  },
   "nav": {
+    "admin": "Admin",
+    "adminMode": "Ir para Admin",
+    "administration": "Administração",
     "appDescription": "Runtime de Pool de Workers",
-    "appName": "Buntime",
+    "appName": "CPanel",
     "authz": "Autorização",
     "database": "Banco de Dados",
     "deployments": "Deployments",

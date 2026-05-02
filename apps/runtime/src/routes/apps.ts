@@ -9,7 +9,7 @@
 
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { NotFoundError, ValidationError } from "@buntime/shared/errors";
+import { ForbiddenError, NotFoundError, ValidationError } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { getConfig } from "@/config";
@@ -20,13 +20,17 @@ import {
   directoryExists,
   extractArchive,
   getInstallPath,
+  getInstallSource,
+  type InstallSource,
   isPathSafe,
+  isRemovableInstallDir,
   moveDirectory,
   parsePackageName,
   readPackageInfo,
   removeDirectory,
   selectInstallDir,
 } from "@/libs/registry/packager";
+import { readUploadFile } from "@/routes/upload-form";
 
 /**
  * App info for API responses
@@ -34,14 +38,15 @@ import {
 interface AppInfo {
   name: string;
   path: string;
+  removable: boolean;
+  source: InstallSource;
   versions: string[];
 }
 
 /**
  * List all installed apps from workerDirs
  */
-async function listInstalledApps(): Promise<AppInfo[]> {
-  const { workerDirs } = getConfig();
+async function listInstalledApps(workerDirs: string[]): Promise<AppInfo[]> {
   const apps: AppInfo[] = [];
 
   for (const workerDir of workerDirs) {
@@ -70,6 +75,8 @@ async function listInstalledApps(): Promise<AppInfo[]> {
             apps.push({
               name: `${name}/${scopeEntry.name}`,
               path: packagePath,
+              removable: isRemovableInstallDir(workerDir, workerDirs),
+              source: getInstallSource(workerDir, workerDirs),
               versions,
             });
           }
@@ -82,6 +89,8 @@ async function listInstalledApps(): Promise<AppInfo[]> {
           apps.push({
             name,
             path: fullPath,
+            removable: isRemovableInstallDir(workerDir, workerDirs),
+            source: getInstallSource(workerDir, workerDirs),
             versions,
           });
         } else {
@@ -96,7 +105,9 @@ async function listInstalledApps(): Promise<AppInfo[]> {
             if (atIndex > 0) {
               const appName = name.slice(0, atIndex);
               const version = name.slice(atIndex + 1);
-              const existingApp = apps.find((a) => a.name === appName);
+              const existingApp = apps.find(
+                (app) => app.name === appName && app.path === workerDir,
+              );
 
               if (existingApp) {
                 existingApp.versions.push(version);
@@ -104,6 +115,8 @@ async function listInstalledApps(): Promise<AppInfo[]> {
                 apps.push({
                   name: appName,
                   path: workerDir,
+                  removable: isRemovableInstallDir(workerDir, workerDirs),
+                  source: getInstallSource(workerDir, workerDirs),
                   versions: [version],
                 });
               }
@@ -112,6 +125,8 @@ async function listInstalledApps(): Promise<AppInfo[]> {
               apps.push({
                 name,
                 path: fullPath,
+                removable: isRemovableInstallDir(workerDir, workerDirs),
+                source: getInstallSource(workerDir, workerDirs),
                 versions: ["latest"],
               });
             }
@@ -152,10 +167,18 @@ async function getVersions(packagePath: string): Promise<string[]> {
   }
 }
 
+interface AppsRoutesDeps {
+  workerDirs?: string[];
+}
+
+function getWorkerDirs(deps: AppsRoutesDeps): string[] {
+  return deps.workerDirs ?? getConfig().workerDirs;
+}
+
 /**
  * Create apps core routes
  */
-export function createAppsRoutes() {
+export function createAppsRoutes(deps: AppsRoutesDeps = {}) {
   return new Hono()
     .get(
       "/",
@@ -175,7 +198,7 @@ export function createAppsRoutes() {
         },
       }),
       async (ctx) => {
-        const apps = await listInstalledApps();
+        const apps = await listInstalledApps(getWorkerDirs(deps));
         return ctx.json(apps);
       },
     )
@@ -233,19 +256,13 @@ export function createAppsRoutes() {
         },
       }),
       async (ctx) => {
-        const { workerDirs } = getConfig();
+        const workerDirs = getWorkerDirs(deps);
 
         if (workerDirs.length === 0) {
           throw new ValidationError("No workerDirs configured", "NO_WORKER_DIRS");
         }
 
-        // Get form data
-        const formData = await ctx.req.formData();
-        const file = formData.get("file") as File | null;
-
-        if (!file) {
-          throw new ValidationError("No file provided", "NO_FILE_PROVIDED");
-        }
+        const file = await readUploadFile(ctx);
 
         // Detect archive format
         const format = detectArchiveFormat(file.name);
@@ -330,7 +347,7 @@ export function createAppsRoutes() {
         },
       }),
       async (ctx) => {
-        const { workerDirs } = getConfig();
+        const workerDirs = getWorkerDirs(deps);
         const scope = ctx.req.param("scope");
         const name = ctx.req.param("name");
 
@@ -341,12 +358,18 @@ export function createAppsRoutes() {
         const fullName = scope.startsWith("@") ? `${scope}/${name}` : name;
         const { name: pkgName, scope: pkgScope } = parsePackageName(fullName);
 
-        // Find app in workerDirs
+        let builtInFound = false;
         let found = false;
+
         for (const appDir of workerDirs) {
           const packagePath = pkgScope ? join(appDir, pkgScope, pkgName) : join(appDir, pkgName);
 
           if (await directoryExists(packagePath)) {
+            if (!isRemovableInstallDir(appDir, workerDirs)) {
+              builtInFound = true;
+              continue;
+            }
+
             await removeDirectory(packagePath);
             found = true;
             break;
@@ -354,6 +377,13 @@ export function createAppsRoutes() {
         }
 
         if (!found) {
+          if (builtInFound) {
+            throw new ForbiddenError(
+              `Built-in app cannot be removed: ${fullName}`,
+              "BUILT_IN_APP_REMOVE_FORBIDDEN",
+            );
+          }
+
           throw new NotFoundError(`App not found: ${fullName}`, "APP_NOT_FOUND");
         }
 
@@ -397,7 +427,7 @@ export function createAppsRoutes() {
         },
       }),
       async (ctx) => {
-        const { workerDirs } = getConfig();
+        const workerDirs = getWorkerDirs(deps);
         const scope = ctx.req.param("scope");
         const name = ctx.req.param("name");
         const version = ctx.req.param("version");
@@ -409,14 +439,20 @@ export function createAppsRoutes() {
         const fullName = scope.startsWith("@") ? `${scope}/${name}` : name;
         const { name: pkgName, scope: pkgScope } = parsePackageName(fullName);
 
-        // Find app version in workerDirs
+        let builtInFound = false;
         let found = false;
+
         for (const appDir of workerDirs) {
           const versionPath = pkgScope
             ? join(appDir, pkgScope, pkgName, version)
             : join(appDir, pkgName, version);
 
           if (await directoryExists(versionPath)) {
+            if (!isRemovableInstallDir(appDir, workerDirs)) {
+              builtInFound = true;
+              continue;
+            }
+
             await removeDirectory(versionPath);
             found = true;
             break;
@@ -424,6 +460,13 @@ export function createAppsRoutes() {
         }
 
         if (!found) {
+          if (builtInFound) {
+            throw new ForbiddenError(
+              `Built-in app version cannot be removed: ${fullName}@${version}`,
+              "BUILT_IN_APP_VERSION_REMOVE_FORBIDDEN",
+            );
+          }
+
           throw new NotFoundError(
             `App version not found: ${fullName}@${version}`,
             "VERSION_NOT_FOUND",

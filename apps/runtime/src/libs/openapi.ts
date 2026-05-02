@@ -67,6 +67,12 @@ export const AppInfoSchema = {
   properties: {
     name: { type: "string" as const, example: "my-app" },
     path: { type: "string" as const, example: "/apps/my-app" },
+    removable: { type: "boolean" as const, example: true },
+    source: {
+      type: "string" as const,
+      enum: ["built-in", "uploaded"],
+      example: "uploaded",
+    },
     versions: {
       type: "array" as const,
       items: { type: "string" as const },

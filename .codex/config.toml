@@ -1,0 +1,3 @@
+[mcp_servers.qmd]
+command = "qmd"
+args = ["--index", "buntime", "mcp"]

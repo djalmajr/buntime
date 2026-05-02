@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { MainLayout, type SidebarNavGroup } from "~/components/main-layout";
 import { Icon, IconProvider } from "~/components/ui/icon";
 import { Toaster } from "~/components/ui/sonner";
+import { AdminAuthProvider } from "~/contexts/admin-auth-context";
 import { HeaderProvider, useHeader } from "~/contexts/header-context";
 import type { MenuItemInfo } from "~/helpers/api-client";
 import i18n from "~/helpers/i18n";
@@ -18,6 +19,16 @@ export const Route = createRootRoute({
 });
 
 function RootLayoutContent() {
+  const location = useLocation();
+
+  if (location.pathname === "/admin" || location.pathname.startsWith("/admin/")) {
+    return <Outlet />;
+  }
+
+  return <PlatformLayoutContent />;
+}
+
+function PlatformLayoutContent() {
   const { t } = useTranslation();
   const { header } = useHeader();
   const breadcrumbs = useBreadcrumbs({ i18n });
@@ -27,7 +38,7 @@ function RootLayoutContent() {
   const apps = [
     {
       description: t("nav.appDescription"),
-      icon: <Icon className="size-4" icon="lucide:terminal" />,
+      icon: <Icon className="text-sidebar-primary size-6 shrink-0" icon="lucide:terminal" />,
       isActive: true,
       name: t("nav.appName"),
       url: "/",
@@ -87,6 +98,12 @@ function RootLayoutContent() {
       groups={navGroups}
       header={header ?? undefined}
       LinkComponent={Link}
+      sidebarFooterItem={{
+        icon: <Icon icon="lucide:shield-check" />,
+        title: t("nav.adminMode"),
+        trailingIcon: <Icon icon="lucide:chevron-right" className="size-4" />,
+        url: "/admin",
+      }}
     >
       <div className="flex flex-1 flex-col gap-4 overflow-auto">
         <Outlet />
@@ -99,10 +116,12 @@ function RootLayout() {
   return (
     <IconProvider registry={registry}>
       <QueryClientProvider client={queryClient}>
-        <HeaderProvider>
-          <RootLayoutContent />
-          <Toaster />
-        </HeaderProvider>
+        <AdminAuthProvider>
+          <HeaderProvider>
+            <RootLayoutContent />
+            <Toaster />
+          </HeaderProvider>
+        </AdminAuthProvider>
       </QueryClientProvider>
     </IconProvider>
   );

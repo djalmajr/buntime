@@ -10,7 +10,7 @@
 import { createLogger, setLogger } from "@buntime/shared/logger";
 import { Scalar } from "@scalar/hono-api-reference";
 import type { WebSocketHandler } from "bun";
-import { Hono } from "hono";
+import { type Handler, Hono } from "hono";
 import { generateSpecs, openAPIRouteHandler } from "hono-openapi";
 import { createApp } from "@/app";
 import { initConfig } from "@/config";
@@ -18,6 +18,7 @@ import { API_PATH, NODE_ENV, VERSION } from "@/constants";
 import { ApiKeyStore } from "@/libs/api-keys";
 import { WorkerPool } from "@/libs/pool/pool";
 import { PluginLoader } from "@/plugins/loader";
+import { createAdminRoutes } from "@/routes/admin";
 import { createAppsRoutes } from "@/routes/apps";
 import { createHealthRoutes } from "@/routes/health";
 import { createKeysRoutes } from "@/routes/keys";
@@ -64,6 +65,7 @@ const openApiDocumentation = {
   openapi: "3.1.0" as const,
   servers: [{ description: "Runtime API", url: API_PATH }],
   tags: [
+    { description: "Runtime admin session and capabilities", name: "Admin" },
     { description: "Runtime health checks", name: "Health" },
     { description: "Plugin information and management", name: "Plugins" },
     { description: "App management (install, remove)", name: "Apps" },
@@ -75,6 +77,7 @@ const openApiDocumentation = {
  * API routes mounted at /api/*
  */
 const coreRoutes = new Hono()
+  .route("/admin", createAdminRoutes({ store: apiKeys }))
   .route("/apps", createAppsRoutes())
   .route("/health", createHealthRoutes())
   .route("/keys", createKeysRoutes({ store: apiKeys }))
@@ -82,19 +85,15 @@ const coreRoutes = new Hono()
 
 // Add OpenAPI spec and Scalar UI endpoints
 // In dev mode, regenerate specs on each request to avoid caching issues
-const openApiHandler =
+const openApiHandler: Handler =
   NODE_ENV === "production"
     ? openAPIRouteHandler(coreRoutes, { documentation: openApiDocumentation })
-    : async (
-        c: Parameters<typeof openAPIRouteHandler>[0] extends Hono<infer E>
-          ? import("hono").Context<E>
-          : never,
-      ) => {
+    : async (c) => {
         const specs = await generateSpecs(coreRoutes, { documentation: openApiDocumentation });
         return c.json(specs);
       };
 
-coreRoutes.get("/openapi.json", openApiHandler as any).get(
+coreRoutes.get("/openapi.json", openApiHandler).get(
   "/docs",
   Scalar({
     metaData: { title: "Buntime API Docs" },

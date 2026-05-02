@@ -79,7 +79,7 @@ describe("createApp", () => {
   });
 
   const createDeps = (overrides: Partial<AppDeps> = {}): AppDeps => ({
-    coreRoutes: coreRoutes as any,
+    coreRoutes,
     getWorkerDir: () => "/mock/app/dir",
     pool: pool as unknown as WorkerPool,
     registry,

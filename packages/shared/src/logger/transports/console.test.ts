@@ -165,7 +165,7 @@ describe("ConsoleTransport", () => {
       transport.write(entry);
 
       // ASSERT
-      const output = mockLog.mock.calls[0][0];
+      const output = String(mockLog.mock.calls[0]![0]);
       expect(output).toContain("[my-module]");
     });
 
@@ -178,7 +178,7 @@ describe("ConsoleTransport", () => {
       transport.write(entry);
 
       // ASSERT
-      const output = mockLog.mock.calls[0][0];
+      const output = String(mockLog.mock.calls[0]![0]);
       expect(output).toContain('{"key":"value"}');
     });
 
@@ -195,7 +195,7 @@ describe("ConsoleTransport", () => {
       transport.write(entry);
 
       // ASSERT
-      const output = mockLog.mock.calls[0][0];
+      const output = String(mockLog.mock.calls[0]![0]);
       expect(output).toContain("\n");
     });
 
@@ -208,7 +208,7 @@ describe("ConsoleTransport", () => {
       transport.write(entry);
 
       // ASSERT
-      const output = mockLog.mock.calls[0][0];
+      const output = String(mockLog.mock.calls[0]![0]);
       expect(output).not.toContain("{}");
     });
 
@@ -221,7 +221,7 @@ describe("ConsoleTransport", () => {
       transport.write(entry);
 
       // ASSERT
-      const output = mockLog.mock.calls[0][0];
+      const output = String(mockLog.mock.calls[0]![0]);
       expect(output).toContain("10:30:45.123");
     });
 
@@ -234,7 +234,7 @@ describe("ConsoleTransport", () => {
       transport.write(entry);
 
       // ASSERT
-      const output = mockLog.mock.calls[0][0];
+      const output = String(mockLog.mock.calls[0]![0]);
       // Should fall back to full timestamp
       expect(output).toContain("no-t-separator");
     });
@@ -245,16 +245,16 @@ describe("ConsoleTransport", () => {
 
       // ACT & ASSERT
       transport.write(createTestEntry({ level: "debug" }));
-      expect(mockLog.mock.calls[0][0]).toContain("DBG");
+      expect(String(mockLog.mock.calls[0]![0])).toContain("DBG");
 
       transport.write(createTestEntry({ level: "info" }));
-      expect(mockLog.mock.calls[1][0]).toContain("INF");
+      expect(String(mockLog.mock.calls[1]![0])).toContain("INF");
 
       transport.write(createTestEntry({ level: "warn" }));
-      expect(mockLog.mock.calls[2][0]).toContain("WRN");
+      expect(String(mockLog.mock.calls[2]![0])).toContain("WRN");
 
       transport.write(createTestEntry({ level: "error" }));
-      expect(mockError.mock.calls[0][0]).toContain("ERR");
+      expect(String(mockError.mock.calls[0]![0])).toContain("ERR");
     });
 
     it("should include color codes when colors enabled", () => {
@@ -266,7 +266,7 @@ describe("ConsoleTransport", () => {
       transport.write(entry);
 
       // ASSERT
-      const output = mockError.mock.calls[0][0];
+      const output = String(mockError.mock.calls[0]![0]);
       // Should contain ANSI escape codes
       expect(output).toContain("\x1b[");
     });
@@ -280,7 +280,7 @@ describe("ConsoleTransport", () => {
       transport.write(entry);
 
       // ASSERT
-      const output = mockLog.mock.calls[0][0];
+      const output = String(mockLog.mock.calls[0]![0]);
       // Should not contain ANSI escape codes
       expect(output).not.toContain("\x1b[");
     });
@@ -297,7 +297,7 @@ describe("ConsoleTransport", () => {
 
       // ASSERT
       expect(mockLog).toHaveBeenCalledTimes(1);
-      const output = mockLog.mock.calls[0][0];
+      const output = String(mockLog.mock.calls[0]![0]);
       const parsed = JSON.parse(output);
       expect(parsed.level).toBe("info");
       expect(parsed.message).toBe("json test");
@@ -313,7 +313,7 @@ describe("ConsoleTransport", () => {
 
       // ASSERT
       expect(mockError).toHaveBeenCalledTimes(1);
-      const output = mockError.mock.calls[0][0];
+      const output = String(mockError.mock.calls[0]![0]);
       const parsed = JSON.parse(output);
       expect(parsed.level).toBe("error");
       expect(parsed.message).toBe("error json");
@@ -328,7 +328,7 @@ describe("ConsoleTransport", () => {
       transport.write(entry);
 
       // ASSERT
-      const output = mockLog.mock.calls[0][0];
+      const output = String(mockLog.mock.calls[0]![0]);
       const parsed = JSON.parse(output);
       expect(parsed.time).toBe("2024-01-15T10:30:45.123Z");
     });
@@ -342,7 +342,7 @@ describe("ConsoleTransport", () => {
       transport.write(entry);
 
       // ASSERT
-      const output = mockLog.mock.calls[0][0];
+      const output = String(mockLog.mock.calls[0]![0]);
       const parsed = JSON.parse(output);
       expect(parsed.context).toBe("my-context");
     });
@@ -356,7 +356,7 @@ describe("ConsoleTransport", () => {
       transport.write(entry);
 
       // ASSERT
-      const output = mockLog.mock.calls[0][0];
+      const output = String(mockLog.mock.calls[0]![0]);
       const parsed = JSON.parse(output);
       expect(parsed).not.toHaveProperty("context");
     });
@@ -372,7 +372,7 @@ describe("ConsoleTransport", () => {
       transport.write(entry);
 
       // ASSERT
-      const output = mockLog.mock.calls[0][0];
+      const output = String(mockLog.mock.calls[0]![0]);
       const parsed = JSON.parse(output);
       expect(parsed.userId).toBe(123);
       expect(parsed.action).toBe("login");
@@ -387,7 +387,7 @@ describe("ConsoleTransport", () => {
       transport.write(entry);
 
       // ASSERT
-      const output = mockLog.mock.calls[0][0];
+      const output = String(mockLog.mock.calls[0]![0]);
       const parsed = JSON.parse(output);
       // Should only have level, message, time
       expect(Object.keys(parsed)).toEqual(["level", "message", "time"]);

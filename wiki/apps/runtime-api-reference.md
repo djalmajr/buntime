@@ -139,7 +139,11 @@ curl https://buntime.home/_/api/health/ready
 
 ### `GET /api/apps`
 
-Lists apps in `RUNTIME_WORKER_DIRS`.
+Lists apps in `RUNTIME_WORKER_DIRS`. The runtime uses the filesystem only to
+discover candidate package roots; the public `name` and `version` come from
+package metadata (`manifest.yaml`, `manifest.yml`, or `package.json`). Folders
+without package metadata are ignored because they are outside the supported app
+package format.
 
 ```json
 [
@@ -151,11 +155,11 @@ Lists apps in `RUNTIME_WORKER_DIRS`.
     "versions": ["1.0.0", "1.1.0"]
   },
   {
-    "name": "cpanel",
+    "name": "@buntime/cpanel",
     "path": "/data/.apps/cpanel",
     "removable": false,
     "source": "built-in",
-    "versions": ["latest"]
+    "versions": ["1.0.0"]
   }
 ]
 ```
@@ -205,7 +209,11 @@ Built-in apps cannot be removed. The runtime returns `403` with
 
 ### `GET /api/plugins`
 
-Lists plugins detected in `RUNTIME_PLUGIN_DIRS` (filesystem scan).
+Lists plugins detected in `RUNTIME_PLUGIN_DIRS`. The runtime uses the filesystem
+only to discover candidate package roots; the public `name` comes from package
+metadata (`manifest.yaml`, `manifest.yml`, or `package.json`). Folders without
+package metadata are ignored because they are outside the supported plugin
+package format.
 
 ```json
 [

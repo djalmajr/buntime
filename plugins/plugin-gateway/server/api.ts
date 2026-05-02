@@ -136,7 +136,9 @@ export function createGatewayApi(deps: GatewayApiDeps) {
           shell: {
             enabled: !!shellConfig,
             dir: shellConfig?.dir ?? null,
-            excludesCount: shellConfig ? shellConfig.envExcludes.size + shellConfig.keyvalExcludes.size : 0,
+            excludesCount: shellConfig
+              ? shellConfig.envExcludes.size + shellConfig.keyvalExcludes.size
+              : 0,
           },
           logs: logger.getStats(),
         };
@@ -181,7 +183,7 @@ export function createGatewayApi(deps: GatewayApiDeps) {
           return ctx.json({ error: "Rate limiting not enabled" }, 400);
         }
 
-        const limit = parseInt(ctx.req.query("limit") ?? "100");
+        const limit = parseInt(ctx.req.query("limit") ?? "100", 10);
         const buckets = rateLimiter.getActiveBuckets().slice(0, limit);
 
         return ctx.json(buckets);
@@ -214,7 +216,7 @@ export function createGatewayApi(deps: GatewayApiDeps) {
       // =========================================================================
       .get("/metrics/history", async (ctx) => {
         const persistence = deps.getPersistence();
-        const limit = parseInt(ctx.req.query("limit") ?? "60");
+        const limit = parseInt(ctx.req.query("limit") ?? "60", 10);
 
         const history = await persistence.getMetricsHistory(limit);
         return ctx.json(history);
@@ -307,7 +309,7 @@ export function createGatewayApi(deps: GatewayApiDeps) {
       .get("/logs", (ctx) => {
         const logger = deps.getRequestLogger();
 
-        const limit = parseInt(ctx.req.query("limit") ?? "50");
+        const limit = parseInt(ctx.req.query("limit") ?? "50", 10);
         const ip = ctx.req.query("ip");
         const rateLimited = ctx.req.query("rateLimited");
         const statusRange = ctx.req.query("statusRange");
@@ -316,7 +318,7 @@ export function createGatewayApi(deps: GatewayApiDeps) {
           limit,
           ip: ip || undefined,
           rateLimited: rateLimited === "true" ? true : undefined,
-          statusRange: statusRange ? parseInt(statusRange) : undefined,
+          statusRange: statusRange ? parseInt(statusRange, 10) : undefined,
         });
 
         return ctx.json(logs);

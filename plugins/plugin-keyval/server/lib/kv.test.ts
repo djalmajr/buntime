@@ -417,14 +417,15 @@ describe("Kv", () => {
 
       // Verify error was logged
       expect(errorLogs.length).toBeGreaterThan(0);
-      expect(errorLogs[0].message).toBe("Cleanup failed");
+      expect(errorLogs[0]?.message).toBe("Cleanup failed");
 
       // Verify metrics recorded the error
       const metricsJson = kvWithLogger.metrics.toJSON() as {
         operations: Record<string, { count: number; errors: number }>;
       };
-      expect(metricsJson.operations.cleanup).toBeDefined();
-      expect(metricsJson.operations.cleanup.errors).toBeGreaterThan(0);
+      const cleanupMetrics = metricsJson.operations.cleanup;
+      expect(cleanupMetrics).toBeDefined();
+      expect(cleanupMetrics?.errors).toBeGreaterThan(0);
 
       // Clean up
       kvWithLogger.close();

@@ -34,6 +34,30 @@ With no additional configuration, the runtime listens on `http://localhost:8000`
 
 > **Gotcha — `bun --watch` vs `bun --hot`**: the runtime's dev script uses `bun --watch`, **not `bun --hot`**. `--hot` breaks timer-driven code (croner doesn't fire after the first reload) and leaks zombie port bindings. If you change the dev script, keep `--watch`.
 
+### Launch configurations (`.claude/launch.json`)
+
+For one-click starts via tooling that reads Claude Code's launch config, the repo ships four named configurations:
+
+| Name | Command | Port | Standalone? |
+|---|---|---|---|
+| `buntime-dev` | `bun run dev` (root: runtime + cpanel watcher + plugin watchers in parallel) | 8000 | ✓ recommended default |
+| `runtime-dev` | `bun run --filter @buntime/runtime dev` (runtime in watch mode) | 8000 | partial — see note |
+| `cpanel-watch` | `bun run --filter @buntime/cpanel dev` (build-watcher emitting to `apps/cpanel/dist/`) | — | no — pair with running runtime |
+| `plugins-watch` | `bun run --filter '@buntime/plugin-*' dev` (build-watchers emitting to each `plugins/*/dist/`) | — | no — pair with running runtime |
+
+> **Why `cpanel-watch` and `plugins-watch` aren't standalone**: neither starts a server. The CPanel is a Buntime app (`apps/cpanel/manifest.yaml`, `entrypoint: dist/index.html`) — the runtime resolves `/cpanel/*` requests by serving the static bundle from `dist/` via [`serveStatic`](../apps/runtime.md#entrypoint-detection) with [`<base href>`](../apps/cpanel.md#manifest-and-visibility) injection. Plugins are loaded by the runtime from `dist/plugin.js` at startup or on `POST /api/plugins/reload`. Without the runtime running, the watchers just regenerate disk artifacts that nothing reads.
+
+> **Why `runtime-dev` is "partial standalone"**: the runtime serves whatever exists in `apps/cpanel/dist/` and `plugins/*/dist/` at request time. If those directories are empty (fresh clone, never built), `/cpanel/` returns 404 and plugin UIs/APIs are absent. To use `runtime-dev` solo, run `bun run build` first (or run `buntime-dev` once to populate the `dist/` directories, then switch).
+
+The launch file mirrors the pattern from the sibling `zomme` monorepo (`<thing>-dev` for full apps, `<thing>-watch` for build-only watchers); the entries make these commands addressable by name to harness/IDE integrations.
+
+**Common workflows**:
+
+- "Iterate on everything" → `buntime-dev`.
+- "Iterate on runtime code only, UI/plugins are stable" → `runtime-dev` (build cpanel/plugins once first).
+- "Iterate on cpanel UI while runtime stays up" → run `buntime-dev` (or `runtime-dev`) in one terminal + `cpanel-watch` in another. Refresh the browser to see UI changes.
+- "Iterate on a single plugin" → `bun run --filter @buntime/plugin-<name> dev` directly + `POST /api/plugins/reload` after each rebuild (no launch entry; one-off per plugin).
+
 ## `.env` at the root
 
 The `.env` file in `buntime/` configures the runtime and core plugins:

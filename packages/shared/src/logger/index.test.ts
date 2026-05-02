@@ -64,7 +64,7 @@ describe("logger/index", () => {
 
     it("should support custom format option", () => {
       // ARRANGE
-      const mockConsoleLog = mock(() => {});
+      const mockConsoleLog = mock((output: string) => output);
       const originalLog = console.log;
       console.log = mockConsoleLog;
 
@@ -74,7 +74,7 @@ describe("logger/index", () => {
 
       // ASSERT
       expect(mockConsoleLog).toHaveBeenCalled();
-      const output = mockConsoleLog.mock.calls[0][0];
+      const output = mockConsoleLog.mock.calls[0]?.[0] ?? "";
       // JSON format should be parseable
       expect(() => JSON.parse(output)).not.toThrow();
 
@@ -86,7 +86,7 @@ describe("logger/index", () => {
   describe("createLogger integration", () => {
     it("should create loggers that work with child contexts", () => {
       // ARRANGE
-      const mockWrite = mock(() => {});
+      const mockWrite = mock((entry: { context?: string; message?: string }) => entry);
       const customTransport = { write: mockWrite };
       const logger = createLogger({
         level: "debug",
@@ -100,9 +100,11 @@ describe("logger/index", () => {
 
       // ASSERT
       expect(mockWrite).toHaveBeenCalled();
-      const entry = mockWrite.mock.calls[0][0];
-      expect(entry.context).toBe("parent:child");
-      expect(entry.message).toBe("nested message");
+      const entry = mockWrite.mock.calls[0]?.[0];
+      expect(entry).toMatchObject({
+        context: "parent:child",
+        message: "nested message",
+      });
     });
 
     it("should allow setLogger followed by getChildLogger", () => {

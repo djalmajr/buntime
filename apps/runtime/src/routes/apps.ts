@@ -25,7 +25,7 @@ import {
   isPathSafe,
   isRemovableInstallDir,
   moveDirectory,
-  parsePackageName,
+  type PackageInfo,
   readPackageInfo,
   removeDirectory,
   selectInstallDir,
@@ -43,11 +43,67 @@ interface AppInfo {
   versions: string[];
 }
 
+interface InstalledAppPackage extends AppInfo {
+  directoryName: string;
+  versionPaths: Map<string, string>;
+}
+
+interface InstalledAppVersion extends PackageInfo {
+  path: string;
+}
+
+async function readPackageInfoOrNull(packagePath: string): Promise<PackageInfo | null> {
+  try {
+    return await readPackageInfo(packagePath);
+  } catch {
+    return null;
+  }
+}
+
+async function readInstalledApp(
+  workerDir: string,
+  workerDirs: string[],
+  packagePath: string,
+  directoryName: string,
+): Promise<InstalledAppPackage | null> {
+  const packageInfo = await readPackageInfoOrNull(packagePath);
+
+  if (packageInfo) {
+    return {
+      directoryName,
+      name: packageInfo.name,
+      path: packagePath,
+      removable: isRemovableInstallDir(workerDir, workerDirs),
+      source: getInstallSource(workerDir, workerDirs),
+      versionPaths: new Map([[packageInfo.version, packagePath]]),
+      versions: [packageInfo.version],
+    };
+  }
+
+  const versionInfos = await getVersionInfos(packagePath);
+  if (versionInfos.length === 0) return null;
+
+  const firstVersion = versionInfos[0];
+  if (!firstVersion) return null;
+
+  const versions = versionInfos.filter((versionInfo) => versionInfo.name === firstVersion.name);
+
+  return {
+    directoryName,
+    name: firstVersion.name,
+    path: packagePath,
+    removable: isRemovableInstallDir(workerDir, workerDirs),
+    source: getInstallSource(workerDir, workerDirs),
+    versionPaths: new Map(versions.map((versionInfo) => [versionInfo.version, versionInfo.path])),
+    versions: versions.map((versionInfo) => versionInfo.version),
+  };
+}
+
 /**
  * List all installed apps from workerDirs
  */
-async function listInstalledApps(workerDirs: string[]): Promise<AppInfo[]> {
-  const apps: AppInfo[] = [];
+async function discoverInstalledApps(workerDirs: string[]): Promise<InstalledAppPackage[]> {
+  const apps: InstalledAppPackage[] = [];
 
   for (const workerDir of workerDirs) {
     if (!(await directoryExists(workerDir))) continue;
@@ -69,69 +125,15 @@ async function listInstalledApps(workerDirs: string[]): Promise<AppInfo[]> {
           if (!scopeEntry.isDirectory()) continue;
 
           const packagePath = join(scopeDir, scopeEntry.name);
-          const versions = await getVersions(packagePath);
+          const directoryName = `${name}/${scopeEntry.name}`;
+          const app = await readInstalledApp(workerDir, workerDirs, packagePath, directoryName);
 
-          if (versions.length > 0) {
-            apps.push({
-              name: `${name}/${scopeEntry.name}`,
-              path: packagePath,
-              removable: isRemovableInstallDir(workerDir, workerDirs),
-              source: getInstallSource(workerDir, workerDirs),
-              versions,
-            });
-          }
+          if (app) apps.push(app);
         }
       } else {
-        // Unscoped package or flat format: check if it contains versions
-        const versions = await getVersions(fullPath);
+        const app = await readInstalledApp(workerDir, workerDirs, fullPath, name);
 
-        if (versions.length > 0) {
-          apps.push({
-            name,
-            path: fullPath,
-            removable: isRemovableInstallDir(workerDir, workerDirs),
-            source: getInstallSource(workerDir, workerDirs),
-            versions,
-          });
-        } else {
-          // Flat format: app@version or simple folder
-          // Check if it's a valid app folder (has package.json or index.ts)
-          const hasPackageJson = await Bun.file(join(fullPath, "package.json")).exists();
-          const hasIndex = await Bun.file(join(fullPath, "index.ts")).exists();
-
-          if (hasPackageJson || hasIndex) {
-            // Extract version from folder name if it's app@version format
-            const atIndex = name.indexOf("@");
-            if (atIndex > 0) {
-              const appName = name.slice(0, atIndex);
-              const version = name.slice(atIndex + 1);
-              const existingApp = apps.find(
-                (app) => app.name === appName && app.path === workerDir,
-              );
-
-              if (existingApp) {
-                existingApp.versions.push(version);
-              } else {
-                apps.push({
-                  name: appName,
-                  path: workerDir,
-                  removable: isRemovableInstallDir(workerDir, workerDirs),
-                  source: getInstallSource(workerDir, workerDirs),
-                  versions: [version],
-                });
-              }
-            } else {
-              // Simple folder without version
-              apps.push({
-                name,
-                path: fullPath,
-                removable: isRemovableInstallDir(workerDir, workerDirs),
-                source: getInstallSource(workerDir, workerDirs),
-                versions: ["latest"],
-              });
-            }
-          }
-        }
+        if (app) apps.push(app);
       }
     }
   }
@@ -139,29 +141,37 @@ async function listInstalledApps(workerDirs: string[]): Promise<AppInfo[]> {
   return apps;
 }
 
+async function listInstalledApps(workerDirs: string[]): Promise<AppInfo[]> {
+  return (await discoverInstalledApps(workerDirs)).map((app) => ({
+    name: app.name,
+    path: app.path,
+    removable: app.removable,
+    source: app.source,
+    versions: app.versions,
+  }));
+}
+
 /**
- * Get version directories from a package path
+ * Get package metadata from version directories under a package path.
  */
-async function getVersions(packagePath: string): Promise<string[]> {
+async function getVersionInfos(packagePath: string): Promise<InstalledAppVersion[]> {
   try {
     const entries = await readdir(packagePath, { withFileTypes: true });
-    const versions = entries
-      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
-      .map((e) => e.name);
+    const versions: InstalledAppVersion[] = [];
 
-    // Filter valid version directories (must have index.ts or package.json)
-    const validVersions: string[] = [];
-    for (const version of versions) {
-      const versionPath = join(packagePath, version);
-      const hasPackageJson = await Bun.file(join(versionPath, "package.json")).exists();
-      const hasIndex = await Bun.file(join(versionPath, "index.ts")).exists();
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
 
-      if (hasPackageJson || hasIndex) {
-        validVersions.push(version);
-      }
+      const versionPath = join(packagePath, entry.name);
+      const packageInfo = await readPackageInfoOrNull(versionPath);
+      if (!packageInfo) continue;
+
+      versions.push({ ...packageInfo, path: versionPath });
     }
 
-    return validVersions.sort((a, b) => b.localeCompare(a, undefined, { numeric: true })); // Latest first
+    return versions.sort((left, right) =>
+      right.version.localeCompare(left.version, undefined, { numeric: true }),
+    );
   } catch {
     return [];
   }
@@ -356,24 +366,21 @@ export function createAppsRoutes(deps: AppsRoutesDeps = {}) {
         }
 
         const fullName = scope.startsWith("@") ? `${scope}/${name}` : name;
-        const { name: pkgName, scope: pkgScope } = parsePackageName(fullName);
 
         let builtInFound = false;
         let found = false;
 
-        for (const appDir of workerDirs) {
-          const packagePath = pkgScope ? join(appDir, pkgScope, pkgName) : join(appDir, pkgName);
+        for (const app of await discoverInstalledApps(workerDirs)) {
+          if (app.name !== fullName && app.directoryName !== fullName) continue;
 
-          if (await directoryExists(packagePath)) {
-            if (!isRemovableInstallDir(appDir, workerDirs)) {
-              builtInFound = true;
-              continue;
-            }
-
-            await removeDirectory(packagePath);
-            found = true;
-            break;
+          if (!app.removable) {
+            builtInFound = true;
+            continue;
           }
+
+          await removeDirectory(app.path);
+          found = true;
+          break;
         }
 
         if (!found) {
@@ -437,26 +444,24 @@ export function createAppsRoutes(deps: AppsRoutesDeps = {}) {
         }
 
         const fullName = scope.startsWith("@") ? `${scope}/${name}` : name;
-        const { name: pkgName, scope: pkgScope } = parsePackageName(fullName);
 
         let builtInFound = false;
         let found = false;
 
-        for (const appDir of workerDirs) {
-          const versionPath = pkgScope
-            ? join(appDir, pkgScope, pkgName, version)
-            : join(appDir, pkgName, version);
+        for (const app of await discoverInstalledApps(workerDirs)) {
+          if (app.name !== fullName && app.directoryName !== fullName) continue;
 
-          if (await directoryExists(versionPath)) {
-            if (!isRemovableInstallDir(appDir, workerDirs)) {
-              builtInFound = true;
-              continue;
-            }
+          const versionPath = app.versionPaths.get(version);
+          if (!versionPath) continue;
 
-            await removeDirectory(versionPath);
-            found = true;
-            break;
+          if (!app.removable) {
+            builtInFound = true;
+            continue;
           }
+
+          await removeDirectory(versionPath);
+          found = true;
+          break;
         }
 
         if (!found) {

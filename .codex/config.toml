@@ -1,3 +1,6 @@
+[features]
+codex_hooks = true
+
 [mcp_servers.qmd]
 command = "qmd"
 args = ["--index", "buntime", "mcp"]

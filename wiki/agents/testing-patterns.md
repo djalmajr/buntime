@@ -20,6 +20,28 @@ When in doubt about a pattern, **read an existing `*.test.ts` file in the same w
 - Test files live next to the source they test: `pool.ts` → `pool.test.ts`, `plugin.ts` → `plugin.test.ts`. **Never** in a separate `__tests__/` directory.
 - Run from any workspace: `bun test`. Watch mode: `bun test:watch`. Coverage: `bun test:coverage`. Single file: `bun test src/foo.test.ts`. Pattern: `bun test --grep "should handle"`.
 
+## Playwright E2E
+
+Use Playwright only for workflows whose value depends on the browser plus the real runtime. Good candidates are admin flows that combine UI state, runtime API authorization, archive validation, filesystem-backed deployment roots, and served app/plugin behavior. Do not add E2E tests that only assert that a button or label is visible.
+
+The root E2E command is:
+
+```sh
+bun run test:e2e
+```
+
+The current pattern for admin tests is:
+
+- Build CPanel before the run, then start a real `apps/runtime` process on a free local port.
+- Create an isolated temp runtime layout per test with built-in roots (`.apps`, `.plugins`) and uploaded roots (`apps`, `plugins`) so built-in/remove behavior is tested through the same contract as Rancher/Docker.
+- Login through `/cpanel/admin` with `X-API-Key`, and explicitly assert that `Authorization` headers do not govern admin access.
+- Exercise key permissions through the runtime API after creating keys in the UI; verify forbidden paths with the required permission in the response.
+- Upload both invalid and valid app/plugin archives through the UI. Invalid archives must fail before upload; valid archives must be observable through the runtime after upload.
+- For plugin E2E, prefer a small plugin with a measurable side effect, such as request logging, then verify the side effect after browsing an uploaded app.
+- Include a prefixed API case (`RUNTIME_API_PREFIX=/_`) when touching admin runtime discovery.
+
+Keep E2E workers serial unless the fixture is proven parallel-safe. Runtime ports are isolated, but filesystem state, process startup, and generated browser artifacts are easier to debug with `workers: 1`.
+
 ## Test skeleton
 
 ```typescript

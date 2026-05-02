@@ -437,22 +437,6 @@ function OverviewTab() {
   const roleLabel = t(`admin.roles.${principal.role}`);
   const summary: OverviewMetric[] = [
     {
-      help: principal.isMaster
-        ? t("admin.overview.masterDescription")
-        : t("admin.overview.currentKeyHelp", {
-            prefix: principal.keyPrefix,
-            role: roleLabel,
-          }),
-      icon: "lucide:key-round",
-      label: t("admin.overview.currentKey"),
-      value: principal.isMaster ? t("admin.overview.masterKey") : principal.keyPrefix,
-    },
-    {
-      icon: "lucide:badge-check",
-      label: t("admin.overview.role"),
-      value: roleLabel,
-    },
-    {
       help: can("apps:read")
         ? t("admin.overview.appsHelp", { count: apps$.data?.length ?? 0 })
         : noAccess,
@@ -1600,7 +1584,7 @@ function AdminHeader({
           <AdminSidebarToggle className="shrink-0 md:hidden" />
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2 text-lg font-semibold leading-none">
-              {currentTab && <Icon icon={currentTab.icon} className="size-5 shrink-0" />}
+              {currentTab && <Icon icon={currentTab.icon} className="size-4 shrink-0" />}
               <span className="truncate">{currentTab?.label ?? t("admin.header.title")}</span>
             </div>
             <p className="text-muted-foreground mt-1 truncate text-sm">

@@ -18,7 +18,6 @@ import { Icon } from "../../components/ui/icon";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { ScrollArea } from "../../components/ui/scroll-area";
-import { Separator } from "../../components/ui/separator";
 import { Skeleton } from "../../components/ui/skeleton";
 
 interface TreeNode {
@@ -109,11 +108,12 @@ function TreeView({ expandedPaths, node, selectedPath, onSelect, onToggle }: Tre
   return (
     <div className="ml-2">
       {node.name && (
-        <div
+        <button
           className={cn(
-            "flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-sm hover:bg-accent",
+            "flex w-full cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-left text-sm hover:bg-accent",
             isSelected && "bg-accent",
           )}
+          type="button"
           onClick={() => {
             if (hasChildren) {
               onToggle(pathKey);
@@ -131,7 +131,7 @@ function TreeView({ expandedPaths, node, selectedPath, onSelect, onToggle }: Tre
           )}
           <span className="truncate">{node.name}</span>
           <span className="ml-auto text-xs text-muted-foreground">{node.count}</span>
-        </div>
+        </button>
       )}
       {(isExpanded || !node.name) && hasChildren && (
         <div className={node.name ? "ml-2 border-l border-border pl-1" : ""}>
@@ -199,9 +199,6 @@ export function KeyvalExplorer() {
   useEffect(() => {
     loadEntries();
   }, [loadEntries]);
-
-  // Build tree from entries
-  const tree = useMemo(() => buildTree(entries), [entries]);
 
   // Filter entries based on search
   const filteredEntries = useMemo(() => {

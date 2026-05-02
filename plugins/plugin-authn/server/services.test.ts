@@ -16,6 +16,18 @@ import type { PluginLogger } from "@buntime/shared/types";
 // Import the module to reset state between tests
 import * as services from "./services";
 
+interface AuthWithMutableApi {
+  api: object;
+}
+
+function replaceGetSession(auth: AuthWithMutableApi, getSession: unknown): void {
+  Object.defineProperty(auth.api, "getSession", {
+    configurable: true,
+    value: getSession,
+    writable: true,
+  });
+}
+
 describe("services", () => {
   // Create mock logger
   const createMockLogger = (): PluginLogger => ({
@@ -536,18 +548,20 @@ describe("getIdentityFromSession with mocked auth", () => {
 
     // Mock getSession to return a valid session with roles as array
     const originalGetSession = auth!.api.getSession;
-    auth!.api.getSession = mock(async () => ({
-      session: { id: "session-1", userId: "user-1" },
-      user: {
-        id: "user-1",
-        email: "test@example.com",
-        name: "Test User",
-        roles: ["admin", "user"],
-        groups: ["group1"],
-        customClaim: "value",
-      },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    })) as any;
+    replaceGetSession(
+      auth!,
+      mock(async () => ({
+        session: { id: "session-1", userId: "user-1" },
+        user: {
+          customClaim: "value",
+          email: "test@example.com",
+          groups: ["group1"],
+          id: "user-1",
+          name: "Test User",
+          roles: ["admin", "user"],
+        },
+      })),
+    );
 
     const headers = new Headers();
     headers.set("cookie", "better-auth.session_token=test");
@@ -561,7 +575,7 @@ describe("getIdentityFromSession with mocked auth", () => {
     expect(identity?.claims.customClaim).toBe("value");
 
     // Restore original
-    auth!.api.getSession = originalGetSession;
+    replaceGetSession(auth!, originalGetSession);
   });
 
   it("should extract identity with roles as JSON string", async () => {
@@ -576,17 +590,19 @@ describe("getIdentityFromSession with mocked auth", () => {
 
     // Mock getSession with roles as JSON string (Keycloak style)
     const originalGetSession = auth!.api.getSession;
-    auth!.api.getSession = mock(async () => ({
-      session: { id: "session-1", userId: "user-1" },
-      user: {
-        id: "user-1",
-        email: "test@example.com",
-        name: "Test User",
-        roles: '["editor", "viewer"]',
-        groups: '["team-a", "team-b"]',
-      },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    })) as any;
+    replaceGetSession(
+      auth!,
+      mock(async () => ({
+        session: { id: "session-1", userId: "user-1" },
+        user: {
+          email: "test@example.com",
+          groups: '["team-a", "team-b"]',
+          id: "user-1",
+          name: "Test User",
+          roles: '["editor", "viewer"]',
+        },
+      })),
+    );
 
     const headers = new Headers();
     headers.set("cookie", "better-auth.session_token=test");
@@ -597,7 +613,7 @@ describe("getIdentityFromSession with mocked auth", () => {
     expect(identity?.roles).toEqual(["editor", "viewer"]);
     expect(identity?.groups).toEqual(["team-a", "team-b"]);
 
-    auth!.api.getSession = originalGetSession;
+    replaceGetSession(auth!, originalGetSession);
   });
 
   it("should handle invalid JSON in roles", async () => {
@@ -612,17 +628,19 @@ describe("getIdentityFromSession with mocked auth", () => {
 
     // Mock getSession with invalid JSON in roles
     const originalGetSession = auth!.api.getSession;
-    auth!.api.getSession = mock(async () => ({
-      session: { id: "session-1", userId: "user-1" },
-      user: {
-        id: "user-1",
-        email: "test@example.com",
-        name: "Test User",
-        roles: "not-valid-json",
-        groups: "{invalid}",
-      },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    })) as any;
+    replaceGetSession(
+      auth!,
+      mock(async () => ({
+        session: { id: "session-1", userId: "user-1" },
+        user: {
+          email: "test@example.com",
+          groups: "{invalid}",
+          id: "user-1",
+          name: "Test User",
+          roles: "not-valid-json",
+        },
+      })),
+    );
 
     const headers = new Headers();
     headers.set("cookie", "better-auth.session_token=test");
@@ -634,7 +652,7 @@ describe("getIdentityFromSession with mocked auth", () => {
     expect(identity?.roles).toEqual([]);
     expect(identity?.groups).toEqual([]);
 
-    auth!.api.getSession = originalGetSession;
+    replaceGetSession(auth!, originalGetSession);
   });
 
   it("should handle non-array parsed JSON in roles/groups", async () => {
@@ -649,17 +667,19 @@ describe("getIdentityFromSession with mocked auth", () => {
 
     // Mock getSession with object JSON (not array) in roles
     const originalGetSession = auth!.api.getSession;
-    auth!.api.getSession = mock(async () => ({
-      session: { id: "session-1", userId: "user-1" },
-      user: {
-        id: "user-1",
-        email: "test@example.com",
-        name: "Test User",
-        roles: '{"role": "admin"}',
-        groups: '{"group": "team-a"}',
-      },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    })) as any;
+    replaceGetSession(
+      auth!,
+      mock(async () => ({
+        session: { id: "session-1", userId: "user-1" },
+        user: {
+          email: "test@example.com",
+          groups: '{"group": "team-a"}',
+          id: "user-1",
+          name: "Test User",
+          roles: '{"role": "admin"}',
+        },
+      })),
+    );
 
     const headers = new Headers();
     headers.set("cookie", "better-auth.session_token=test");
@@ -671,7 +691,7 @@ describe("getIdentityFromSession with mocked auth", () => {
     expect(identity?.roles).toEqual([]);
     expect(identity?.groups).toEqual([]);
 
-    auth!.api.getSession = originalGetSession;
+    replaceGetSession(auth!, originalGetSession);
   });
 
   it("should handle getSession throwing error", async () => {
@@ -686,10 +706,12 @@ describe("getIdentityFromSession with mocked auth", () => {
 
     // Mock getSession to throw error
     const originalGetSession = auth!.api.getSession;
-    auth!.api.getSession = mock(async () => {
-      throw new Error("Session validation failed");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }) as any;
+    replaceGetSession(
+      auth!,
+      mock(async () => {
+        throw new Error("Session validation failed");
+      }),
+    );
 
     const headers = new Headers();
     headers.set("cookie", "better-auth.session_token=test");
@@ -701,7 +723,7 @@ describe("getIdentityFromSession with mocked auth", () => {
       error: "Error: Session validation failed",
     });
 
-    auth!.api.getSession = originalGetSession;
+    replaceGetSession(auth!, originalGetSession);
   });
 
   it("should exclude standard fields from claims", async () => {
@@ -716,19 +738,21 @@ describe("getIdentityFromSession with mocked auth", () => {
 
     // Mock getSession with all fields
     const originalGetSession = auth!.api.getSession;
-    auth!.api.getSession = mock(async () => ({
-      session: { id: "session-1", userId: "user-1" },
-      user: {
-        id: "user-1",
-        email: "test@example.com",
-        name: "Test User",
-        roles: [],
-        groups: [],
-        department: "Engineering",
-        location: "Remote",
-      },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    })) as any;
+    replaceGetSession(
+      auth!,
+      mock(async () => ({
+        session: { id: "session-1", userId: "user-1" },
+        user: {
+          department: "Engineering",
+          email: "test@example.com",
+          groups: [],
+          id: "user-1",
+          location: "Remote",
+          name: "Test User",
+          roles: [],
+        },
+      })),
+    );
 
     const headers = new Headers();
     headers.set("cookie", "better-auth.session_token=test");
@@ -746,7 +770,7 @@ describe("getIdentityFromSession with mocked auth", () => {
     expect(identity?.claims.department).toBe("Engineering");
     expect(identity?.claims.location).toBe("Remote");
 
-    auth!.api.getSession = originalGetSession;
+    replaceGetSession(auth!, originalGetSession);
   });
 
   it("should handle session with no roles or groups", async () => {
@@ -761,15 +785,17 @@ describe("getIdentityFromSession with mocked auth", () => {
 
     // Mock getSession without roles/groups fields
     const originalGetSession = auth!.api.getSession;
-    auth!.api.getSession = mock(async () => ({
-      session: { id: "session-1", userId: "user-1" },
-      user: {
-        id: "user-1",
-        email: "test@example.com",
-        name: "Test User",
-      },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    })) as any;
+    replaceGetSession(
+      auth!,
+      mock(async () => ({
+        session: { id: "session-1", userId: "user-1" },
+        user: {
+          email: "test@example.com",
+          id: "user-1",
+          name: "Test User",
+        },
+      })),
+    );
 
     const headers = new Headers();
     headers.set("cookie", "better-auth.session_token=test");
@@ -780,7 +806,7 @@ describe("getIdentityFromSession with mocked auth", () => {
     expect(identity?.roles).toEqual([]);
     expect(identity?.groups).toEqual([]);
 
-    auth!.api.getSession = originalGetSession;
+    replaceGetSession(auth!, originalGetSession);
   });
 });
 
@@ -943,11 +969,13 @@ describe("API routes with initialized services", () => {
     expect(auth).not.toBeNull();
 
     // Mock getSession to return a valid session
-    auth!.api.getSession = mock(async () => ({
-      session: { id: "session-1", userId: "user-1" },
-      user: { id: "user-1", email: "test@example.com", name: "Test User" },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    })) as any;
+    replaceGetSession(
+      auth!,
+      mock(async () => ({
+        session: { id: "session-1", userId: "user-1" },
+        user: { email: "test@example.com", id: "user-1", name: "Test User" },
+      })),
+    );
 
     // Import api after services are initialized
     const { api } = await import("./api");
@@ -969,7 +997,10 @@ describe("API routes with initialized services", () => {
     expect(auth).not.toBeNull();
 
     // Mock getSession to return null (no session)
-    auth!.api.getSession = mock(async () => null) as any;
+    replaceGetSession(
+      auth!,
+      mock(async () => null),
+    );
 
     const { api } = await import("./api");
     const req = new Request("http://localhost:8000/");

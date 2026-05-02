@@ -220,7 +220,9 @@ export const api = new Hono()
       setDynamicRules(dynamicRules);
     }
 
-    logger?.info(`Toggled proxy rule "${stored.name || stored.id}" → ${stored.enabled ? "enabled" : "disabled"}`);
+    logger?.info(
+      `Toggled proxy rule "${stored.name || stored.id}" → ${stored.enabled ? "enabled" : "disabled"}`,
+    );
     return ctx.json(ruleToResponse(compiled ?? existing));
   })
 

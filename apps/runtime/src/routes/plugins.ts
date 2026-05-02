@@ -26,7 +26,6 @@ import {
   isPathSafe,
   isRemovableInstallDir,
   moveDirectory,
-  parsePackageName,
   readPackageInfo,
   removeDirectory,
   selectInstallDir,
@@ -45,11 +44,36 @@ interface PluginInfo {
   source: InstallSource;
 }
 
+interface InstalledPluginPackage extends PluginInfo {
+  directoryName: string;
+}
+
+async function readInstalledPlugin(
+  pluginDir: string,
+  pluginDirs: string[],
+  packagePath: string,
+  directoryName: string,
+): Promise<InstalledPluginPackage | null> {
+  try {
+    const packageInfo = await readPackageInfo(packagePath);
+
+    return {
+      directoryName,
+      name: packageInfo.name,
+      path: packagePath,
+      removable: isRemovableInstallDir(pluginDir, pluginDirs),
+      source: getInstallSource(pluginDir, pluginDirs),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * List all installed plugins from pluginDirs
  */
-async function listInstalledPlugins(pluginDirs: string[]): Promise<PluginInfo[]> {
-  const plugins: PluginInfo[] = [];
+async function discoverInstalledPlugins(pluginDirs: string[]): Promise<InstalledPluginPackage[]> {
+  const plugins: InstalledPluginPackage[] = [];
 
   for (const pluginDir of pluginDirs) {
     if (!(await directoryExists(pluginDir))) continue;
@@ -69,26 +93,35 @@ async function listInstalledPlugins(pluginDirs: string[]): Promise<PluginInfo[]>
         for (const scopeEntry of scopeEntries) {
           if (!scopeEntry.isDirectory()) continue;
 
-          plugins.push({
-            name: `${name}/${scopeEntry.name}`,
-            path: join(fullPath, scopeEntry.name),
-            removable: isRemovableInstallDir(pluginDir, pluginDirs),
-            source: getInstallSource(pluginDir, pluginDirs),
-          });
+          const directoryName = `${name}/${scopeEntry.name}`;
+          const plugin = await readInstalledPlugin(
+            pluginDir,
+            pluginDirs,
+            join(fullPath, scopeEntry.name),
+            directoryName,
+          );
+
+          if (plugin) plugins.push(plugin);
         }
       } else {
         // Unscoped package
-        plugins.push({
-          name,
-          path: fullPath,
-          removable: isRemovableInstallDir(pluginDir, pluginDirs),
-          source: getInstallSource(pluginDir, pluginDirs),
-        });
+        const plugin = await readInstalledPlugin(pluginDir, pluginDirs, fullPath, name);
+
+        if (plugin) plugins.push(plugin);
       }
     }
   }
 
   return plugins;
+}
+
+async function listInstalledPlugins(pluginDirs: string[]): Promise<PluginInfo[]> {
+  return (await discoverInstalledPlugins(pluginDirs)).map((plugin) => ({
+    name: plugin.name,
+    path: plugin.path,
+    removable: plugin.removable,
+    source: plugin.source,
+  }));
 }
 
 interface PluginsRoutesDeps {
@@ -346,26 +379,20 @@ export function createPluginsRoutes(deps: PluginsRoutesDeps) {
             throw new ValidationError("Plugin name is required", "MISSING_NAME");
           }
 
-          const { name: pkgName, scope: pkgScope } = parsePackageName(name);
-
           let builtInFound = false;
           let found = false;
 
-          for (const pluginDir of pluginDirs) {
-            const packagePath = pkgScope
-              ? join(pluginDir, pkgScope, pkgName)
-              : join(pluginDir, pkgName);
+          for (const plugin of await discoverInstalledPlugins(pluginDirs)) {
+            if (plugin.name !== name && plugin.directoryName !== name) continue;
 
-            if (await directoryExists(packagePath)) {
-              if (!isRemovableInstallDir(pluginDir, pluginDirs)) {
-                builtInFound = true;
-                continue;
-              }
-
-              await removeDirectory(packagePath);
-              found = true;
-              break;
+            if (!plugin.removable) {
+              builtInFound = true;
+              continue;
             }
+
+            await removeDirectory(plugin.path);
+            found = true;
+            break;
           }
 
           if (!found) {

@@ -786,7 +786,12 @@ describe("matchRule with state", () => {
 
   it("should skip disabled rules", () => {
     const rule1 = compileRule(
-      createRule({ id: "disabled-rule", enabled: false, pattern: "^/api/(.*)$", target: "http://disabled:8080" }),
+      createRule({
+        id: "disabled-rule",
+        enabled: false,
+        pattern: "^/api/(.*)$",
+        target: "http://disabled:8080",
+      }),
       false,
     );
     const rule2 = compileRule(
@@ -1822,6 +1827,7 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
     config: {},
     globalConfig: {
       poolSize: 10,
+      pluginDirs: ["./plugins"],
       workerDirs: ["./apps"],
     },
     getPlugin: mock(() => undefined),
@@ -1830,6 +1836,10 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
       error: mock(() => {}),
       info: mock(() => {}),
       warn: mock(() => {}),
+    },
+    runtime: {
+      api: "1.0.0",
+      version: "test",
     },
     ...overrides,
   };

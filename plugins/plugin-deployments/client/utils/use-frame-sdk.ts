@@ -108,9 +108,9 @@ export function useFrameSDK<T = Record<string, unknown>>() {
    * Watch for property changes with modern API
    */
   const watch = useCallback((handler: (changes: PropChanges<T>) => void): (() => void) => {
-    // Type assertion needed because PropChanges<T> and PropChanges<FrameProps> are not compatible
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (frameSDK.watch as any)(handler);
+    type GenericWatch = (handler: (changes: PropChanges<T>) => void) => () => void;
+    const watchProps = frameSDK.watch as GenericWatch;
+    return watchProps(handler);
   }, []);
 
   /**

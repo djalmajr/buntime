@@ -1,5 +1,89 @@
 # Change Log
 
+## [2026-05-02] tooling | Wiki enforcement hooks adapted from `zomme`
+
+Adapted the wiki enforcement hook set from the sibling `zomme` monorepo to the
+Buntime repository model:
+
+- Codex now runs markdown policy checks, sensitive-path wiki consideration, and
+  wiki reindexing on `PostToolUse`, plus a `SessionStart` markdown drift audit.
+- Claude Code now runs markdown policy checks and wiki reindexing on
+  `PostToolUse`, a `SessionStart` drift audit, and a `Stop` reminder when
+  sensitive source paths changed.
+- Markdown policy is Buntime-specific: canonical durable documentation belongs
+  in `wiki/`; allowed repo-local markdown is limited to root agent entry points,
+  minimal app/package/plugin READMEs, chart docs/release notes, `wiki/**/*.md`,
+  and agent/tooling harness files.
+- Existing tracked markdown outside the allowlist is treated as legacy drift and
+  warns only; newly created markdown outside the allowlist is blocked.
+
+Why: Buntime already had auto-reindex hooks, but the remaining wiki discipline
+was still behavioral. These hooks make the wiki boundary, drift visibility, and
+write-as-you-go ingest prompts mechanical for both Codex and Claude Code.
+
+## [2026-05-02] runtime | app/plugin listing names come from package metadata
+
+Clarified that `GET /api/apps` and `GET /api/plugins` use filesystem roots only
+to discover package candidates. Public names and versions come from package
+metadata (`manifest.yaml`, `manifest.yml`, or `package.json`); folders without
+metadata are ignored because they are outside the supported app/plugin package
+format.
+
+Why: the admin UI was mixing loaded plugin names from manifests
+(`@buntime/plugin-*`) with installed plugin names derived from folder names
+(`plugin-*`). The canonical identity is the package metadata; directory names
+are implementation details used for discovery and filesystem operations.
+
+## [2026-05-02] docs | launch.json names reflect runtime-serves-cpanel reality
+
+Renamed `.claude/launch.json` entries to match what they actually do:
+
+- `cpanel-dev` → `cpanel-watch` (build-watcher, no server — runtime serves the `dist/` output)
+- `plugins-dev` → `plugins-watch` (build-watchers — runtime loads each `dist/plugin.js`)
+
+Why: the previous `*-dev` names suggested standalone dev servers. Per [`apps/cpanel.md`](./apps/cpanel.md) and [`apps/runtime.md`](./apps/runtime.md), the CPanel is a Buntime app (not a separate server) — the runtime resolves `/cpanel/*` requests by serving the static `apps/cpanel/dist/index.html` via `serveStatic` with `<base href>` injection. The watchers only emit to disk; without the runtime running, nothing reads them.
+
+Updated [`ops/local-dev.md`](./ops/local-dev.md#launch-configurations-claudelaunchjson) with a "Standalone?" column on the launch table, an explicit caveat for `runtime-dev` (requires pre-built `dist/` for cpanel and plugins), and a "Common workflows" guide pairing watchers with a running runtime.
+
+## [2026-05-02] tooling | Codex QMD auto-reindex hook
+
+- Added project-local Codex hooks for the same QMD auto-reindex rule already present in Claude Code.
+- Enabled `codex_hooks` in `.codex/config.toml`, added `.codex/hooks.json`, and added `.codex/hooks/wiki-reindex.sh`.
+- The Codex hook runs on `PostToolUse` for `apply_patch`/`Edit`/`Write`, detects edits to `wiki/*.md`, debounces for 3 seconds, then runs `qmd --index buntime update && qmd --index buntime embed` detached.
+- Kept the existing `.claude/settings.json` and `.claude/hooks/wiki-reindex.sh` hook unchanged.
+- Updated `QMD.md` so future agents know both Claude Code and Codex keep the QMD index current automatically.
+
+## [2026-05-02] tooling | `.claude/launch.json` named launch configurations
+
+Added 4 named launch configurations to `.claude/launch.json`, mirroring the convention from the sibling `zomme` monorepo (`<thing>-dev`, `runtimeExecutable: "bun"`, `runtimeArgs`, optional `port`):
+
+- `buntime-dev` — root `bun run dev` (runtime + cpanel + all plugins in parallel, port 8000)
+- `runtime-dev` — `@buntime/runtime` alone (watch mode, port 8000)
+- `cpanel-dev` — `@buntime/cpanel` build watcher (no port; runtime serves the output)
+- `plugins-dev` — all `@buntime/plugin-*` in watch mode (no port; produce `dist/plugin.js`)
+
+These don't replace `bun run dev` or the per-workspace `--filter` invocations — they just make them addressable by name to harnesses/IDE integrations that read `.claude/launch.json`. Documented in [`ops/local-dev.md`](./ops/local-dev.md#launch-configurations-claudelaunchjson).
+
+## [2026-05-02] tooling | Auto-reindex via Claude Code `PostToolUse` hook
+
+Added `.claude/hooks/wiki-reindex.sh` + `.claude/settings.json` so the QMD `buntime` index stays current **without depending on agent discipline**. The hook fires on `Edit`/`Write`/`MultiEdit`/`NotebookEdit` whose `file_path` is under `wiki/*.md`, debounces in a 3-second window (a burst of N edits collapses into 1 reindex), and runs `qmd update && qmd embed` detached in the background.
+
+Why it matters: the previous reindex was a manual step the agent had to remember after every wiki edit. Forgetting once meant queries returned stale results. The hook makes the canonical-source guarantee mechanical instead of behavioral.
+
+What still needs the manual `buntime-refresh` alias:
+- Edits made outside the Claude Code harness (direct editor, scripts, teammate pushes).
+- Operations that don't touch `wiki/*.md` but should reindex (e.g. context updates via `qmd context add`).
+
+Documented in [`QMD.md`](./QMD.md#keeping-the-index-up-to-date) under "Automatic — via Claude Code hook". Smoke-tested 2026-05-02: 581 → 594 vectors after a wiki edit, hook returned exit 0 in ~50ms (synchronous part), reindex completed in background within ~5s.
+
+Note: the hook is portable on macOS (uses a stamp-file debounce instead of `flock`, which isn't installed by default). Requires `jq` and a `qmd` binary on PATH (the patched local install — see prerequisites in `QMD.md`).
+
+## [2026-05-02] tests | Playwright admin E2E pattern
+
+- Added the Playwright E2E testing pattern to `wiki/agents/testing-patterns.md`.
+- Documented the value threshold for E2E tests: use them for browser + real-runtime behavior, not for cosmetic visibility checks.
+- Captured the admin fixture approach: build CPanel, boot an isolated runtime per test, split built-in and uploaded app/plugin roots, validate `X-API-Key`, upload archives through the UI, verify runtime side effects, and include a prefixed API case.
+
 ## [2026-05-02] docs | QMD hyphenated semantic-query fix
 
 - Documented the third local QMD patch required by this wiki: `vec:`/`hyde:` semantic query validation must allow hyphenated terms such as `built-in`, `multi-agent`, `gpt-4`, and `client-side`.

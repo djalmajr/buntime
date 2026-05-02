@@ -14,7 +14,7 @@ export interface LogEntry {
 let logs: LogEntry[] = [];
 let maxEntries = 1000;
 let sseInterval = 1000;
-let logger: PluginContext["logger"] | undefined;
+let _logger: PluginContext["logger"] | undefined;
 
 /**
  * Configure log service
@@ -28,7 +28,7 @@ export function configure(options: { maxEntries?: number; sseInterval?: number }
  * Set logger instance
  */
 export function setLogger(l: PluginContext["logger"]) {
-  logger = l;
+  _logger = l;
 }
 
 /**

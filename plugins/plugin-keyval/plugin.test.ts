@@ -160,7 +160,6 @@ describe("plugin-keyval", () => {
     let adapter: DatabaseAdapter;
     let mockLogger: PluginLogger;
     let mockDatabaseService: DatabaseService;
-    let registeredServices: Map<string, unknown>;
 
     beforeAll(async () => {
       adapter = createTestAdapter();
@@ -174,14 +173,14 @@ describe("plugin-keyval", () => {
       };
 
       mockDatabaseService = {
-        getAdapter: () => adapter,
+        createTenant: async () => {},
+        deleteTenant: async () => {},
+        getAdapter: async () => adapter,
+        getAvailableTypes: () => ["libsql"],
         getDefaultType: () => "libsql",
         getRootAdapter: () => adapter,
-        hasAdapter: () => true,
-        listAdapterTypes: () => ["libsql"],
+        listTenants: async () => [],
       };
-
-      registeredServices = new Map();
     });
 
     afterAll(async () => {

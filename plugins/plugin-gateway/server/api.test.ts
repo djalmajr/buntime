@@ -256,8 +256,7 @@ describe("Gateway API", () => {
       expect(res.status).toBe(200);
       const data: ShellExcludeEntry[] = await res.json();
       expect(data).toHaveLength(1);
-      expect(data[0].basename).toBe("env-app");
-      expect(data[0].source).toBe("env");
+      expect(data[0]).toMatchObject({ basename: "env-app", source: "env" });
     });
 
     it("returns 400 if shell not configured", async () => {

@@ -41,7 +41,7 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "buntime.fullname" . }}
-            {{- if or .Values.buntime.masterKey .Values.buntime.libsqlAuthToken }}
+            {{- if .Values.buntime.masterKey }}
             - secretRef:
                 name: {{ include "buntime.fullname" . }}
             {{- end }}
@@ -50,6 +50,8 @@ spec:
               mountPath: /data/plugins
             - name: apps
               mountPath: /data/apps
+            - name: turso
+              mountPath: /data/turso
           livenessProbe:
             httpGet:
               path: {{ .Values.buntime.apiPrefix }}/api/health/live
@@ -69,3 +71,5 @@ spec:
         - name: apps
           persistentVolumeClaim:
             claimName: {{ include "buntime.fullname" . }}-apps
+        - name: turso
+          emptyDir: {}

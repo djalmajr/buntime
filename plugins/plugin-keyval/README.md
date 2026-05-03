@@ -1,6 +1,6 @@
 # @buntime/plugin-keyval
 
-Store key-value Deno KV-like sobre LibSQL — atomic ops, FTS, queues, watch SSE.
+Store key-value Deno KV-like sobre Turso — atomic ops, search, queues, watch SSE.
 
 Documentação completa:
 

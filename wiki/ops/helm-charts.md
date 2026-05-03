@@ -7,14 +7,16 @@ sources:
   - apps/runtime/docs/deployment/k3s-rancher.md
   - charts/values.base.yaml
   - charts/Chart.yaml
+  - https://docs.turso.tech/sync/local-sync-server
+  - https://docs.turso.tech/sdk/http/quickstart
 updated: 2026-05-02
-tags: [helm, k8s, charts, rancher]
+tags: [helm, k8s, charts, rancher, turso]
 status: stable
 ---
 
 # Helm charts and Kubernetes deploy
 
-> Chart structure under `charts/`, generation scripts, mandatory principles (volumes, defaults), most-used values, Rancher integration, and the LibSQL StatefulSet.
+> Chart structure under `charts/`, generation scripts, mandatory principles (volumes, defaults), most-used values, Rancher integration, and database service deployment.
 
 For chart versioning and publishing, see [Release flow](./release-flow.md). For environment variables that become ConfigMap entries, see [Environments](./environments.md).
 
@@ -38,7 +40,7 @@ charts/
 │       ├── route.yaml           # OpenShift Route (optional)
 │       ├── secret.yaml          # secrets (optional)
 │       └── service.yaml         # Service
-└── libsql/                      # LibSQL StatefulSet
+└── turso/                       # Target: Turso sync/remote service chart replacing legacy LibSQL
 ```
 
 The distinction between `values.base.yaml`/`values.yaml` (and equivalents) is intentional:
@@ -79,6 +81,21 @@ After regenerating: bump the chart version (see [Release flow](./release-flow.md
 
 ## Principles
 
+### 0. Workload kind: Deployment vs StatefulSet
+
+The Buntime runtime chart currently uses a `Deployment`. That should remain the default because runtime pods are compute workers, not the authoritative owner of a database. The Turso service chart that replaces the legacy LibSQL chart should use a `StatefulSet`, because it owns the durable sync/remote endpoint and its canonical database volume.
+
+| Workload | Recommended kind | Why |
+|----------|------------------|-----|
+| Buntime runtime | `Deployment` by default | Stateless compute process; easier rolling updates and autoscaling |
+| Turso sync/remote service | `StatefulSet` | Owns durable database files and needs stable storage identity |
+| Runtime local Turso sync cache | `emptyDir` at `/data/turso` | Cache is local to a pod; do not share one file across pods |
+| `/data/apps` and `/data/plugins` | Shared PVCs, not per-pod StatefulSet volumes | They are shared code/artifact stores; per-pod volumes would diverge |
+
+If runtime sync caches must survive pod rescheduling or a temporary Turso sync outage, introduce a per-pod database volume. That can be done with a runtime `StatefulSet`, but it is a trade-off: the runtime becomes identity-bound and less flexible to autoscale. The preferred baseline is `Deployment` plus `pushOnWrite`/`pullOnStart`; only switch the runtime to StatefulSet if unsynced local writes must survive pod loss.
+
+Do not use StatefulSet as a substitute for shared app/plugin distribution. Apps and plugins must be visible consistently to every runtime replica. With `replicaCount > 1`, `/data/apps` and `/data/plugins` need a `ReadWriteMany`-capable storage class or a future artifact-distribution model. With `ReadWriteOnce`, run one runtime replica.
+
 ### 1. Volumes are mandatory
 
 `/data/plugins` and `/data/apps` are **always** mounted. No conditionals.
@@ -103,16 +120,16 @@ Why: the runtime depends on the paths `/data/.apps:/data/apps` and `/data/.plugi
 
 ### 2. Core plugins must have env vars with defaults
 
-Enabled plugins (database, gateway, deployments, proxy, keyval) cannot use `{{- if .Values.X }}` for their main env vars.
+Enabled plugins (turso, gateway, deployments, proxy, keyval) cannot use `{{- if .Values.X }}` for their main env vars.
 
 ```yaml
 # CORRECT — always defines with a default
-DATABASE_LIBSQL_URL: {{ .Values.plugins.database.libsqlUrl | default "http://libsql:8080" | quote }}
+TURSO_MODE: {{ .Values.plugins.turso.mode | default "local" | quote }}
 GATEWAY_CORS_ORIGIN: {{ .Values.plugins.gateway.cors.origin | default "*" | quote }}
 
 # WRONG — conditional for a core plugin
-{{- if .Values.plugins.database.libsqlUrl }}
-DATABASE_LIBSQL_URL: {{ .Values.plugins.database.libsqlUrl | quote }}
+{{- if .Values.plugins.turso.mode }}
+TURSO_MODE: {{ .Values.plugins.turso.mode | quote }}
 {{- end }}
 ```
 
@@ -169,6 +186,21 @@ or CLI when the caller has the matching permission.
 | `buntime.workerResolverCacheTtlMs` | `1000` | Resolved directory cache |
 | `buntime.port` | `8000` | `Bun.serve` port |
 | `buntime.workerDirs` | `/data/.apps:/data/apps` | PATH style |
+
+### `plugins.turso.*` block
+
+The runtime chart now enables `@buntime/plugin-turso` by default and disables the legacy `@buntime/plugin-database` manifest. `plugins.turso.*` values are generated from `plugins/plugin-turso/manifest.yaml`; do not reintroduce `plugins.database.libsql*` or `DATABASE_LIBSQL_*` chart wiring.
+
+| Path | Default | Description |
+|------|---------|-------------|
+| `plugins.turso.mode` | `local` | `local` or `sync`; Kubernetes multi-pod deployments should use `sync` |
+| `plugins.turso.localPath` | `/data/turso/runtime.db` | Local Turso database file used by both modes |
+| `plugins.turso.sync.url` | `""` | Turso sync endpoint URL; required when mode is `sync` |
+| `plugins.turso.sync.authToken` | `""` | Optional Turso sync auth token |
+
+In `sync` mode each runtime pod must keep its own local Turso file and synchronize through the endpoint. Do not point multiple runtime pods at one shared database file on RWX storage.
+
+The runtime chart mounts `/data/turso` as `emptyDir`. This makes the Turso local file a pod-local cache, which is the desired Kubernetes baseline for `sync` mode. Plain `local` mode in Kubernetes is therefore suitable only for disposable/single-pod environments unless a future per-pod PVC option is added.
 
 ### Persistence
 
@@ -295,9 +327,23 @@ Critical fields for k3s:
 
 When the chart is published with a higher `version` in `Chart.yaml`, Rancher shows **"Upgrade Available"**. The versioning flow is described in [Release flow](./release-flow.md).
 
-## LibSQL StatefulSet (`charts/libsql`)
+## Turso service chart target
 
-Separate chart for the LibSQL server (Turso). Runs as a StatefulSet with a PVC, exposes HTTP (`8080`) and gRPC (`5001`):
+The runtime chart exposes Turso settings through generated `plugins.turso.*` values and generated `TURSO_*` ConfigMap entries. Buntime runtime pods should not embed a cluster-shared database file and should not depend on legacy LibSQL wiring.
+
+The target modes are:
+
+| Mode | Runtime pod behavior | Cluster service |
+|------|----------------------|-----------------|
+| `local` | Opens a local Turso database file | None; local tests and single-pod deployments only |
+| `sync` | Opens a local file and synchronizes with a remote sync endpoint | Turso sync server pod/StatefulSet, unless using an external Turso Cloud endpoint |
+| `remote` | Sends SQL over HTTP without a local file | Turso HTTP endpoint, either in-cluster or external |
+
+For self-hosted Kubernetes/Rancher, both `sync` and `remote` need an endpoint service. In the local cluster, that means a Turso StatefulSet/service replacing the legacy LibSQL chart. For Turso Cloud, the chart only needs URL/token configuration and no in-cluster Turso pod.
+
+The sync server model uses the Turso `tursodb` sync server (`tursodb ./server.db --sync-server 0.0.0.0:8080`) with its own PVC. Runtime pods use separate local database files and sync through that service instead of sharing one file through RWX storage.
+
+Legacy LibSQL behavior, kept here only as historical context, was:
 
 | Resource | Role |
 |----------|------|
@@ -306,9 +352,7 @@ Separate chart for the LibSQL server (Turso). Runs as a StatefulSet with a PVC, 
 | ConfigMap | `SQLD_NODE: primary`, ports |
 | Secret | `SQLD_AUTH_JWT_KEY` in production |
 
-In dev (`SQLD_DISABLE_AUTH=true`) this is acceptable; in production, always use a JWT token — see [Security](./security.md).
-
-Optional replicas (`SQLD_NODE: replica`, `SQLD_PRIMARY_URL`) fit in the same chart with `replicas: N` and a StorageClass that supports RWX if multiple nodes need to read/write the PVC.
+Do not model future Turso deployment as LibSQL primary/replica (`SQLD_NODE`, `SQLD_PRIMARY_URL`). Turso Sync is explicit push/pull around local Turso database files, and the runtime chart exposes Turso-oriented values instead of `DATABASE_LIBSQL_*`.
 
 ## Troubleshooting
 
@@ -319,4 +363,4 @@ Optional replicas (`SQLD_NODE: replica`, `SQLD_PRIMARY_URL`) fit in the same cha
 | Probe failing | `/api/health/live` and `/api/health/ready` must respond; `RUNTIME_API_PREFIX` changes these paths |
 | `Plugin X requires Y` | Y must be enabled in the manifest (see [Environments](./environments.md#startup-validation)) |
 | Missing cert | `kubectl get certificate -n zomme` + cert-manager logs |
-| LibSQL unreachable | `kubectl exec deployment/buntime -- wget -qO- http://libsql:8080/health` |
+| Turso service unreachable | Check the configured Turso service URL from the runtime pod; legacy clusters may still use `http://libsql:8080/health` until migrated |

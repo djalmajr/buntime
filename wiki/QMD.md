@@ -128,7 +128,7 @@ qmd --index buntime context add / "Canonical wiki for the Buntime project — Bu
 # Internal folders
 qmd --index buntime context add qmd://wiki/apps "Technical documentation for the runtime, client apps (cpanel, cli, vault), shared packages, and the 10 core plugins. Audience: dev. Does NOT contain operational rules — those live in ops/."
 qmd --index buntime context add qmd://wiki/ops "Operations: local dev, helm charts, release flow (GitHub + self-hosted GitLab), JSR publish, logging, performance, security. Audience: ops."
-qmd --index buntime context add qmd://wiki/data "Stores and schemas: LibSQL via plugin-keyval and plugin-proxy, API key file store, in-memory caches, apps/plugins PVCs. Audience: dev."
+qmd --index buntime context add qmd://wiki/data "Stores and schemas: Turso-backed plugin state, API key file store, in-memory caches, apps/plugins PVCs. Audience: dev."
 qmd --index buntime context add qmd://wiki/sources "Summaries of ingest operations. Each file describes what was consolidated and which final pages were created/updated."
 ```
 

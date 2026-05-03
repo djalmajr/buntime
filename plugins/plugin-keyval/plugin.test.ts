@@ -1,9 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import type { DatabaseAdapter, DatabaseService } from "@buntime/plugin-database";
 import type { PluginContext, PluginLogger } from "@buntime/shared/types";
 import keyvalExtension, { keyvalExtension as namedExport } from "./plugin";
-import { initSchema } from "./server/lib/schema";
-import { createTestAdapter } from "./server/lib/test-helpers";
+import { createTestTursoService, type TestTursoServiceHandle } from "./server/lib/test-helpers";
 
 describe("plugin-keyval", () => {
   describe("default export", () => {
@@ -34,8 +32,8 @@ describe("plugin-keyval", () => {
   });
 
   describe("config options", () => {
-    it("should accept database adapter type", () => {
-      const plugin = keyvalExtension({ database: "libsql" });
+    it("should return a plugin without storage-specific config", () => {
+      const plugin = keyvalExtension();
       expect(plugin).toBeDefined();
     });
 
@@ -61,8 +59,6 @@ describe("plugin-keyval", () => {
 
     it("should accept all options combined", () => {
       const plugin = keyvalExtension({
-        base: "/kv",
-        database: "libsql",
         metrics: {
           persistent: true,
           flushInterval: 60000,
@@ -157,13 +153,11 @@ describe("plugin-keyval", () => {
   });
 
   describe("lifecycle hooks", () => {
-    let adapter: DatabaseAdapter;
     let mockLogger: PluginLogger;
-    let mockDatabaseService: DatabaseService;
+    let turso: TestTursoServiceHandle;
 
     beforeAll(async () => {
-      adapter = createTestAdapter();
-      await initSchema(adapter);
+      turso = createTestTursoService();
 
       mockLogger = {
         debug: () => {},
@@ -171,20 +165,10 @@ describe("plugin-keyval", () => {
         info: () => {},
         warn: () => {},
       };
-
-      mockDatabaseService = {
-        createTenant: async () => {},
-        deleteTenant: async () => {},
-        getAdapter: async () => adapter,
-        getAvailableTypes: () => ["libsql"],
-        getDefaultType: () => "libsql",
-        getRootAdapter: () => adapter,
-        listTenants: async () => [],
-      };
     });
 
     afterAll(async () => {
-      await adapter.close();
+      await turso.close();
     });
 
     it("should initialize successfully with valid context", async () => {
@@ -193,8 +177,8 @@ describe("plugin-keyval", () => {
       const mockContext: PluginContext = {
         config: {},
         getPlugin: <T>(name: string): T | undefined => {
-          if (name === "@buntime/plugin-database") {
-            return mockDatabaseService as T;
+          if (name === "@buntime/plugin-turso") {
+            return turso.service as T;
           }
           return undefined;
         },
@@ -211,7 +195,7 @@ describe("plugin-keyval", () => {
       await plugin.onShutdown?.();
     });
 
-    it("should throw error when database service is not available", async () => {
+    it("should throw error when Turso service is not available", async () => {
       const plugin = keyvalExtension();
 
       const mockContext: PluginContext = {
@@ -223,18 +207,18 @@ describe("plugin-keyval", () => {
       };
 
       await expect(plugin.onInit?.(mockContext)).rejects.toThrow(
-        "plugin-keyval requires @buntime/plugin-database to be loaded first",
+        "plugin-keyval requires @buntime/plugin-turso to be loaded first",
       );
     });
 
-    it("should initialize with custom database adapter type", async () => {
-      const plugin = keyvalExtension({ database: "libsql" });
+    it("should initialize with Turso service", async () => {
+      const plugin = keyvalExtension({});
 
       const mockContext: PluginContext = {
         config: {},
         getPlugin: <T>(name: string): T | undefined => {
-          if (name === "@buntime/plugin-database") {
-            return mockDatabaseService as T;
+          if (name === "@buntime/plugin-turso") {
+            return turso.service as T;
           }
           return undefined;
         },
@@ -262,8 +246,8 @@ describe("plugin-keyval", () => {
       const mockContext: PluginContext = {
         config: {},
         getPlugin: <T>(name: string): T | undefined => {
-          if (name === "@buntime/plugin-database") {
-            return mockDatabaseService as T;
+          if (name === "@buntime/plugin-turso") {
+            return turso.service as T;
           }
           return undefined;
         },
@@ -290,8 +274,8 @@ describe("plugin-keyval", () => {
       const mockContext: PluginContext = {
         config: {},
         getPlugin: <T>(name: string): T | undefined => {
-          if (name === "@buntime/plugin-database") {
-            return mockDatabaseService as T;
+          if (name === "@buntime/plugin-turso") {
+            return turso.service as T;
           }
           return undefined;
         },
@@ -311,8 +295,8 @@ describe("plugin-keyval", () => {
       const mockContext: PluginContext = {
         config: {},
         getPlugin: <T>(name: string): T | undefined => {
-          if (name === "@buntime/plugin-database") {
-            return mockDatabaseService as T;
+          if (name === "@buntime/plugin-turso") {
+            return turso.service as T;
           }
           return undefined;
         },

@@ -1,23 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import type { DatabaseService } from "@buntime/plugin-database";
 import { Kv } from "./lib/kv";
 import { initSchema } from "./lib/schema";
-import { createTestAdapter } from "./lib/test-helpers";
+import { TursoKeyValAdapter } from "./lib/sql-adapter.ts";
+import { createTestTursoService } from "./lib/test-helpers";
 import { getKv, getLogger, initialize, shutdown } from "./services";
 
 describe("services", () => {
-  const adapter = createTestAdapter();
-
-  // Mock DatabaseService
-  const mockDatabaseService: DatabaseService = {
-    createTenant: async () => {},
-    deleteTenant: async () => {},
-    getAdapter: async () => adapter,
-    getAvailableTypes: () => ["libsql"],
-    getDefaultType: () => "libsql",
-    getRootAdapter: () => adapter,
-    listTenants: async () => [],
-  };
+  const turso = createTestTursoService();
+  const adapter = new TursoKeyValAdapter({
+    namespace: "keyval",
+    service: turso.service,
+  });
 
   const mockLogger = {
     debug: () => {},
@@ -31,7 +24,7 @@ describe("services", () => {
   });
 
   afterAll(async () => {
-    await adapter.close();
+    await turso.close();
   });
 
   beforeEach(async () => {
@@ -40,15 +33,7 @@ describe("services", () => {
 
   describe("initialize", () => {
     it("should initialize and return a Kv instance", async () => {
-      const kv = await initialize(mockDatabaseService, {}, mockLogger);
-
-      expect(kv).toBeInstanceOf(Kv);
-
-      await shutdown();
-    });
-
-    it("should initialize with custom adapter type", async () => {
-      const kv = await initialize(mockDatabaseService, { adapterType: "libsql" }, mockLogger);
+      const kv = await initialize(turso.service, {}, mockLogger);
 
       expect(kv).toBeInstanceOf(Kv);
 
@@ -57,7 +42,7 @@ describe("services", () => {
 
     it("should initialize with metrics configuration", async () => {
       const kv = await initialize(
-        mockDatabaseService,
+        turso.service,
         {
           metrics: {
             persistent: true,
@@ -74,7 +59,7 @@ describe("services", () => {
 
     it("should initialize with queue configuration", async () => {
       const kv = await initialize(
-        mockDatabaseService,
+        turso.service,
         {
           queue: {
             cleanupInterval: 30000,
@@ -90,7 +75,7 @@ describe("services", () => {
     });
 
     it("should set API state correctly", async () => {
-      const kv = await initialize(mockDatabaseService, {}, mockLogger);
+      const kv = await initialize(turso.service, {}, mockLogger);
 
       // The API state should be set - we can verify by using the API
       // but since the API routes are tested in index.test.ts, we just
@@ -103,7 +88,7 @@ describe("services", () => {
 
   describe("getKv", () => {
     it("should return the initialized Kv instance", async () => {
-      const kv = await initialize(mockDatabaseService, {}, mockLogger);
+      const kv = await initialize(turso.service, {}, mockLogger);
 
       const retrievedKv = getKv();
       expect(retrievedKv).toBe(kv);
@@ -114,7 +99,7 @@ describe("services", () => {
 
   describe("getLogger", () => {
     it("should return the logger instance", async () => {
-      await initialize(mockDatabaseService, {}, mockLogger);
+      await initialize(turso.service, {}, mockLogger);
 
       const retrievedLogger = getLogger();
       expect(retrievedLogger).toBe(mockLogger);
@@ -125,7 +110,7 @@ describe("services", () => {
 
   describe("shutdown", () => {
     it("should close the Kv instance", async () => {
-      const kv = await initialize(mockDatabaseService, {}, mockLogger);
+      const kv = await initialize(turso.service, {}, mockLogger);
 
       // Verify kv is working
       await kv.set(["test"], { value: 1 });

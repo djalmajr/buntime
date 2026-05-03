@@ -45,13 +45,13 @@ export function parseCookieValue(cookieHeader: string | null, name: string): str
  * @param pathname - Request pathname
  * @param cookieHeader - Cookie header value
  * @param envExcludes - Excludes from environment/config (non-removable)
- * @param keyvalExcludes - Excludes from KeyVal persistence (removable via dashboard)
+ * @param persistenceExcludes - Excludes from persistence (removable via dashboard)
  */
 export function shouldBypassShell(
   pathname: string,
   cookieHeader: string | null,
   envExcludes: Set<string>,
-  keyvalExcludes: Set<string> = new Set(),
+  persistenceExcludes: Set<string> = new Set(),
 ): boolean {
   const basename = extractBasename(pathname);
   if (!basename) return false;
@@ -61,8 +61,8 @@ export function shouldBypassShell(
     return true;
   }
 
-  // 2. Check keyval excludes (from dashboard/persistence)
-  if (keyvalExcludes.has(basename)) {
+  // 2. Check persisted excludes (from dashboard/persistence)
+  if (persistenceExcludes.has(basename)) {
     return true;
   }
 

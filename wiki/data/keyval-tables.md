@@ -1,22 +1,21 @@
 ---
-title: "KV Table Schema (LibSQL)"
+title: "KV Table Schema"
 audience: dev
 sources:
   - plugins/plugin-keyval/server/lib/schema.ts
   - plugins/plugin-keyval/server/services.ts
-  - plugins/plugin-proxy/server/services.ts
 updated: 2026-05-02
-tags: [data, libsql, keyval, tables]
+tags: [data, turso, legacy-libsql, keyval, tables]
 status: stable
 ---
 
-# KV Table Schema (LibSQL)
+# KV Table Schema
 
-> **Schema reference** for the tables that `@buntime/plugin-keyval` creates in the selected adapter, and how other plugins (notably `plugin-proxy`) reuse the same storage. Behavior, REST API, and operation semantics live in [plugin-keyval](../apps/plugin-keyval.md) — this page focuses on DDL and encoding.
+> **Current schema reference** for the tables that `@buntime/plugin-keyval` creates through `@buntime/plugin-turso`. Behavior, REST API, and operation semantics live in [plugin-keyval](../apps/plugin-keyval.md) — this page focuses on DDL and encoding.
 
 ## Initialization
 
-`initSchema(adapter)` is called in the plugin's `onInit` (`plugins/plugin-keyval/server/lib/schema.ts`) as a single `adapter.batch([...])`, creating six tables plus auxiliary indexes. All use `CREATE TABLE IF NOT EXISTS`, so restarts are idempotent. The adapter is whatever `plugin-database` returns from `getRootAdapter(config.database)`.
+`initSchema(adapter)` is called in the plugin's `onInit` (`plugins/plugin-keyval/server/lib/schema.ts`) as a single `adapter.batch([...])`, creating six tables plus auxiliary indexes. All use `CREATE TABLE IF NOT EXISTS`, so restarts are idempotent. The adapter is `TursoKeyValAdapter`, a KeyVal-owned compatibility layer over `TursoService`.
 
 | Table | Purpose | Persistent | Notes |
 |-------|---------|------------|-------|
@@ -24,8 +23,8 @@ status: stable
 | `kv_queue` | Active FIFO queue (pending/processing) | Always | Locked by `locked_until` |
 | `kv_dlq` | Dead-letter queue | Always | No automatic cleanup |
 | `kv_metrics` | Aggregated counters | When `metrics.persistent: true` | Periodic flush |
-| `kv_indexes` | FTS index metadata | Whenever FTS is present | FTS5 virtual tables created on demand |
-| `kv_fts_<prefix>` (virtual) | Per-prefix FTS5 index | When `POST /api/indexes` is called | Dynamic schema (fields come from the request) |
+| `kv_indexes` | Search index metadata | Whenever search is present | Prefix, field list, tokenizer metadata |
+| `kv_fts_<prefix>` | Per-prefix search table | When `POST /api/indexes` is called | Regular table with `doc_key` and normalized `document` text |
 
 ## kv_entries
 
@@ -142,7 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_metrics_operation ON kv_metrics(operation);
 
 The table is always created (DDL in `initSchema`), but only populated when `metrics.persistent: true`. The flush cadence is controlled by `metrics.flushInterval` (default `30000` ms). For ephemeral deployments, leaving this `false` and exposing metrics via `/api/metrics` or `/api/metrics/prometheus` (in-memory) is sufficient.
 
-## kv_indexes + FTS5 Virtual Tables
+## kv_indexes + Search Tables
 
 ```sql
 CREATE TABLE IF NOT EXISTS kv_indexes (
@@ -153,14 +152,18 @@ CREATE TABLE IF NOT EXISTS kv_indexes (
 );
 ```
 
-Each row in `kv_indexes` corresponds to **one** FTS5 virtual table created dynamically when the user calls `POST /api/indexes`:
+Each row in `kv_indexes` corresponds to **one** regular search table created dynamically when the user calls `POST /api/indexes`:
 
 ```sql
-CREATE VIRTUAL TABLE IF NOT EXISTS kv_fts_<hash-of-prefix>
-USING fts5(<field1>, <field2>, ..., tokenize='<tokenize>');
+CREATE TABLE IF NOT EXISTS kv_fts_<hash-of-prefix> (
+  doc_key TEXT PRIMARY KEY,
+  document TEXT NOT NULL
+);
 ```
 
-Triggers on `kv_entries` (see `server/tests/triggers.test.ts`) synchronize INSERT/UPDATE/DELETE from the base table into the corresponding FTS table whenever the key falls under the prefix. Synchronization is automatic for `set`/`delete`/atomic — no manual reindex is needed unless the index is recreated.
+The `document` column stores normalized text extracted from the configured fields. Synchronization is automatic for `set`/`delete`/atomic — no manual reindex is needed unless the index is recreated.
+
+> Turso Database with MVCC rejects SQLite virtual tables, and the installed SDK also showed FTS5 module limitations. Do not recreate `kv_fts_*` as `CREATE VIRTUAL TABLE`; keep it as a regular KeyVal-owned table unless Turso support changes and tests prove the migration.
 
 | Tokenizer | SQLite Implementation |
 |-----------|-----------------------|
@@ -168,26 +171,15 @@ Triggers on `kv_entries` (see `server/tests/triggers.test.ts`) synchronize INSER
 | `porter` | English stemming |
 | `ascii` | Plain ASCII |
 
-## plugin-proxy: Dynamic Rules
+## Former plugin-proxy Dynamic Rules
 
-`plugin-proxy` **does not create its own tables**. It consumes `Kv` via `ctx.getPlugin<Kv>("@buntime/plugin-keyval")` and stores each rule as a `kv_entries` entry under the prefix:
+`plugin-proxy` no longer stores dynamic rules in KeyVal. The former prefix
+`["proxy", "rules"]` has been replaced by the proxy-owned `proxy_rules` table
+through [`plugin-turso`](../apps/plugin-turso.md).
 
-```ts
-const KV_PREFIX = ["proxy", "rules"];
-// services.ts:133
-```
-
-Operations:
-
-| plugin-proxy operation | KV call | Row in `kv_entries` |
-|------------------------|---------|----------------------|
-| `listRules()` (dynamic) | `kv.list(["proxy", "rules"])` | Iterates all keys under this prefix |
-| `addRule(rule)` / `updateRule` | `kv.set(["proxy","rules", rule.id], rule)` | Insert/update of the row |
-| `deleteRule(id)` | `kv.delete(["proxy","rules", id])` | Delete by exact key |
-
-`rule.id` is generated as `kv-<random>` when not provided. Static rules live in `manifest.yaml` and never touch KV (they receive `id="static-{index}"`). This is why the UI displays the type (`kv-…` vs `static-…`) and blocks deletion of static rules.
-
-> The sequence `["proxy", "rules", "kv-abc"]` is encoded into a single BLOB following the encoding rules above — there is no separate `proxy_rules` table.
+Static rules still live in `manifest.yaml` and never touch KeyVal. Dynamic rules
+now receive generated UUIDs and are documented in
+[`plugin-proxy`](../apps/plugin-proxy.md).
 
 ## Cross-References
 

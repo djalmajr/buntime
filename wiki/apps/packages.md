@@ -227,7 +227,9 @@ To promote a file `src/<area>.ts` to a public export:
 
 ## @buntime/database
 
-Client SDK for the [@buntime/plugin-database](./plugin-database.md) HTTP service. This is the package that workers and apps use to speak SQL to the runtime via the HRANA protocol, without needing a native driver. For the server side, multi-tenancy, available adapters (LibSQL, SQLite, MySQL, PostgreSQL), and HRANA details, see the plugin page.
+Client SDK for the [@buntime/plugin-database](./plugin-database.md) HTTP service. This is the current package that workers and apps use to speak SQL to the runtime via the HRANA protocol, without needing a native driver.
+
+Target direction: collapse this package to the Turso-only durable SQL model. The current LibSQL/SQLite/MySQL/PostgreSQL subpaths are migration candidates, not a long-term API surface.
 
 ### What the package provides
 
@@ -238,6 +240,9 @@ Client SDK for the [@buntime/plugin-database](./plugin-database.md) HTTP service
 
 ### Subpaths and exports
 
+> Current implementation. The target package should not keep adapter-specific
+> subpaths for SQLite/MySQL/PostgreSQL.
+
 | Subpath | Default export | Named exports |
 |---------|----------------|---------------|
 | `@buntime/database` | — | `createClient`, `DatabaseClient`, `LibSqlCompatibleClient`, types `AdapterType`, `DatabaseClientConfig`, `HranaColumn`, `HranaError`, `HranaPipelineReqBody`, `HranaPipelineRespBody`, `HranaStmt`, `HranaStmtResult`, `HranaValue`, `ResultSet`, `Row`, `Statement`, `Transaction` |
@@ -247,6 +252,8 @@ Client SDK for the [@buntime/plugin-database](./plugin-database.md) HTTP service
 | `@buntime/database/postgres` | PostgreSQL adapter | same shape as `libsql.ts` |
 
 ### Typical usage
+
+> Current implementation examples.
 
 ```typescript
 // 1. Default — worker speaks to the default adapter (libsql)

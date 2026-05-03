@@ -25,9 +25,9 @@ export interface GatewayApiDeps {
   getShellConfig: () => {
     dir: string;
     envExcludes: Set<string>;
-    keyvalExcludes: Set<string>;
-    addKeyValExclude: (basename: string) => void;
-    removeKeyValExclude: (basename: string) => boolean;
+    tursoExcludes: Set<string>;
+    addTursoExclude: (basename: string) => void;
+    removeTursoExclude: (basename: string) => boolean;
   } | null;
   /** SSE update interval in milliseconds */
   sseInterval?: number;
@@ -43,7 +43,7 @@ async function buildSSEData(deps: GatewayApiDeps): Promise<GatewaySSEData> {
   const persistence = deps.getPersistence();
   const shellConfig = deps.getShellConfig();
 
-  // Get shell excludes (combined env + keyval)
+  // Get shell excludes (combined env + Turso)
   let shellExcludes: ShellExcludeEntry[] = [];
   if (shellConfig) {
     shellExcludes = await persistence.getAllShellExcludes(shellConfig.envExcludes);
@@ -137,7 +137,7 @@ export function createGatewayApi(deps: GatewayApiDeps) {
             enabled: !!shellConfig,
             dir: shellConfig?.dir ?? null,
             excludesCount: shellConfig
-              ? shellConfig.envExcludes.size + shellConfig.keyvalExcludes.size
+              ? shellConfig.envExcludes.size + shellConfig.tursoExcludes.size
               : 0,
           },
           logs: logger.getStats(),
@@ -212,7 +212,7 @@ export function createGatewayApi(deps: GatewayApiDeps) {
       })
 
       // =========================================================================
-      // Metrics History - Historical data from KeyVal
+      // Metrics History - Historical data from Turso
       // =========================================================================
       .get("/metrics/history", async (ctx) => {
         const persistence = deps.getPersistence();
@@ -272,10 +272,10 @@ export function createGatewayApi(deps: GatewayApiDeps) {
 
         // Update in-memory set for immediate effect
         if (added) {
-          shellConfig.addKeyValExclude(basename);
+          shellConfig.addTursoExclude(basename);
         }
 
-        return ctx.json({ added, basename, source: "keyval" });
+        return ctx.json({ added, basename, source: "turso" });
       })
 
       .delete("/shell/excludes/:basename", async (ctx) => {
@@ -297,7 +297,7 @@ export function createGatewayApi(deps: GatewayApiDeps) {
 
         // Update in-memory set for immediate effect
         if (removed) {
-          shellConfig.removeKeyValExclude(basename);
+          shellConfig.removeTursoExclude(basename);
         }
 
         return ctx.json({ removed, basename });

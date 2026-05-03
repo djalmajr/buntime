@@ -1,15 +1,10 @@
-import type { AdapterType, DatabaseService } from "@buntime/plugin-database";
+import type { TursoService } from "@buntime/plugin-turso";
+import { ValidationError } from "@buntime/shared/errors";
 import type { PluginContext, PluginImpl } from "@buntime/shared/types";
 import { api } from "./server";
 import { getKv, initialize, shutdown } from "./server/services";
 
 export interface KeyValConfig {
-  /**
-   * Database adapter type to use (uses default if not specified)
-   * @example "libsql", "sqlite", "postgres"
-   */
-  database?: AdapterType;
-
   /**
    * Metrics settings
    */
@@ -57,21 +52,11 @@ export interface KeyValConfig {
  *
  * @example
  * ```yaml
- * # plugins/plugin-database/manifest.yaml
- * name: "@buntime/plugin-database"
- * enabled: true
- * adapters:
- *   - type: libsql
- *     default: true
- *     urls:
- *       - http://localhost:8880
- * ```
- *
- * ```yaml
  * # plugins/plugin-keyval/manifest.yaml
  * name: "@buntime/plugin-keyval"
  * enabled: true
- * database: libsql
+ * dependencies:
+ *   - "@buntime/plugin-turso"
  * metrics:
  *   persistent: true
  * ```
@@ -85,24 +70,24 @@ export default function keyvalExtension(config: KeyValConfig = {}): PluginImpl {
     provides: () => getKv(),
 
     async onInit(ctx: PluginContext) {
-      // Get database service from plugin-database
-      const database = ctx.getPlugin<DatabaseService>("@buntime/plugin-database");
-      if (!database) {
-        throw new Error("plugin-keyval requires @buntime/plugin-database to be loaded first");
+      const turso = ctx.getPlugin<TursoService>("@buntime/plugin-turso");
+      if (!turso) {
+        throw new ValidationError(
+          "plugin-keyval requires @buntime/plugin-turso to be loaded first",
+          "MISSING_TURSO_SERVICE",
+        );
       }
 
       await initialize(
-        database,
+        turso,
         {
-          adapterType: config.database,
           metrics: config.metrics,
           queue: config.queue,
         },
         ctx.logger,
       );
 
-      const dbType = config.database ?? database.getDefaultType();
-      ctx.logger.info(`KeyVal initialized (database: ${dbType})`);
+      ctx.logger.info("KeyVal initialized (storage: turso)");
     },
 
     async onShutdown() {

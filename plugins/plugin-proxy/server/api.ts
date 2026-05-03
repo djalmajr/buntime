@@ -5,9 +5,9 @@ import {
   deleteRule,
   getAllRules,
   getDynamicRules,
-  getKv,
   getLogger,
   getNextOrder,
+  getRuleStorage,
   getStaticRules,
   type ProxyRule,
   ruleToResponse,
@@ -39,11 +39,10 @@ export const api = new Hono()
 
   // Create a new dynamic rule
   .post("/rules", async (ctx) => {
-    const kv = getKv();
     const logger = getLogger();
 
-    if (!kv) {
-      return ctx.json({ error: "Dynamic rules not enabled (plugin-keyval not configured)" }, 400);
+    if (!getRuleStorage()) {
+      return ctx.json({ error: "Dynamic rules not enabled (plugin-turso not configured)" }, 400);
     }
 
     const body = await ctx.req.json<Omit<ProxyRule, "id">>();
@@ -75,10 +74,9 @@ export const api = new Hono()
 
   // Reorder dynamic rules
   .put("/rules/reorder", async (ctx) => {
-    const kv = getKv();
     const logger = getLogger();
 
-    if (!kv) {
+    if (!getRuleStorage()) {
       return ctx.json({ error: "Dynamic rules not enabled" }, 400);
     }
 
@@ -132,10 +130,9 @@ export const api = new Hono()
 
   // Update an existing dynamic rule
   .put("/rules/:id", async (ctx) => {
-    const kv = getKv();
     const logger = getLogger();
 
-    if (!kv) {
+    if (!getRuleStorage()) {
       return ctx.json({ error: "Dynamic rules not enabled" }, 400);
     }
 
@@ -189,10 +186,9 @@ export const api = new Hono()
 
   // Toggle enabled/disabled for a dynamic rule
   .patch("/rules/:id/toggle", async (ctx) => {
-    const kv = getKv();
     const logger = getLogger();
 
-    if (!kv) {
+    if (!getRuleStorage()) {
       return ctx.json({ error: "Dynamic rules not enabled" }, 400);
     }
 
@@ -228,10 +224,9 @@ export const api = new Hono()
 
   // Delete a dynamic rule
   .delete("/rules/:id", async (ctx) => {
-    const kv = getKv();
     const logger = getLogger();
 
-    if (!kv) {
+    if (!getRuleStorage()) {
       return ctx.json({ error: "Dynamic rules not enabled" }, 400);
     }
 

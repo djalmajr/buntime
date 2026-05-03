@@ -10,14 +10,17 @@ sources:
   - plugins/plugin-proxy/docs/concepts/websocket-proxying.md
   - plugins/plugin-proxy/docs/guides/configuration.md
   - apps/runtime/docs/guides/proxy-rules.md
+  - https://docs.turso.tech/tursodb/concurrent-writes
+  - https://docs.turso.tech/sdk/ts/reference
+  - https://docs.turso.tech/sync/usage
 updated: 2026-05-02
-tags: [plugin, proxy, redirects, websocket]
+tags: [plugin, proxy, redirects, websocket, storage]
 status: stable
 ---
 
 # @buntime/plugin-proxy
 
-> Dynamic HTTP and WebSocket reverse proxy, with static rules in the manifest and dynamic rules persisted in LibSQL via `@buntime/plugin-keyval`. Default mount base: `/redirects`.
+> Dynamic HTTP and WebSocket reverse proxy, with static rules in the manifest and dynamic rules persisted through `@buntime/plugin-turso`, so proxy can run independently from KeyVal/Database. Default mount base: `/redirects`.
 
 ## Overview
 
@@ -28,7 +31,7 @@ status: stable
 - Pattern matching via JavaScript regex with capture groups (`$1`, `$2`, …)
 - Path rewriting referencing capture groups
 - Transparent WebSocket proxying (upgrade + relay)
-- Dynamic rules via REST API, persisted in `plugin-keyval`
+- Dynamic rules via REST API, persisted in proxy-owned Turso tables
 - Static rules in `manifest.yaml` (read-only at runtime)
 - Per-rule custom headers
 - `publicRoutes` per HTTP method (auth bypass integrated with `plugin-authn`)
@@ -66,7 +69,7 @@ enabled: true
 injectBase: true
 
 dependencies:
-  - "@buntime/plugin-keyval"
+  - "@buntime/plugin-turso"
 
 entrypoint: dist/client/index.html
 pluginEntry: dist/plugin.js
@@ -87,11 +90,25 @@ rules: []          # static rules (optional)
 
 Everything else (base path, dependencies, menu) follows the standard plugin system schema — see [plugin-system](../apps/plugin-system.md) when that page exists.
 
+### Storage direction
+
+The implementation declares a dependency on `@buntime/plugin-turso` and stores dynamic rules in proxy-owned `proxy_rules` storage.
+
+The storage architecture is:
+
+- `@buntime/plugin-proxy` owns its `proxy_rules` table and dynamic-rule repository.
+- The plugin manifest depends on `@buntime/plugin-turso` for durable SQL access, not on `@buntime/plugin-keyval` or `@buntime/plugin-database`.
+- Do not route proxy storage through `plugin-keyval` as `proxy -> keyval -> turso`; KeyVal should be validated by its own tests and smoke flows, not by becoming mandatory proxy infrastructure.
+- Turso Database is the durable driver for production because it supports MVCC and `BEGIN CONCURRENT` for concurrent writes.
+- `bun:sqlite` is not the default durable driver for this state because SQLite WAL still allows only one writer at a time.
+
+See [plugin-turso](./plugin-turso.md) and [storage-overview](../data/storage-overview.md#plugin-turso-provider-decision) for the cross-plugin decision.
+
 ## Rule model (ProxyRule)
 
 | Field          | Type                          | Required | Default     | Description                                                        |
 |----------------|-------------------------------|----------|-------------|--------------------------------------------------------------------|
-| `id`           | `string`                      | auto     | generated   | Unique identifier. Static: `static-{index}`. Dynamic: `kv-…`      |
+| `id`           | `string`                      | auto     | generated   | Unique identifier. Static: `static-{index}`. Dynamic: UUID       |
 | `name`         | `string`                      | yes      | —           | Human-readable name                                                |
 | `pattern`      | `string`                      | yes      | —           | JS regex tested against the request pathname                       |
 | `target`       | `string`                      | yes      | —           | Destination URL (supports `${ENV_VAR}` and partial composition)    |
@@ -213,7 +230,7 @@ All routes are under `/{base}/api/*` — default `/redirects/api/*`. Authenticat
 | Method   | Endpoint              | Description                                         |
 |----------|-----------------------|-----------------------------------------------------|
 | `GET`    | `/api/rules`          | List all rules (static + dynamic)                   |
-| `POST`   | `/api/rules`          | Create dynamic rule (persists in KeyVal)            |
+| `POST`   | `/api/rules`          | Create dynamic rule in `proxy_rules` through `plugin-turso` |
 | `PUT`    | `/api/rules/:id`      | Update dynamic rule (static → 400 error)            |
 | `DELETE` | `/api/rules/:id`      | Remove dynamic rule (static → 400 error)            |
 
@@ -241,7 +258,7 @@ All routes are under `/{base}/api/*` — default `/redirects/api/*`. Authenticat
 
 ### `POST /api/rules`
 
-Body is a `ProxyRule` without `id`. `200 OK` response returns the created rule with a generated `id` (`kv-…`). Body parameters follow the [Rule model](#rule-model-proxyrule) table.
+Body is a `ProxyRule` without `id`. `201 Created` response returns the created rule with a generated UUID `id`. Body parameters follow the [Rule model](#rule-model-proxyrule) table.
 
 ```bash
 curl -X POST http://localhost:8000/redirects/api/rules \
@@ -265,7 +282,7 @@ Updates a dynamic rule — body with fields to change. Attempting to edit a stat
 
 ### `DELETE /api/rules/:id`
 
-Removes a dynamic rule. Response `{"deleted": true, "id": "kv-..."}`. Static rules return `400` with `{"error":"Cannot delete static rule"}`.
+Removes a dynamic rule. Response `{"success": true}`. Static rules return `403` with `{"error":"Cannot delete static rules"}`.
 
 ### TypeScript types
 
@@ -350,7 +367,7 @@ if (proxy?.isPublic(request.pathname, request.method)) {
 
 | Hook            | Role                                                                  |
 |-----------------|-----------------------------------------------------------------------|
-| `onInit`        | Gets KeyVal service, loads dynamic rules and merges with static ones  |
+| `onInit`        | Gets `plugin-turso`, initializes `proxy_rules` on demand, loads dynamic rules, and merges them with static ones |
 | `onServerStart` | Captures Bun server reference (required for `server.upgrade`)         |
 | `onRequest`     | Matches request against rules; on match, forwards and short-circuits  |
 | `onShutdown`    | Closes WebSocket connections and cleans up                            |
@@ -360,16 +377,16 @@ if (proxy?.isPublic(request.pathname, request.method)) {
 
 | Plugin                   | Required | Role                                                   |
 |--------------------------|----------|--------------------------------------------------------|
-| `@buntime/plugin-keyval` | Yes      | Dynamic rule persistence (LibSQL via KeyVal)           |
+| `@buntime/plugin-turso`  | Yes | Durable SQL provider for `proxy_rules` |
 
-Without `plugin-keyval`, only static rules work — API CRUD operations fail. The canonical KeyVal documentation (schema, backends, API) lives on its own wiki page — see [plugin-keyval](./plugin-keyval.md) when consolidated.
+Without `plugin-turso`, proxy still supports static manifest rules but dynamic rule API mutations return `400 Dynamic rules not enabled`.
 
 Static vs dynamic:
 
 | Aspect          | Static (manifest)           | Dynamic (API)                        |
 |-----------------|-----------------------------|--------------------------------------|
 | Defined in      | `manifest.yaml`             | REST API                             |
-| Persistence     | Always available            | KeyVal (requires `plugin-keyval`)    |
+| Persistence     | Always available            | `proxy_rules` through `plugin-turso` |
 | Modifiable?     | No                          | Yes (CRUD)                           |
 | Match order     | First                       | After static rules                   |
 | `readonly`      | `true`                      | `false`                              |
@@ -513,7 +530,7 @@ wscat -c ws://localhost:8000/ws/chat
 |--------------------------------------------|-----------------------------------------------------------------------------------------------|
 | Rule does not match request                | Validate regex against the pathname; check order (static → dynamic, more specific first); confirm `enabled: true` in manifest |
 | Connection to target fails                 | `curl <target>` directly; check resolved `${ENV_VAR}` (`curl /redirects/api/rules \| jq '.[].target'`); for dev HTTPS self-signed use `secure: false` |
-| Dynamic rules disappear after restart      | Confirm `plugin-keyval` is active with a persistent backend; check proxy plugin logs          |
+| Dynamic rules disappear after restart      | Confirm [`plugin-turso`](./plugin-turso.md) is active and configured with durable local/sync storage |
 | `400 Cannot modify/delete static rule`     | The rule is from `manifest.yaml` — edit the manifest and redeploy                             |
 | WebSocket does not upgrade                 | `ws: true` on the rule; pattern matches the upgrade path; deploy must be on the main thread (not a worker) |
 | Auth blocks a route that should be public  | Add path to `publicRoutes` under the correct method; remember that glob `**` is multi-segment and `*` is a single segment |
@@ -539,5 +556,5 @@ kubectl -n zomme logs -f $POD | grep -i proxy
 - Original source of the operational guide: `apps/runtime/docs/guides/proxy-rules.md`
 - Plugin README: `plugins/plugin-proxy/README.md`
 - Concept docs: `plugins/plugin-proxy/docs/concepts/`
-- Persistence: see `@buntime/plugin-keyval` (dedicated page)
+- Persistence: see [storage-overview](../data/storage-overview.md#plugin-turso-provider-decision)
 - Auth bypass: see `@buntime/plugin-authn` (dedicated page — consumes `isPublic`)

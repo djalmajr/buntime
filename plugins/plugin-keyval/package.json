@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@buntime/keyval": "workspace:*",
-    "@buntime/plugin-database": "workspace:*",
+    "@buntime/plugin-turso": "workspace:*",
     "@buntime/shared": "workspace:*",
     "@glideapps/glide-data-grid": "^6.0.3",
     "@iconify-icon/react": "^2.1.0",

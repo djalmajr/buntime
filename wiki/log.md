@@ -1,5 +1,272 @@
 # Change Log
 
+## [2026-05-02] agents | proxy runtime validation gotchas
+
+Recorded runtime validation findings from loading `@buntime/plugin-proxy` through
+the real plugin loader and browser UI.
+
+What changed:
+
+- `apps/plugin-turso.md`, `agents/turso-implementation-handoff.md`, and
+  `agents/turso-clean-session-plan.md` now document the Turso native binding
+  failure mode and the need to rebuild `dist/plugin.js` bundles before runtime
+  validation.
+- Captured that `@tursodatabase/database` and `@tursodatabase/sync` are native
+  dependency packages per the official Turso TypeScript reference.
+- Captured the Darwin ARM64 local binding names that resolved the loader error:
+  `@tursodatabase/database-darwin-arm64` and
+  `@tursodatabase/sync-darwin-arm64`.
+
+Why: source-level tests can pass while runtime validation fails if Bun skipped a
+native optional dependency or if the runtime is still loading stale bundled
+plugin code through `manifest.pluginEntry`.
+
+## [2026-05-02] ops | runtime chart migrated to Turso settings
+
+Migrated runtime Helm generation from legacy LibSQL/database adapter settings to
+the Turso provider settings generated from `plugins/plugin-turso/manifest.yaml`.
+
+What changed:
+
+- `ops/helm-charts.md`, `apps/plugin-turso.md`, and `data/storage-overview.md`
+  now describe `plugins.turso.*` values and generated `TURSO_*` env vars as the
+  runtime chart surface.
+- `agents/turso-implementation-handoff.md` and
+  `agents/turso-clean-session-plan.md` now mark chart/runtime configuration as
+  completed and point the next slice at remaining legacy database-adapter
+  consumers/docs.
+- Recorded that `@buntime/plugin-turso` is enabled by default and
+  `@buntime/plugin-database` is disabled by default for manifest-driven runtime
+  loading and Helm generation.
+- Recorded that the runtime chart mounts `/data/turso` as `emptyDir`, making the
+  Turso local file pod-local and suitable as a sync cache rather than a shared
+  Kubernetes database file.
+
+Why: KeyVal, Gateway, and Proxy now depend on Turso directly, so the runtime
+chart must load the Turso provider and stop exposing `plugins.database.libsql*` /
+`DATABASE_LIBSQL_*` as the active storage configuration surface.
+
+## [2026-05-02] agents | plugin-proxy migrated to Turso
+
+Migrated `@buntime/plugin-proxy` dynamic-rule persistence from KeyVal-backed
+state to direct `@buntime/plugin-turso` storage.
+
+What changed:
+
+- `apps/plugin-proxy.md`, `data/storage-overview.md`, `data/keyval-tables.md`,
+  `apps/plugin-keyval.md`, and `index.md` now describe proxy's current
+  `proxy_rules` table and no longer present KeyVal as proxy infrastructure.
+- `agents/turso-implementation-handoff.md` and
+  `agents/turso-clean-session-plan.md` now point the next slice at chart/runtime
+  Turso configuration instead of proxy storage migration.
+- Recorded that static proxy rules still work without Turso, while dynamic rule
+  mutations return `400 Dynamic rules not enabled` when Turso is unavailable.
+
+Why: Proxy now follows the chosen `proxy -> turso` dependency graph and remains
+independent from KeyVal/Database for its own operational state.
+
+## [2026-05-02] agents | plugin-gateway migrated to Turso
+
+Migrated `@buntime/plugin-gateway` persistence from KeyVal-backed state to
+direct `@buntime/plugin-turso` storage.
+
+What changed:
+
+- `apps/plugin-gateway.md` and `data/storage-overview.md` now describe gateway's
+  current `gateway_metrics_history` and `gateway_shell_excludes` tables.
+- `agents/turso-implementation-handoff.md` and
+  `agents/turso-clean-session-plan.md` now point the next consumer slice at
+  `@buntime/plugin-proxy`.
+- Recorded the visible API label change for dynamic shell excludes from
+  `source: "keyval"` to `source: "turso"`.
+
+Why: Gateway is now independently enableable without KeyVal/Database for its own
+durable state, preserving the chosen `gateway -> turso` dependency graph.
+
+## [2026-05-02] agents | plugin-keyval migrated to Turso
+
+Migrated `@buntime/plugin-keyval` from `@buntime/plugin-database` to
+`@buntime/plugin-turso` and updated the wiki references for the completed
+consumer slice.
+
+What changed:
+
+- `apps/plugin-keyval.md`, `data/storage-overview.md`, and
+  `data/keyval-tables.md` now describe KeyVal's current Turso-backed storage.
+- `apps/plugin-turso.md`, `agents/turso-implementation-handoff.md`, and
+  `agents/turso-clean-session-plan.md` now point the next slice at gateway or
+  proxy instead of KeyVal.
+- Recorded Turso SDK gotchas found during migration: DDL needs an exclusive
+  transaction, MVCC rejects virtual tables, KeyVal search uses regular
+  `kv_fts_*` tables, and BLOB key ordering uses `hex(key)` for stable reverse
+  pagination.
+
+Why: KeyVal is the first real consumer of the Turso provider, and future
+sessions need the updated dependency graph plus the SDK compatibility notes.
+
+## [2026-05-02] agents | Turso clean-session plan
+
+Added [`agents/turso-clean-session-plan.md`](./agents/turso-clean-session-plan.md)
+to summarize what the Turso migration has already completed, what the next clean
+session should do, and what dependency graph guardrails must be preserved.
+
+Also updated the Turso handoff and plugin page to record the real
+`PluginLoader` smoke test that verifies the hook-only service plugin is loaded
+and registered through manifest discovery.
+
+Why: the next session needs a concise orientation document that explains both
+the completed implementation slice and the next consumer migration slice without
+carrying the previous conversation transcript.
+
+## [2026-05-02] agents | plugin-turso service slice completed
+
+Implemented the documented `@buntime/plugin-turso` service slice and updated
+the wiki handoff to make the next clean-session step explicit.
+
+What changed:
+
+- Added the initial service contract, adapter, service implementation, plugin
+  entrypoint, and colocated tests under `plugins/plugin-turso/`.
+- Documented the current implementation state in
+  [`apps/plugin-turso.md`](./apps/plugin-turso.md).
+- Updated [`agents/turso-implementation-handoff.md`](./agents/turso-implementation-handoff.md)
+  so future sessions start from the next consumer migration slice.
+- Recorded a plugin-system gotcha: hook-only infrastructure plugins should omit
+  `base` entirely instead of setting `base: ""`.
+
+Why: the Turso provider now has a tested runtime service surface, and the
+handoff should not continue to point agents at already-completed files.
+
+## [2026-05-02] agents | Turso implementation handoff for clean sessions
+
+Added `wiki/agents/turso-implementation-handoff.md` to capture the current
+Turso migration decision, partial implementation state, next coding slice, SDK
+notes, validation commands, and context-budget guidance for resuming in a clean
+Codex session.
+
+Why: the active Codex thread has a high compacted context cost from historical
+UI/admin/runtime work plus tool, skill, memory, and AGENTS instructions. The
+handoff lets a new session resume from a concise wiki entry instead of carrying
+the full transcript.
+
+## [2026-05-02] architecture | plugin-turso provider for gateway, proxy, and keyval
+
+Recorded the refined Turso storage dependency graph:
+
+- `@buntime/plugin-turso` is the planned core durable SQL provider.
+- `@buntime/plugin-database` remains a legacy/historical multi-adapter surface,
+  not the Turso implementation target.
+- `@buntime/plugin-keyval` should migrate from `plugin-database` to
+  `plugin-turso`.
+- `@buntime/plugin-gateway` and `@buntime/plugin-proxy` should depend directly
+  on `plugin-turso` for their own `gateway_*` and `proxy_*` schemas.
+- The alternative `gateway/proxy -> keyval -> turso` was rejected as the
+  production graph because it would make KeyVal mandatory gateway/proxy
+  infrastructure. KeyVal should instead be validated through its own tests and
+  integration smoke flows.
+
+Why: gateway/proxy must remain independently enableable in Kubernetes and
+single-purpose deployments, while `plugin-turso` centralizes connection, sync,
+MVCC, and retry behavior for durable SQL.
+
+## [2026-05-02] ops | Security vulnerability backlog migrated to wiki
+
+Migrated the historical runtime vulnerability and availability audit from
+`apps/runtime/roadmap/vulnerabilities.md` to
+`wiki/ops/security-vulnerability-backlog.md`, with a source summary at
+`wiki/sources/2026-05-02-security-vulnerability-backlog.md`.
+
+Also updated `.wiki-guardrails.yml` so the drift audit explicitly allows the
+canonical `wiki/**/*.md` files and minimal `plugins/*/README.md` package
+entrypoints.
+
+Why: `apps/runtime/plans/*.md` are being removed as legacy planning drift, while
+the vulnerability audit remains operationally relevant and belongs in the
+canonical wiki.
+
+## [2026-05-02] ops | Workload kind for runtime, Turso, apps, and plugins
+
+Clarified Kubernetes workload boundaries:
+
+- The Turso service chart should replace legacy LibSQL as a StatefulSet because
+  it owns the durable database endpoint.
+- The Buntime runtime should remain a Deployment by default because it is
+  compute, not the canonical database owner.
+- Runtime Turso sync files are pod-local cache/state and can be ephemeral or
+  per-pod PVC depending on whether unsynced writes must survive pod loss.
+- `/data/apps` and `/data/plugins` should remain shared artifact volumes, not
+  per-pod StatefulSet volumes, because replicas must see the same uploaded code.
+
+Why: StatefulSet is appropriate for durable identity-bound storage, but apps and
+plugins are shared deployment artifacts and runtime pods should remain scalable
+unless pod-local sync durability becomes a hard requirement.
+
+## [2026-05-02] ops | Turso service replaces legacy LibSQL chart
+
+Clarified the Kubernetes deployment target for Turso:
+
+- In self-hosted Kubernetes, both `sync` and `remote` modes require a Turso
+  endpoint service.
+- That endpoint can be external Turso Cloud or an in-cluster Turso service.
+- For the local/Rancher chart family, the in-cluster Turso service should
+  replace the legacy LibSQL StatefulSet chart instead of extending it.
+- Runtime pods must not share one embedded database file through a RWX volume.
+
+Why: `sync` needs a remote sync endpoint and `remote` needs a SQL-over-HTTP
+endpoint. Both are service concerns distinct from the runtime pod.
+
+## [2026-05-02] architecture | Turso Sync as Kubernetes storage mode
+
+Refined the Turso-only storage target:
+
+- Removed `memory` from the target storage contract for gateway/proxy.
+- Local Turso files are only for local tests and single-pod deployments.
+- Kubernetes deployments should use Turso Sync, with each pod owning its local
+  database file and synchronizing through a remote sync server.
+- `remote`/serverless Turso access remains an optional mode for deployments
+  that want to avoid local files, not the baseline Kubernetes target.
+
+Why: Turso concurrent writes solve engine-level writer concurrency, but sharing
+one embedded database file across multiple Kubernetes pods still depends on
+storage-backend filesystem and locking semantics.
+
+## [2026-05-02] architecture | Turso-only durable SQL target
+
+Clarified the storage roadmap:
+
+- Buntime's durable SQL target is **Turso Database only**.
+- Existing LibSQL/SQLite/Postgres/MySQL references document current/legacy code,
+  not a long-term adapter matrix.
+- `plugin-database`, `@buntime/database`, `plugin-keyval`, `plugin-authn`, the
+  plugin index, and storage pages now mark adapter-specific surfaces as
+  migration candidates.
+- Future external database integrations can be reconsidered later, but they are
+  not part of the runtime's baseline durable SQL driver.
+
+Why: the runtime should keep the operational surface small and use Turso's
+concurrent write model instead of maintaining multiple SQL drivers.
+
+## [2026-05-02] architecture | Plugin-owned Turso storage for gateway/proxy
+
+Recorded the storage decision for `@buntime/plugin-gateway` and
+`@buntime/plugin-proxy`:
+
+- Gateway/proxy must not depend on `@buntime/plugin-keyval` or
+  `@buntime/plugin-database` just to persist their own operational state.
+- Each plugin should own its persistence contract and provide at least an
+  ephemeral `memory` driver plus a durable Turso Database driver.
+- Turso Database is preferred over `bun:sqlite` for durable gateway/proxy state
+  because Turso supports MVCC and `BEGIN CONCURRENT`, while SQLite WAL still
+  allows only one writer at a time.
+- The wiki now distinguishes current implementation (`plugin-keyval` backing)
+  from the target architecture (plugin-owned storage).
+- `plugin-keyval` now documents gateway/proxy as current consumers only, not
+  long-term typical consumers.
+
+Why: operators need to enable gateway/proxy independently in environments where
+KeyVal/Database plugins are disabled, without giving up durable state in
+production.
+
 ## [2026-05-02] tooling | Wiki enforcement hooks adapted from `zomme`
 
 Adapted the wiki enforcement hook set from the sibling `zomme` monorepo to the

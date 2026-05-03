@@ -1,7 +1,8 @@
-import type { DatabaseAdapter } from "@buntime/plugin-database";
-import { encodeKey, serializeValue } from "./encoding";
+import { ValidationError } from "@buntime/shared/errors";
+import { deserializeValue, encodeKey, serializeValue } from "./encoding";
 import type { Kv } from "./kv";
 import type { KvMetrics } from "./metrics";
+import type { KeyValSqlAdapter, KeyValTransactionAdapter } from "./sql-adapter.ts";
 import {
   type KvCheck,
   type KvCommitError,
@@ -21,6 +22,12 @@ import {
 interface KvMutationInternal {
   expiresIn?: number;
   key: KvKeyWithUuidv7;
+  type: KvMutationType;
+  value?: unknown;
+}
+
+interface ResolvedTriggerMutation {
+  key: KvKey;
   type: KvMutationType;
   value?: unknown;
 }
@@ -57,6 +64,34 @@ function bigIntToNumber(value: bigint, operation: string): number {
   return Number(value);
 }
 
+function getArrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function getNumericValue(value: unknown, operation: string): number {
+  if (typeof value === "bigint") {
+    return bigIntToNumber(value, operation);
+  }
+
+  if (typeof value === "number") {
+    return value;
+  }
+
+  throw new ValidationError(`Invalid ${operation} mutation value.`, "INVALID_ATOMIC_VALUE");
+}
+
+async function getStoredValue(
+  tx: KeyValTransactionAdapter,
+  encodedKey: Uint8Array,
+): Promise<unknown | null> {
+  const row = await tx.executeOne<{ value: unknown }>(
+    "SELECT value FROM kv_entries WHERE key = ? AND (expires_at IS NULL OR expires_at > unixepoch())",
+    [encodedKey],
+  );
+
+  return row ? deserializeValue(row.value) : null;
+}
+
 /**
  * Atomic operation builder for KV transactions
  * Implements optimistic concurrency control using versionstamps
@@ -66,7 +101,7 @@ export class AtomicOperation {
   private mutations: KvMutationInternal[] = [];
 
   constructor(
-    private adapter: DatabaseAdapter,
+    private adapter: KeyValSqlAdapter,
     private metrics: KvMetrics,
     private kv?: Kv,
   ) {}
@@ -175,11 +210,16 @@ export class AtomicOperation {
         return { ok: true, versionstamp: Bun.randomUUIDv7() };
       }
 
-      // First, verify all checks
-      if (this.checks.length > 0) {
+      // Generate new versionstamp for this commit
+      const versionstamp = Bun.randomUUIDv7();
+      const now = Math.floor(Date.now() / 1000);
+      const triggerMutations: ResolvedTriggerMutation[] = [];
+
+      const committed = await this.adapter.transaction(async (tx) => {
+        // First, verify all checks inside the same write transaction as mutations.
         for (const check of this.checks) {
           const encodedKey = encodeKey(check.key);
-          const row = await this.adapter.executeOne<{ versionstamp: string }>(
+          const row = await tx.executeOne<{ versionstamp: string }>(
             "SELECT versionstamp FROM kv_entries WHERE key = ? AND (expires_at IS NULL OR expires_at > unixepoch())",
             [encodedKey],
           );
@@ -188,161 +228,118 @@ export class AtomicOperation {
 
           if (check.versionstamp === null) {
             if (currentVersionstamp !== undefined) {
-              return { ok: false };
+              return false;
             }
-          } else {
-            if (currentVersionstamp !== check.versionstamp) {
-              return { ok: false };
+          } else if (currentVersionstamp !== check.versionstamp) {
+            return false;
+          }
+        }
+
+        for (const mutation of this.mutations) {
+          const resolvedKey = resolveKey(mutation.key, versionstamp);
+          const encodedKey = encodeKey(resolvedKey);
+          const expiresAt = mutation.expiresIn ? now + Math.floor(mutation.expiresIn / 1000) : null;
+
+          switch (mutation.type) {
+            case "delete":
+              await tx.execute("DELETE FROM kv_entries WHERE key = ?", [encodedKey]);
+              triggerMutations.push({ key: resolvedKey, type: mutation.type });
+              break;
+
+            case "set": {
+              const encodedValue = serializeValue(mutation.value);
+              await tx.execute(
+                `INSERT OR REPLACE INTO kv_entries (key, value, versionstamp, expires_at)
+                 VALUES (?, ?, ?, ?)`,
+                [encodedKey, encodedValue, versionstamp, expiresAt],
+              );
+              triggerMutations.push({
+                key: resolvedKey,
+                type: mutation.type,
+                value: mutation.value,
+              });
+              break;
+            }
+
+            case "sum": {
+              const operand = getNumericValue(mutation.value, "sum");
+              const currentValue = await getStoredValue(tx, encodedKey);
+              const currentNumber = typeof currentValue === "number" ? currentValue : 0;
+              const nextValue = currentNumber + operand;
+
+              await this.setStoredValue(tx, encodedKey, nextValue, versionstamp, expiresAt);
+              triggerMutations.push({ key: resolvedKey, type: mutation.type, value: nextValue });
+              break;
+            }
+
+            case "max": {
+              const operand = getNumericValue(mutation.value, "max");
+              const currentValue = await getStoredValue(tx, encodedKey);
+              const currentNumber = typeof currentValue === "number" ? currentValue : operand;
+              const nextValue = Math.max(currentNumber, operand);
+
+              await this.setStoredValue(tx, encodedKey, nextValue, versionstamp, expiresAt);
+              triggerMutations.push({ key: resolvedKey, type: mutation.type, value: nextValue });
+              break;
+            }
+
+            case "min": {
+              const operand = getNumericValue(mutation.value, "min");
+              const currentValue = await getStoredValue(tx, encodedKey);
+              const currentNumber = typeof currentValue === "number" ? currentValue : operand;
+              const nextValue = Math.min(currentNumber, operand);
+
+              await this.setStoredValue(tx, encodedKey, nextValue, versionstamp, expiresAt);
+              triggerMutations.push({ key: resolvedKey, type: mutation.type, value: nextValue });
+              break;
+            }
+
+            case "append": {
+              const currentValue = await getStoredValue(tx, encodedKey);
+              const nextValue = [...getArrayValue(currentValue), ...getArrayValue(mutation.value)];
+
+              await this.setStoredValue(tx, encodedKey, nextValue, versionstamp, expiresAt);
+              triggerMutations.push({ key: resolvedKey, type: mutation.type, value: nextValue });
+              break;
+            }
+
+            case "prepend": {
+              const currentValue = await getStoredValue(tx, encodedKey);
+              const nextValue = [...getArrayValue(mutation.value), ...getArrayValue(currentValue)];
+
+              await this.setStoredValue(tx, encodedKey, nextValue, versionstamp, expiresAt);
+              triggerMutations.push({ key: resolvedKey, type: mutation.type, value: nextValue });
+              break;
+            }
+
+            default: {
+              const _exhaustive: never = mutation.type;
+              throw new ValidationError(
+                `Unknown mutation type: ${_exhaustive}`,
+                "UNKNOWN_ATOMIC_MUTATION",
+              );
             }
           }
         }
-      }
 
-      // Generate new versionstamp for this commit
-      const versionstamp = Bun.randomUUIDv7();
-      const now = Math.floor(Date.now() / 1000);
-
-      // Build mutation statements
-      const statements = this.mutations.map((mutation) => {
-        const resolvedKey = resolveKey(mutation.key, versionstamp);
-        const encodedKey = encodeKey(resolvedKey);
-        const expiresAt = mutation.expiresIn ? now + Math.floor(mutation.expiresIn / 1000) : null;
-
-        switch (mutation.type) {
-          case "delete":
-            return {
-              sql: "DELETE FROM kv_entries WHERE key = ?",
-              args: [encodedKey],
-            };
-
-          case "set": {
-            const encodedValue = serializeValue(mutation.value);
-            return {
-              sql: `INSERT OR REPLACE INTO kv_entries (key, value, versionstamp, expires_at)
-                    VALUES (?, ?, ?, ?)`,
-              args: [encodedKey, encodedValue, versionstamp, expiresAt],
-            };
-          }
-
-          case "sum": {
-            const numValue =
-              typeof mutation.value === "bigint"
-                ? bigIntToNumber(mutation.value, "sum")
-                : mutation.value;
-            const encodedValue = serializeValue(numValue);
-            return {
-              sql: `INSERT INTO kv_entries (key, value, versionstamp, expires_at)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(key) DO UPDATE SET
-                      value = (
-                        SELECT CAST(json(COALESCE(json_extract(CAST(kv_entries.value AS TEXT), '$'), 0) + json_extract(CAST(excluded.value AS TEXT), '$')) AS BLOB)
-                      ),
-                      versionstamp = excluded.versionstamp,
-                      expires_at = excluded.expires_at`,
-              args: [encodedKey, encodedValue, versionstamp, expiresAt],
-            };
-          }
-
-          case "max": {
-            const numValue =
-              typeof mutation.value === "bigint"
-                ? bigIntToNumber(mutation.value, "max")
-                : mutation.value;
-            const encodedValue = serializeValue(numValue);
-            return {
-              sql: `INSERT INTO kv_entries (key, value, versionstamp, expires_at)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(key) DO UPDATE SET
-                      value = (
-                        SELECT CAST(json(MAX(COALESCE(json_extract(CAST(kv_entries.value AS TEXT), '$'), json_extract(CAST(excluded.value AS TEXT), '$')), json_extract(CAST(excluded.value AS TEXT), '$'))) AS BLOB)
-                      ),
-                      versionstamp = excluded.versionstamp,
-                      expires_at = excluded.expires_at`,
-              args: [encodedKey, encodedValue, versionstamp, expiresAt],
-            };
-          }
-
-          case "min": {
-            const numValue =
-              typeof mutation.value === "bigint"
-                ? bigIntToNumber(mutation.value, "min")
-                : mutation.value;
-            const encodedValue = serializeValue(numValue);
-            return {
-              sql: `INSERT INTO kv_entries (key, value, versionstamp, expires_at)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(key) DO UPDATE SET
-                      value = (
-                        SELECT CAST(json(MIN(COALESCE(json_extract(CAST(kv_entries.value AS TEXT), '$'), json_extract(CAST(excluded.value AS TEXT), '$')), json_extract(CAST(excluded.value AS TEXT), '$'))) AS BLOB)
-                      ),
-                      versionstamp = excluded.versionstamp,
-                      expires_at = excluded.expires_at`,
-              args: [encodedKey, encodedValue, versionstamp, expiresAt],
-            };
-          }
-
-          case "append": {
-            const encodedValue = serializeValue(mutation.value);
-            return {
-              sql: `INSERT INTO kv_entries (key, value, versionstamp, expires_at)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(key) DO UPDATE SET
-                      value = (
-                        SELECT CAST(json_group_array(value) AS BLOB) FROM (
-                          SELECT value FROM json_each(COALESCE(CAST(kv_entries.value AS TEXT), '[]'))
-                          UNION ALL
-                          SELECT value FROM json_each(CAST(excluded.value AS TEXT))
-                        )
-                      ),
-                      versionstamp = excluded.versionstamp,
-                      expires_at = excluded.expires_at`,
-              args: [encodedKey, encodedValue, versionstamp, expiresAt],
-            };
-          }
-
-          case "prepend": {
-            const encodedValue = serializeValue(mutation.value);
-            return {
-              sql: `INSERT INTO kv_entries (key, value, versionstamp, expires_at)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(key) DO UPDATE SET
-                      value = (
-                        SELECT CAST(json_group_array(value) AS BLOB) FROM (
-                          SELECT value FROM json_each(CAST(excluded.value AS TEXT))
-                          UNION ALL
-                          SELECT value FROM json_each(COALESCE(CAST(kv_entries.value AS TEXT), '[]'))
-                        )
-                      ),
-                      versionstamp = excluded.versionstamp,
-                      expires_at = excluded.expires_at`,
-              args: [encodedKey, encodedValue, versionstamp, expiresAt],
-            };
-          }
-
-          default: {
-            const _exhaustive: never = mutation.type;
-            throw new Error(`Unknown mutation type: ${_exhaustive}`);
-          }
-        }
+        return true;
       });
 
-      // Execute all mutations in a batch
-      if (statements.length > 0) {
-        await this.adapter.batch(statements);
+      if (!committed) {
+        return { ok: false };
       }
 
       // Fire triggers for each mutation
       if (this.kv) {
-        for (const mutation of this.mutations) {
-          const resolvedKey = resolveKey(mutation.key, versionstamp);
+        for (const mutation of triggerMutations) {
           if (mutation.type === "set") {
-            await this.kv.fireTriggers("set", resolvedKey, mutation.value, versionstamp);
+            await this.kv.fireTriggers("set", mutation.key, mutation.value, versionstamp);
           } else if (mutation.type === "delete") {
-            await this.kv.fireTriggers("delete", resolvedKey, undefined, versionstamp);
+            await this.kv.fireTriggers("delete", mutation.key, undefined, versionstamp);
           }
           // Note: sum, max, min, append, prepend are treated as "set" for trigger purposes
           else if (["sum", "max", "min", "append", "prepend"].includes(mutation.type)) {
-            await this.kv.fireTriggers("set", resolvedKey, mutation.value, versionstamp);
+            await this.kv.fireTriggers("set", mutation.key, mutation.value, versionstamp);
           }
         }
       }
@@ -354,5 +351,19 @@ export class AtomicOperation {
     } finally {
       this.metrics.recordOperation("atomic_commit", performance.now() - start, error);
     }
+  }
+
+  private async setStoredValue(
+    tx: KeyValTransactionAdapter,
+    encodedKey: Uint8Array,
+    value: unknown,
+    versionstamp: string,
+    expiresAt: number | null,
+  ): Promise<void> {
+    await tx.execute(
+      `INSERT OR REPLACE INTO kv_entries (key, value, versionstamp, expires_at)
+       VALUES (?, ?, ?, ?)`,
+      [encodedKey, serializeValue(value), versionstamp, expiresAt],
+    );
   }
 }

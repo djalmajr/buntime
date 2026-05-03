@@ -16,7 +16,7 @@ status: stable
 
 # @buntime/plugin-keyval
 
-> Key-value store inspired by Deno KV, with composite keys, TTL, atomic transactions (OCC), FIFO queues with DLQ, full-text search via SQLite FTS5, and real-time watch via SSE. Everything persisted on top of the [plugin-database](./plugin-database.md) adapter.
+> Key-value store inspired by Deno KV, with composite keys, TTL, atomic transactions (OCC), FIFO queues with DLQ, full-text search, and real-time watch via SSE. Current storage persists through the [plugin-turso](./plugin-turso.md) service boundary.
 
 For plugin model details (lifecycle, `provides`, `getPlugin`, `manifest.yaml`), see [Plugin System](./plugin-system.md).
 
@@ -30,13 +30,13 @@ The plugin exposes the `Kv` class as a service, plus five subsystems:
 | `AtomicOperation` | Builder for checks + mutations with versionstamps (OCC) |
 | `KvTransaction` | Read-modify-write with conflict detection (no automatic retry — see [Limitations](#limitations)) |
 | `KvQueue` | FIFO queue with delay, retry/backoff, DLQ |
-| `KvFts` | FTS5 indexes and full-text search with `where` filters |
+| `KvFts` | Search indexes and full-text-like search with `where` filters |
 | `KvMetrics` | In-memory counters and Prometheus-format export |
 
 Key aspects:
 
 - **Persistent mode.** Routes mounted in `plugin.ts` run on the main thread (required for SSE in watch and queue listen).
-- **Storage.** Everything in SQL, via the root adapter selected in `database`. SQLite/libSQL support FTS5; Postgres/MySQL may have partial coverage — see `plugin-database`.
+- **Storage.** Current implementation stores everything in SQL through `@buntime/plugin-turso`; KeyVal owns the `kv_*` schema and uses a local `KeyValSqlAdapter` over `TursoService`.
 - **Deno KV compatibility.** Types and semantics mirror `Deno.Kv` (versionstamps, `sum`/`max`/`min`/`append`/`prepend` mutations).
 
 ```mermaid
@@ -46,12 +46,12 @@ graph TD
         Atomic["AtomicOperation\n(checks + mutations)"]
         Tx["KvTransaction\n(read-modify-write)"]
         Queue["KvQueue\nFIFO + DLQ"]
-        Fts["KvFts\nFTS5 + where"]
+        Fts["KvFts\nSearch + where"]
         Metrics["KvMetrics\nProm/JSON"]
     end
     Core --> Atomic
     Core --> Tx
-    KV --> DB["plugin-database adapter"]
+    KV --> Turso["plugin-turso provider"]
 ```
 
 ## Configuration
@@ -60,26 +60,23 @@ All options live in `manifest.yaml` (or are passed programmatically via `keyvalE
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `database` | `AdapterType` | default root adapter | Adapter from `plugin-database` (`sqlite`, `libsql`, `postgres`…) |
 | `metrics.persistent` | `boolean` | `false` | Persist counters to the database (survives restarts) |
 | `metrics.flushInterval` | `number` (ms) | `30000` | Flush interval when `persistent: true` |
 | `queue.cleanupInterval` | `number` (ms) | `60000` | Expired lock cleanup; `0` disables |
 | `queue.lockDuration` | `number` (ms) | `30000` | Lock duration between `dequeue` and `ack`/`nack` |
 
-Minimal example:
+Current minimal example:
 
 ```yaml
 name: "@buntime/plugin-keyval"
 enabled: true
 dependencies:
-  - "@buntime/plugin-database"
-database: sqlite
+  - "@buntime/plugin-turso"
 ```
 
-Typical production configuration:
+Production configuration:
 
 ```yaml
-database: libsql
 metrics:
   persistent: true
   flushInterval: 30000
@@ -92,11 +89,11 @@ The SPA UI lives at `/keyval/` (Overview, Entries, Queue, Search, Watch, Atomic,
 
 ## Architecture
 
-- The plugin obtains the adapter via `ctx.getPlugin<DatabaseService>("@buntime/plugin-database").getRootAdapter(config.database)` in `onInit`.
+- The current implementation obtains `ctx.getPlugin<TursoService>("@buntime/plugin-turso")` in `onInit`, wraps it in `TursoKeyValAdapter`, and initializes `kv_*` tables through that adapter.
 - `schema.ts` creates `kv_entries`, `kv_queue`, `kv_dlq`, FTS auxiliary tables, and (optionally) the metrics table.
 - Keys are binary-encoded with a type prefix, ensuring lexicographic ordering `Uint8Array < string < number < bigint < boolean`.
-- `where` filters are translated to SQL via `where-to-sql.ts`, using `json_extract(value, '$.field')` for nested fields. For nuances of the underlying storage, see [plugin-database](./plugin-database.md).
-- `Kv` is exposed via `provides()`. Other plugins consume it with `ctx.getPlugin<Kv>("@buntime/plugin-keyval")`. Known consumers: `plugin-gateway` (metrics history, shell excludes) and `plugin-proxy` (dynamic rules).
+- `where` filters are translated to SQL via `where-to-sql.ts`, using `json_extract(value, '$.field')` for nested fields.
+- `Kv` is exposed via `provides()`. Other plugins can consume it with `ctx.getPlugin<Kv>("@buntime/plugin-keyval")` when they explicitly need a generic KV service. `plugin-gateway` and `plugin-proxy` no longer use KeyVal for their own operational state; they use `plugin-turso` directly.
 - `onShutdown` flushes metrics and stops the queue cleanup.
 
 ### Key and entry model
@@ -268,7 +265,7 @@ curl -X POST /keyval/api/indexes \
     "options":{"fields":["name","description","category"],"tokenize":"porter"}
   }'
 
-# Search + where (FTS narrow → where filter)
+# Search + where (search index narrow -> where filter)
 curl -X POST /keyval/api/search \
   -H "Content-Type: application/json" \
   -d '{
@@ -278,7 +275,7 @@ curl -X POST /keyval/api/search \
   }'
 ```
 
-Results are ordered by FTS5 ranking; `where` is applied afterward on the full value.
+Results come from the KeyVal search table for the prefix; `where` is applied afterward on the full value.
 
 ## Queues
 
@@ -355,8 +352,8 @@ Shorthand: `{ "field": "value" }` is equivalent to `{ "field": { "$eq": "value" 
 
 ## Dependencies
 
-- **Hard:** `@buntime/plugin-database`. The root adapter is obtained with `getRootAdapter(config.database)`. Schema, indexes, and auxiliary tables are created in `onInit`. Storage and adapter details in [plugin-database](./plugin-database.md).
-- **Typical consumers:** [plugin-gateway](./plugin-gateway.md) (metrics history + shell excludes), [plugin-proxy](./plugin-proxy.md) (dynamic rules), and any plugin that needs persistent KV storage — just use `ctx.getPlugin<Kv>("@buntime/plugin-keyval")`.
+- **Hard:** `@buntime/plugin-turso`. KeyVal owns the `kv_*` schema and KV semantics while using `plugin-turso` for durable SQL connection, sync, MVCC setup, and retry helpers.
+- **Consumers:** plugins that explicitly need persistent KV storage should use `ctx.getPlugin<Kv>("@buntime/plugin-keyval")`. Gateway and proxy operational state should not use KeyVal as infrastructure; see [plugin-turso](./plugin-turso.md#rejected-alternative-gatewayproxy-through-keyval) and [storage-overview](../data/storage-overview.md#plugin-turso-provider-decision).
 
 ## Exported types
 
@@ -417,4 +414,4 @@ curl /keyval/api/metrics/prometheus       # same, Prometheus format
 curl /keyval/api/queue/stats              # pending/processing/dlq/total
 ```
 
-For direct storage inspection and libSQL WAL/replication details, see [plugin-database](./plugin-database.md).
+For durable SQL provider behavior, see [plugin-turso](./plugin-turso.md). For table layout, see [keyval-tables](../data/keyval-tables.md).

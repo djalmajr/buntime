@@ -1,4 +1,3 @@
-import type { DatabaseAdapter } from "@buntime/plugin-database";
 import type { PluginLogger } from "@buntime/shared/types";
 import { AtomicOperation } from "./atomic";
 import {
@@ -11,6 +10,7 @@ import {
 import { KvFts } from "./fts";
 import { KvMetrics } from "./metrics";
 import { KvQueue, type KvQueueCleanupConfig } from "./queue";
+import type { KeyValSqlAdapter } from "./sql-adapter.ts";
 import { KvTransaction } from "./transaction";
 import {
   createUuidv7,
@@ -52,7 +52,7 @@ export interface KvOptions {
 }
 
 /**
- * Key-Value store implementation backed by DatabaseAdapter
+ * Key-Value store implementation backed by KeyValSqlAdapter
  * API inspired by Deno KV
  */
 export class Kv {
@@ -65,7 +65,7 @@ export class Kv {
   private readonly triggers: Map<string, KvTriggerConfig> = new Map();
 
   constructor(
-    private adapter: DatabaseAdapter,
+    private adapter: KeyValSqlAdapter,
     options?: KvOptions,
   ) {
     this.logger = options?.logger;
@@ -77,7 +77,7 @@ export class Kv {
    * Get the underlying database adapter
    * @internal
    */
-  getAdapter(): DatabaseAdapter {
+  getAdapter(): KeyValSqlAdapter {
     return this.adapter;
   }
 
@@ -501,7 +501,7 @@ export class Kv {
         args.push(...whereResult.params);
       }
 
-      sql += ` ORDER BY key ${reverse ? "DESC" : "ASC"} LIMIT ?`;
+      sql += ` ORDER BY hex(key) ${reverse ? "DESC" : "ASC"} LIMIT ?`;
       args.push(limit);
 
       const rows = await this.adapter.execute<{
@@ -610,7 +610,7 @@ export class Kv {
       }
 
       // Fetch limit + 1 to check if there are more entries
-      sql += ` ORDER BY key ${reverse ? "DESC" : "ASC"} LIMIT ?`;
+      sql += ` ORDER BY hex(key) ${reverse ? "DESC" : "ASC"} LIMIT ?`;
       args.push(limit + 1);
 
       const rows = await this.adapter.execute<{
@@ -726,7 +726,7 @@ export class Kv {
     this.stopCleanup();
     this._queue?.close();
     await this._metrics?.close();
-    // Note: adapter is managed by plugin-database, don't close it here
+    // Note: adapter lifecycle is managed by the storage provider.
   }
 
   /**

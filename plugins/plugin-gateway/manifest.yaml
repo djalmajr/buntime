@@ -5,7 +5,7 @@ injectBase: true
 
 optionalDependencies:
   - "@buntime/plugin-authn"
-  - "@buntime/plugin-keyval"
+  - "@buntime/plugin-turso"
 
 entrypoint: dist/client/index.html
 pluginEntry: dist/plugin.js

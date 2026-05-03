@@ -1,9 +1,9 @@
-import type { DatabaseAdapter } from "@buntime/plugin-database";
+import type { KeyValSqlAdapter } from "./sql-adapter.ts";
 
 /**
  * Initialize the KV database schema
  */
-export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
+export async function initSchema(adapter: KeyValSqlAdapter): Promise<void> {
   await adapter.batch([
     // KV entries table
     {

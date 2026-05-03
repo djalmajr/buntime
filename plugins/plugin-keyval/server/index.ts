@@ -2,6 +2,7 @@ import type { PluginContext } from "@buntime/shared/types";
 import { splitList } from "@buntime/shared/utils/string";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import type { KeyValSqlAdapter } from "./lib/sql-adapter.ts";
 import type {
   KvCreateIndexOptions,
   KvDeleteOptions,
@@ -20,7 +21,7 @@ import {
 
 // Module-level state (set by services.ts)
 let kv: import("./lib/kv").Kv;
-let adapter: import("@buntime/plugin-database").DatabaseAdapter;
+let adapter: KeyValSqlAdapter;
 let logger: PluginContext["logger"];
 
 /**
@@ -28,7 +29,7 @@ let logger: PluginContext["logger"];
  */
 export function setApiState(
   kvInstance: import("./lib/kv").Kv,
-  dbAdapter: import("@buntime/plugin-database").DatabaseAdapter,
+  dbAdapter: KeyValSqlAdapter,
   pluginLogger: PluginContext["logger"],
 ): void {
   kv = kvInstance;

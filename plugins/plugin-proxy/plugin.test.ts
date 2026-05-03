@@ -110,23 +110,23 @@ describe("proxyPlugin", () => {
       expect(rules[1]?.id).toBe("static-1");
     });
 
-    it("should look for kv service from plugin-keyval", async () => {
+    it("should look for Turso service from plugin-turso", async () => {
       const plugin = proxyPlugin();
       const ctx = createMockContext();
 
       await plugin.onInit?.(ctx);
 
-      expect(ctx.getPlugin).toHaveBeenCalledWith("@buntime/plugin-keyval");
+      expect(ctx.getPlugin).toHaveBeenCalledWith("@buntime/plugin-turso");
     });
 
-    it("should log when keyval service not available", async () => {
+    it("should log when Turso service is not available", async () => {
       const plugin = proxyPlugin();
       const ctx = createMockContext();
 
       await plugin.onInit?.(ctx);
 
       expect(ctx.logger.debug).toHaveBeenCalledWith(
-        "KeyVal service not available, dynamic rules disabled",
+        "Turso service not available, dynamic rules disabled",
       );
     });
   });

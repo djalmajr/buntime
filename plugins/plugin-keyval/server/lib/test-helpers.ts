@@ -1,37 +1,59 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LibSqlAdapter } from "@buntime/plugin-database";
+import { resolveTursoConfig, type TursoService, TursoServiceImpl } from "@buntime/plugin-turso";
+import type { PluginLogger } from "@buntime/shared/types";
+import { TursoKeyValAdapter } from "./sql-adapter.ts";
 
-/**
- * Default libSQL URL for integration tests.
- * Uses environment variable or an isolated local file database.
- */
-export const LIBSQL_URL = process.env.LIBSQL_URL_0;
+const TEST_LOGGER: PluginLogger = {
+  debug: () => {},
+  error: () => {},
+  info: () => {},
+  warn: () => {},
+};
 
-class TestLibSqlAdapter extends LibSqlAdapter {
-  constructor(
-    private readonly testDir: string,
-    url: string,
-  ) {
-    super({ type: "libsql", urls: [url] });
-  }
+interface TestAdapterOptions {
+  localPath: string;
+  testDir: string;
+}
 
-  override async close(): Promise<void> {
-    await super.close();
-    rmSync(this.testDir, { force: true, recursive: true });
-  }
+export interface TestTursoServiceHandle {
+  close(): Promise<void>;
+  service: TursoService;
 }
 
 /**
- * Creates a LibSqlAdapter for integration tests.
- * Uses one isolated database per adapter when LIBSQL_URL_0 is not set.
+ * Creates a Turso-backed adapter for integration tests.
+ * Uses one isolated local database per adapter.
  */
-export function createTestAdapter(): LibSqlAdapter {
-  if (LIBSQL_URL) {
-    return new LibSqlAdapter({ type: "libsql", urls: [LIBSQL_URL] });
-  }
+export function createTestAdapter(): TursoKeyValAdapter {
+  const handle = createTestTursoService();
+  return new TursoKeyValAdapter({
+    namespace: "keyval",
+    service: handle.service,
+    onClose: handle.close,
+  });
+}
 
+export function createTestTursoService(): TestTursoServiceHandle {
   const testDir = mkdtempSync(join(tmpdir(), "buntime-keyval-"));
-  return new TestLibSqlAdapter(testDir, `file:${join(testDir, "test.db")}`);
+  return createTursoServiceHandle({
+    localPath: join(testDir, "test.db"),
+    testDir,
+  });
+}
+
+function createTursoServiceHandle(options: TestAdapterOptions): TestTursoServiceHandle {
+  const service = new TursoServiceImpl({
+    config: resolveTursoConfig({ localPath: options.localPath }),
+    logger: TEST_LOGGER,
+  });
+
+  return {
+    async close(): Promise<void> {
+      await service.close();
+      rmSync(options.testDir, { force: true, recursive: true });
+    },
+    service,
+  };
 }

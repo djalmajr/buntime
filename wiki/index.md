@@ -39,10 +39,11 @@ Centralized knowledge base for the **Buntime runtime** — a Bun runtime with an
 
 | Page | Description |
 |------|-------------|
-| [`plugin-database`](./apps/plugin-database.md) | LibSQL/SQLite/MySQL/PostgreSQL adapters, HRANA, multi-tenancy — foundation for almost all other plugins |
-| [`plugin-keyval`](./apps/plugin-keyval.md) | Deno KV-like key-value store on top of LibSQL: atomic ops, FTS, queues, where filters, watch SSE |
+| [`plugin-database`](./apps/plugin-database.md) | Current multi-adapter database service; legacy/historical surface, not the Turso target |
+| [`plugin-turso`](./apps/plugin-turso.md) | **Draft/planned** core Turso Database provider for durable SQL, local/sync modes, and Kubernetes sync topology |
+| [`plugin-keyval`](./apps/plugin-keyval.md) | Deno KV-like key-value store; current storage uses plugin-database adapters, target storage uses plugin-turso |
 | [`plugin-gateway`](./apps/plugin-gateway.md) | CORS + rate-limit + app shell (micro-frontend host) + monitoring |
-| [`plugin-proxy`](./apps/plugin-proxy.md) | Dynamic reverse proxy with rules stored in LibSQL (via keyval), WebSocket, public routes |
+| [`plugin-proxy`](./apps/plugin-proxy.md) | Dynamic reverse proxy; static manifest rules plus dynamic rules stored through plugin-turso |
 | [`plugin-deployments`](./apps/plugin-deployments.md) | **Serverless mode** — manages apps on the runtime (upload/download/list/delete) |
 | [`plugin-authn`](./apps/plugin-authn.md) | OIDC/Keycloak/JWT/email-password authentication + identity model + SCIM (`enabled: false` by default) |
 | [`plugin-authz`](./apps/plugin-authz.md) | XACML authorization — PEP/PDP/PAP, policies, combining algorithms (`enabled: false` by default) |
@@ -62,13 +63,14 @@ Centralized knowledge base for the **Buntime runtime** — a Bun runtime with an
 | [Logging](./ops/logging.md) | Runtime central logger (`@buntime/shared/logger`), transports, request ID correlation; cross-ref to `plugin-logs` |
 | [Performance](./ops/performance.md) | Local harness (`bun run perf`), 4 scenarios, tuning env vars, historical reports from Rancher |
 | [Security](./ops/security.md) | CSRF, request ID, reserved paths, path traversal, sensitive env filtering, body/header limits, best practices |
+| [Security Vulnerability Backlog](./ops/security-vulnerability-backlog.md) | Historical 2026-01-12 security and availability audit backlog migrated from `apps/runtime/roadmap` |
 
 ## Data (`data/`)
 
 | Page | Description |
 |------|-------------|
-| [Storage overview](./data/storage-overview.md) | Store inventory: LibSQL (default), API key file store, in-memory caches, PVCs `/data/apps` and `/data/plugins`; backup/DR |
-| [KeyVal tables](./data/keyval-tables.md) | Real DDL for `plugin-keyval` (kv_entries, kv_queue, kv_dlq, kv_metrics, kv_indexes, FTS5) and reuse by `plugin-proxy` |
+| [Storage overview](./data/storage-overview.md) | Store inventory and storage direction: plugin-turso provider target, API key file store, in-memory caches, PVCs `/data/apps` and `/data/plugins`; backup/DR |
+| [KeyVal tables](./data/keyval-tables.md) | Current DDL for `plugin-keyval` (kv_entries, kv_queue, kv_dlq, kv_metrics, kv_indexes, FTS5); target storage uses plugin-turso |
 
 ## Agents (`agents/`)
 
@@ -77,6 +79,8 @@ How-to references for automated agents — patterns the agent looks up at task t
 | Page | Description |
 |------|-------------|
 | [Testing patterns](./agents/testing-patterns.md) | `bun:test` skeleton, `WorkerPool` and `PluginContext` mock factories, Hono `app.fetch` testing, temp-dir setup, plugin lifecycle test, error testing, anti-patterns |
+| [Turso clean-session plan](./agents/turso-clean-session-plan.md) | What has been completed for `plugin-turso`, what the next clean session should do, and guardrails for the next consumer migration |
+| [Turso implementation handoff](./agents/turso-implementation-handoff.md) | Clean-session handoff for implementing `plugin-turso` and migrating `keyval`, `gateway`, and `proxy` storage dependencies |
 
 ## Summaries (`sources/`)
 
@@ -85,5 +89,6 @@ Each summary describes an ingest (or re-ingest) operation that originated or upd
 | Summary | Date | Scope |
 |---|---|---|
 | [Initial ingest](./sources/initial-ingest.md) | 2026-05-02 | Wiki creation — consolidated `apps/`, `plugins/`, `packages/`, `charts/` and `.agents/rules/` into ~30 pages |
+| [Security vulnerability backlog migration](./sources/2026-05-02-security-vulnerability-backlog.md) | 2026-05-02 | Migrated historical runtime/plugin/package security and availability audit from `apps/runtime/roadmap` |
 | [Rancher pod load test](./sources/2026-05-01-performance-rancher-pod-load.md) | 2026-05-01 | k6 against `GET /_/api/health` on the pod (Ingress + TLS + Traefik); pod CPU/mem impact |
 | [Rancher worker route load test](./sources/2026-05-01-performance-rancher-worker-routes.md) | 2026-05-01 | k6 against ephemeral worker routes (`perf-noop`, `perf-echo`, `perf-slow`, `perf-ephemeral`) |

@@ -4,7 +4,7 @@ enabled: true
 injectBase: true
 
 dependencies:
-  - "@buntime/plugin-database"
+  - "@buntime/plugin-turso"
 
 entrypoint: dist/client/index.html
 pluginEntry: dist/plugin.js
@@ -35,21 +35,6 @@ menus:
       - icon: lucide:activity
         path: /keyval/metrics
         title: Metrics
-
-# =============================================================================
-# Database Adapter Selection
-# =============================================================================
-# Which database adapter to use from plugin-database.
-# Must match one of the adapter types configured in plugin-database/manifest.yaml
-#
-# Options: libsql, sqlite, postgres, mysql
-#
-# If you change plugin-database to use sqlite, change this to: sqlite
-# =============================================================================
-
-# database: libsql
-database: sqlite
-# database: postgres
 
 # =============================================================================
 # Metrics Configuration

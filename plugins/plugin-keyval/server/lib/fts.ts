@@ -1,12 +1,67 @@
 import { createHash } from "node:crypto";
-import type { DatabaseAdapter } from "@buntime/plugin-database";
 import { decodeKey, deserializeValue, encodeKey } from "./encoding";
+import type { KeyValSqlAdapter } from "./sql-adapter.ts";
 import type { KvCreateIndexOptions, KvEntry, KvIndex, KvKey, KvSearchOptions } from "./types";
 import { whereToSql } from "./where-to-sql";
 
+type SearchOperator = "AND" | "OR";
+
+interface SearchToken {
+  operator?: SearchOperator;
+  term: string;
+}
+
+function normalizeSearchTerm(term: string): string {
+  const withoutField = term.includes(":") ? term.slice(term.indexOf(":") + 1) : term;
+  return withoutField.replace(/^["'()]+|["'()]+$/g, "").toLowerCase();
+}
+
+function tokenizeSearchQuery(query: string): SearchToken[] {
+  const tokens = query.match(/"[^"]+"|'[^']+'|\S+/g) ?? [];
+  const searchTokens: SearchToken[] = [];
+  let nextOperator: SearchOperator | undefined;
+
+  for (const token of tokens) {
+    const upperToken = token.toUpperCase();
+
+    if (upperToken === "AND" || upperToken === "OR") {
+      nextOperator = upperToken;
+      continue;
+    }
+
+    const term = normalizeSearchTerm(token);
+    if (!term) {
+      continue;
+    }
+
+    searchTokens.push({ operator: nextOperator, term });
+    nextOperator = undefined;
+  }
+
+  return searchTokens;
+}
+
+function matchesSearchQuery(document: string, query: string): boolean {
+  const haystack = document.toLowerCase();
+  const tokens = tokenizeSearchQuery(query);
+
+  if (tokens.length === 0) {
+    return false;
+  }
+
+  let result = haystack.includes(tokens[0]?.term ?? "");
+
+  for (const token of tokens.slice(1)) {
+    const matches = haystack.includes(token.term);
+    result = token.operator === "OR" ? result || matches : result && matches;
+  }
+
+  return result;
+}
+
 /**
  * Full-Text Search manager for KeyVal
- * Handles FTS5 index creation, indexing, and search
+ * Handles search index creation, indexing, and search
  */
 export class KvFts {
   /** Cache of indexes loaded from database */
@@ -14,7 +69,7 @@ export class KvFts {
   /** Whether indexes have been loaded */
   private indexesLoaded = false;
 
-  constructor(private adapter: DatabaseAdapter) {}
+  constructor(private adapter: KeyValSqlAdapter) {}
 
   /**
    * Initialize FTS system by creating metadata table
@@ -52,12 +107,12 @@ export class KvFts {
     const tableName = this.getTableName(prefix);
     const now = Math.floor(Date.now() / 1000);
 
-    // Create FTS5 virtual table with doc_key and all specified fields
-    const fieldList = ["doc_key", ...fields].join(", ");
+    // Turso MVCC mode does not support SQLite virtual tables, so the KeyVal
+    // index stores a normalized searchable document in a regular table.
     await this.adapter.execute(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS ${tableName} USING fts5(
-        ${fieldList},
-        tokenize='${tokenize}'
+      `CREATE TABLE IF NOT EXISTS ${tableName} (
+        doc_key TEXT PRIMARY KEY,
+        document TEXT NOT NULL
       )`,
     );
 
@@ -130,19 +185,11 @@ export class KvFts {
     // FTS5 doesn't have a primary key concept, so we need to delete first
     await this.adapter.execute(`DELETE FROM ${index.tableName} WHERE doc_key = ?`, [encodedDocKey]);
 
-    // Extract field values from document
-    const fieldValues: unknown[] = [encodedDocKey];
+    const document = this.createSearchDocument(value, index.fields);
 
-    for (const field of index.fields) {
-      const fieldValue = this.extractField(value, field);
-      fieldValues.push(fieldValue ?? "");
-    }
-
-    // Insert into FTS table
-    const placeholders = fieldValues.map(() => "?").join(", ");
     await this.adapter.execute(
-      `INSERT INTO ${index.tableName} VALUES (${placeholders})`,
-      fieldValues,
+      `INSERT OR REPLACE INTO ${index.tableName} (doc_key, document) VALUES (?, ?)`,
+      [encodedDocKey, document],
     );
   }
 
@@ -192,15 +239,13 @@ export class KvFts {
       throw new Error(`No index found for prefix: ${JSON.stringify(prefix)}`);
     }
 
-    // Build FTS query - search across all indexed fields
-    // FTS5 syntax: field1:query OR field2:query ...
-    const fieldQueries = index.fields.map((field) => `${field}:${query}`).join(" OR ");
-
-    // Execute FTS search to get doc_keys
-    const ftsRows = await this.adapter.execute<{ doc_key: string }>(
-      `SELECT doc_key FROM ${index.tableName} WHERE ${index.tableName} MATCH ? LIMIT ?`,
-      [fieldQueries, limit],
-    );
+    const ftsRows = (
+      await this.adapter.execute<{ doc_key: string; document: string }>(
+        `SELECT doc_key, document FROM ${index.tableName}`,
+      )
+    )
+      .filter((row) => matchesSearchQuery(row.document, query))
+      .slice(0, limit);
 
     if (ftsRows.length === 0) {
       return [];
@@ -308,6 +353,13 @@ export class KvFts {
    */
   private decodeDocKey(encoded: string): KvKey {
     return decodeKey(Buffer.from(encoded, "hex"));
+  }
+
+  private createSearchDocument(doc: unknown, fields: string[]): string {
+    return fields
+      .map((field) => this.extractField(doc, field))
+      .filter((value): value is string => value !== null)
+      .join(" ");
   }
 
   /**

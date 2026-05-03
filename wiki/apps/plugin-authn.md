@@ -114,7 +114,7 @@ scim:
 |---|---|---|---|
 | `loginPath` | `string` | `/auth/login` | Where unauthenticated browser requests are redirected |
 | `trustedOrigins` | `string[]` | `[]` | Origins accepted by better-auth (CORS/CSRF). Include every external host |
-| `database` | `"sqlite" \| "libsql" \| "postgres" \| "mysql"` | `default` adapter | [plugin-database](./plugin-database.md) adapter used to persist sessions and users |
+| `database` | Current: `"sqlite" \| "libsql" \| "postgres" \| "mysql"`; target: Turso only | `default` adapter | Current [plugin-database](./plugin-database.md) adapter used to persist sessions and users; target storage should converge on Turso |
 | `providers` | `ProviderConfig[]` | `[]` | List of active providers (see table in the next section) |
 | `apiKeys` | `ApiKeyConfig[]` | `[]` | M2M keys with `key`, `name`, `roles` |
 | `scim.enabled` | `boolean` | `false` | Mounts `/auth/api/scim/v2/*` |

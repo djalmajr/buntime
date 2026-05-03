@@ -136,37 +136,39 @@ describe("shouldBypassShell", () => {
   });
 });
 
-describe("shouldBypassShell with keyvalExcludes", () => {
+describe("shouldBypassShell with persistence excludes", () => {
   const envExcludes = new Set(["admin"]);
-  const keyvalExcludes = new Set(["dashboard", "reports"]);
+  const persistenceExcludes = new Set(["dashboard", "reports"]);
 
-  it("bypasses when basename in keyval excludes", () => {
-    expect(shouldBypassShell("/dashboard", null, envExcludes, keyvalExcludes)).toBe(true);
-    expect(shouldBypassShell("/reports/monthly", null, envExcludes, keyvalExcludes)).toBe(true);
+  it("bypasses when basename in persistence excludes", () => {
+    expect(shouldBypassShell("/dashboard", null, envExcludes, persistenceExcludes)).toBe(true);
+    expect(shouldBypassShell("/reports/monthly", null, envExcludes, persistenceExcludes)).toBe(
+      true,
+    );
   });
 
-  it("env excludes still work with keyval", () => {
-    expect(shouldBypassShell("/admin", null, envExcludes, keyvalExcludes)).toBe(true);
+  it("env excludes still work with persistence excludes", () => {
+    expect(shouldBypassShell("/admin", null, envExcludes, persistenceExcludes)).toBe(true);
   });
 
   it("does not bypass when not in any excludes", () => {
-    expect(shouldBypassShell("/other", null, envExcludes, keyvalExcludes)).toBe(false);
+    expect(shouldBypassShell("/other", null, envExcludes, persistenceExcludes)).toBe(false);
   });
 
-  it("handles empty keyval excludes", () => {
+  it("handles empty persistence excludes", () => {
     expect(shouldBypassShell("/dashboard", null, envExcludes, new Set())).toBe(false);
   });
 
-  it("combines env, keyval, and cookie excludes", () => {
+  it("combines env, persistence, and cookie excludes", () => {
     const cookies = "gateway_shell_excludes=cookie-app";
     // admin from env
-    expect(shouldBypassShell("/admin", cookies, envExcludes, keyvalExcludes)).toBe(true);
-    // dashboard from keyval
-    expect(shouldBypassShell("/dashboard", cookies, envExcludes, keyvalExcludes)).toBe(true);
+    expect(shouldBypassShell("/admin", cookies, envExcludes, persistenceExcludes)).toBe(true);
+    // dashboard from persistence
+    expect(shouldBypassShell("/dashboard", cookies, envExcludes, persistenceExcludes)).toBe(true);
     // cookie-app from cookie
-    expect(shouldBypassShell("/cookie-app", cookies, envExcludes, keyvalExcludes)).toBe(true);
+    expect(shouldBypassShell("/cookie-app", cookies, envExcludes, persistenceExcludes)).toBe(true);
     // not in any
-    expect(shouldBypassShell("/unknown", cookies, envExcludes, keyvalExcludes)).toBe(false);
+    expect(shouldBypassShell("/unknown", cookies, envExcludes, persistenceExcludes)).toBe(false);
   });
 });
 

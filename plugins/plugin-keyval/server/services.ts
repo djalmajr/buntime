@@ -1,17 +1,16 @@
-import type { AdapterType, DatabaseAdapter, DatabaseService } from "@buntime/plugin-database";
+import type { TursoService } from "@buntime/plugin-turso";
 import type { PluginContext } from "@buntime/shared/types";
 import { setApiState } from "./index";
 import { Kv } from "./lib/kv";
 import { initSchema } from "./lib/schema";
+import { type KeyValSqlAdapter, TursoKeyValAdapter } from "./lib/sql-adapter.ts";
 
 // Module-level state
 let kv: Kv;
-let adapter: DatabaseAdapter;
+let adapter: KeyValSqlAdapter;
 let logger: PluginContext["logger"];
 
 interface KvServiceConfig {
-  /** Database adapter type to use (uses default if not specified) */
-  adapterType?: AdapterType;
   metrics?: {
     persistent?: boolean;
     flushInterval?: number;
@@ -26,14 +25,16 @@ interface KvServiceConfig {
  * Initialize KeyVal service
  */
 export async function initialize(
-  database: DatabaseService,
+  turso: TursoService,
   config: KvServiceConfig,
   pluginLogger: PluginContext["logger"],
 ): Promise<Kv> {
   logger = pluginLogger;
 
-  // Get root adapter for the specified type (or default)
-  adapter = database.getRootAdapter(config.adapterType);
+  adapter = new TursoKeyValAdapter({
+    namespace: "keyval",
+    service: turso,
+  });
 
   // Initialize schema
   await initSchema(adapter);

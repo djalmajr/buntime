@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@atlaskit/pragmatic-drag-and-drop": "^1.7.0",
-    "@buntime/plugin-keyval": "workspace:*",
+    "@buntime/plugin-turso": "workspace:*",
     "@buntime/shared": "workspace:*",
     "@iconify-icon/react": "^2.1.0",
     "@radix-ui/react-dialog": "^1.1.4",

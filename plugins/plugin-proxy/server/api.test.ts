@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import type { TursoDatabase, TursoHealth, TursoService } from "@buntime/plugin-turso";
 import type { PluginContext } from "@buntime/shared/types";
 import { api } from "./api";
 import {
@@ -6,6 +7,7 @@ import {
   getDynamicRules,
   initializeProxyService,
   type ProxyRule,
+  type StoredRule,
   setDynamicRules,
   shutdownProxyService,
 } from "./services";
@@ -33,33 +35,102 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
   };
 }
 
-function createMockKv(): {
+function createMockTurso(): {
   delete: ReturnType<typeof mock>;
-  get: ReturnType<typeof mock>;
-  list: ReturnType<typeof mock>;
+  service: TursoService;
   set: ReturnType<typeof mock>;
   store: Map<string, unknown>;
 } {
-  const store = new Map<string, unknown>();
+  const store = new Map<string, StoredRule>();
+  const set = mock((rule: StoredRule) => {
+    store.set(rule.id, rule);
+  });
+  const deleteRule = mock((id: string) => {
+    store.delete(id);
+  });
+
+  const db = {
+    checkpoint: mock(async () => {}),
+    close: mock(async () => {}),
+    exec: mock(async () => {}),
+    getRawClient: mock(() => ({})),
+    getSyncStats: mock(async () => null),
+    localPath: ":memory:",
+    mode: "local",
+    prepare: mock((sql: string) => ({
+      all: mock(async () => {
+        if (!sql.includes("FROM proxy_rules")) {
+          return [];
+        }
+
+        return Array.from(store.values())
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.id.localeCompare(b.id))
+          .map((rule) => ({ rule_json: JSON.stringify(rule) }));
+      }),
+      get: mock(async () => null),
+      run: mock(async (...args: unknown[]) => {
+        if (sql.includes("INSERT INTO proxy_rules")) {
+          const id = String(args[0]);
+          const ruleJson = String(args[2]);
+          const parsed: unknown = JSON.parse(ruleJson);
+          if (
+            typeof parsed === "object" &&
+            parsed !== null &&
+            "pattern" in parsed &&
+            "target" in parsed
+          ) {
+            const rule = parsed as StoredRule;
+            store.set(id, rule);
+            set(rule);
+          }
+        }
+
+        if (sql.includes("DELETE FROM proxy_rules")) {
+          const id = String(args[0]);
+          deleteRule(id);
+        }
+
+        return { changes: 1, lastInsertRowid: 1 };
+      }),
+    })),
+    pull: mock(async () => false),
+    push: mock(async () => {}),
+    transaction: mock(async (callback) => callback(db as unknown as TursoDatabase)),
+  } as unknown as TursoDatabase;
 
   return {
-    delete: mock((key: string[]) => {
-      store.delete(key.join("/"));
-      return Promise.resolve();
-    }),
-    get: mock((key: string[]) => {
-      return Promise.resolve({ value: store.get(key.join("/")) });
-    }),
-    list: mock(function* () {
-      for (const [key, value] of store) {
-        yield { key: key.split("/"), value };
-      }
-    }),
-    set: mock((key: string[], value: unknown) => {
-      store.set(key.join("/"), value);
-      return Promise.resolve();
-    }),
+    delete: deleteRule,
+    service: {
+      close: mock(async () => {}),
+      connect: mock(async () => db),
+      health: mock(
+        async (): Promise<TursoHealth> => ({
+          connected: true,
+          localPath: ":memory:",
+          mode: "local",
+          namespaces: ["proxy"],
+          ok: true,
+          sync: { enabled: false },
+        }),
+      ),
+      transaction: mock(async (_options, callback) => callback(db)),
+    },
+    set,
     store,
+  };
+}
+
+function createMockKv(): TursoService & {
+  delete: ReturnType<typeof mock>;
+  set: ReturnType<typeof mock>;
+  store: Map<string, unknown>;
+} {
+  const turso = createMockTurso();
+  return {
+    ...turso.service,
+    delete: turso.delete,
+    set: turso.set,
+    store: turso.store,
   };
 }
 
@@ -183,7 +254,7 @@ describe("Proxy API", () => {
   });
 
   describe("POST /api/rules", () => {
-    it("should return 400 when kv not enabled", async () => {
+    it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
@@ -196,7 +267,7 @@ describe("Proxy API", () => {
 
       expect(res.status).toBe(400);
       const data = await res.json();
-      expect(data.error).toBe("Dynamic rules not enabled (plugin-keyval not configured)");
+      expect(data.error).toBe("Dynamic rules not enabled (plugin-turso not configured)");
     });
 
     it("should return 400 when pattern missing", async () => {
@@ -282,7 +353,7 @@ describe("Proxy API", () => {
       expect(data.target).toBe("http://test:8080");
       expect(data.readonly).toBe(false);
 
-      // Verify it was saved to kv
+      // Verify it was saved to Turso
       expect(mockKv.set).toHaveBeenCalled();
 
       // Verify it's in dynamic rules
@@ -292,7 +363,7 @@ describe("Proxy API", () => {
   });
 
   describe("PUT /api/rules/:id", () => {
-    it("should return 400 when kv not enabled", async () => {
+    it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
@@ -406,13 +477,13 @@ describe("Proxy API", () => {
       expect(data.target).toBe("http://new-target:9000");
       expect(data.pattern).toBe("^/test/(.*)$"); // unchanged
 
-      // Verify it was saved to kv
+      // Verify it was saved to Turso
       expect(mockKv.set).toHaveBeenCalled();
     });
   });
 
   describe("DELETE /api/rules/:id", () => {
-    it("should return 400 when kv not enabled", async () => {
+    it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
@@ -487,7 +558,7 @@ describe("Proxy API", () => {
       const data = await res.json();
       expect(data.success).toBe(true);
 
-      // Verify it was deleted from kv
+      // Verify it was deleted from Turso
       expect(mockKv.delete).toHaveBeenCalled();
 
       // Verify it's removed from dynamic rules
@@ -496,7 +567,7 @@ describe("Proxy API", () => {
   });
 
   describe("PUT /api/rules/reorder", () => {
-    it("should return 400 when kv not enabled", async () => {
+    it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
@@ -631,7 +702,7 @@ describe("Proxy API", () => {
       expect(data[2].id).toBe("rule-2");
       expect(data[2].order).toBe(2);
 
-      // Verify saved to kv
+      // Verify saved to Turso
       expect(mockKv.set).toHaveBeenCalledTimes(3);
 
       // Verify GET returns new order
@@ -673,7 +744,7 @@ describe("Proxy API", () => {
   });
 
   describe("PATCH /api/rules/:id/toggle", () => {
-    it("should return 400 when kv not enabled", async () => {
+    it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 

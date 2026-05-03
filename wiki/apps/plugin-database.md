@@ -11,21 +11,22 @@ sources:
   - plugins/plugin-database/docs/concepts/hrana.md
   - plugins/plugin-database/docs/guides/configuration.md
   - plugins/plugin-database/docs/deployment/troubleshooting.adoc
+  - wiki/data/storage-overview.md
 updated: 2026-05-02
-tags: [plugin, database, libsql, sqlite, multi-tenancy, hrana]
+tags: [plugin, database, turso, legacy-adapters, hrana]
 status: stable
 ---
 
 # @buntime/plugin-database
 
-> Buntime's database abstraction layer: exposes a single `DatabaseService`
+> Current/legacy database abstraction layer: exposes a single `DatabaseService`
 > to other plugins and workers, with support for multiple adapters (SQLite, LibSQL,
-> PostgreSQL, MySQL), per-tenant isolation, and the HRANA protocol for access from the
-> worker pool.
+> PostgreSQL, MySQL), per-tenant isolation, and HRANA access from the worker pool.
+> Target architecture: **do not evolve this plugin into Turso**. New durable SQL work belongs in [`@buntime/plugin-turso`](./plugin-turso.md).
 
 ## Overview
 
-The plugin is the single point of data access inside Buntime. It:
+The current implementation is the single point of data access inside Buntime. It:
 
 - Initializes a set of adapters declared in `manifest.yaml`, each covering
   a different engine.
@@ -36,6 +37,11 @@ The plugin is the single point of data access inside Buntime. It:
 - Implements a HRANA server (HTTP + WebSocket) so that workers can use
   `@libsql/client` pointing at the runtime, without opening direct TCP connections to the database.
 - Serves a Studio SPA (`/database`) for inspecting tables, schemas, and running SQL.
+
+This multi-adapter surface is not the long-term product direction. Buntime should
+converge on one durable SQL provider, [`@buntime/plugin-turso`](./plugin-turso.md).
+LibSQL/SQLite/Postgres/MySQL references on this page describe existing code that
+must be migrated or removed, not a contract to preserve.
 
 **API mode**: persistent. Routes live in `plugin.ts` and run on the main thread —
 database connections must survive across requests and do not fit the serverless model.
@@ -56,7 +62,30 @@ graph TD
     MySQL --> MySQLT["database per tenant"]
 ```
 
+## Deprecation Direction
+
+The objective is to remove the runtime's durable SQL adapter matrix from new
+development. This plugin remains useful as a map of the current code surface and
+for historical compatibility, but it is not the Turso implementation target.
+
+Rules for future work:
+
+- Do not add new SQLite/Postgres/MySQL/LibSQL adapter features.
+- Treat `AdapterType`, adapter-specific package exports, and `x-database-adapter`
+  as migration candidates.
+- Implement Turso-specific concurrency behavior in `@buntime/plugin-turso`, where
+  durable write paths should use MVCC/`BEGIN CONCURRENT` and retry conflict
+  errors.
+- Revisit external database integrations later as separate product integrations,
+  not as core runtime drivers.
+
+During migration, this page remains useful as a map of the current code surface
+that needs to collapse.
+
 ## Configuration
+
+> Current implementation. Future Turso-specific settings belong in
+> [`@buntime/plugin-turso`](./plugin-turso.md), not in this plugin.
 
 ### manifest.yaml — main keys
 
@@ -74,6 +103,8 @@ graph TD
 | `config`        | `ConfigSchema`     | —                | Schema used to generate the Helm `values.yaml` and Rancher `questions.yml` |
 
 ### Adapters — options per type
+
+> Legacy/current surface. Do not extend this table with new adapters.
 
 | Type       | Options                                              | Default                         | Notes                                                    |
 |------------|------------------------------------------------------|---------------------------------|----------------------------------------------------------|
@@ -110,6 +141,9 @@ URLs from the manifest and the environment are merged via `Set` (deduplication):
 URL in the resulting list is the primary; the rest enter the replica pool.
 
 ## Architecture
+
+> Current implementation. The target architecture should replace this adapter
+> graph with the [`@buntime/plugin-turso`](./plugin-turso.md) provider boundary.
 
 ### Components
 

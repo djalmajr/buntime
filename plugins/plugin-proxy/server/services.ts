@@ -1,4 +1,5 @@
-import type { Kv } from "@buntime/plugin-keyval";
+import type { TursoDatabase, TursoService } from "@buntime/plugin-turso";
+import { ValidationError } from "@buntime/shared/errors";
 import type { PluginContext } from "@buntime/shared/types";
 import { getPublicRoutesForMethod, globArrayToRegex } from "@buntime/shared/utils/glob";
 import type { Server, ServerWebSocket } from "bun";
@@ -128,9 +129,129 @@ let staticRules: CompiledRule[] = [];
 let dynamicRules: CompiledRule[] = [];
 let logger: PluginContext["logger"];
 let bunServer: Server<WebSocketData> | null = null;
-let kv: Kv | null = null;
+let proxyDb: TursoDatabase | null = null;
+let schemaInitialized = false;
+let turso: TursoService | null = null;
 
-const KV_PREFIX = ["proxy", "rules"];
+const PROXY_NAMESPACE = "proxy";
+const PROXY_STORAGE_NOT_CONFIGURED = "Dynamic rules not enabled (plugin-turso not configured)";
+
+interface ProxyRuleRow {
+  rule_json: string;
+}
+
+function getOptionalBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
+  const value = record[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function getOptionalNumber(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  return typeof value === "number" ? value : undefined;
+}
+
+function getOptionalString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function getHeaders(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const headers: Record<string, string> = {};
+  for (const [key, headerValue] of Object.entries(value)) {
+    if (typeof headerValue !== "string") {
+      return undefined;
+    }
+    headers[key] = headerValue;
+  }
+
+  return headers;
+}
+
+function getPublicRoutes(value: unknown): ProxyRule["publicRoutes"] | undefined {
+  if (isStringArray(value)) {
+    return value;
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const routes: Record<string, string[]> = {};
+  for (const [method, paths] of Object.entries(value)) {
+    if (!isStringArray(paths)) {
+      return undefined;
+    }
+    routes[method] = paths;
+  }
+
+  return routes;
+}
+
+function parseStoredRule(value: string): StoredRule | null {
+  const parsed: unknown = JSON.parse(value);
+  if (!isRecord(parsed)) {
+    return null;
+  }
+
+  const id = getOptionalString(parsed, "id");
+  const pattern = getOptionalString(parsed, "pattern");
+  const target = getOptionalString(parsed, "target");
+  if (!id || !pattern || !target) {
+    return null;
+  }
+
+  return {
+    base: getOptionalString(parsed, "base"),
+    changeOrigin: getOptionalBoolean(parsed, "changeOrigin"),
+    enabled: getOptionalBoolean(parsed, "enabled"),
+    headers: getHeaders(parsed.headers),
+    id,
+    name: getOptionalString(parsed, "name"),
+    order: getOptionalNumber(parsed, "order"),
+    pattern,
+    publicRoutes: getPublicRoutes(parsed.publicRoutes),
+    relativePaths: getOptionalBoolean(parsed, "relativePaths"),
+    rewrite: getOptionalString(parsed, "rewrite"),
+    secure: getOptionalBoolean(parsed, "secure"),
+    target,
+    ws: getOptionalBoolean(parsed, "ws"),
+  };
+}
+
+async function getProxyDb(): Promise<TursoDatabase> {
+  if (!turso) {
+    throw new ValidationError(PROXY_STORAGE_NOT_CONFIGURED, "PROXY_STORAGE_NOT_CONFIGURED");
+  }
+
+  proxyDb ??= await turso.connect(PROXY_NAMESPACE);
+
+  if (!schemaInitialized) {
+    await turso.transaction({ namespace: PROXY_NAMESPACE, type: "exclusive" }, async (db) => {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS proxy_rules (
+          id TEXT PRIMARY KEY,
+          rule_order INTEGER NOT NULL,
+          rule_json TEXT NOT NULL
+        )
+      `);
+    });
+    schemaInitialized = true;
+  }
+
+  return proxyDb;
+}
 
 export function compileRule(rule: ProxyRule, readonly: boolean): CompiledRule | null {
   try {
@@ -431,12 +552,24 @@ export async function handleProxyRequest(req: Request): Promise<Response | null 
 // ============================================================================
 
 export async function loadDynamicRules(): Promise<void> {
-  if (!kv) return;
+  if (!turso) return;
 
+  const db = await getProxyDb();
+  const rows = await db
+    .prepare("SELECT rule_json FROM proxy_rules ORDER BY rule_order ASC, id ASC")
+    .all<ProxyRuleRow>();
   const rules: StoredRule[] = [];
-  for await (const entry of kv.list(KV_PREFIX)) {
-    if (entry.value) {
-      rules.push(entry.value);
+
+  for (const row of rows) {
+    try {
+      const rule = parseStoredRule(row.rule_json);
+      if (rule) {
+        rules.push(rule);
+      }
+    } catch (error) {
+      logger?.warn("Invalid stored proxy rule skipped", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -458,7 +591,7 @@ export async function loadDynamicRules(): Promise<void> {
   // Persist migration
   if (needsMigration) {
     for (const rule of rules) {
-      await kv.set([...KV_PREFIX, rule.id], rule);
+      await saveRule(rule);
     }
   }
 
@@ -467,13 +600,40 @@ export async function loadDynamicRules(): Promise<void> {
 }
 
 export async function saveRule(rule: StoredRule): Promise<void> {
-  if (!kv) throw new Error("KeyVal not initialized");
-  await kv.set([...KV_PREFIX, rule.id], rule);
+  if (!turso) {
+    throw new ValidationError(PROXY_STORAGE_NOT_CONFIGURED, "PROXY_STORAGE_NOT_CONFIGURED");
+  }
+
+  const storedRule: StoredRule = {
+    ...rule,
+    order: rule.order ?? 0,
+  };
+
+  await getProxyDb();
+  await turso.transaction({ namespace: PROXY_NAMESPACE }, async (db) => {
+    await db
+      .prepare(
+        `
+          INSERT INTO proxy_rules (id, rule_order, rule_json)
+          VALUES (?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            rule_order = excluded.rule_order,
+            rule_json = excluded.rule_json
+        `,
+      )
+      .run(storedRule.id, storedRule.order ?? 0, JSON.stringify(storedRule));
+  });
 }
 
 export async function deleteRule(id: string): Promise<void> {
-  if (!kv) throw new Error("KeyVal not initialized");
-  await kv.delete([...KV_PREFIX, id]);
+  if (!turso) {
+    throw new ValidationError(PROXY_STORAGE_NOT_CONFIGURED, "PROXY_STORAGE_NOT_CONFIGURED");
+  }
+
+  await getProxyDb();
+  await turso.transaction({ namespace: PROXY_NAMESPACE }, async (db) => {
+    await db.prepare("DELETE FROM proxy_rules WHERE id = ?").run(id);
+  });
 }
 
 export function ruleToResponse(rule: CompiledRule) {
@@ -536,13 +696,12 @@ export function initializeProxyService(ctx: PluginContext, staticRulesConfig: Pr
     logger.info(`Loaded ${staticRules.length} static proxy rules`);
   }
 
-  // Use shared kv service from plugin-keyval for dynamic rules
-  const sharedKv = ctx.getPlugin<Kv>("@buntime/plugin-keyval");
+  const sharedTurso = ctx.getPlugin<TursoService>("@buntime/plugin-turso");
 
-  if (sharedKv) {
-    kv = sharedKv;
+  if (sharedTurso) {
+    turso = sharedTurso;
   } else {
-    logger.debug("KeyVal service not available, dynamic rules disabled");
+    logger.debug("Turso service not available, dynamic rules disabled");
   }
 }
 
@@ -550,11 +709,13 @@ export function shutdownProxyService(): void {
   staticRules = [];
   dynamicRules = [];
   bunServer = null;
-  kv = null;
+  proxyDb = null;
+  schemaInitialized = false;
+  turso = null;
 }
 
-export function getKv(): Kv | null {
-  return kv;
+export function getRuleStorage(): TursoService | null {
+  return turso;
 }
 
 export function getStaticRules(): CompiledRule[] {

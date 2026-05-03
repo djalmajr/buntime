@@ -4,7 +4,7 @@ enabled: true
 injectBase: true
 
 dependencies:
-  - "@buntime/plugin-keyval"
+  - "@buntime/plugin-turso"
 
 entrypoint: dist/client/index.html
 pluginEntry: dist/plugin.js
@@ -20,8 +20,8 @@ menus:
 # Define HTTP reverse proxy rules. Requests matching a pattern are forwarded
 # to a target URL with optional path rewriting.
 #
-# Rules can be defined here (static) or managed via the KeyVal API (dynamic).
-# Dynamic rules are stored in the database and take precedence over static rules.
+# Rules can be defined here (static) or managed via the API (dynamic).
+# Dynamic rules are stored in Turso and take precedence over static rules.
 #
 # Rule options:
 #   id            - Unique identifier

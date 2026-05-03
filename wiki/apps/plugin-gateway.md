@@ -11,8 +11,11 @@ sources:
   - plugins/plugin-gateway/docs/guides/configuration.md
   - plugins/plugin-gateway/docs/guides/shell-setup.md
   - plugins/plugin-gateway/docs/api-reference.md
+  - https://docs.turso.tech/tursodb/concurrent-writes
+  - https://docs.turso.tech/sdk/ts/reference
+  - https://docs.turso.tech/sync/usage
 updated: 2026-05-02
-tags: [plugin, gateway, cors, rate-limit, app-shell]
+tags: [plugin, gateway, cors, rate-limit, app-shell, storage]
 status: stable
 ---
 
@@ -30,7 +33,7 @@ status: stable
 | CORS Handler     | `OPTIONS` preflight + cross-origin response headers                    | `server/cors.ts`         |
 | Shell Router     | Routes document navigations to a central micro-frontend shell          | `server/shell-bypass.ts` |
 | Request Logger   | Ring buffer (100 entries) with filters and statistics                  | `server/request-log.ts`  |
-| Persistence      | Metrics snapshots + shell excludes in KeyVal                           | `server/persistence.ts`  |
+| Persistence      | Metrics snapshots + shell excludes in `gateway_*` tables through `plugin-turso` | `server/persistence.ts`  |
 | Response Cache   | In-memory LRU — **disabled by default** (config present but has no effect) | `server/cache.ts`    |
 
 Execution order within `onRequest`:
@@ -82,8 +85,24 @@ Configuration blends `manifest.yaml`, environment variables (override), and a co
 
 Declared as `optionalDependencies` in the manifest:
 
-- [`@buntime/plugin-keyval`](./plugin-keyval.md) — enables persistence of metrics history and dynamic excludes.
+- [`@buntime/plugin-turso`](./plugin-turso.md) — enables persistence of metrics history and dynamic excludes.
 - [`@buntime/plugin-authn`](./plugin-authn.md) — required for `keyBy: user` (reads `X-Identity`).
+
+### Storage direction
+
+The current implementation treats `@buntime/plugin-turso` as the optional persistence service for metrics history and dynamic shell excludes. Gateway remains usable without Turso, but durable gateway state is only available when Turso is loaded.
+
+The storage architecture is direct Turso-backed storage through `@buntime/plugin-turso`:
+
+- `@buntime/plugin-gateway` owns its `gateway_*` schema and metrics/excludes repository.
+- The gateway manifest depends on `@buntime/plugin-turso` for durable SQL access, not on `@buntime/plugin-keyval` or `@buntime/plugin-database`.
+- Do not route gateway storage through `plugin-keyval` as `gateway -> keyval -> turso`; KeyVal should be validated by its own tests and smoke flows, not by becoming mandatory gateway infrastructure.
+- Turso Database is the only durable driver for gateway-owned state.
+- `local` mode is acceptable for tests and single-pod deployments.
+- `sync` mode is the Kubernetes target because each pod can keep its own local database file and synchronize with a remote sync server.
+- `bun:sqlite` is not the default durable driver for this state because SQLite WAL still allows only one writer at a time.
+
+See [plugin-turso](./plugin-turso.md) and [storage-overview](../data/storage-overview.md#plugin-turso-provider-decision) for the cross-plugin decision.
 
 ## CORS
 
@@ -183,10 +202,10 @@ API routes (`/_/api/*`, `/gateway/api/*`, etc.) always bypass.
 | Source                             | Priority    | Restart? | Use case                             | Removable via API? |
 |------------------------------------|-------------|----------|--------------------------------------|--------------------|
 | `GATEWAY_SHELL_EXCLUDES` (env)     | base        | yes      | default excludes at deploy           | no                 |
-| KeyVal (`gateway:shell:excludes`)  | additive    | no       | dynamic excludes via API             | yes                |
+| Turso (`gateway_shell_excludes`)   | additive    | no       | dynamic excludes via API             | yes                |
 | Cookie `GATEWAY_SHELL_EXCLUDES`    | per-user    | no       | individual bypass in browser         | n/a (set/unset cookie) |
 
-The final list is the union (no duplicates) of all three sources. Excludes are read on every document navigation — under high traffic, consider a short cache (5s) on `getKeyValExcludes`.
+The final list is the union (no duplicates) of all three sources. Excludes are loaded from Turso into memory during plugin initialization and updated immediately after API mutations.
 
 ### Basename validation
 
@@ -255,7 +274,7 @@ All routes mounted at `/gateway/api/*`. No auth by default (protect via [`plugin
 
 Each entry: `{ id, timestamp, ip, method, path, status, duration, rateLimited }`.
 
-### Metrics history (requires `plugin-keyval`)
+### Metrics history (requires `plugin-turso`)
 
 | Method | Path                          | Description                                                   |
 |--------|-------------------------------|---------------------------------------------------------------|
@@ -266,9 +285,9 @@ Each entry: `{ id, timestamp, ip, method, path, status, duration, rateLimited }`
 
 | Method | Path                              | Description                                                         | 400 errors                  |
 |--------|-----------------------------------|---------------------------------------------------------------------|-----------------------------|
-| GET    | `/shell/excludes`                 | Combined list `[{basename, source: env\|keyval, addedAt?}]`         | shell not configured        |
-| POST   | `/shell/excludes`                 | Body `{basename}` → adds to KeyVal                                  | invalid basename / already in env / shell not configured |
-| DELETE | `/shell/excludes/:basename`       | Removes only KeyVal-sourced excludes                                | "Cannot remove environment-based exclude" |
+| GET    | `/shell/excludes`                 | Combined list `[{basename, source: env\|turso, addedAt?}]`          | shell not configured        |
+| POST   | `/shell/excludes`                 | Body `{basename}` → writes `gateway_shell_excludes` through `plugin-turso` | invalid basename / already in env / shell not configured |
+| DELETE | `/shell/excludes/:basename`       | Removes only dynamic excludes                                       | "Cannot remove environment-based exclude" |
 
 ### Cache (legacy, currently disabled)
 
@@ -286,7 +305,7 @@ es.onmessage = (e) => {
 };
 ```
 
-## Persistence via plugin-keyval
+## Persistence via plugin-keyval (current implementation)
 
 When [`@buntime/plugin-keyval`](./plugin-keyval.md) is available in the runtime, the gateway automatically enables:
 
@@ -295,15 +314,16 @@ When [`@buntime/plugin-keyval`](./plugin-keyval.md) is available in the runtime,
 | Metrics history       | (time-series entries)         | snapshots `{timestamp, totalRequests, blockedRequests, allowedRequests, activeBuckets}` | up to 3600 (1h) with cleanup |
 | Dynamic excludes      | `gateway:shell:excludes`      | CSV string (`"admin,legacy"`)                | —               |
 
-Without plugin-keyval, the gateway works normally — it only loses history after restart and excludes are limited to env+cookie.
+Without plugin-keyval, the gateway works normally — it only loses history after restart and excludes are limited to env+cookie. In the target architecture, this section is replaced by `gateway_*` tables through `plugin-turso` so persistent gateway state no longer depends on KeyVal/Database.
 
 ## Integration with other plugins
 
 | Plugin                                       | Type       | Role                                                          |
 |----------------------------------------------|------------|---------------------------------------------------------------|
 | [`@buntime/plugin-authn`](./plugin-authn.md) | optional   | Required for `rateLimit.keyBy: user` (reads `X-Identity.sub`) |
-| [`@buntime/plugin-keyval`](./plugin-keyval.md) | optional | Persists metrics history + dynamic excludes                   |
-| `@buntime/plugin-database`                   | n/a        | Not a gateway dependency                                      |
+| [`@buntime/plugin-keyval`](./plugin-keyval.md) | optional (current implementation only) | Persists metrics history + dynamic excludes |
+| [`@buntime/plugin-turso`](./plugin-turso.md) | target dependency | Durable SQL provider for `gateway_*` tables |
+| `@buntime/plugin-database`                   | n/a        | Not a gateway dependency |
 
 The pipeline and lifecycle (`onInit`, `onRequest`, `onResponse`, `onShutdown`) follow the general contract described in [./plugin-system.md](./plugin-system.md).
 
@@ -347,7 +367,7 @@ location.reload();
 | Shell bypass via `shellExcludes` does not work                           | Invalid basename (characters outside `[a-zA-Z0-9_-]`)        | Use only alphanumeric, `-`, `_`                                    |
 | `DELETE /shell/excludes/:basename` returns 400                           | Attempting to remove an env-sourced exclude                   | Remove via `GATEWAY_SHELL_EXCLUDES` (requires restart)             |
 | `keyBy: user` does not rate-limit per user                               | `plugin-authn` missing, `X-Identity` not reaching gateway     | Enable [`plugin-authn`](./plugin-authn.md)                         |
-| `/metrics/history` empty                                                 | `plugin-keyval` missing                                       | Enable [`plugin-keyval`](./plugin-keyval.md)                       |
+| `/metrics/history` empty                                                 | Current code: `plugin-keyval` missing                         | Enable [`plugin-keyval`](./plugin-keyval.md); after migration, configure [`plugin-turso`](./plugin-turso.md) |
 
 ### Debug logs
 

@@ -1,62 +1,131 @@
 #!/usr/bin/env bash
-# wiki-policy-check.sh - Claude Code PostToolUse hook
-# Keep durable markdown documentation in wiki/. Only explicit repo-local
-# markdown surfaces are allowed outside the canonical wiki.
-
 set -euo pipefail
 
 INPUT="$(cat)"
-ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-WIKI_DIR="$ROOT/wiki"
-
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+GUARDRAILS="$ROOT/.wiki-guardrails.yml"
 TOOL="$(printf '%s' "$INPUT" | jq -r '.tool_name // empty')"
 
 case "$TOOL" in
-  Edit|Write|MultiEdit|NotebookEdit) ;;
+  apply_patch|Edit|Write|MultiEdit|NotebookEdit) ;;
   *) exit 0 ;;
 esac
 
+[ -f "$GUARDRAILS" ] || {
+  echo "wiki-policy: .wiki-guardrails.yml missing; markdown boundary check skipped" >&2
+  exit 0
+}
+
+guardrail_list() {
+  local key="$1"
+  awk -v key="$key" '
+    $0 ~ "^[[:space:]]*" key ":[[:space:]]*$" { in_list=1; next }
+    in_list && /^[[:space:]]*-[[:space:]]*/ {
+      line=$0
+      sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+      gsub(/^\"|\"$/, "", line)
+      gsub(/^'"'"'|'"'"'$/, "", line)
+      print line
+      next
+    }
+    in_list && /^[^[:space:]]/ { exit }
+  ' "$GUARDRAILS"
+}
+
+guardrail_match() {
+  local key="$1"
+  local rel="$2"
+  local pattern=""
+  while IFS= read -r pattern; do
+    [ -n "$pattern" ] || continue
+    case "$rel" in $pattern) return 0 ;; esac
+  done < <(guardrail_list "$key")
+  return 1
+}
+
+guardrail_scalar() {
+  local key="$1"
+  awk -v key="$key" '
+    $0 ~ "^[[:space:]]*" key ":[[:space:]]*" {
+      line=$0
+      sub("^[[:space:]]*" key ":[[:space:]]*", "", line)
+      gsub(/^\"|\"$/, "", line)
+      gsub(/^'"'"'|'"'"'$/, "", line)
+      print line
+      exit
+    }
+  ' "$GUARDRAILS"
+}
+
+repo_relative_wiki_path() {
+  local path="$1"
+  local target=""
+  local abs=""
+  case "$path" in
+    ""|.|./|..|../*|*/../*) return 1 ;;
+    /*) target="$path" ;;
+    ./*) target="$ROOT/${path#./}" ;;
+    *) target="$ROOT/${path%/}" ;;
+  esac
+  abs="$(cd "$target" 2>/dev/null && pwd -P || true)"
+  if [ -n "$abs" ]; then
+    case "$abs" in
+      "$ROOT") return 1 ;;
+      "$ROOT"/*) printf '%s\n' "${abs#"$ROOT"/}"; return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+  case "$target" in
+    "$ROOT") return 1 ;;
+    "$ROOT"/*) printf '%s\n' "${target#"$ROOT"/}" ;;
+    *) return 1 ;;
+  esac
+}
+
+wiki_abs_path() {
+  local path="$1"
+  case "$path" in
+    /*) printf '%s\n' "$path" ;;
+    *) printf '%s\n' "$ROOT/$path" ;;
+  esac
+}
+
+WIKI_PATH="$(guardrail_scalar wiki_path || true)"
+[ -n "$WIKI_PATH" ] || WIKI_PATH="wiki"
+WIKI_BASE="$(wiki_abs_path "$WIKI_PATH")"
+WIKI_DIR="$(cd "$WIKI_BASE" 2>/dev/null && pwd -P || printf '%s\n' "$WIKI_BASE")"
+WIKI_REL="$(repo_relative_wiki_path "$WIKI_PATH" || true)"
+
+is_wiki_file_path() {
+  local file="$1"
+  case "$file" in "$WIKI_DIR"/*) return 0 ;; esac
+  if [ -n "$WIKI_REL" ]; then
+    case "$file" in "$ROOT/$WIKI_REL"/*|"$WIKI_REL"/*) return 0 ;; esac
+  fi
+  return 1
+}
+
 payload_entries() {
-  printf '%s' "$INPUT" |
-    jq -r '
-      [
-        (.tool_input.file_path? | select(.) | "unknown\t" + .),
-        (.tool_input.notebook_path? | select(.) | "unknown\t" + .),
-        (.tool_response.filePath? | select(.) | "unknown\t" + .),
-        ((.tool_input.edits? // [])[]? | .file_path? | select(.) | "unknown\t" + .)
-      ] | .[]? // empty
-    '
+  printf '%s' "$INPUT" | jq -r '
+    [
+      (.tool_input.file_path? | select(.) | "unknown\t" + .),
+      (.tool_input.notebook_path? | select(.) | "unknown\t" + .),
+      (.tool_response.filePath? | select(.) | "unknown\t" + .),
+      ((.tool_input.edits? // [])[]? | .file_path? | select(.) | "unknown\t" + .),
+      ((.tool_input.command? // "") | split("\n")[] | capture("^\\*\\*\\* (?<op>Add|Update|Delete) File: (?<path>.+)$")? | .op + "\t" + .path)
+    ] | .[]? // empty
+  '
 }
 
 repo_relative_file() {
   local file="$1"
-
-  case "$file" in
-    "$WIKI_DIR"/*|"$ROOT/wiki/"*|wiki/*) ;;
-    "$ROOT"/*) printf '%s\n' "${file#"$ROOT"/}"; return 0 ;;
-    /*) return 1 ;;
-    ../*) return 1 ;;
-    *) printf '%s\n' "$file"; return 0 ;;
-  esac
-
-  case "$file" in
-    "$ROOT"/*) printf '%s\n' "${file#"$ROOT"/}" ;;
-    *) printf '%s\n' "$file" ;;
-  esac
+  is_wiki_file_path "$file" && return 1
+  case "$file" in "$ROOT"/*) printf '%s\n' "${file#"$ROOT"/}" ;; /*|../*) return 1 ;; *) printf '%s\n' "$file" ;; esac
 }
 
 is_allowed_markdown() {
   local rel="$1"
-  case "$rel" in
-    README.md|CLAUDE.md|AGENTS.md) return 0 ;;
-    apps/*/README.md|packages/*/README.md|plugins/*/README.md) return 0 ;;
-    charts/README.md|charts/release-notes.md) return 0 ;;
-    wiki/*.md|wiki/**/*.md) return 0 ;;
-    .github/*.md|.github/**/*.md) return 0 ;;
-    .claude/*.md|.claude/**/*.md) return 0 ;;
-    .codex/*.md|.codex/**/*.md) return 0 ;;
-    *) return 1 ;;
-  esac
+  guardrail_match repo_markdown_allowlist "$rel" || guardrail_match markdown_allowlist "$rel"
 }
 
 is_tracked() {
@@ -66,22 +135,13 @@ is_tracked() {
 
 blocked_new=""
 warned_existing=""
-
-while IFS=$'\t' read -r _op file; do
+while IFS=$'\t' read -r op file; do
   [ -n "$file" ] || continue
-
+  [ "$op" != "Delete" ] || continue
   rel="$(repo_relative_file "$file" || true)"
   [ -n "$rel" ] || continue
-
-  case "$rel" in
-    *.md) ;;
-    *) continue ;;
-  esac
-
-  if is_allowed_markdown "$rel"; then
-    continue
-  fi
-
+  case "$rel" in *.md) ;; *) continue ;; esac
+  is_allowed_markdown "$rel" && continue
   if is_tracked "$rel"; then
     warned_existing="${warned_existing}
 - ${rel}"
@@ -92,32 +152,17 @@ while IFS=$'\t' read -r _op file; do
 done < <(payload_entries)
 
 if [ -n "$warned_existing" ]; then
-  CONTEXT="wiki-policy: edit in .md outside the allowlist (legacy drift, not blocking):${warned_existing}
-
-Canonical Buntime documentation belongs in wiki/. Consider migrating this content with /wiki-ingest and removing the repo-local drift."
-
-  jq -n --arg ctx "$CONTEXT" '{
-    hookSpecificOutput: {
-      hookEventName: "PostToolUse",
-      additionalContext: $ctx
-    }
-  }'
+  cat >&2 <<EOF_WARN
+wiki-policy: edit in markdown outside .wiki-guardrails.yml allowlist (legacy drift, not blocked):${warned_existing}
+Consider moving canonical content to wiki via /wiki-ingest.
+EOF_WARN
 fi
 
 if [ -n "$blocked_new" ]; then
-  cat >&2 <<EOF
-wiki-policy: blocked - new .md outside the allowlist:${blocked_new}
-
-Policy: canonical Buntime documentation lives in wiki/.
-Allowed repo-local markdown:
-  - Top-level: README.md, CLAUDE.md, AGENTS.md
-  - apps|packages|plugins/<name>/README.md
-  - charts/README.md and charts/release-notes.md
-  - wiki/**/*.md
-  - .github/**/*.md, .claude/**/*.md, .codex/**/*.md
-
-Move durable content to wiki/apps, wiki/ops, wiki/data, wiki/agents, or wiki/sources, then update wiki/log.md and reindex QMD.
-EOF
+  cat >&2 <<EOF_BLOCK
+wiki-policy: blocked markdown outside .wiki-guardrails.yml allowlist:${blocked_new}
+Canonical docs/rules belong in wiki or the project allowlist must be updated intentionally.
+EOF_BLOCK
   exit 2
 fi
 

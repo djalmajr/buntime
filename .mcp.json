@@ -1,8 +1,10 @@
 {
   "mcpServers": {
     "qmd": {
-      "command": "qmd",
-      "args": ["--index", "buntime", "mcp"]
+      "command": "buntime-qmd",
+      "args": [
+        "mcp"
+      ]
     }
   }
 }

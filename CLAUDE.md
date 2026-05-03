@@ -130,3 +130,25 @@ qmd --index buntime embed      # after adding a new collection
 ```
 
 Full setup (one-time): [`wiki/QMD.md`](./wiki/QMD.md). The `qmd` MCP is registered in this repo's `.mcp.json` and opens the correct index automatically.
+
+<!-- wiki-init:start -->
+## LLM Wiki
+
+Before answering or acting on durable project knowledge, consult the wiki at `wiki`.
+
+Order:
+
+1. Read the project's agent rules.
+2. Query QMD index `buntime` when available.
+3. Read wiki markdown directly when the target page is known.
+4. If a task discovers a canonical rule, gotcha, schema/contract, operational constraint, or product decision, update the wiki and log the change.
+
+Hooks in this repo are guardrails, not a guarantee. They catch path-visible drift; semantic decisions from conversation and debugging still belong to the agent.
+<!-- wiki-init:end -->
+
+
+
+
+
+
+

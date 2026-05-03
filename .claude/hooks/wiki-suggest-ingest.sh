@@ -1,110 +1,70 @@
 #!/usr/bin/env bash
-# wiki-suggest-ingest.sh - Claude Code Stop hook
-# Soft reminder to evaluate whether sensitive source changes need wiki ingest.
-
 set -euo pipefail
 
 INPUT="$(cat)"
 SESSION_ID="$(printf '%s' "$INPUT" | jq -r '.session_id // empty')"
 STOP_HOOK_ACTIVE="$(printf '%s' "$INPUT" | jq -r '.stop_hook_active // false')"
+[ "$STOP_HOOK_ACTIVE" = "true" ] && exit 0
 
-if [ "$STOP_HOOK_ACTIVE" = "true" ]; then
-  exit 0
-fi
+STATE_FILE="${TMPDIR:-/tmp}/wiki-suggest-${SESSION_ID:-unknown}.fired"
+[ -f "$STATE_FILE" ] && exit 0
 
-STATE_FILE="${TMPDIR:-/tmp}/buntime-wiki-suggest-${SESSION_ID:-unknown}.fired"
-if [ -f "$STATE_FILE" ]; then
-  exit 0
-fi
-
-ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+GUARDRAILS="$ROOT/.wiki-guardrails.yml"
 cd "$ROOT" 2>/dev/null || exit 0
+[ -f "$GUARDRAILS" ] || exit 0
 
-CHANGED="$(
+guardrail_list() {
+  local key="$1"
+  awk -v key="$key" '
+    $0 ~ "^[[:space:]]*" key ":[[:space:]]*$" { in_list=1; next }
+    in_list && /^[[:space:]]*-[[:space:]]*/ {
+      line=$0
+      sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+      gsub(/^\"|\"$/, "", line)
+      gsub(/^'"'"'|'"'"'$/, "", line)
+      print line
+      next
+    }
+    in_list && /^[^[:space:]]/ { exit }
+  ' "$GUARDRAILS"
+}
+
+guardrail_match() {
+  local key="$1"
+  local rel="$2"
+  local pattern=""
+  while IFS= read -r pattern; do
+    [ -n "$pattern" ] || continue
+    case "$rel" in $pattern) return 0 ;; esac
+  done < <(guardrail_list "$key")
+  return 1
+}
+
+changed="$(
   {
     git diff --name-only HEAD 2>/dev/null || true
     git ls-files --others --exclude-standard 2>/dev/null || true
   } | sort -u
 )"
 
-if [ -z "$CHANGED" ]; then
-  exit 0
-fi
+[ -n "$changed" ] || exit 0
 
-declare -a SENSITIVE_PATTERNS=(
-  '^\.mcp\.json$'
-  '^\.codex/(config\.toml|hooks\.json|hooks/)'
-  '^\.claude/(settings\.json|hooks/)'
-  '^CLAUDE\.md$'
-  '^AGENTS\.md$'
-  '^package\.json$'
-  '^bun\.lock$'
-  '^apps/[^/]+/package\.json$'
-  '^packages/[^/]+/package\.json$'
-  '^plugins/[^/]+/package\.json$'
-  '^apps/runtime/src/(routes|server|plugins|pool|worker)'
-  '^plugins/[^/]+/(manifest\.ya?ml|plugin\.ts|server/|client/)'
-  '^packages/shared/src/(errors|logger|utils)'
-  '^packages/(database|keyval)/src/'
-  '^charts/'
-  '^\.github/workflows/'
-  '^scripts/'
-)
-
-hint_for() {
-  case "$1" in
-    .mcp.json|.codex/*|.claude/*) echo "wiki/QMD.md and wiki/log.md (agent/QMD tooling)" ;;
-    CLAUDE.md|AGENTS.md) echo "root rules plus wiki references if behavior changed" ;;
-    package.json|bun.lock|*/package.json) echo "wiki/apps/packages.md or wiki/ops/local-dev.md" ;;
-    apps/runtime/src/routes/*) echo "wiki/apps/runtime-api-reference.md" ;;
-    apps/runtime/src/*|apps/runtime/src/*/*) echo "wiki/apps/runtime.md" ;;
-    plugins/*) echo "wiki/apps/plugin-<name>.md" ;;
-    packages/shared/*) echo "wiki/apps/packages.md" ;;
-    packages/database/*|packages/keyval/*|*schema*) echo "wiki/data/ or relevant wiki/apps page" ;;
-    charts/*) echo "wiki/ops/helm-charts.md or wiki/ops/release-flow.md" ;;
-    .github/workflows/*) echo "wiki/ops/release-flow.md or wiki/ops/jsr-publish.md" ;;
-    scripts/*) echo "wiki/ops/ or wiki/agents/" ;;
-    *) echo "wiki/apps/ or wiki/ops/" ;;
-  esac
-}
-
-MATCHED=""
-COUNT=0
+match=""
+count=0
 while IFS= read -r file; do
-  [ -z "$file" ] && continue
-  case "$file" in
-    wiki/*) continue ;;
-  esac
+  guardrail_match sensitive_paths "$file" || continue
+  match="${match}  - ${file}"$'\n'
+  count=$((count + 1))
+done <<< "$changed"
 
-  for pattern in "${SENSITIVE_PATTERNS[@]}"; do
-    if printf '%s\n' "$file" | grep -qE "$pattern"; then
-      hint="$(hint_for "$file")"
-      MATCHED="${MATCHED}  - ${file} -> ${hint}"$'\n'
-      COUNT=$((COUNT + 1))
-      break
-    fi
-  done
-done <<< "$CHANGED"
-
-if [ "$COUNT" -eq 0 ]; then
-  exit 0
-fi
-
+[ "$count" -gt 0 ] || exit 0
 touch "$STATE_FILE"
 
-REASON="Touched ${COUNT} sensitive Buntime file(s). Evaluate whether the wiki needs an update before ending:
+reason="Touched ${count} sensitive path(s) from .wiki-guardrails.yml. Evaluate whether this deserves wiki ingest before finalizing:
 
-${MATCHED}
-Triggers in CLAUDE.md: gotcha, canonical decision, schema/env/contract, reusable pattern, dependency quirk, or scope clarification.
+${match}
+If yes, update wiki and log it. If no, respond explicitly with \"sem ingest\"."
 
-If yes: edit wiki/<dest>, add a top entry to wiki/log.md, and run:
-  qmd --index buntime update && qmd --index buntime embed
-
-If not applicable: state \"sem ingest\" to unblock Stop. This reminder fires once per session."
-
-jq -n --arg reason "$REASON" '{
-  decision: "block",
-  reason: $reason
-}'
-
+jq -n --arg reason "$reason" '{ decision: "block", reason: $reason }'
 exit 0

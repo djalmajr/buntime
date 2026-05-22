@@ -18,6 +18,8 @@ status: stable
 
 # @buntime/plugin-authz
 
+> **Auth.** Admin endpoints live at `/authz/admin/{policies,evaluate,explain}` and are gated by the runtime `X-API-Key` store via the shared middleware (see [Plugin auth boundary](./plugin-auth-boundary.md)). The PEP (`onRequest` hook) is independent and continues to read `X-Identity` injected by `plugin-authn` for live request authorisation.
+
 > XACML-based authorization for Buntime: a Policy Enforcement Point (PEP)
 > traverses every request, a Policy Decision Point (PDP) evaluates policies
 > (subjects/resources/actions/conditions), and a Policy Administration Point

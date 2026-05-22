@@ -52,7 +52,7 @@ status: stable
 | **plugin-deployments** | Current: own adapter. Target: Turso only | `@buntime/plugin-deployments` | Own tables (see [plugin-deployments](../apps/plugin-deployments.md)) | Deploy history, releases |
 | **plugin-vhosts** | Current: plugin-keyval. Target: Turso-backed storage | `@buntime/plugin-vhosts` | Dedicated KV prefix | Dynamic host → app/plugin mappings |
 | **plugin-authn / plugin-authz** | Current: plugin-database adapter. Target: Turso only | `@buntime/plugin-authn`, `@buntime/plugin-authz` | Own tables (see [plugin-authn](../apps/plugin-authn.md), [plugin-authz](../apps/plugin-authz.md)) | Sessions, users, policies |
-| **API keys file store** | JSON on disk | `@buntime/runtime` | `${RUNTIME_STATE_DIR}/api-keys.json` or first `pluginDir` + `.buntime/api-keys.json` (Helm: `/data/plugins/.buntime/api-keys.json`) | SHA-256 hashed keys + role + permissions; bootstraps admin before any plugin is available |
+| **API keys store** | Turso DB (`@tursodatabase/database` / `@tursodatabase/sync`) on disk | `@buntime/runtime` | `${RUNTIME_STATE_DIR}/api-keys.db` (Helm: `/data/state/api-keys.db` on a per-pod RWO PVC). `mode=local`: standalone file; `mode=sync`: embedded replica synced against a Turso server primary | SHA-256 hashed keys + role + permissions; bootstraps admin before any plugin is available; legacy JSON and `bun:sqlite` files migrated transparently |
 | **Worker config cache** | In-memory (configurable TTL) | `@buntime/runtime` worker pool | Runtime process RAM | Worker manifest + config; avoids re-reading `app.yaml` on every request |
 | **Worker resolver cache** | In-memory (configurable TTL) | `@buntime/runtime` worker pool | Runtime process RAM | App directory resolution (which `workerDir` contains `name@version`) |
 | **Apps filesystem (PVC)** | Filesystem | Runtime + CLI/cpanel `app install` | `/data/apps` (Helm; `workerDirs: /data/.apps:/data/apps`) | Uploaded app bundles (workers): `dist/`, `app.yaml`, assets |
@@ -123,18 +123,32 @@ const adapter = db.getRootAdapter(config.database); // libsql | sqlite | postgre
 
 This is the current/legacy pattern. Do not use it as a model for new storage work. Infrastructure plugins that should be independently enableable should own their schema and use `@buntime/plugin-turso` for durable SQL access.
 
-### API Keys File Store
+### API Keys Store
 
-Unlike the other stores, this is a JSON file on disk because it must work **before** plugins are loaded (the runtime master key must authenticate `app install` and `plugin install` before a usable database is available).
+The `ApiKeyStore` is **not** a plugin-backed store, because it must work
+**before** any plugin is loaded — the runtime root key authenticates
+`worker install` / `plugin install` before any plugin (including
+plugin-turso) is even loaded. It must remain self-contained at bootstrap.
+
+Backend: **Turso DB** (via `@tursodatabase/database` for local mode and
+`@tursodatabase/sync` for embedded-replica/multi-pod mode). Turso DB files
+are binarily SQLite-compatible — any pre-existing `.db` (from earlier
+`bun:sqlite` or `libsql` deployments) opens transparently.
+
+Schema: a single `api_keys` table with two partial indices
+(`idx_api_keys_lookup` on `key_hash` and `idx_api_keys_expiry` on
+`expires_at`, both `WHERE revoked_at IS NULL`). Permissions are JSON-encoded.
 
 | Aspect | Value |
 |--------|-------|
-| Format | JSON array of `{ id, name, keyPrefix, hash, role, permissions, createdAt }` objects |
+| Backend | Turso DB (Rust, MVCC journal). Drivers: `@tursodatabase/database` (local), `@tursodatabase/sync` (embedded replica). |
+| Modes | `local` (standalone file, single-pod, default). `sync` (embedded replica synced with a Turso server primary, multi-pod). |
 | Hash | SHA-256 of the full secret |
-| Path | `${RUNTIME_STATE_DIR}/api-keys.json` when set; otherwise first `pluginDir` + `.buntime/api-keys.json` |
-| Helm path | `/data/plugins/.buntime/api-keys.json` (mutable PVC) |
+| Path | `${RUNTIME_STATE_DIR}/api-keys.db` (Helm: `/data/state/api-keys.db` on a per-pod RWO PVC via the StatefulSet's `volumeClaimTemplates`). |
 | Granularity | Roles `admin` / `editor` / `viewer` / `custom` (see [runtime](../apps/runtime.md)) |
-| Master key | `RUNTIME_MASTER_KEY` env var (Helm Secret `buntime.masterKey`); bypasses CSRF and plugin hooks; does **not** live in the JSON |
+| Root key | `RUNTIME_ROOT_KEY` env var (Helm Secret `buntime.rootKey`); synthetic `root` principal; bypasses CSRF and plugin hooks; does **not** live in the DB. |
+| Multi-pod | See [Multi-pod deployment](../ops/multi-pod-deployment.md). When `tursoPrimary.enabled=true`, the chart provisions a Turso server primary StatefulSet and points the ApiKeyStore (and optionally plugin-turso) at it. |
+| Legacy | Pre-2026-05-20 the store used JSON, then briefly `bun:sqlite`. Both are auto-migrated. JSON is renamed to `*.migrated` (defensive backup). |
 
 ### Worker Pool In-Memory Caches
 
@@ -157,7 +171,7 @@ Cache TTL `0` = always re-read from disk, useful in dev. In production, the defa
 | `/data/.apps` | `workerDirs` (first) | Docker image | RO |
 | `/data/plugins` | `pluginDirs` (second) | PVC | RW |
 | `/data/.plugins` | `pluginDirs` (first) | Docker image | RO |
-| `/data/plugins/.buntime/api-keys.json` | API key store | PVC | RW |
+| `/data/state/api-keys.db` | API key store (SQLite, WAL) | PVC | RW |
 
 > In a local environment without Helm (`bun dev`), the runtime creates stores under `./data/` by default; set `RUNTIME_STATE_DIR` to a different path to isolate them.
 
@@ -171,7 +185,7 @@ When the same code runs locally (without Helm) and on Rancher/k3s, store paths d
 | Core plugins (RO) | Repository (`packages/plugin-*` or bundle) | `/data/.plugins` (image) |
 | Apps (RW) | `./apps-data/` or `RUNTIME_WORKER_DIRS` | `/data/apps` (PVC) |
 | Embedded apps (RO) | — | `/data/.apps` (image, rarely used) |
-| API keys store | `./.buntime/api-keys.json` or `${RUNTIME_STATE_DIR}/api-keys.json` | `/data/plugins/.buntime/api-keys.json` |
+| API keys store | `./.buntime/api-keys.db` or `${RUNTIME_STATE_DIR}/api-keys.db` | `/data/state/api-keys.db` |
 | SQL driver | Current target: Turso Database through `@buntime/plugin-turso` | Runtime chart exposes `plugins.turso.*`; Kubernetes should use Turso Sync rather than a shared DB file |
 
 See `charts/values.base.yaml` (`runtime.pluginDirs`, `runtime.workerDirs`) for the canonical source of production paths. See [helm-charts](../ops/helm-charts.md) for the PVCs.
@@ -181,7 +195,7 @@ See `charts/values.base.yaml` (`runtime.pluginDirs`, `runtime.workerDirs`) for t
 Priority order for DR planning:
 
 1. **SQL state.** Current deployments use `/data/libsql/` or a sidecar volume. Target deployments should use Turso Database as the only durable SQL driver. Back up via the Turso-compatible mechanism selected during migration.
-2. **`/data/plugins/.buntime/api-keys.json`.** Without this, admin/CLI loses access. In multi-pod setups, `RUNTIME_STATE_DIR` must point to a shared volume (ReadWriteMany) — otherwise each pod maintains its own JSON and the result is non-deterministic.
+2. **`/data/state/api-keys.db`.** Without this, operator access is lost. In multi-pod setups, `RUNTIME_STATE_DIR` must point to a shared volume (ReadWriteMany) — otherwise each pod maintains its own SQLite file and the result is non-deterministic. (SQLite WAL is safe across processes on the same filesystem, but each pod still sees its own file unless the volume is shared.)
 3. **`/data/apps` and `/data/plugins`.** Can be reconstructed via `app install` / `plugin install` if a registry/artifact is available; without one, loss means recreating from scratch.
 4. **In-memory caches.** No backup needed — they rebuild on demand.
 
@@ -193,5 +207,5 @@ Priority order for DR planning:
 - [plugin-turso](../apps/plugin-turso.md) — target Turso Database provider for durable SQL.
 - [plugin-keyval](../apps/plugin-keyval.md) — KV semantics (versionstamps, atomic, queues, FTS).
 - [keyval-tables](./keyval-tables.md) — LibSQL table schema.
-- [runtime](../apps/runtime.md) — `/api/keys/*` endpoints, roles, permissions, master key.
+- [runtime](../apps/runtime.md) — `/api/keys/*` endpoints, roles, permissions, root key.
 - [performance](../ops/performance.md) — tuning the in-memory caches.

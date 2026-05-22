@@ -5,8 +5,8 @@ import { BodySizeLimits } from "./constants";
 describe("config", () => {
   // Env vars that tests may modify - always clean these up
   const testEnvVars = [
-    "BUNTIME_MASTER_KEY",
-    "RUNTIME_MASTER_KEY",
+    "BUNTIME_ROOT_KEY",
+    "RUNTIME_ROOT_KEY",
     "RUNTIME_POOL_SIZE",
     "RUNTIME_STATE_DIR",
     "RUNTIME_WORKER_DIRS",
@@ -116,9 +116,9 @@ describe("config", () => {
       expect(result.stateDir).toBe("/custom/state");
     });
 
-    it("should trim master key env vars and ignore blank values", () => {
-      Bun.env.RUNTIME_MASTER_KEY = " \n ";
-      Bun.env.BUNTIME_MASTER_KEY = " fallback-key\n";
+    it("should trim root key env vars and ignore blank values", () => {
+      Bun.env.RUNTIME_ROOT_KEY = " \n ";
+      Bun.env.BUNTIME_ROOT_KEY = " fallback-key\n";
 
       const result = initConfig({ workerDirs: ["/tmp"] });
       expect(result.apiKey).toBe("fallback-key");

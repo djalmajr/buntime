@@ -34,7 +34,7 @@ The current pattern for admin tests is:
 
 - Build CPanel before the run, then start a real `apps/runtime` process on a free local port.
 - Create an isolated temp runtime layout per test with built-in roots (`.apps`, `.plugins`) and uploaded roots (`apps`, `plugins`) so built-in/remove behavior is tested through the same contract as Rancher/Docker.
-- Login through `/cpanel/admin` with `X-API-Key`, and explicitly assert that `Authorization` headers do not govern admin access.
+- Login through `/cpanel/` with `X-API-Key`, and explicitly assert that `Authorization` headers do not govern operator access. (Pre-2026-05-19 the runtime sections lived under `/cpanel/admin/*`; that subpath has been removed — everything is now first-class under `/cpanel/`.)
 - Exercise key permissions through the runtime API after creating keys in the UI; verify forbidden paths with the required permission in the response.
 - Upload both invalid and valid app/plugin archives through the UI. Invalid archives must fail before upload; valid archives must be observable through the runtime after upload.
 - For plugin E2E, prefer a small plugin with a measurable side effect, such as request logging, then verify the side effect after browsing an uploaded app.

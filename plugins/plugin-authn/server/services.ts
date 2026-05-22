@@ -64,6 +64,11 @@ export interface AuthnServiceConfig {
     bulkEnabled?: boolean;
     /** Maximum operations per bulk request (default: 1000) */
     maxBulkOperations?: number;
+    /**
+     * Optional Hono middleware that gates `/admin/scim/v2/**`. Injected by
+     * `plugin.ts` once the X-API-Key auth context is known.
+     */
+    middleware?: import("hono").MiddlewareHandler;
   };
 
   /**
@@ -135,6 +140,7 @@ export async function initialize(
       logger,
       maxBulkOperations: config.scim.maxBulkOperations ?? 1000,
       maxResults: config.scim.maxResults ?? 100,
+      middleware: config.scim.middleware,
     });
   }
 

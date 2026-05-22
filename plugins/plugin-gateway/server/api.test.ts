@@ -59,11 +59,11 @@ describe("Gateway API", () => {
     };
   });
 
-  describe("POST /api/shell/excludes", () => {
+  describe("POST /admin/shell/excludes", () => {
     it("adds exclude to Turso and memory", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "new-app" }),
@@ -81,7 +81,7 @@ describe("Gateway API", () => {
     it("rejects empty basename", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "" }),
@@ -95,7 +95,7 @@ describe("Gateway API", () => {
     it("rejects invalid basename with special characters", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "invalid/path" }),
@@ -109,7 +109,7 @@ describe("Gateway API", () => {
     it("rejects basename with dots", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "my.app" }),
@@ -121,7 +121,7 @@ describe("Gateway API", () => {
     it("accepts valid basename with hyphens and underscores", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "my-app_v2" }),
@@ -134,7 +134,7 @@ describe("Gateway API", () => {
     it("rejects if already in env excludes", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "env-app" }),
@@ -149,7 +149,7 @@ describe("Gateway API", () => {
       tursoExcludes.add("existing-app");
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "existing-app" }),
@@ -164,7 +164,7 @@ describe("Gateway API", () => {
       deps.getShellConfig = () => null;
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "new-app" }),
@@ -176,12 +176,12 @@ describe("Gateway API", () => {
     });
   });
 
-  describe("DELETE /api/shell/excludes/:basename", () => {
+  describe("DELETE /admin/shell/excludes/:basename", () => {
     it("removes exclude from Turso and memory", async () => {
       tursoExcludes.add("to-remove");
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes/to-remove", {
+      const res = await app.request("/admin/shell/excludes/to-remove", {
         method: "DELETE",
       });
 
@@ -196,7 +196,7 @@ describe("Gateway API", () => {
     it("returns removed=false if not found", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes/not-found", {
+      const res = await app.request("/admin/shell/excludes/not-found", {
         method: "DELETE",
       });
 
@@ -208,7 +208,7 @@ describe("Gateway API", () => {
     it("cannot remove env exclude", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes/env-app", {
+      const res = await app.request("/admin/shell/excludes/env-app", {
         method: "DELETE",
       });
 
@@ -221,7 +221,7 @@ describe("Gateway API", () => {
       deps.getShellConfig = () => null;
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes/some-app", {
+      const res = await app.request("/admin/shell/excludes/some-app", {
         method: "DELETE",
       });
 
@@ -229,13 +229,13 @@ describe("Gateway API", () => {
     });
   });
 
-  describe("GET /api/shell/excludes", () => {
+  describe("GET /admin/shell/excludes", () => {
     it("returns combined env and Turso excludes", async () => {
       tursoExcludes.add("dynamic-app");
       tursoExcludes.add("another-app");
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes");
+      const res = await app.request("/admin/shell/excludes");
 
       expect(res.status).toBe(200);
       const data: ShellExcludeEntry[] = await res.json();
@@ -251,7 +251,7 @@ describe("Gateway API", () => {
     it("returns only env excludes when no Turso excludes", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes");
+      const res = await app.request("/admin/shell/excludes");
 
       expect(res.status).toBe(200);
       const data: ShellExcludeEntry[] = await res.json();
@@ -263,19 +263,19 @@ describe("Gateway API", () => {
       deps.getShellConfig = () => null;
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes");
+      const res = await app.request("/admin/shell/excludes");
 
       expect(res.status).toBe(400);
     });
   });
 
-  describe("GET /api/stats", () => {
+  describe("GET /admin/stats", () => {
     it("returns stats with shell info", async () => {
       tursoExcludes.add("app1");
       tursoExcludes.add("app2");
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/stats");
+      const res = await app.request("/admin/stats");
 
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -288,7 +288,7 @@ describe("Gateway API", () => {
       deps.getShellConfig = () => null;
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/stats");
+      const res = await app.request("/admin/stats");
 
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -307,7 +307,7 @@ describe("Gateway API", () => {
     it("GET /api/rate-limit/metrics returns metrics", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/rate-limit/metrics");
+      const res = await app.request("/admin/rate-limit/metrics");
 
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -319,7 +319,7 @@ describe("Gateway API", () => {
     it("GET /api/rate-limit/buckets returns active buckets", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/rate-limit/buckets");
+      const res = await app.request("/admin/rate-limit/buckets");
 
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -330,7 +330,7 @@ describe("Gateway API", () => {
     it("DELETE /api/rate-limit/buckets/:key clears a bucket", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/rate-limit/buckets/ip%3A192.168.1.1", {
+      const res = await app.request("/admin/rate-limit/buckets/ip%3A192.168.1.1", {
         method: "DELETE",
       });
 
@@ -339,7 +339,7 @@ describe("Gateway API", () => {
       expect(data.deleted).toBe(true);
 
       // Verify bucket was cleared
-      const bucketsRes = await app.request("/api/rate-limit/buckets");
+      const bucketsRes = await app.request("/admin/rate-limit/buckets");
       const buckets = await bucketsRes.json();
       expect(buckets).toHaveLength(1);
     });
@@ -347,7 +347,7 @@ describe("Gateway API", () => {
     it("POST /api/rate-limit/clear clears all buckets", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/rate-limit/clear", {
+      const res = await app.request("/admin/rate-limit/clear", {
         method: "POST",
       });
 
@@ -356,7 +356,7 @@ describe("Gateway API", () => {
       expect(data.cleared).toBe(2);
 
       // Verify all buckets were cleared
-      const bucketsRes = await app.request("/api/rate-limit/buckets");
+      const bucketsRes = await app.request("/admin/rate-limit/buckets");
       const buckets = await bucketsRes.json();
       expect(buckets).toHaveLength(0);
     });
@@ -395,7 +395,7 @@ describe("Gateway API", () => {
     it("GET /api/logs returns all logs", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/logs");
+      const res = await app.request("/admin/logs");
 
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -405,7 +405,7 @@ describe("Gateway API", () => {
     it("GET /api/logs?rateLimited=true filters by rate limited", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/logs?rateLimited=true");
+      const res = await app.request("/admin/logs?rateLimited=true");
 
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -416,7 +416,7 @@ describe("Gateway API", () => {
     it("GET /api/logs?ip=1.1.1.1 filters by IP", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/logs?ip=1.1.1.1");
+      const res = await app.request("/admin/logs?ip=1.1.1.1");
 
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -427,14 +427,14 @@ describe("Gateway API", () => {
     it("DELETE /api/logs clears all logs", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/logs", { method: "DELETE" });
+      const res = await app.request("/admin/logs", { method: "DELETE" });
 
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data.cleared).toBe(true);
 
       // Verify logs were cleared
-      const logsRes = await app.request("/api/logs");
+      const logsRes = await app.request("/admin/logs");
       const logs = await logsRes.json();
       expect(logs).toHaveLength(0);
     });

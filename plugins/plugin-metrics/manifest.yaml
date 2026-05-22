@@ -18,6 +18,14 @@ menus:
         path: /metrics/workers
         title: Workers
 
+# Admin routes auth via the runtime credential channels (X-API-Key, Bearer,
+# or the cpanel session cookie) — handled in `app.ts` before any plugin hook
+# fires, so they need no `publicRoutes` entry.
+# Prometheus scrape stays open by convention — secure via network boundary.
+publicRoutes:
+  GET:
+    - /prometheus
+
 # Enable Prometheus format endpoint
 prometheus: true
 

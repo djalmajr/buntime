@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { basePath } from "~/utils/api";
+import { authFetch, basePath } from "~/utils/api";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
@@ -90,7 +90,7 @@ export function EvaluateView() {
     setDecision(null);
     setExplanation(null);
     try {
-      const response = await fetch(`${basePath}/api/authz/evaluate`, {
+      const response = await authFetch(`${basePath}/admin/evaluate`, {
         body: JSON.stringify(context),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -109,7 +109,7 @@ export function EvaluateView() {
     setDecision(null);
     setExplanation(null);
     try {
-      const response = await fetch(`${basePath}/api/authz/explain`, {
+      const response = await authFetch(`${basePath}/admin/explain`, {
         body: JSON.stringify(context),
         headers: { "Content-Type": "application/json" },
         method: "POST",

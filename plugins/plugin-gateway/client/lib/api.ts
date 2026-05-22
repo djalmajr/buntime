@@ -29,12 +29,14 @@ class GatewayApi {
   }
 
   private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
+    // Same-origin cookie carries the operator session — no header injection needed.
     const response = await fetch(`${this.baseUrl}${path}`, {
+      ...options,
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
         ...options?.headers,
       },
-      ...options,
     });
 
     if (!response.ok) {
@@ -53,7 +55,7 @@ class GatewayApi {
    * Get gateway statistics
    */
   async getStats(): Promise<GatewayStats> {
-    return this.fetch<GatewayStats>("/api/stats");
+    return this.fetch<GatewayStats>("/admin/stats");
   }
 
   /**
@@ -71,7 +73,7 @@ class GatewayApi {
     } | null;
     shell: { dir: string; excludes: string[] } | null;
   }> {
-    return this.fetch("/api/config");
+    return this.fetch("/admin/config");
   }
 
   // =========================================================================
@@ -82,7 +84,7 @@ class GatewayApi {
    * Get rate limiter metrics
    */
   async getRateLimitMetrics(): Promise<RateLimitMetrics | null> {
-    return this.fetch<RateLimitMetrics | null>("/api/rate-limit/metrics");
+    return this.fetch<RateLimitMetrics | null>("/admin/rate-limit/metrics");
   }
 
   /**
@@ -97,14 +99,14 @@ class GatewayApi {
     if (options?.sortBy) params.set("sortBy", options.sortBy);
 
     const query = params.toString();
-    return this.fetch<BucketInfo[]>(`/api/rate-limit/buckets${query ? `?${query}` : ""}`);
+    return this.fetch<BucketInfo[]>(`/admin/rate-limit/buckets${query ? `?${query}` : ""}`);
   }
 
   /**
    * Clear a specific rate limit bucket
    */
   async clearRateLimitBucket(key: string): Promise<{ success: boolean }> {
-    return this.fetch(`/api/rate-limit/buckets/${encodeURIComponent(key)}`, {
+    return this.fetch(`/admin/rate-limit/buckets/${encodeURIComponent(key)}`, {
       method: "DELETE",
     });
   }
@@ -113,7 +115,7 @@ class GatewayApi {
    * Clear all rate limit buckets
    */
   async clearAllRateLimitBuckets(): Promise<{ success: boolean; cleared: number }> {
-    return this.fetch("/api/rate-limit/clear", { method: "POST" });
+    return this.fetch("/admin/rate-limit/clear", { method: "POST" });
   }
 
   // =========================================================================
@@ -124,7 +126,7 @@ class GatewayApi {
    * Get historical metrics
    */
   async getMetricsHistory(limit = 60): Promise<MetricsSnapshot[]> {
-    return this.fetch<MetricsSnapshot[]>(`/api/metrics/history?limit=${limit}`);
+    return this.fetch<MetricsSnapshot[]>(`/admin/metrics/history?limit=${limit}`);
   }
 
   // =========================================================================
@@ -135,7 +137,7 @@ class GatewayApi {
    * Get shell excludes
    */
   async getShellExcludes(): Promise<ShellExcludeEntry[]> {
-    return this.fetch<ShellExcludeEntry[]>("/api/shell/excludes");
+    return this.fetch<ShellExcludeEntry[]>("/admin/shell/excludes");
   }
 
   /**
@@ -144,7 +146,7 @@ class GatewayApi {
   async addShellExclude(
     basename: string,
   ): Promise<{ added: boolean; basename: string; source: string }> {
-    return this.fetch("/api/shell/excludes", {
+    return this.fetch("/admin/shell/excludes", {
       method: "POST",
       body: JSON.stringify({ basename }),
     });
@@ -154,7 +156,7 @@ class GatewayApi {
    * Remove a shell exclude
    */
   async removeShellExclude(basename: string): Promise<{ removed: boolean; basename: string }> {
-    return this.fetch(`/api/shell/excludes/${encodeURIComponent(basename)}`, {
+    return this.fetch(`/admin/shell/excludes/${encodeURIComponent(basename)}`, {
       method: "DELETE",
     });
   }
@@ -179,14 +181,14 @@ class GatewayApi {
     if (options?.ip) params.set("ip", options.ip);
 
     const query = params.toString();
-    return this.fetch<RequestLogEntry[]>(`/api/logs${query ? `?${query}` : ""}`);
+    return this.fetch<RequestLogEntry[]>(`/admin/logs${query ? `?${query}` : ""}`);
   }
 
   /**
    * Clear request logs
    */
   async clearLogs(): Promise<{ success: boolean }> {
-    return this.fetch("/api/logs", { method: "DELETE" });
+    return this.fetch("/admin/logs", { method: "DELETE" });
   }
 }
 

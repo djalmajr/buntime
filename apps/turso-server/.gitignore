@@ -1,0 +1,7 @@
+dist/
+bin/
+turso-server
+*.test
+.coverage
+coverage.out
+/var/

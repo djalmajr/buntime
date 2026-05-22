@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, type Mock, spyOn } from "bun:test";
 import * as configModule from "@/config";
 import { Headers } from "@/constants";
 import { BodyTooLargeError, cloneRequestBody, createWorkerRequest, rewriteUrl } from "./request";
@@ -13,9 +13,17 @@ describe("request utils", () => {
   });
 
   describe("cloneRequestBody", () => {
+    let getConfigSpy: Mock<typeof configModule.getConfig>;
+
+    afterEach(() => {
+      getConfigSpy?.mockRestore();
+    });
+
     beforeEach(() => {
-      spyOn(configModule, "getConfig").mockReturnValue({
+      getConfigSpy = spyOn(configModule, "getConfig").mockReturnValue({
+        authDb: { mode: "local", syncIntervalSeconds: 60 },
         bodySize: { default: 1024, max: 10240 },
+        cpanelSessionTtlMs: 24 * 60 * 60 * 1000,
         delayMs: 100,
         isCompiled: false,
         isDev: true,

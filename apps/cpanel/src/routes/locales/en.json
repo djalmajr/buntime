@@ -6,17 +6,17 @@
     "logout": "Sign Out"
   },
   "admin": {
-    "apps": {
-      "empty": "No apps installed.",
-      "listTitle": "Apps",
+    "workers": {
+      "empty": "No workers installed.",
+      "listTitle": "Workers",
       "nameColumn": "Name",
       "pathColumn": "Path",
-      "removed": "App removed",
+      "removed": "Worker removed",
       "removeVersion": "Remove version {{version}}",
-      "searchPlaceholder": "Search apps...",
+      "searchPlaceholder": "Search workers...",
       "sourceColumn": "Source",
-      "uploaded": "App uploaded",
-      "uploadTitle": "Upload app",
+      "uploaded": "Worker uploaded",
+      "uploadTitle": "Upload worker",
       "versionRemoved": "Version removed",
       "versionsColumn": "Versions"
     },
@@ -75,19 +75,16 @@
     },
     "overview": {
       "activePermissions": "Active permissions",
-      "apps": "Apps",
-      "appsHelp": "{{count}} installed app(s)",
       "capabilitiesDescription": "What the current key can operate in this runtime.",
       "capabilitiesTitle": "Administrative capabilities",
       "currentKey": "Current key",
       "currentKeyHelp": "{{role}} access with prefix {{prefix}}",
-      "deploymentOps": "Deployments",
       "fullAccess": "Full access",
       "keyOps": "Key management",
       "keys": "API keys",
       "keysHelp": "{{count}} active key(s)",
-      "masterDescription": "Master key from RUNTIME_MASTER_KEY",
-      "masterKey": "Master key",
+      "rootDescription": "Root key from RUNTIME_ROOT_KEY",
+      "rootKey": "Root key",
       "noAccess": "No access",
       "permissions": "Permissions",
       "permissionsHelp": "Total permissions assigned to this session",
@@ -98,7 +95,9 @@
       "role": "Role",
       "scope": "Scope",
       "sessionTitle": "Current session",
-      "workerOps": "Workers"
+      "workerOps": "Workers",
+      "workers": "Workers",
+      "workersHelp": "{{count}} installed worker(s)"
     },
     "plugins": {
       "baseColumn": "Base",
@@ -126,18 +125,6 @@
       "editor": "Editor",
       "viewer": "Viewer"
     },
-    "shell": {
-      "backToCpanel": "Go to CPanel",
-      "description": "Internal operations",
-      "identity": "{{role}} · {{prefix}}",
-      "name": "Admin"
-    },
-    "tabs": {
-      "apps": "Apps",
-      "keys": "Keys",
-      "overview": "Overview",
-      "plugins": "Plugins"
-    },
     "uploadValidation": {
       "checking": "Checking archive structure...",
       "errors": {
@@ -159,8 +146,6 @@
     }
   },
   "nav": {
-    "admin": "Admin",
-    "adminMode": "Go to Admin",
     "administration": "Administration",
     "appDescription": "Worker Pool Runtime",
     "appName": "CPanel",
@@ -170,12 +155,16 @@
     "durable": "Durable",
     "gateway": "Gateway",
     "health": "Health",
+    "keys": "Keys",
     "keyval": "KeyVal",
     "logout": "Sign Out",
     "logs": "Logs",
     "metrics": "Metrics",
-    "platform": "Platform",
-    "redirects": "Redirects"
+    "overview": "Overview",
+    "plugins": "Plugins",
+    "redirects": "Redirects",
+    "runtime": "Runtime",
+    "workers": "Workers"
   },
   "validation": {
     "invalidJson": "Invalid JSON format",

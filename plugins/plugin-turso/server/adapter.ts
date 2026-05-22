@@ -79,7 +79,10 @@ export class TursoAdapter implements TursoDatabase {
         logger: options.logger,
         syncClient: client,
       });
-      await adapter.enableMvcc();
+      // Sync replicas use CDC for the sync engine; `tursodb` rejects
+      // `PRAGMA journal_mode = mvcc` while CDC is active with
+      // "cannot enable MVCC while CDC is active". The primary controls
+      // the journal mode for sync clients.
       return adapter;
     }
 

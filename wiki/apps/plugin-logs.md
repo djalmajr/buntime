@@ -14,6 +14,8 @@ status: stable
 
 # @buntime/plugin-logs
 
+> **Auth.** Viewer endpoints (`/logs/admin/`, `/logs/admin/stats`, `/logs/admin/sse`, `/logs/admin/clear`) are gated by the runtime `X-API-Key` store via the shared middleware. HTTP ingestion lives at `/logs/api/ingest` and remains under the regular `plugin-authn` pipeline (intended for other workers/plugins, not operators). See [Plugin auth boundary](./plugin-auth-boundary.md).
+
 > In-memory runtime log collection with a fixed ring buffer, real-time SSE streaming, level/text filters, and a built-in UI at `/logs`. It's the visual `tail -f` of Buntime — focused on transient diagnosis, not long-term retention.
 
 This plugin is a consumer of the runtime's logging pipeline. For the general logger system (`@buntime/shared/logger`, console/file transports, child loggers, `ctx.logger`), see [Runtime Logging](../ops/logging.md). For the plugin model (`provides`, `getPlugin`, manifest), see [Plugin System](./plugin-system.md).

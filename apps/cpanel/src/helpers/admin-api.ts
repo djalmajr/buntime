@@ -6,22 +6,21 @@ export type ApiKeyRole = "admin" | "editor" | "viewer" | "custom";
 export type PackageSource = "built-in" | "uploaded";
 
 export type ApiPermission =
-  | "apps:read"
-  | "apps:install"
-  | "apps:remove"
+  | "workers:read"
+  | "workers:install"
+  | "workers:remove"
+  | "workers:restart"
   | "plugins:read"
   | "plugins:install"
   | "plugins:remove"
   | "plugins:config"
   | "keys:read"
   | "keys:create"
-  | "keys:revoke"
-  | "workers:read"
-  | "workers:restart";
+  | "keys:revoke";
 
 export interface AdminPrincipal {
   id: number;
-  isMaster?: boolean;
+  isRoot?: boolean;
   keyPrefix: string;
   name: string;
   permissions: ApiPermission[];
@@ -70,7 +69,7 @@ export interface ApiKeyMeta {
   roles: ApiKeyRole[];
 }
 
-export interface InstalledAppInfo {
+export interface InstalledWorkerInfo {
   name: string;
   path: string;
   removable?: boolean;
@@ -87,12 +86,12 @@ export interface InstalledPluginInfo {
 
 export interface UploadResponse {
   data: {
-    app?: {
+    plugin?: {
       installedAt: string;
       name: string;
       version: string;
     };
-    plugin?: {
+    worker?: {
       installedAt: string;
       name: string;
       version: string;
@@ -110,102 +109,113 @@ export function hasPermission(session: AdminSession | null, permission: ApiPermi
   return session?.principal.permissions.includes(permission) ?? false;
 }
 
-export function getAdminSession(apiKey: string): Promise<AdminSession> {
-  return runtimeJson<AdminSession>("/admin/session", { apiKey });
+/**
+ * Probe the current session. The HttpOnly `buntime_api_key` cookie is sent
+ * automatically by the browser; returns the principal when authenticated,
+ * throws `RuntimeApiError` (401) otherwise.
+ */
+export function getAdminSession(): Promise<AdminSession> {
+  return runtimeJson<AdminSession>("/admin/session");
 }
 
-export function listApiKeys(apiKey: string): Promise<{ keys: ApiKeyInfo[] }> {
-  return runtimeJson<{ keys: ApiKeyInfo[] }>("/keys", { apiKey });
+/**
+ * Exchange an API key for an HttpOnly session cookie. The browser stores the
+ * cookie; JavaScript never sees the key again after this call returns.
+ */
+export function loginAdminSession(apiKey: string): Promise<AdminSession> {
+  return runtimeJson<AdminSession>("/admin/session", {
+    json: { key: apiKey },
+    method: "POST",
+  });
 }
 
-export function getApiKeyMeta(apiKey: string): Promise<ApiKeyMeta> {
-  return runtimeJson<ApiKeyMeta>("/keys/meta", { apiKey });
+/** Clear the session cookie. Idempotent — succeeds even if no cookie is set. */
+export async function logoutAdminSession(): Promise<void> {
+  await runtimeFetch("/admin/session", { method: "DELETE" });
 }
 
-export function createApiKey(
-  apiKey: string,
-  input: CreateApiKeyInput,
-): Promise<CreateApiKeyResponse> {
+export function listApiKeys(): Promise<{ keys: ApiKeyInfo[] }> {
+  return runtimeJson<{ keys: ApiKeyInfo[] }>("/keys");
+}
+
+export function getApiKeyMeta(): Promise<ApiKeyMeta> {
+  return runtimeJson<ApiKeyMeta>("/keys/meta");
+}
+
+export function createApiKey(input: CreateApiKeyInput): Promise<CreateApiKeyResponse> {
   return runtimeJson<CreateApiKeyResponse>("/keys", {
-    apiKey,
     json: input,
     method: "POST",
   });
 }
 
-export async function revokeApiKey(apiKey: string, id: number): Promise<void> {
-  await runtimeFetch(`/keys/${id}`, { apiKey, method: "DELETE" });
+export async function revokeApiKey(id: number): Promise<void> {
+  await runtimeFetch(`/keys/${id}`, { method: "DELETE" });
 }
 
-export function listApps(apiKey: string): Promise<InstalledAppInfo[]> {
-  return runtimeJson<InstalledAppInfo[]>("/apps", { apiKey });
+export function listWorkers(): Promise<InstalledWorkerInfo[]> {
+  return runtimeJson<InstalledWorkerInfo[]>("/workers");
 }
 
-function appPathSegments(appName: string, version?: string): string {
+function workerPathSegments(workerName: string, version?: string): string {
   const segments = (values: Array<string | undefined>) =>
     values
       .filter((value): value is string => Boolean(value))
       .map(encodeURIComponent)
       .join("/");
 
-  if (appName.startsWith("@")) {
-    const [scope, name] = appName.split("/");
+  if (workerName.startsWith("@")) {
+    const [scope, name] = workerName.split("/");
     return segments([scope, name, version]);
   }
 
-  return segments(["_", appName, version]);
+  return segments(["_", workerName, version]);
 }
 
-export function uploadApp(apiKey: string, file: File): Promise<UploadResponse> {
+export function uploadWorker(file: File): Promise<UploadResponse> {
   const form = new FormData();
   form.append("file", file);
-  return runtimeJson<UploadResponse>("/apps/upload", {
-    apiKey,
+  return runtimeJson<UploadResponse>("/workers/upload", {
     body: form,
     method: "POST",
   });
 }
 
-export async function deleteApp(apiKey: string, appName: string): Promise<void> {
-  await runtimeFetch(`/apps/${appPathSegments(appName)}`, { apiKey, method: "DELETE" });
+export async function deleteWorker(workerName: string): Promise<void> {
+  await runtimeFetch(`/workers/${workerPathSegments(workerName)}`, { method: "DELETE" });
 }
 
-export async function deleteAppVersion(
-  apiKey: string,
-  appName: string,
-  version: string,
-): Promise<void> {
-  await runtimeFetch(`/apps/${appPathSegments(appName, version)}`, { apiKey, method: "DELETE" });
+export async function deleteWorkerVersion(workerName: string, version: string): Promise<void> {
+  await runtimeFetch(`/workers/${workerPathSegments(workerName, version)}`, {
+    method: "DELETE",
+  });
 }
 
-export function listInstalledPlugins(apiKey: string): Promise<InstalledPluginInfo[]> {
-  return runtimeJson<InstalledPluginInfo[]>("/plugins", { apiKey });
+export function listInstalledPlugins(): Promise<InstalledPluginInfo[]> {
+  return runtimeJson<InstalledPluginInfo[]>("/plugins");
 }
 
-export function listLoadedPlugins(apiKey: string): Promise<PluginInfo[]> {
-  return runtimeJson<PluginInfo[]>("/plugins/loaded", { apiKey });
+export function listLoadedPlugins(): Promise<PluginInfo[]> {
+  return runtimeJson<PluginInfo[]>("/plugins/loaded");
 }
 
-export function uploadPlugin(apiKey: string, file: File): Promise<UploadResponse> {
+export function uploadPlugin(file: File): Promise<UploadResponse> {
   const form = new FormData();
   form.append("file", file);
   return runtimeJson<UploadResponse>("/plugins/upload", {
-    apiKey,
     body: form,
     method: "POST",
   });
 }
 
-export function reloadPlugins(apiKey: string): Promise<ReloadPluginsResponse> {
+export function reloadPlugins(): Promise<ReloadPluginsResponse> {
   return runtimeJson<ReloadPluginsResponse>("/plugins/reload", {
-    apiKey,
     method: "POST",
   });
 }
 
-export async function deletePlugin(apiKey: string, pluginName: string): Promise<void> {
+export async function deletePlugin(pluginName: string): Promise<void> {
   await runtimeFetch(`/plugins/${encodeURIComponent(pluginName)}`, {
-    apiKey,
     method: "DELETE",
   });
 }

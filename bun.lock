@@ -115,6 +115,8 @@
         "@hono/standard-validator": "^0.2.1",
         "@libsql/client": "^0.17.0",
         "@scalar/hono-api-reference": "^0.9.21",
+        "@tursodatabase/database": "^0.5.3",
+        "@tursodatabase/sync": "^0.5.3",
         "es-toolkit": "^1.42.0",
         "hono": "^4.10.7",
         "hono-openapi": "^1.1.1",
@@ -151,8 +153,10 @@
     },
     "packages/shared": {
       "name": "@buntime/shared",
-      "version": "1.1.2",
+      "version": "1.3.0",
       "dependencies": {
+        "@tursodatabase/database": "^0.5.3",
+        "@tursodatabase/sync": "^0.5.3",
         "ms": "^2.1.3",
       },
       "devDependencies": {
@@ -162,6 +166,14 @@
         "@zomme/bun-plugin-iconify": "^0.1.2",
         "@zomme/bun-plugin-tsr": "^0.1.1",
         "bun-plugin-tailwind": "^0.1.2",
+      },
+      "optionalDependencies": {
+        "@tursodatabase/database-darwin-arm64": "0.5.3",
+        "@tursodatabase/database-linux-arm64-gnu": "0.5.3",
+        "@tursodatabase/database-linux-x64-gnu": "0.5.3",
+        "@tursodatabase/sync-darwin-arm64": "0.5.3",
+        "@tursodatabase/sync-linux-arm64-gnu": "0.5.3",
+        "@tursodatabase/sync-linux-x64-gnu": "0.5.3",
       },
       "peerDependencies": {
         "hono": "^4.0.0",
@@ -280,6 +292,8 @@
         "@radix-ui/react-slot": "^1.2.3",
         "@radix-ui/react-tooltip": "^1.2.7",
         "@tanstack/react-query": "^5.80.7",
+        "@tursodatabase/database": "^0.5.3",
+        "@tursodatabase/sync": "^0.5.3",
         "@zomme/frame": "^1.2.3",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -1442,6 +1456,8 @@
     "@buntime/plugin-database/react-resizable-panels": ["react-resizable-panels@2.1.9", "", { "peerDependencies": { "react": "^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc", "react-dom": "^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc" } }, "sha512-z77+X08YDIrgAes4jl8xhnUu1LNIRp4+E7cv4xHmLOxxUPO/ML7PSrE813b90vj7xvQ1lcf7g2uA9GeMZonjhQ=="],
 
     "@buntime/plugin-deployments/@iconify-icon/react": ["@iconify-icon/react@2.3.0", "", { "dependencies": { "iconify-icon": "^2.3.0" }, "peerDependencies": { "react": ">=16" } }, "sha512-7at8wGF+igiCS2XMaIrkZokD0zxz0pNa5SZn5tJAkZMJezeJlYiFXI5rYkiEpUpMaNYhYTqGLB90I/0sKJZkUw=="],
+
+    "@buntime/plugin-deployments/@zomme/bun-plugin-iconify": ["@zomme/bun-plugin-iconify@0.1.3", "", { "peerDependencies": { "@iconify-json/*": ">=1.0.0", "@iconify/json": ">=2.0.0" }, "optionalPeers": ["@iconify-json/*", "@iconify/json"] }, "sha512-+a6gY7KlRGimHdojksNXmlS386VGXSmURsXsA9tHsILhPQ0XzDW6mG+BwSAfxBHFVssE+UVf6KLgsjotvRn4sg=="],
 
     "@buntime/plugin-deployments/react-i18next": ["react-i18next@15.7.4", "", { "dependencies": { "@babel/runtime": "^7.27.6", "html-parse-stringify": "^3.0.1" }, "peerDependencies": { "i18next": ">= 23.4.0", "react": ">= 16.8.0", "typescript": "^5" }, "optionalPeers": ["typescript"] }, "sha512-nyU8iKNrI5uDJch0z9+Y5XEr34b0wkyYj3Rp+tfbahxtlswxSCjcUL9H0nqXo9IR3/t5Y5PKIA3fx3MfUyR9Xw=="],
 

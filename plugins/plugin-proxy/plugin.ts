@@ -1,6 +1,9 @@
+import type { ApiKeyStore } from "@buntime/shared/api-keys";
+import { createApiKeyMiddleware } from "@buntime/shared/middleware/api-key";
 import type { PluginContext, PluginImpl } from "@buntime/shared/types";
 import type { Server } from "bun";
-import { api } from "./server/api";
+import { Hono } from "hono";
+import { createApi } from "./server/api";
 import {
   handleProxyRequest,
   initializeProxyService,
@@ -21,8 +24,18 @@ export interface ProxyConfig {
 }
 
 export default function proxyPlugin(config: ProxyConfig = {}): PluginImpl {
+  // The plugin loader spreads the impl (`{...impl}`) so any `routes` getter
+  // would be evaluated once at registration time. We need a stable object
+  // that can have its routing table replaced at onInit when the auth context
+  // arrives — hence a thin Hono forwarder that delegates to a mutable inner
+  // router. Until onInit runs, an unprotected default is used.
+  let activeRouter = createApi();
+  // `.all("/*", ...)` is the deep catch-all in Hono v4 — `*` alone matches a
+  // single segment, missing nested paths like `/admin/rules/:id`.
+  const routes = new Hono().all("/*", (c) => activeRouter.fetch(c.req.raw));
+
   return {
-    routes: api,
+    routes,
 
     // Expose public routes checker for auth plugins
     provides: () => ({ isPublic: isProxyRoutePublic }),
@@ -30,6 +43,11 @@ export default function proxyPlugin(config: ProxyConfig = {}): PluginImpl {
     async onInit(ctx: PluginContext) {
       initializeProxyService(ctx, config.rules || []);
       await loadDynamicRules();
+
+      const store = ctx.auth?.store as ApiKeyStore | undefined;
+      const rootKey = ctx.auth?.rootKey;
+      const middleware = store || rootKey ? createApiKeyMiddleware({ rootKey, store }) : undefined;
+      activeRouter = createApi({ middleware });
     },
 
     async onShutdown() {

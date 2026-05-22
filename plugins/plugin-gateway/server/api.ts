@@ -1,4 +1,5 @@
 import { errorToResponse } from "@buntime/shared/errors";
+import type { MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { ResponseCache } from "./cache";
@@ -13,6 +14,13 @@ import type { GatewayConfig, GatewaySSEData, GatewayStats } from "./types";
 export interface GatewayApiDeps {
   /** Get current config */
   getConfig: () => GatewayConfig;
+  /**
+   * Lazy auth middleware. Called on each request — returns the X-API-Key
+   * middleware once the plugin has been initialised with the runtime auth
+   * context, or `undefined` before `onInit` runs (in which case admin
+   * routes are unprotected — typical for unit-test environments).
+   */
+  getMiddleware?: () => MiddlewareHandler | undefined;
   /** Get rate limiter instance */
   getRateLimiter: () => RateLimiter | null;
   /** Get response cache instance (may be null if disabled) */
@@ -93,9 +101,18 @@ async function buildSSEData(deps: GatewayApiDeps): Promise<GatewaySSEData> {
 export function createGatewayApi(deps: GatewayApiDeps) {
   const sseInterval = deps.sseInterval ?? 1000;
 
+  const app = new Hono().basePath("/admin");
+
+  // Lazy auth gate. Defers middleware resolution to request time so the API
+  // can be constructed at module load before onInit wires the auth context.
+  app.use("*", async (c, next) => {
+    const middleware = deps.getMiddleware?.();
+    if (middleware) return middleware(c, next);
+    return next();
+  });
+
   return (
-    new Hono()
-      .basePath("/api")
+    app
 
       // =========================================================================
       // SSE - Real-time updates

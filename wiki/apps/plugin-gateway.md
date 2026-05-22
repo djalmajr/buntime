@@ -21,6 +21,8 @@ status: stable
 
 # @buntime/plugin-gateway
 
+> **Auth.** Admin endpoints live at `/gateway/admin/*` (stats, config, rate-limit, cache, shell excludes, logs) and are gated by the runtime `X-API-Key` store via the shared middleware. The data-plane hooks (`onRequest`/`onResponse` for live traffic, rate-limit keying that reads `X-Identity`) are unaffected. See [Plugin auth boundary](./plugin-auth-boundary.md).
+
 > Summary: Buntime edge middleware — CORS, rate limiting (Token Bucket), micro-frontend shell, request logging, and real-time monitoring via SSE.
 
 ## Overview

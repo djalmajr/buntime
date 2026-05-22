@@ -7,6 +7,7 @@
 import { existsSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getChildLogger } from "@buntime/shared/logger";
+import { parseDurationToMs } from "@buntime/shared/utils/duration";
 import { splitList } from "@buntime/shared/utils/string";
 import {
   BodySizeLimits,
@@ -20,12 +21,27 @@ import {
 
 const logger = getChildLogger("Config");
 
+interface AuthDbRuntimeConfig {
+  /** `local` keeps the DB self-contained; `sync` syncs to a Turso server primary. */
+  mode: "local" | "sync";
+  syncUrl?: string;
+  syncAuthToken?: string;
+  syncIntervalSeconds: number;
+}
+
 interface RuntimeConfig {
   apiKey?: string;
+  authDb: AuthDbRuntimeConfig;
   bodySize: {
     default: number;
     max: number;
   };
+  /**
+   * Lifetime of the cpanel session cookie issued by `POST /api/admin/session`,
+   * in milliseconds. Sourced from `RUNTIME_CPANEL_SESSION_TTL` (e.g. `24h`,
+   * `30m`); default is 24h. See `parseDurationToMs` for accepted formats.
+   */
+  cpanelSessionTtlMs: number;
   delayMs: number;
   isCompiled: boolean;
   isDev: boolean;
@@ -37,6 +53,8 @@ interface RuntimeConfig {
   version: string;
   workerDirs: string[];
 }
+
+const DEFAULT_CPANEL_SESSION_TTL = "24h";
 
 // Pool size defaults by environment
 const poolDefaults: Record<string, number> = {
@@ -131,12 +149,57 @@ export function initConfig(options: InitConfigOptions = {}): RuntimeConfig {
   const envFallback = poolDefaults[NODE_ENV] ?? 100;
   const poolSize = parsePoolSize(Bun.env.RUNTIME_POOL_SIZE, envFallback);
 
+  // ApiKeyStore backend config. Mode "local" is self-contained (single-pod);
+  // "sync" requires a Turso server primary URL for embedded-replica multi-pod.
+  const authDbMode = readOptionalEnv("RUNTIME_AUTH_DB_MODE") ?? "local";
+  if (authDbMode !== "local" && authDbMode !== "sync") {
+    throw new Error(`Invalid RUNTIME_AUTH_DB_MODE "${authDbMode}". Expected "local" or "sync".`);
+  }
+  const authDbSyncUrl = readOptionalEnv("RUNTIME_AUTH_DB_SYNC_URL");
+  if (authDbMode === "sync" && !authDbSyncUrl) {
+    throw new Error(
+      "RUNTIME_AUTH_DB_MODE=sync requires RUNTIME_AUTH_DB_SYNC_URL " +
+        "(libsql://… of the Turso server primary)",
+    );
+  }
+  const authDbSyncIntervalRaw = readOptionalEnv("RUNTIME_AUTH_DB_SYNC_INTERVAL_SECONDS");
+  const authDbSyncIntervalSeconds = authDbSyncIntervalRaw
+    ? Math.max(0, Number.parseInt(authDbSyncIntervalRaw, 10) || 60)
+    : 60;
+
+  // Cpanel session cookie TTL. Parsed via parseDurationToMs ("24h" by default).
+  // The cookie is HttpOnly + SameSite=Strict; expiry mirrors this value.
+  const cpanelSessionTtlRaw =
+    readOptionalEnv("RUNTIME_CPANEL_SESSION_TTL") ?? DEFAULT_CPANEL_SESSION_TTL;
+  let cpanelSessionTtlMs: number;
+  try {
+    cpanelSessionTtlMs = parseDurationToMs(cpanelSessionTtlRaw);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Invalid RUNTIME_CPANEL_SESSION_TTL "${cpanelSessionTtlRaw}": ${reason}. ` +
+        `Expected formats like "30m", "24h", "7d".`,
+    );
+  }
+  if (cpanelSessionTtlMs <= 0) {
+    throw new Error(
+      `RUNTIME_CPANEL_SESSION_TTL "${cpanelSessionTtlRaw}" must be a positive duration.`,
+    );
+  }
+
   const config: RuntimeConfig = {
-    apiKey: readOptionalEnv("RUNTIME_MASTER_KEY", "BUNTIME_MASTER_KEY"),
+    apiKey: readOptionalEnv("RUNTIME_ROOT_KEY", "BUNTIME_ROOT_KEY"),
+    authDb: {
+      mode: authDbMode,
+      syncAuthToken: readOptionalEnv("RUNTIME_AUTH_DB_SYNC_TOKEN"),
+      syncIntervalSeconds: authDbSyncIntervalSeconds,
+      syncUrl: authDbSyncUrl,
+    },
     bodySize: {
       default: BodySizeLimits.DEFAULT,
       max: BodySizeLimits.MAX,
     },
+    cpanelSessionTtlMs,
     delayMs: DELAY_MS,
     isCompiled: IS_COMPILED,
     isDev: IS_DEV,

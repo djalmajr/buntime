@@ -30,6 +30,8 @@ export interface NavMainItem {
 
 export interface NavMainProps {
   chevronIcon?: React.ReactNode;
+  /** Extra class on the underlying `<SidebarGroup>` container (e.g. spacing). */
+  groupClassName?: string;
   items: NavMainItem[];
   label?: React.ReactNode;
   labelClassName?: string;
@@ -38,13 +40,14 @@ export interface NavMainProps {
 
 export function NavMain({
   chevronIcon,
+  groupClassName,
   items,
   label,
   labelClassName,
   LinkComponent = "a",
 }: NavMainProps) {
   return (
-    <SidebarGroup>
+    <SidebarGroup className={groupClassName}>
       {label && <SidebarGroupLabel className={labelClassName}>{label}</SidebarGroupLabel>}
       <SidebarGroupContent>
         <SidebarMenu>

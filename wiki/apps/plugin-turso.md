@@ -88,43 +88,68 @@ As of 2026-05-02, the first service slice exists under
 | Mode | Target | Notes |
 |------|--------|-------|
 | `local` | Local development, tests, single-pod deployments | Opens a local Turso database file. No remote sync server is required. |
-| `sync` | Kubernetes and multi-pod deployments | Each runtime pod has its own local database file and synchronizes with a Turso sync endpoint. |
-| `remote` | Future optional mode | Only useful if it adds operational value without reintroducing `@libsql/client` as a durable SQL baseline. |
+| `sync` (single-tenant) | Legacy multi-pod with one shared database | Each pod has its own local replica file and pulls from a single fixed `TURSO_SYNC_URL`. One adapter per process. |
+| **`sync` (multi-tenant)** | **Default for multi-pod / lowcode multi-database** | Set `TURSO_SERVER_URL` instead of `TURSO_SYNC_URL`. Each `connect(name)` opens a separate embedded replica synced with `<TURSO_SERVER_URL>/<name>`. Local replica files are scoped per-namespace. |
 
-The Kubernetes baseline is `sync`, not a shared database file mounted into all pods. Turso concurrent writes solve engine-level writer concurrency, but a shared file over Kubernetes storage still depends on filesystem and locking semantics. Each pod should keep its own local file and sync through a Turso endpoint.
+The Kubernetes baseline is **multi-tenant sync** against the in-cluster
+`turso-server` (see [`wiki/ops/turso-server.md`](../ops/turso-server.md)).
+Turso concurrent writes solve engine-level concurrency, but a shared file
+over Kubernetes storage still depends on filesystem and locking semantics
+— each pod keeps its own local file and syncs through the multi-tenant
+endpoint.
+
+### Switching modes
+
+The plugin auto-detects the mode from env vars. Precedence (first match wins):
+
+1. **`TURSO_SERVER_URL` set** → multi-tenant sync. Each `connect(name)` →
+   `<server>/<name>`. Pod-local replicas at `<localPath dir>/<name>.db`.
+   `TURSO_SERVER_TOKEN` carries the data-plane bearer.
+2. **`TURSO_SYNC_URL` set** → legacy single-tenant sync. One adapter; the
+   `namespace` argument to `connect()` is recorded as ownership metadata
+   but does not change the connection.
+3. Otherwise → `local` mode (file at `TURSO_LOCAL_PATH`).
+
+### Transaction semantics in sync mode
+
+`transaction({ type: "concurrent" })` is **automatically downgraded** to
+`BEGIN DEFERRED` when running against a sync replica. `tursodb` rejects
+`BEGIN CONCURRENT` (MVCC) while CDC is active, and the sync engine
+requires CDC. The downgrade is transparent — callers still get
+serializable behavior, just without MVCC retry semantics. Use explicit
+`type: "exclusive"` for DDL.
 
 ## Chart Direction
 
 The Buntime chart exposes Turso settings from `plugins/plugin-turso/manifest.yaml` under generated `plugins.turso.*` values. The legacy `@buntime/plugin-database` manifest is disabled by default, so Helm generation no longer emits `plugins.database.libsql*` values or `DATABASE_LIBSQL_*` env vars.
 
-Current value shape:
+When the in-cluster `tursoServer.enabled=true`, the chart **auto-wires**
+the multi-tenant URL into the runtime env:
 
 ```yaml
-plugins:
-  turso:
-    mode: sync # local | sync
-    localPath: /data/turso/runtime.db
-    sync:
-      url: http://buntime-turso-sync:8080
-      authToken: ""
+TURSO_SERVER_URL: http://<release>-turso:8080
+TURSO_SERVER_ADMIN_URL: http://<release>-turso-admin:8081
+TURSO_SERVER_TOKEN: <tursoServer.authToken>     # from Secret
 ```
 
-Generated env vars:
+In this mode the legacy `plugins.turso.sync.url` is unused — the plugin
+ignores it once `TURSO_SERVER_URL` is present. Set
+`tursoServer.enabled=false` and configure `plugins.turso.sync.*`
+explicitly when pointing at an external sync endpoint that is not our
+own `turso-server`.
 
-```yaml
-TURSO_MODE: sync
-TURSO_LOCAL_PATH: /data/turso/runtime.db
-TURSO_SYNC_URL: http://buntime-turso-sync:8080
-TURSO_SYNC_AUTH_TOKEN: "" # only emitted when set
-```
+For pure single-pod local development, leave `tursoServer.enabled=false`
+and either rely on the default `local` mode or set
+`plugins.turso.mode=sync` with `plugins.turso.sync.url` pointing at a
+specific endpoint.
 
-The chart README and Rancher questions expose `plugins.turso.mode`, `plugins.turso.localPath`, `plugins.turso.sync.url`, and `plugins.turso.sync.authToken`.
+The chart README and Rancher questions still expose
+`plugins.turso.mode`, `plugins.turso.localPath`, `plugins.turso.sync.url`,
+and `plugins.turso.sync.authToken` for the single-tenant fallback path.
 
-Older design notes may mention a top-level `turso:` block or `authTokenSecretName`; that is not the current chart shape. The current generator maps plugin manifest config fields into `plugins.<shortName>.*` values.
-
-The runtime chart mounts `/data/turso` as `emptyDir`, so the local Turso file is pod-local. In Kubernetes, use `sync` mode for durable state; `local` mode is disposable unless a future chart option adds a per-pod PVC.
-
-For local Rancher/k3s, an in-cluster Turso sync service should replace the legacy LibSQL chart. For managed deployments, the sync endpoint can be external Turso Cloud.
+The runtime chart mounts `/data/turso` as `emptyDir`, so the local
+Turso file is pod-local. In Kubernetes, use multi-tenant sync mode for
+durable cross-pod state.
 
 ## Service Contract
 

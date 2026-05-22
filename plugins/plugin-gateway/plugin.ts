@@ -1,7 +1,10 @@
 import type { TursoService } from "@buntime/plugin-turso";
+import type { ApiKeyStore } from "@buntime/shared/api-keys";
+import { createApiKeyMiddleware } from "@buntime/shared/middleware/api-key";
 import type { PluginContext, PluginImpl } from "@buntime/shared/types";
 import { loadManifestConfig } from "@buntime/shared/utils/buntime-config";
 import { parseWorkerConfig, type WorkerConfig } from "@buntime/shared/utils/worker-config";
+import type { MiddlewareHandler } from "hono";
 import { createGatewayApi, type GatewayApiDeps } from "./server/api";
 import { handlePreflight } from "./server/cors";
 import {
@@ -143,9 +146,13 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
   // Initialize persistence (will connect to Turso in onInit)
   persistence = createPersistence();
 
+  // Lazy-resolved auth middleware. Set at onInit once ctx.auth is known.
+  let adminMiddleware: MiddlewareHandler | undefined;
+
   // Create API dependencies
   const apiDeps: GatewayApiDeps = {
     getConfig: () => config,
+    getMiddleware: () => adminMiddleware,
     getRateLimiter: () => rateLimiter,
     getResponseCache: () => null, // Cache disabled
     getRequestLogger: () => requestLogger,
@@ -169,6 +176,13 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
     async onInit(ctx: PluginContext) {
       logger = ctx.logger;
       apiPath = ctx.runtime.api;
+
+      // Wire X-API-Key gate for /<base>/admin/** (control plane).
+      const store = ctx.auth?.store as ApiKeyStore | undefined;
+      const rootKey = ctx.auth?.rootKey;
+      if (store || rootKey) {
+        adminMiddleware = createApiKeyMiddleware({ rootKey, store });
+      }
 
       // Initialize rate limiter
       if (config.rateLimit) {

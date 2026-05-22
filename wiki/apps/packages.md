@@ -64,10 +64,13 @@ The table below is the canonical source of what `@buntime/shared` exposes. In ca
 
 | Subpath | Main contents | In `package.json` | In `jsr.json` |
 |---------|-------------------|-------------------|---------------|
+| `./api-keys` | `ApiKeyStore` (file-backed), `ApiKeyPrincipal`, `ApiKeyInfo`, `KeyRole`, `Permission`, `ALL_PERMISSIONS`, `hasPermission`. Moved here from `apps/runtime` so plugins can import it; runtime keeps a re-export shim. | yes | yes |
 | `./build` | Build helpers (Bun plugins) | yes | yes |
+| `./client/api-key` | Browser-side helpers for plugin clients hosted inside the cpanel iframe: `apiKeyFetch`, `apiKeyHeaders`, `readCpanelApiKey`, `CPANEL_API_KEY_STORAGE`. Reads the key from `sessionStorage` (same-origin with the cpanel). | yes | yes |
 | `./errors` | `AppError`, `NotFoundError`, `ValidationError`, `UnauthorizedError`, `ForbiddenError`, `errorToResponse` | yes | yes |
 | `./logger` | `createLogger`, `getLogger`, `setLogger`, `getChildLogger`, `initLogger`, `ConsoleTransport`, `FileTransport`, types | yes | yes |
-| `./types` | Plugin contract types (`BuntimePlugin`, `PluginContext`, `PluginImpl`, `WorkerConfig`, `WorkerManifest`, etc.) | yes | yes |
+| `./middleware/api-key` | `createApiKeyMiddleware`, `extractApiKey`, `ApiKeyMiddlewareOptions`, `ApiKeyVariables`. Hono middleware that gates `/<base>/admin/**` in core plugins (see [Plugin auth boundary](./plugin-auth-boundary.md)). Accepts the key in `X-API-Key`, `Authorization: Bearer`, or `?_key=` query param. | yes | yes |
+| `./types` | Plugin contract types (`BuntimePlugin`, `PluginContext` — including the `auth: { store?, masterKey? }` field —, `PluginImpl`, `WorkerConfig`, `WorkerManifest`, etc.) | yes | yes |
 | `./types/virtual-modules` | Ambient declarations for virtual modules | yes | no (excluded) |
 | `./utils/buntime-config` | Manifest and `.env` loaders | yes | yes |
 | `./utils/config-validation` | Worker config validation | yes | yes |
@@ -366,7 +369,7 @@ For `@buntime/database` and `@buntime/keyval`: an external plugin must speak dir
 
 | Package | Current version | Strategy |
 |--------|--------------|------------|
-| `@buntime/shared` | `1.1.2` | SemVer; `jsr.json` and `package.json` always in sync; each bump accompanies a change in `exports` or in a public function/type signature |
+| `@buntime/shared` | `1.2.0` | SemVer; `jsr.json` and `package.json` always in sync; each bump accompanies a change in `exports` or in a public function/type signature. `1.2.0` adds three new exports — `./api-keys`, `./client/api-key`, `./middleware/api-key` — and extends `PluginContext` with the `auth` field, all backwards-compatible. |
 | `@buntime/database` | `1.0.0` | Internal SemVer; no public registry; consumers switch versions automatically via `workspace:*` |
 | `@buntime/keyval` | `1.0.0` | Same as `@buntime/database` |
 

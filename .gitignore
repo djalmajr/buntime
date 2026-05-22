@@ -8,6 +8,11 @@
 .tanstack
 .DS_Store
 
+# Runtime state directory (api-keys.json, internal metadata) — written by
+# ApiKeyStore.fromStateDir at <pluginDir>/.buntime by default. In production
+# this lives under a persistent volume (RUNTIME_STATE_DIR). Never commit.
+**/.buntime/
+
 # Build and dependencies
 dist
 node_modules
@@ -15,9 +20,6 @@ tmp
 apps/runtime/.perf-fixtures
 apps/runtime/perf-results.json
 apps/runtime/perf-*-results.json
-
-# Go binaries
-packages/cli-go/buntime-cli
 
 # Local runtime config
 runtime/data

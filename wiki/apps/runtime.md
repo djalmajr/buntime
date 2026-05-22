@@ -245,9 +245,9 @@ Plugin base paths must match `/[a-zA-Z0-9_-]+`.
 | `/api/health` | GET | General health |
 | `/api/health/ready` | GET | Readiness probe (k8s) |
 | `/api/health/live` | GET | Liveness probe (k8s) |
-| `/api/apps` | GET | List apps in `workerDirs` |
-| `/api/apps/upload` | POST | Upload tarball/zip |
-| `/api/apps/:scope/:name[/:version]` | DELETE | Remove app/version |
+| `/api/workers` | GET | List workers in `workerDirs` |
+| `/api/workers/upload` | POST | Upload tarball/zip |
+| `/api/workers/:scope/:name[/:version]` | DELETE | Remove worker/version |
 | `/api/plugins` | GET | List plugins on the filesystem |
 | `/api/plugins/loaded` | GET | List loaded plugins |
 | `/api/plugins/reload` | POST | Re-scan and reload |
@@ -276,8 +276,8 @@ Full details in [Runtime API Reference](./runtime-api-reference.md).
 | `RUNTIME_WORKER_RESOLVER_CACHE_TTL_MS` | `1000` | Resolver cache TTL |
 | `RUNTIME_LOG_LEVEL` | `info` (prod) / `debug` (dev) | Log level |
 | `RUNTIME_API_PREFIX` | (empty) | Moves internal API: `""` → `/api`, `"/_"` → `/_/api` |
-| `RUNTIME_MASTER_KEY` | (optional) | Bootstrap admin key |
-| `RUNTIME_STATE_DIR` | (optional) | Where to store `api-keys.json` |
+| `RUNTIME_ROOT_KEY` | (optional) | Bootstrap root key (synthetic `root` principal, full access) |
+| `RUNTIME_STATE_DIR` | (optional) | Where to store `api-keys.db` (bun:sqlite) |
 | `DELAY_MS` | `100` | Delay before terminating a worker |
 
 > Multi-values **always** use `:` (PATH style), never commas.

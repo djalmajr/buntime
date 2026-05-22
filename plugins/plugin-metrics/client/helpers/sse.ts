@@ -36,8 +36,9 @@ function getApiBase(): string {
 
 export function createMetricsSSE(onMessage: (data: MetricsSSEData) => void): EventSource {
   const apiBase = getApiBase();
-
-  const eventSource = new EventSource(`${apiBase}/api/sse`);
+  // Same-origin EventSource sends the cpanel session cookie automatically;
+  // no header or query-string fallback is required.
+  const eventSource = new EventSource(`${apiBase}/admin/sse`);
 
   eventSource.onmessage = (event) => {
     try {

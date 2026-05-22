@@ -21,8 +21,8 @@ interface KeyMetaResponse {
   roles: string[];
 }
 
-function createApp(name: string) {
-  const store = new ApiKeyStore(join(TEST_DIR, `${name}.json`));
+async function createApp(name: string) {
+  const store = await ApiKeyStore.open({ dbPath: join(TEST_DIR, `${name}.db`), mode: "local" });
   return new Hono().route("/keys", createKeysRoutes({ store }));
 }
 
@@ -32,7 +32,7 @@ describe("keys routes", () => {
   });
 
   it("should create and list API keys without returning secret values in the list", async () => {
-    const app = createApp("create-list");
+    const app = await createApp("create-list");
 
     const createRes = await app.request("/keys", {
       body: JSON.stringify({ expiresIn: "30d", name: "Deploy", role: "editor" }),
@@ -56,7 +56,7 @@ describe("keys routes", () => {
   });
 
   it("should return metadata for TUI creation forms", async () => {
-    const app = createApp("meta");
+    const app = await createApp("meta");
 
     const res = await app.request("/keys/meta");
     expect(res.status).toBe(200);
@@ -67,7 +67,7 @@ describe("keys routes", () => {
   });
 
   it("should revoke API keys", async () => {
-    const app = createApp("revoke");
+    const app = await createApp("revoke");
 
     const createRes = await app.request("/keys", {
       body: JSON.stringify({ name: "Temporary", role: "viewer" }),

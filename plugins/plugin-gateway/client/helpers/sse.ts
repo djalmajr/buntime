@@ -21,11 +21,14 @@ export function getApiBase(): string {
 }
 
 /**
- * Create an EventSource for gateway SSE stream
+ * Create an EventSource for gateway SSE stream. The cpanel session cookie
+ * (`buntime_api_key`, HttpOnly + SameSite=Strict) travels automatically on
+ * same-origin EventSource connections — no header or query-string handling
+ * required.
  */
 export function createGatewaySSE(onMessage: (data: GatewaySSEData) => void): EventSource {
   const apiBase = getApiBase();
-  const eventSource = new EventSource(`${apiBase}/api/sse`);
+  const eventSource = new EventSource(`${apiBase}/admin/sse`);
 
   eventSource.onmessage = (event) => {
     try {

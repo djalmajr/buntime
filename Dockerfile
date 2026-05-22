@@ -27,9 +27,12 @@ RUN NODE_ENV=production bun run --filter '@buntime/plugin-*' build
 WORKDIR /build/apps/cpanel
 RUN NODE_ENV=production bun run build
 
-# Build the compiled binary
+# Build the runtime bundle (NOT --compile: `bun build --compile` cannot embed
+# NAPI native bindings like `@tursodatabase/database-<platform>-<arch>` into
+# bunfs. We ship the bundled JS plus the on-disk node_modules so bun resolves
+# the matching platform binding at startup.
 WORKDIR /build/apps/runtime
-RUN NODE_ENV=production bun scripts/build.ts --compile
+RUN NODE_ENV=production bun scripts/build.ts
 
 # Prepare clean plugin output (manifest.yaml + dist only, skip disabled plugins without dist)
 WORKDIR /build
@@ -43,9 +46,9 @@ RUN for plugin in plugins/plugin-*; do \
     done
 
 # =============================================================================
-# Stage 2: Runtime (Debian Slim - minimal with glibc)
+# Stage 2: Runtime (Bun slim — keeps bun available for native module loading)
 # =============================================================================
-FROM debian:bookworm-slim
+FROM oven/bun:1.3.12-slim
 
 # Install system dependencies (zip/unzip for download-batch endpoint)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -55,8 +58,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy the binary
-COPY --from=builder /build/apps/runtime/dist/buntime /app/buntime
+# Copy workspace layout from builder.
+#
+# Bun's workspace install creates symlinks like:
+#   apps/runtime/node_modules/@tursodatabase/database
+#     -> ../../../../node_modules/.bun/@tursodatabase+database@0.5.3/node_modules/@tursodatabase/database
+# and the platform-specific native binding lives at:
+#   node_modules/.bun/@tursodatabase+database-linux-arm64-gnu@0.5.3/node_modules/@tursodatabase/database-linux-arm64-gnu
+# Preserving the relative directory layout keeps every symlink valid.
+COPY --from=builder /build/package.json /build/tsconfig.json ./
+COPY --from=builder /build/bun.lock* ./
+COPY --from=builder /build/packages ./packages
+COPY --from=builder /build/apps/runtime/dist ./apps/runtime/dist
+COPY --from=builder /build/apps/runtime/package.json ./apps/runtime/package.json
+COPY --from=builder /build/apps/runtime/node_modules ./apps/runtime/node_modules
+COPY --from=builder /build/node_modules ./node_modules
 
 # Copy core plugins to hidden .plugins directory (updated with image)
 COPY --from=builder /output/plugins/ /data/.plugins/
@@ -69,7 +85,8 @@ COPY --from=builder /build/apps/cpanel/manifest.yaml /data/.apps/cpanel/
 # .apps/.plugins = core (from image), apps/plugins = custom (from PVC)
 ENV RUNTIME_WORKER_DIRS=/data/.apps:/data/apps
 ENV RUNTIME_PLUGIN_DIRS=/data/.plugins:/data/plugins
+ENV NODE_ENV=production
 
 EXPOSE 8000
 
-CMD ["/app/buntime"]
+CMD ["bun", "apps/runtime/dist/index.ts"]

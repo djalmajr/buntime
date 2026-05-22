@@ -50,6 +50,18 @@ export class WorkerInstance {
         RUNTIME_LOG_LEVEL: Bun.env.RUNTIME_LOG_LEVEL ?? "info",
         RUNTIME_PLUGIN_DIRS: Bun.env.RUNTIME_PLUGIN_DIRS ?? "",
         RUNTIME_WORKER_DIRS: Bun.env.RUNTIME_WORKER_DIRS ?? "",
+        // Forwarded so serverless plugins (e.g. plugin-deployments) can
+        // authenticate their /<base>/admin/** routes with the same
+        // X-API-Key store the cpanel uses.
+        RUNTIME_STATE_DIR: Bun.env.RUNTIME_STATE_DIR ?? "",
+        RUNTIME_ROOT_KEY: Bun.env.RUNTIME_ROOT_KEY ?? "",
+        // Auth DB sync settings — workers that build their own ApiKeyStore
+        // (e.g. plugin-deployments in serverless mode) need to know how to
+        // reach the same Turso server primary the runtime is talking to.
+        RUNTIME_AUTH_DB_MODE: Bun.env.RUNTIME_AUTH_DB_MODE ?? "",
+        RUNTIME_AUTH_DB_SYNC_URL: Bun.env.RUNTIME_AUTH_DB_SYNC_URL ?? "",
+        RUNTIME_AUTH_DB_SYNC_TOKEN: Bun.env.RUNTIME_AUTH_DB_SYNC_TOKEN ?? "",
+        RUNTIME_AUTH_DB_SYNC_INTERVAL_SECONDS: Bun.env.RUNTIME_AUTH_DB_SYNC_INTERVAL_SECONDS ?? "",
       },
       smol: config.lowMemory,
     });

@@ -15,6 +15,8 @@ status: stable
 
 # @buntime/plugin-metrics
 
+> **Auth.** Operator endpoints (`/metrics/admin/`, `/metrics/admin/stats`, `/metrics/admin/sse`) are gated by the runtime `X-API-Key` store via the shared middleware. The Prometheus scrape endpoint at `/metrics/prometheus` stays **open** by convention — it is intended for external monitoring and must be protected at the network layer (firewall/VPC). See [Plugin auth boundary](./plugin-auth-boundary.md).
+
 > In-process metrics collection for the worker pool and individual workers, with export in **JSON**, **Prometheus text format**, and **SSE**. Includes a built-in UI at `/metrics` (Overview + Workers). Point-in-time snapshots — for historical retention use Prometheus + Grafana.
 
 For the plugin model (lifecycle, `provides`, manifest), see [Plugin System](./plugin-system.md). For the shell that renders the UI, see [CPanel](./cpanel.md). For a plugin focused on logs and diagnostics, see [@buntime/plugin-logs](./plugin-logs.md).

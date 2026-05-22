@@ -143,12 +143,12 @@ describe("Proxy API", () => {
     shutdownProxyService();
   });
 
-  describe("GET /api/rules", () => {
+  describe("GET /admin/rules", () => {
     it("should return empty array when no rules configured", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules");
+      const req = new Request("http://localhost:8000/admin/rules");
       const res = await api.fetch(req);
 
       expect(res.status).toBe(200);
@@ -164,7 +164,7 @@ describe("Proxy API", () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, staticRules);
 
-      const req = new Request("http://localhost:8000/api/rules");
+      const req = new Request("http://localhost:8000/admin/rules");
       const res = await api.fetch(req);
 
       expect(res.status).toBe(200);
@@ -190,7 +190,7 @@ describe("Proxy API", () => {
         setDynamicRules([dynamicRule]);
       }
 
-      const req = new Request("http://localhost:8000/api/rules");
+      const req = new Request("http://localhost:8000/admin/rules");
       const res = await api.fetch(req);
 
       expect(res.status).toBe(200);
@@ -203,12 +203,12 @@ describe("Proxy API", () => {
     });
   });
 
-  describe("GET /api/rules/:id", () => {
+  describe("GET /admin/rules/:id", () => {
     it("should return 404 when rule not found", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/nonexistent");
+      const req = new Request("http://localhost:8000/admin/rules/nonexistent");
       const res = await api.fetch(req);
 
       expect(res.status).toBe(404);
@@ -221,7 +221,7 @@ describe("Proxy API", () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, staticRules);
 
-      const req = new Request("http://localhost:8000/api/rules/static-0");
+      const req = new Request("http://localhost:8000/admin/rules/static-0");
       const res = await api.fetch(req);
 
       expect(res.status).toBe(200);
@@ -242,7 +242,7 @@ describe("Proxy API", () => {
         setDynamicRules([dynamicRule]);
       }
 
-      const req = new Request("http://localhost:8000/api/rules/my-dynamic-rule");
+      const req = new Request("http://localhost:8000/admin/rules/my-dynamic-rule");
       const res = await api.fetch(req);
 
       expect(res.status).toBe(200);
@@ -253,12 +253,12 @@ describe("Proxy API", () => {
     });
   });
 
-  describe("POST /api/rules", () => {
+  describe("POST /admin/rules", () => {
     it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules", {
+      const req = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({ pattern: "^/test$", target: "http://test" }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -277,7 +277,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules", {
+      const req = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({ target: "http://test" }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -296,7 +296,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules", {
+      const req = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({ pattern: "^/test$" }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -315,7 +315,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules", {
+      const req = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({ pattern: "[invalid", target: "http://test" }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -334,7 +334,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules", {
+      const req = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({
           name: "My Rule",
           pattern: "^/test/(.*)$",
@@ -362,12 +362,12 @@ describe("Proxy API", () => {
     });
   });
 
-  describe("PUT /api/rules/:id", () => {
+  describe("PUT /admin/rules/:id", () => {
     it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/some-id", {
+      const req = new Request("http://localhost:8000/admin/rules/some-id", {
         body: JSON.stringify({ target: "http://new-target" }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -387,7 +387,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, staticRules);
 
-      const req = new Request("http://localhost:8000/api/rules/static-0", {
+      const req = new Request("http://localhost:8000/admin/rules/static-0", {
         body: JSON.stringify({ target: "http://new-target" }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -406,7 +406,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/nonexistent", {
+      const req = new Request("http://localhost:8000/admin/rules/nonexistent", {
         body: JSON.stringify({ target: "http://new-target" }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -433,7 +433,7 @@ describe("Proxy API", () => {
         setDynamicRules([dynamicRule]);
       }
 
-      const req = new Request("http://localhost:8000/api/rules/my-rule", {
+      const req = new Request("http://localhost:8000/admin/rules/my-rule", {
         body: JSON.stringify({ pattern: "[invalid" }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -460,7 +460,7 @@ describe("Proxy API", () => {
         setDynamicRules([dynamicRule]);
       }
 
-      const req = new Request("http://localhost:8000/api/rules/my-rule", {
+      const req = new Request("http://localhost:8000/admin/rules/my-rule", {
         body: JSON.stringify({
           name: "New Name",
           target: "http://new-target:9000",
@@ -482,12 +482,12 @@ describe("Proxy API", () => {
     });
   });
 
-  describe("DELETE /api/rules/:id", () => {
+  describe("DELETE /admin/rules/:id", () => {
     it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/some-id", {
+      const req = new Request("http://localhost:8000/admin/rules/some-id", {
         method: "DELETE",
       });
       const res = await api.fetch(req);
@@ -505,7 +505,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, staticRules);
 
-      const req = new Request("http://localhost:8000/api/rules/static-0", {
+      const req = new Request("http://localhost:8000/admin/rules/static-0", {
         method: "DELETE",
       });
       const res = await api.fetch(req);
@@ -522,7 +522,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/nonexistent", {
+      const req = new Request("http://localhost:8000/admin/rules/nonexistent", {
         method: "DELETE",
       });
       const res = await api.fetch(req);
@@ -549,7 +549,7 @@ describe("Proxy API", () => {
 
       expect(getDynamicRules().length).toBe(1);
 
-      const req = new Request("http://localhost:8000/api/rules/my-rule", {
+      const req = new Request("http://localhost:8000/admin/rules/my-rule", {
         method: "DELETE",
       });
       const res = await api.fetch(req);
@@ -566,12 +566,12 @@ describe("Proxy API", () => {
     });
   });
 
-  describe("PUT /api/rules/reorder", () => {
+  describe("PUT /admin/rules/reorder", () => {
     it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/reorder", {
+      const req = new Request("http://localhost:8000/admin/rules/reorder", {
         body: JSON.stringify({ ids: ["a"] }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -590,7 +590,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/reorder", {
+      const req = new Request("http://localhost:8000/admin/rules/reorder", {
         body: JSON.stringify({ ids: [] }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -610,7 +610,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, staticRules);
 
-      const req = new Request("http://localhost:8000/api/rules/reorder", {
+      const req = new Request("http://localhost:8000/admin/rules/reorder", {
         body: JSON.stringify({ ids: ["static-0"] }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -630,7 +630,7 @@ describe("Proxy API", () => {
       const dynamicRule = compileRule({ id: "rule-1", pattern: "^/a$", target: "http://a" }, false);
       if (dynamicRule) setDynamicRules([dynamicRule]);
 
-      const req = new Request("http://localhost:8000/api/rules/reorder", {
+      const req = new Request("http://localhost:8000/admin/rules/reorder", {
         body: JSON.stringify({ ids: ["nonexistent"] }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -651,7 +651,7 @@ describe("Proxy API", () => {
       const rule2 = compileRule({ id: "rule-2", pattern: "^/b$", target: "http://b" }, false);
       if (rule1 && rule2) setDynamicRules([rule1, rule2]);
 
-      const req = new Request("http://localhost:8000/api/rules/reorder", {
+      const req = new Request("http://localhost:8000/admin/rules/reorder", {
         body: JSON.stringify({ ids: ["rule-1"] }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -685,7 +685,7 @@ describe("Proxy API", () => {
       if (rule1 && rule2 && rule3) setDynamicRules([rule1, rule2, rule3]);
 
       // Reorder: Third, First, Second
-      const req = new Request("http://localhost:8000/api/rules/reorder", {
+      const req = new Request("http://localhost:8000/admin/rules/reorder", {
         body: JSON.stringify({ ids: ["rule-3", "rule-1", "rule-2"] }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -706,7 +706,7 @@ describe("Proxy API", () => {
       expect(mockKv.set).toHaveBeenCalledTimes(3);
 
       // Verify GET returns new order
-      const getReq = new Request("http://localhost:8000/api/rules");
+      const getReq = new Request("http://localhost:8000/admin/rules");
       const getRes = await api.fetch(getReq);
       const rules = await getRes.json();
       expect(rules[0].id).toBe("rule-3");
@@ -722,7 +722,7 @@ describe("Proxy API", () => {
       initializeProxyService(ctx, []);
 
       // Create first rule
-      const req1 = new Request("http://localhost:8000/api/rules", {
+      const req1 = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({ name: "Rule 1", pattern: "^/a$", target: "http://a" }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -732,7 +732,7 @@ describe("Proxy API", () => {
       expect(data1.order).toBe(0);
 
       // Create second rule
-      const req2 = new Request("http://localhost:8000/api/rules", {
+      const req2 = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({ name: "Rule 2", pattern: "^/b$", target: "http://b" }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -743,12 +743,12 @@ describe("Proxy API", () => {
     });
   });
 
-  describe("PATCH /api/rules/:id/toggle", () => {
+  describe("PATCH /admin/rules/:id/toggle", () => {
     it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/some-id/toggle", {
+      const req = new Request("http://localhost:8000/admin/rules/some-id/toggle", {
         method: "PATCH",
       });
       const res = await api.fetch(req);
@@ -764,7 +764,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, staticRules);
 
-      const req = new Request("http://localhost:8000/api/rules/static-0/toggle", {
+      const req = new Request("http://localhost:8000/admin/rules/static-0/toggle", {
         method: "PATCH",
       });
       const res = await api.fetch(req);
@@ -779,7 +779,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/nonexistent/toggle", {
+      const req = new Request("http://localhost:8000/admin/rules/nonexistent/toggle", {
         method: "PATCH",
       });
       const res = await api.fetch(req);
@@ -800,7 +800,7 @@ describe("Proxy API", () => {
       );
       if (rule) setDynamicRules([rule]);
 
-      const req = new Request("http://localhost:8000/api/rules/my-rule/toggle", {
+      const req = new Request("http://localhost:8000/admin/rules/my-rule/toggle", {
         method: "PATCH",
       });
       const res = await api.fetch(req);
@@ -810,7 +810,7 @@ describe("Proxy API", () => {
       expect(data.enabled).toBe(false);
 
       // Toggle back
-      const req2 = new Request("http://localhost:8000/api/rules/my-rule/toggle", {
+      const req2 = new Request("http://localhost:8000/admin/rules/my-rule/toggle", {
         method: "PATCH",
       });
       const res2 = await api.fetch(req2);
@@ -831,7 +831,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctxWithKv, []);
 
-      const req = new Request("http://localhost:8000/api/rules", {
+      const req = new Request("http://localhost:8000/admin/rules", {
         body: "invalid json",
         headers: { "Content-Type": "application/json" },
         method: "POST",

@@ -252,4 +252,4 @@ Prevents XSS via a manipulated `X-Forwarded-Prefix` header or base path.
 - **`/data` directories and lookup order**: [Environments](./environments.md#data-directories)
 - **WARN/ERROR logs**: [Logging](./logging.md)
 - **Manifest validation at startup**: [Environments](./environments.md#startup-validation)
-- **CLI/TUI master key**: [Helm charts](./helm-charts.md#buntime-block) (`buntime.masterKey`)
+- **Runtime root key**: [Helm charts](./helm-charts.md#buntime-block) (`buntime.rootKey`)

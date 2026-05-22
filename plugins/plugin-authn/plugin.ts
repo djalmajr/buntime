@@ -1,7 +1,10 @@
 import type { AdapterType, DatabaseService } from "@buntime/plugin-database";
+import type { ApiKeyStore } from "@buntime/shared/api-keys";
+import { createApiKeyMiddleware } from "@buntime/shared/middleware/api-key";
 import type { AppInfo, PluginContext, PluginImpl, PublicRoutesConfig } from "@buntime/shared/types";
 import { getPublicRoutesForMethod, globArrayToRegex } from "@buntime/shared/utils/glob";
-import { api } from "./server/api";
+import { Hono } from "hono";
+import { adminApi, api } from "./server/api";
 
 /**
  * Check if a route is public for the given worker
@@ -261,9 +264,16 @@ export default function authnPlugin(config: AuthnConfig = {} as AuthnConfig): Pl
     GET: [`${basePath}/login`, `${basePath}/login/**`],
   };
 
+  // Combined router: the runtime data plane (api, `/api/**`) plus the
+  // operator control plane (adminApi, `/admin/**`). They share the same
+  // plugin base (`/auth`) but live under different sub-prefixes so each can
+  // have its own auth model: better-auth sessions for `api`, runtime
+  // X-API-Key for `adminApi`.
+  const routes = new Hono().route("/", api).route("/", adminApi);
+
   return {
     // API routes run on main thread
-    routes: api,
+    routes,
 
     async onInit(ctx: PluginContext) {
       // Get database service from plugin-database
@@ -275,11 +285,19 @@ export default function authnPlugin(config: AuthnConfig = {} as AuthnConfig): Pl
         );
       }
 
+      // Wire X-API-Key gate for /<base>/admin/** (control plane: SCIM and
+      // future operator endpoints). Falls back gracefully when no store is
+      // configured (e.g. unit tests).
+      const store = ctx.auth?.store as ApiKeyStore | undefined;
+      const rootKey = ctx.auth?.rootKey;
+      const adminMiddleware =
+        store || rootKey ? createApiKeyMiddleware({ rootKey, store }) : undefined;
+
       const serviceConfig: AuthnServiceConfig = {
         basePath,
         database: config.database,
         providers,
-        scim: config.scim,
+        scim: config.scim ? { ...config.scim, middleware: adminMiddleware } : undefined,
         trustedOrigins: config.trustedOrigins,
       };
 

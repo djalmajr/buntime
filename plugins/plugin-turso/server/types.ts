@@ -24,12 +24,30 @@ export interface TursoPluginConfig extends BasePluginConfig {
   localPath?: string;
   mode?: string;
   sync?: TursoSyncPluginConfig;
+  // Optional: when set, the plugin enters multi-tenant mode. Each
+  // `connect(namespace)` call opens a separate replica synced with
+  // `<server.url>/<namespace>`. Used together with the in-cluster
+  // `turso-server` (see apps/turso-server).
+  server?: TursoServerPluginConfig;
+}
+
+export interface TursoServerPluginConfig {
+  // Base URL of the turso-server data port (e.g. http://buntime-turso:8080).
+  url?: string;
+  // Bearer token for the data port.
+  authToken?: string;
 }
 
 export interface TursoResolvedConfig {
   localPath: string;
   mode: TursoMode;
   sync?: TursoResolvedSyncConfig;
+  server?: TursoResolvedServerConfig;
+}
+
+export interface TursoResolvedServerConfig {
+  url: string;
+  authToken?: string;
 }
 
 export interface TursoResolvedSyncConfig {

@@ -1,5 +1,8 @@
+import type { ApiKeyStore } from "@buntime/shared/api-keys";
+import { createApiKeyMiddleware } from "@buntime/shared/middleware/api-key";
 import type { PluginContext, PluginImpl } from "@buntime/shared/types";
-import { api, initApi } from "./server/api";
+import { Hono } from "hono";
+import { createApi, initApi } from "./server/api";
 import { PolicyAdministrationPoint } from "./server/pap";
 import { PolicyDecisionPoint } from "./server/pdp";
 import type { CombiningAlgorithm, Effect, EvaluationContext, Policy } from "./server/types";
@@ -239,9 +242,17 @@ function buildContext(
 export default function authzPlugin(pluginConfig: AuthzConfig = {}): PluginImpl {
   config = pluginConfig;
 
+  // Stable forwarder: the plugin loader spreads the impl, so `routes` must
+  // be a stable object whose internal routing table can be swapped at
+  // onInit (when the auth context arrives).
+  let activeRouter = createApi();
+  // `.all("/*", ...)` is the deep catch-all in Hono v4 — `*` alone matches a
+  // single segment, missing nested paths like `/admin/policies/:id`.
+  const routes = new Hono().all("/*", (c) => activeRouter.fetch(c.req.raw));
+
   return {
     // API runs persistently in runtime (needs pap/pdp state)
-    routes: api,
+    routes,
 
     // Expose authz service for other plugins
     provides: () => service,
@@ -267,8 +278,14 @@ export default function authzPlugin(pluginConfig: AuthzConfig = {}): PluginImpl 
         config.defaultEffect ?? "deny",
       );
 
-      // Initialize API
+      // Initialize API state (pap/pdp singletons consumed by route handlers)
       initApi(pap, pdp);
+
+      // Build the protected admin router with the X-API-Key middleware
+      const store = ctx.auth?.store as ApiKeyStore | undefined;
+      const rootKey = ctx.auth?.rootKey;
+      const middleware = store || rootKey ? createApiKeyMiddleware({ rootKey, store }) : undefined;
+      activeRouter = createApi({ middleware });
 
       // Compile exclude patterns
       excludePatterns = (config.excludePaths ?? []).map((p) => new RegExp(p));

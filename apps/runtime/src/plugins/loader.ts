@@ -120,6 +120,13 @@ interface ScannedPlugin {
  * Options for PluginLoader constructor
  */
 export interface PluginLoaderOptions {
+  /**
+   * Runtime API key store, forwarded to each plugin via `ctx.auth.store` so
+   * plugins can protect their `/admin/**` routes with the shared middleware.
+   */
+  apiKeys?: unknown;
+  /** Runtime root key, forwarded to plugins via `ctx.auth.rootKey`. */
+  rootKey?: string;
   /** Worker pool instance */
   pool?: unknown;
   /** Override pluginDirs (for testing) */
@@ -130,6 +137,8 @@ export interface PluginLoaderOptions {
  * Load plugins from configuration
  */
 export class PluginLoader {
+  private apiKeys?: unknown;
+  private rootKey?: string;
   private registry = new PluginRegistry();
   private pool?: unknown;
   private pluginDirsOverride?: string[];
@@ -137,6 +146,8 @@ export class PluginLoader {
   private scannedPlugins = new Map<string, ScannedPlugin>();
 
   constructor(options: PluginLoaderOptions = {}) {
+    this.apiKeys = options.apiKeys;
+    this.rootKey = options.rootKey;
     this.pool = options.pool;
     this.pluginDirsOverride = options.pluginDirs;
   }
@@ -434,6 +445,10 @@ export class PluginLoader {
     const runtimeConfig = getConfig();
 
     const context: PluginContext = {
+      auth: {
+        rootKey: this.rootKey,
+        store: this.apiKeys,
+      },
       config: options,
       globalConfig: {
         pluginDirs: runtimeConfig.pluginDirs,

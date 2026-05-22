@@ -1,4 +1,7 @@
-// Simple API client for fetching plugin information
+// Simple API client for the cpanel — authenticates exclusively via the
+// HttpOnly `buntime_api_key` cookie issued by `POST /api/admin/session`.
+// JavaScript never holds the operator key after login. Same-origin cookies
+// travel automatically with every fetch (including iframe-initiated XHR).
 
 export interface MenuItemInfo {
   icon: string;
@@ -51,7 +54,7 @@ export class RuntimeApiError extends Error {
 }
 
 export interface RuntimeRequestOptions extends RequestInit {
-  apiKey?: string;
+  /** Body marshaled as JSON; sets `Content-Type: application/json` automatically. */
   json?: unknown;
 }
 
@@ -85,10 +88,6 @@ export async function runtimeFetch(path: string, options: RuntimeRequestOptions 
   const headers = new Headers(options.headers);
   let body = options.body;
 
-  if (options.apiKey) {
-    headers.set("X-API-Key", options.apiKey);
-  }
-
   if (options.json !== undefined) {
     headers.set("Content-Type", "application/json");
     body = JSON.stringify(options.json);
@@ -97,6 +96,8 @@ export async function runtimeFetch(path: string, options: RuntimeRequestOptions 
   const res = await fetch(url, {
     ...options,
     body,
+    // Cookie-based auth: same-origin sends `buntime_api_key` automatically.
+    credentials: "same-origin",
     headers,
   });
 
@@ -121,6 +122,6 @@ export async function runtimeJson<T>(
  */
 export async function fetchLoadedPlugins(): Promise<PluginInfo[]> {
   const { api } = await getRuntimeConfig();
-  const res = await fetch(`${api}/plugins/loaded`);
+  const res = await fetch(`${api}/plugins/loaded`, { credentials: "same-origin" });
   return res.json();
 }

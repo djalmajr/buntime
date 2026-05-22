@@ -286,4 +286,77 @@ describe("resolveTursoConfig", () => {
   it("should reject invalid mode", () => {
     expect(() => resolveTursoConfig({ mode: "remote" })).toThrow("Unsupported Turso mode");
   });
+
+  // Multi-tenant (server) mode — added when turso-server entered the stack.
+  // See `wiki/apps/plugin-turso.md` for the precedence rules.
+
+  it("should enter multi-tenant mode when TURSO_SERVER_URL is set", () => {
+    const config = resolveTursoConfig(
+      {},
+      {
+        TURSO_LOCAL_PATH: "/data/turso/runtime.db",
+        TURSO_SERVER_URL: "http://my-turso:8080",
+        TURSO_SERVER_TOKEN: "tok",
+      },
+    );
+    expect(config).toEqual({
+      localPath: "/data/turso/runtime.db",
+      mode: "sync",
+      server: {
+        url: "http://my-turso:8080",
+        authToken: "tok",
+      },
+    });
+  });
+
+  it("should accept config.server block when env not set", () => {
+    const config = resolveTursoConfig({
+      server: { url: "http://my-turso:8080", authToken: "tok" },
+    });
+    expect(config.server?.url).toBe("http://my-turso:8080");
+    expect(config.server?.authToken).toBe("tok");
+    expect(config.mode).toBe("sync");
+  });
+
+  it("should strip trailing slash from server URL", () => {
+    const config = resolveTursoConfig({}, { TURSO_SERVER_URL: "http://my-turso:8080/" });
+    expect(config.server?.url).toBe("http://my-turso:8080");
+  });
+
+  it("multi-tenant takes precedence over legacy sync url", () => {
+    // When both `TURSO_SERVER_URL` and `TURSO_SYNC_URL` are set,
+    // multi-tenant wins (the chart always wires server URL in newer
+    // deployments, and legacy single-tenant sync.url is ignored).
+    const config = resolveTursoConfig(
+      {},
+      {
+        TURSO_SERVER_URL: "http://server:8080",
+        TURSO_SYNC_URL: "http://legacy:8080",
+      },
+    );
+    expect(config.server?.url).toBe("http://server:8080");
+    expect(config.sync).toBeUndefined();
+  });
+
+  it("falls back to legacy single-tenant when no server URL", () => {
+    const config = resolveTursoConfig(
+      {},
+      {
+        TURSO_MODE: "sync",
+        TURSO_SYNC_URL: "http://legacy:8080",
+      },
+    );
+    expect(config.mode).toBe("sync");
+    expect(config.sync?.url).toBe("http://legacy:8080");
+    expect(config.server).toBeUndefined();
+  });
+
+  it("env-substitution still applies to server URL", () => {
+    const config = resolveTursoConfig(
+      { server: { url: "http://${HOST}:8080", authToken: "${TOK}" } },
+      { HOST: "my-svc", TOK: "abc" },
+    );
+    expect(config.server?.url).toBe("http://my-svc:8080");
+    expect(config.server?.authToken).toBe("abc");
+  });
 });

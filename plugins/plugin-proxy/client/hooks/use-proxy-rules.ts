@@ -3,6 +3,14 @@ import manifest from "../../manifest.yaml";
 
 const BASE = manifest.base;
 
+/**
+ * Same-origin fetch — the cpanel session cookie travels automatically,
+ * so the runtime authenticates the request without any header injection.
+ */
+function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, { ...init, credentials: "same-origin" });
+}
+
 export interface ProxyRule {
   base?: string;
   changeOrigin?: boolean;
@@ -36,7 +44,7 @@ export interface ProxyRuleInput {
 export function useProxyRules() {
   return useQuery({
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/rules`);
+      const res = await authFetch(`${BASE}/admin/rules`);
       if (!res.ok) throw new Error("Failed to fetch rules");
       return res.json() as Promise<ProxyRule[]>;
     },
@@ -49,7 +57,7 @@ export function useCreateProxyRule() {
 
   return useMutation({
     mutationFn: async (data: ProxyRuleInput) => {
-      const res = await fetch(`${BASE}/api/rules`, {
+      const res = await authFetch(`${BASE}/admin/rules`, {
         body: JSON.stringify(data),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -68,7 +76,7 @@ export function useUpdateProxyRule() {
 
   return useMutation({
     mutationFn: async ({ data, id }: { data: Partial<ProxyRuleInput>; id: string }) => {
-      const res = await fetch(`${BASE}/api/rules/${id}`, {
+      const res = await authFetch(`${BASE}/admin/rules/${id}`, {
         body: JSON.stringify(data),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -87,7 +95,7 @@ export function useDeleteProxyRule() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`${BASE}/api/rules/${id}`, {
+      const res = await authFetch(`${BASE}/admin/rules/${id}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to delete rule");
@@ -104,7 +112,7 @@ export function useToggleProxyRule() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`${BASE}/api/rules/${id}/toggle`, {
+      const res = await authFetch(`${BASE}/admin/rules/${id}/toggle`, {
         method: "PATCH",
       });
       if (!res.ok) throw new Error("Failed to toggle rule");
@@ -121,7 +129,7 @@ export function useReorderProxyRules() {
 
   return useMutation({
     mutationFn: async (ids: string[]) => {
-      const res = await fetch(`${BASE}/api/rules/reorder`, {
+      const res = await authFetch(`${BASE}/admin/rules/reorder`, {
         body: JSON.stringify({ ids }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",

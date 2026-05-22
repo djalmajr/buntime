@@ -5,25 +5,28 @@ sources:
   - apps/cpanel/manifest.yaml
   - apps/cpanel/src/**
   - apps/runtime/docs/admin-console.md
-updated: 2026-05-02
-tags: [cpanel, admin, micro-frontend, react, tanstack]
+updated: 2026-05-19
+tags: [cpanel, micro-frontend, react, tanstack, bootstrap]
 status: stable
 ---
 
 # @buntime/cpanel
 
-> React SPA that serves as the Buntime **admin shell**. It hosts plugin UIs via iframes (web component `<z-frame>`), provides an `/admin` area for administrative operations (API keys, apps, plugins) without relying on the CLI/TUI, and discovers the real API path through `/.well-known/buntime`.
+> React SPA that serves as the Buntime **operator shell** and **bootstrap entrypoint**. It hosts plugin UIs via iframes (web component `<z-frame>`), exposes first-class runtime sections (`/cpanel/overview`, `/cpanel/keys`, `/cpanel/apps`, `/cpanel/plugins`) for API-key/app/plugin management without relying on the CLI/TUI, and discovers the real API path through `/.well-known/buntime`. The entire cpanel authenticates end-to-end against the core runtime via an **HttpOnly session cookie** issued by `POST /api/admin/session` — it deliberately bypasses [`plugin-authn`](./plugin-authn.md) so it remains usable in a fresh deploy where no plugin is yet installed or configured. See [Operator credentials](./plugin-auth-boundary.md).
 
 ## Overview
 
-The CPanel is distributed as a **Buntime app** (not a plugin): it has a `manifest.yaml`, is deployed as a static worker, and is accessible at `/cpanel/`. Its role in the runtime is twofold:
+The CPanel is distributed as a **Buntime app** (not a plugin): it has a `manifest.yaml`, is deployed as a static worker, and is accessible at `/cpanel/`. There is **no `/cpanel/admin` subpath** — everything is cpanel. Its surface is twofold:
 
 | Role | Description |
 |---|---|
-| Micro-frontend shell | Renders consolidated navigation and hosts plugin UIs in iframes via `<z-frame>` (`@zomme/frame`) |
-| Admin console (`/admin`) | API key form + key, app, and plugin management screens, without needing the CLI |
+| Runtime sections | First-class routes under `/cpanel/`: `overview` (operator dashboard), `keys` (API keys CRUD), `apps` (deployed apps), `plugins` (installed plugins). All gated by the session cookie. |
+| Micro-frontend shell | Renders the unified sidebar and hosts plugin UIs in iframes via `<z-frame>` (`@zomme/frame`). Plugin paths are siblings of the runtime sections (e.g. `/cpanel/gateway`, `/cpanel/metrics`). |
+| File browser | Workers + Plugins tabs use a shared `<FileBrowser>` over the runtime's `/api/{workers,plugins}/files/*` endpoints — drag-drop upload, multi-select, rename/move/delete, recursive folder upload (replaces the retired `plugin-deployments`). See [Operator credentials](./plugin-auth-boundary.md) for the auth model. |
 
-The regular CPanel area is protected by [`plugin-authn`](./plugin-authn.md). The `/admin` area is deliberately **public** at the routing level — see [Manifest and visibility](#manifest-and-visibility).
+Both surfaces share a **single unified sidebar** and **a single auth gate** — the user signs in once with an API key and sees, in the same shell, a "Runtime" group (Overview/Keys/Workers/Plugins) and a "Plugins" group listing every installed plugin's micro-frontend. The Runtime "Plugins" item (install/manage page) is distinct from the "Plugins" section heading (plugin-contributed menus) — hierarchy disambiguates. See [Bootstrap independence](#bootstrap-independence).
+
+The same cookie opens the **operator endpoints of core plugins** (Proxy, Authz, Gateway, Logs, Metrics, Authn SCIM). The runtime validates the cookie before any plugin `onRequest` hook runs — see [Operator credentials](./plugin-auth-boundary.md). The legacy `/admin/**` URL convention has been retired (and `publicRoutes` blocks removed from the plugin manifests).
 
 ## Stack
 
@@ -53,23 +56,17 @@ visibility: protected
 injectBase: true
 publicRoutes:
   GET:
-    - /admin
-    - /admin/**
-    - /*.css
-    - /*.ico
-    - /*.js
-    - /*.png
-    - /*.svg
-    - /*.woff
-    - /*.woff2
+    - /**
 ```
 
 | Field | Behavior |
 |---|---|
 | `entrypoint: dist/index.html` | Bun serves the SPA from the bundled `index.html` |
-| `visibility: protected` | By default, the entire app requires authentication via [`plugin-authn`](./plugin-authn.md) |
+| `visibility: protected` | **Cosmetic only** — affects how the cpanel appears in the deployments UI (read-only), does **not** govern auth |
 | `injectBase: true` | Runtime injects `<base href="/cpanel/">` so TanStack Router can compute `basepath` correctly |
-| `publicRoutes.GET` | Lists public exceptions: the `/admin` route (key form), static assets, and font files |
+| `publicRoutes.GET: /**` | The entire cpanel bypasses [`plugin-authn`](./plugin-authn.md). All GETs serve the static SPA bundle; writes happen against the core runtime API which validates the operator credential (cookie / header) before any plugin hook runs |
+
+The cpanel is the bootstrap entrypoint of the runtime — see [Bootstrap independence](#bootstrap-independence). The login form POSTs the API key to `/api/admin/session`; the runtime sets the HttpOnly `buntime_api_key` cookie and the browser attaches it to every subsequent same-origin request (cpanel API calls plus plugin iframes). JavaScript never holds the credential. The runtime gate at `apps/runtime/src/app.ts` validates the cookie/header on each request and bypasses plugin `onRequest` hooks when valid.
 
 The client-side `basepath` discovery reads the injected `<base>` tag:
 
@@ -100,18 +97,31 @@ apps/cpanel/
 │   ├── index.css           # tailwind base
 │   ├── routeTree.gen.ts    # generated by TSR plugin
 │   ├── routes/             # file-based routes (TanStack Router)
-│   │   ├── __root.tsx
-│   │   ├── index.tsx
-│   │   ├── admin.tsx
-│   │   ├── $.tsx           # catch-all (plugin host)
-│   │   └── locales/        # pt.json, en.json
+│   │   ├── __root.tsx       # global ApiKey auth gate + unified MainLayout
+│   │   ├── index.tsx        # redirects /  →  /overview
+│   │   ├── overview.tsx     # runtime dashboard
+│   │   ├── keys.tsx         # API keys CRUD
+│   │   ├── apps.tsx         # deployed apps
+│   │   ├── plugins.tsx      # installed plugins
+│   │   ├── $.tsx            # catch-all (plugin iframe host)
+│   │   └── locales/         # pt.json, en.json
 │   ├── components/
-│   │   └── admin/admin-console.tsx
+│   │   ├── auth/
+│   │   │   ├── api-key-login.tsx
+│   │   │   └── loading-splash.tsx
+│   │   └── admin/                  # internal namespace (no /admin URL)
+│   │       ├── shared.tsx          # helpers, atoms (SourceBadge, Section, ...)
+│   │       └── tabs/
+│   │           ├── overview.tsx
+│   │           ├── keys.tsx
+│   │           ├── apps.tsx
+│   │           └── plugins.tsx
 │   ├── contexts/
-│   │   └── admin-auth-context.tsx
+│   │   ├── api-key-auth-context.tsx # ApiKeyAuthProvider, useApiKey
+│   │   └── header-context.tsx       # HeaderProvider, useHeader (routes inject actions)
 │   ├── helpers/
 │   │   ├── api-client.ts        # generic HTTP client (discovers /api via well-known)
-│   │   ├── admin-api.ts         # types + endpoints for the /admin area
+│   │   ├── admin-api.ts         # types + endpoints for the runtime API surface
 │   │   ├── upload-validation.ts # app/plugin package validation
 │   │   ├── i18n.ts
 │   │   └── query-client.ts
@@ -121,26 +131,32 @@ apps/cpanel/
 └── dist/                   # build output
 ```
 
-## `/admin` area
+## Authentication (cpanel-wide)
 
-Built-in administrative console. Canonical documentation at
-[`apps/runtime/docs/admin-console.md`](./runtime-api-reference.md);
-the summary below covers what belongs to the CPanel layer.
+A single HttpOnly session cookie covers the entire cpanel — every runtime section (`/cpanel/overview`, `/cpanel/keys`, `/cpanel/apps`, `/cpanel/plugins`) and every plugin UI mounted via `<z-frame>`. The root layout (`apps/cpanel/src/routes/__root.tsx`) reads `useApiKey().status` and renders the login form before any route component is mounted.
 
-### Authentication
-
-- The entry form asks for an API key and stores it in `sessionStorage` (not `localStorage`).
-- The secret is sent as `X-API-Key` on every call to the core API.
-- Initial validation: `GET /api/admin/session` (the real path is resolved via `/.well-known/buntime`).
-- Session expires when the browser is closed.
-- The client never sends `Authorization`; it never shares the key with `plugin-authn`.
+- The entry form POSTs the API key to `POST /api/admin/session`. The runtime validates it against `ApiKeyStore` (or matches `RUNTIME_ROOT_KEY`) and replies with `Set-Cookie: buntime_api_key=<key>; HttpOnly; SameSite=Strict; Path=/`.
+- The cookie is `Secure` when the request arrives via HTTPS; on plain `http://localhost:8000` it's marked non-secure so dev still works.
+- Lifetime is configurable via `RUNTIME_CPANEL_SESSION_TTL` (default `24h`).
+- JavaScript never sees the key — `sessionStorage` is empty, XSS cannot exfiltrate the credential.
+- Initial probe: `GET /api/admin/session` — the browser auto-attaches the cookie. If the response is 200 the SPA renders; on 401 the login form is rendered.
+- Sign out: `DELETE /api/admin/session` clears the cookie (`Max-Age=0`).
+- The cpanel never sends `Authorization`; it has nothing to do with `plugin-authn` sessions.
 
 ```http
-GET /api/admin/session
-X-API-Key: <key>
+POST /api/admin/session
+Content-Type: application/json
+
+{"key": "btk_..."}
 ```
 
-In environments with `RUNTIME_API_PREFIX="/_"` (e.g., Rancher), the real path is `GET /_/api/admin/session`.
+The cookie travels automatically on **same-origin** requests including `<iframe>`-initiated fetches and `<a download>` URLs — that's why the "Plugins" sidebar entries (Gateway, Redirects, KeyVal, etc.) load without any auth-related orchestration.
+
+In environments with `RUNTIME_API_PREFIX="/_"` (e.g., Rancher), the real path is `POST /_/api/admin/session`. Note that the **API endpoint** still lives under `/api/admin/session` (it is the core runtime's admin-session endpoint, not a cpanel path). The cpanel **URL paths** have no `/admin` segment.
+
+### Runtime sections
+
+The cpanel's runtime sections are first-class routes under `/cpanel/`, each managing one slice of the runtime. Canonical reference for the underlying API at [`apps/runtime/docs/admin-console.md`](./runtime-api-reference.md); the summary below covers what belongs to the CPanel layer.
 
 ### Profiles and capabilities
 
@@ -153,32 +169,37 @@ Real authorization remains on the runtime side. The frontend uses the `capabilit
 | `viewer` | Read access to apps, plugins, workers, and keys |
 | `custom` | Individually selected permissions |
 
-`RUNTIME_MASTER_KEY` appears as the synthetic principal `master`. **Recommendation**: use the master key only for bootstrap and create a dedicated `admin` or `editor` key for browser use.
+`RUNTIME_ROOT_KEY` appears as the synthetic principal `root` (`isRoot: true`, `role: admin`, full access). **Recommendation**: use the root key only for bootstrap and create a dedicated `admin` or `editor` key for browser use.
 
 ### Granular permissions
 
 Defined in `helpers/admin-api.ts`:
 
 ```text
-apps:read · apps:install · apps:remove
+workers:read · workers:install · workers:remove · workers:restart
 plugins:read · plugins:install · plugins:remove · plugins:config
 keys:read · keys:create · keys:revoke
-workers:read · workers:restart
 ```
+
+A "worker" here is a deployed serverless artifact served by the WorkerPool —
+the runtime treats apps and workers as the same concept (pre-2026-05-19 the
+two vocabularies coexisted with `apps:*` for filesystem ops and `workers:*`
+for runtime ops; they collapsed into one set).
 
 ### Features
 
-| Resource | Operations |
-|---|---|
-| API keys | List (non-revoked), create by profile (`admin`/`editor`/`viewer`/`custom`), display the generated secret once, revoke (except the key in use) |
-| Apps / workers | List apps in `workerDirs`, show `built-in` vs `uploaded` origin, upload (`POST /api/apps/upload`) `.zip`/`.tgz`/`.tar.gz`, remove an entire uploaded app or a specific uploaded version |
-| Plugins | List installed/loaded plugins, show `built-in` vs `uploaded` origin, upload (`POST /api/plugins/upload`), `POST /api/plugins/reload`, remove uploaded plugins and reload |
+| Section | Path | Operations |
+|---|---|---|
+| Overview | `/cpanel/overview` | Operator dashboard: principal info, capability matrix, counts (apps / plugins / keys / permissions) |
+| API keys | `/cpanel/keys` | List (non-revoked), create by profile (`admin`/`editor`/`viewer`/`custom`), display the generated secret once, revoke (except the key in use) |
+| Workers | `/cpanel/workers` | List workers in `workerDirs`, show `built-in` vs `uploaded` origin, upload (`POST /api/workers/upload`) `.zip`/`.tgz`/`.tar.gz`, remove an entire uploaded worker or a specific uploaded version |
+| Plugins | `/cpanel/plugins` | List installed/loaded plugins, show `built-in` vs `uploaded` origin, upload (`POST /api/plugins/upload`), `POST /api/plugins/reload`, remove uploaded plugins and reload |
 
-Client-side package validation lives in `helpers/upload-validation.ts` (extension, size, presence of `manifest.yaml` or `package.json`). The package semantics are the same as those used by the CLI — see [CLI](./cli.md).
+Client-side package validation lives in `helpers/upload-validation.ts` (extension, size, presence of `manifest.yaml` or `package.json`). The same package semantics apply to any automation hitting `POST /api/workers/upload` or `POST /api/plugins/upload` directly.
 
-The admin UI treats `removable=false` as authoritative. Built-in rows remain
-visible for inspection but do not render delete actions; the runtime enforces
-the same rule server-side with `403` errors.
+The UI treats `removable=false` as authoritative. Built-in rows remain visible
+for inspection but do not render delete actions; the runtime enforces the same
+rule server-side with `403` errors.
 
 ## Micro-frontend shell
 
@@ -188,9 +209,8 @@ For plugins that expose a UI, the CPanel hosts each UI in an iframe managed by t
 |---|---|
 | Web component | `<z-frame>` from the `@zomme/frame` package |
 | Discovery | `/.well-known/buntime` returns the `apiPrefix` and the UI catalog |
-| Plugin auth | Continues to be governed by [`plugin-authn`](./plugin-authn.md) — does not interfere with `/admin` |
-| Consolidated navigation | The CPanel sidebar aggregates plugin menus; the `/admin` area keeps its own menu |
-| Shortcuts | CPanel sidebar has a fixed "Go to /admin" link; the `/admin` area has the inverse "Go to CPanel" shortcut |
+| Plugin auth (inside the iframe) | Continues to be governed by [`plugin-authn`](./plugin-authn.md) for the plugin's own endpoints — the iframe is a separate origin context. The cpanel shell itself is **not** protected by `plugin-authn`. |
+| Unified navigation | The cpanel sidebar lists runtime sections (group "Runtime": Overview/Keys/Apps/Plugins) and plugin menus (group "Platform") side-by-side, permission-filtered. Both share the breadcrumb header and the global logout button in the sidebar footer. |
 
 ## Discovery via `/.well-known/buntime`
 
@@ -202,15 +222,29 @@ The HTTP client (`helpers/api-client.ts`) queries `/.well-known/buntime` to disc
 
 This allows the same CPanel bundle to work under any prefix configured by the operator, without a rebuild.
 
-## Integration with `plugin-authn`
+## Bootstrap independence
 
-| Path | Behavior |
+The cpanel is intentionally the **first thing that works** in a fresh deploy. Because plugins (including `plugin-authn`) are themselves installed and configured through the cpanel, the cpanel cannot afford to depend on any plugin for its own access control. The runtime ships `RUNTIME_ROOT_KEY` as the synthetic principal `root` (full access), which is enough to enter the cpanel on day zero and bootstrap everything else.
+
+### Day-zero flow
+
+1. Operator deploys the runtime with `RUNTIME_ROOT_KEY=<secret>` set in the environment.
+2. Operator opens `/cpanel/` in a browser → the cpanel calls `GET /api/admin/session`; no cookie yet → 401 → renders `ApiKeyLogin` (no plugin involved).
+3. Operator pastes the root key → the cpanel `POST`s to `/api/admin/session`. The runtime validates and sets the `buntime_api_key` HttpOnly cookie. The SPA mounts the shell at `/cpanel/overview`.
+4. Operator goes to `/cpanel/keys` → creates a dedicated `admin` (or `editor`) API key for daily use and signs out + back in with that key (the new key replaces the root key in the cookie).
+5. Operator uploads/installs `plugin-authn` and any other plugin (and any provider config) via `/cpanel/plugins` → calls `POST /api/plugins/reload`.
+6. Other apps and plugin UIs (mounted under their own bases) become protected by `plugin-authn` from this point on. The cpanel itself remains outside that gate.
+
+### Why bypass `plugin-authn` for the cpanel?
+
+| Constraint | Implication |
 |---|---|
-| `/cpanel/` (regular area) | Protected by `plugin-authn` when enabled: redirects to `/auth/login` if not authenticated |
-| `/cpanel/admin` and subroutes | Listed in `publicRoutes` in the manifest → `plugin-authn` **does not block** |
-| Static assets (`*.css`, `*.js`, fonts) | Always public, so the form can render before any session exists |
+| The cpanel is where you install/configure plugins | If the cpanel required `plugin-authn`, day-zero access would be impossible |
+| The cpanel is where you create API keys | If keys were governed by `plugin-authn` sessions, key creation would chase its own tail |
+| Distinct auth surface | `plugin-authn` uses sessions (cookies) for end users; the cpanel uses runtime-managed API keys for operators |
+| Single source of truth | A single cookie issued by the runtime gates the entire cpanel (same-origin SPA + iframes); CLI continues to use the `X-API-Key` header against the same backend |
 
-Summary: `plugin-authn` handles the shell and plugin area; `/admin` authenticates directly against the core API via `X-API-Key`. Both systems coexist without conflict.
+Other apps and plugin UIs continue to be governed by `plugin-authn` exactly as before — see [`plugin-authn`](./plugin-authn.md). The two auth systems coexist without conflict and are orthogonal.
 
 ## Build and development
 
@@ -232,26 +266,31 @@ Build artifacts go to `dist/`. In CI/CD, the CPanel package is generated with th
 ## Access in Rancher environments
 
 ```text
-https://buntime.home/cpanel/             # regular shell area
-https://buntime.home/cpanel/admin        # admin console
-https://buntime.home/.well-known/buntime # discovery
-https://buntime.home/_/api/admin/session # real endpoint (with RUNTIME_API_PREFIX=/_)
+https://buntime.home/cpanel/              # redirects to /cpanel/overview
+https://buntime.home/cpanel/overview      # operator dashboard
+https://buntime.home/cpanel/keys          # API keys management
+https://buntime.home/cpanel/apps          # deployed apps
+https://buntime.home/cpanel/plugins       # installed plugins
+https://buntime.home/cpanel/gateway       # plugin UI (example — varies per installed plugin)
+https://buntime.home/.well-known/buntime  # discovery
+https://buntime.home/_/api/admin/session  # real endpoint (with RUNTIME_API_PREFIX=/_)
 ```
 
 ## Security
 
 | Guarantee | How it is enforced |
 |---|---|
-| Secret never persists | Only `sessionStorage`, cleared when the browser is closed |
-| No `Authorization` header | All admin calls use `X-API-Key` |
-| Authorization on the runtime | Frontend only hides UI; backend validates every request |
-| `/admin` isolated from `plugin-authn` | `publicRoutes` in the manifest prevents interference |
-| Plugin UI remains protected | `plugin-authn` continues to protect `/cpanel/` and plugin UIs |
+| Secret never reaches JS | HttpOnly cookie — `document.cookie` cannot read it; XSS cannot exfiltrate it |
+| SameSite=Strict | Cookie is not sent on cross-site navigations or third-party iframes — only on first-party same-origin requests |
+| Secure on HTTPS | When the request arrives over TLS, the cookie is marked `Secure` so it never leaks over plaintext |
+| Configurable lifetime | `RUNTIME_CPANEL_SESSION_TTL` (default `24h`) — issue short-lived cookies for tighter control |
+| Authorization on the runtime | Frontend only hides UI; backend validates every request via the `ApiKeyStore` (cookie/header alike) |
+| Cpanel isolated from `plugin-authn` end-to-end | `publicRoutes: { GET: ["/**"] }` keeps the SPA bundle reachable; the SPA itself enforces the API-key gate client-side |
+| Plugin endpoints still protected | `plugin-authn` continues to protect plugin endpoints and plugin UI hosts (the iframes are separate origins) |
 
 ## Cross-references
 
-- Core API consumed by the console: [Runtime API reference](./runtime-api-reference.md)
-- Authentication that protects the regular area and plugin UIs: [`plugin-authn`](./plugin-authn.md)
-- App/plugin upload pipeline: [`plugin-deployments`](./plugin-deployments.md)
+- Core API consumed by the cpanel: [Runtime API reference](./runtime-api-reference.md)
+- Authentication that protects other apps and plugin endpoints: [`plugin-authn`](./plugin-authn.md)
+- File-browser surface used by Workers + Plugins tabs: `apps/cpanel/src/components/file-browser/` (in-tree; replaces the retired `plugin-deployments`)
 - Plugin UI hosting model via iframe: [Micro-frontend](./micro-frontend.md)
-- CLI/TUI equivalent for automation: [CLI](./cli.md)

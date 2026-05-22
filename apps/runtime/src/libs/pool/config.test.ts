@@ -1,4 +1,14 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type Mock,
+  spyOn,
+} from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as runtimeConfig from "@/config";
@@ -23,10 +33,18 @@ describe("loadWorkerConfig", () => {
     }
   });
 
+  let getConfigSpy: Mock<typeof runtimeConfig.getConfig>;
+
+  afterEach(() => {
+    getConfigSpy?.mockRestore();
+  });
+
   beforeEach(() => {
     clearWorkerConfigCache();
-    spyOn(runtimeConfig, "getConfig").mockReturnValue({
+    getConfigSpy = spyOn(runtimeConfig, "getConfig").mockReturnValue({
+      authDb: { mode: "local", syncIntervalSeconds: 60 },
       bodySize: { default: 10 * 1024 * 1024, max: 100 * 1024 * 1024 },
+      cpanelSessionTtlMs: 24 * 60 * 60 * 1000,
       delayMs: 100,
       isCompiled: false,
       isDev: true,

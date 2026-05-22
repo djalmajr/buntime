@@ -168,14 +168,13 @@ Typical structure:
 
 ## Flow 1 — GitHub Actions (branch `main`)
 
-Four workflows publish public infrastructure:
+Three workflows publish public infrastructure:
 
 | Workflow | Triggers on | Output |
 |----------|-------------|--------|
 | `docker-publish.yml` | Tags `v*.*.*` | Image `ghcr.io/zommehq/buntime:{tag,latest,major,major.minor}` |
 | `helm-publish.yml` | Push to `main` touching `charts/**` or `plugins/*/manifest.yaml` | Sync to `zommehq/charts` |
 | `jsr-publish.yml` | `workflow_dispatch` | `@buntime/shared` on JSR via OIDC |
-| `cli-build.yml` | `apps/cli/**`, dispatch, or tags `v*.*.*` | CLI artifacts |
 
 ### Docker image
 
@@ -193,20 +192,6 @@ The image contains the runtime + all built-in plugins. The `deployment.yaml` tem
 ### Chart sync
 
 `zommehq/charts` is the public catalog repository. Rancher detects a higher `Chart.yaml:version` and displays "Upgrade Available". The publish workflow uses `release-notes.md` to generate the catalog entry.
-
-### CLI artifacts
-
-`cli-build.yml` runs `go test ./...` in `apps/cli` before building with `CGO_ENABLED=1` (SQLite via `mattn/go-sqlite3`).
-
-| Target | Runner | Artifact |
-|--------|--------|----------|
-| Linux amd64 | `ubuntu-latest` | `buntime-linux-amd64.tar.gz` |
-| Linux arm64 | `ubuntu-latest` + `aarch64-linux-gnu-gcc` + `libc6-dev-arm64-cross` | `buntime-linux-arm64.tar.gz` |
-| Windows amd64 | `windows-latest` + MSYS2 MinGW | `buntime-windows-amd64.zip` |
-| macOS amd64 | `macos-latest` + `clang -arch x86_64` | `buntime-darwin-amd64.tar.gz` |
-| macOS arm64 | `macos-latest` + `clang -arch arm64` | `buntime-darwin-arm64.tar.gz` |
-
-Version injected via `-ldflags="-s -w -X main.version=${VERSION}"`. For tags, `${VERSION}` is the tag without the `v`. For branch/PR/manual runs, it is the short SHA.
 
 Retention: `30` days by default (`CLI_ARTIFACT_RETENTION_DAYS`).
 

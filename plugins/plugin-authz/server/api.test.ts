@@ -57,9 +57,9 @@ describe("AuthZ API", () => {
     initApi(pap, pdp);
   });
 
-  describe("GET /api/policies", () => {
+  describe("GET /admin/policies", () => {
     it("should return empty array when no policies exist", async () => {
-      const req = new Request("http://localhost/api/policies");
+      const req = new Request("http://localhost/admin/policies");
       const res = await api.request(req);
 
       expect(res.status).toBe(200);
@@ -71,7 +71,7 @@ describe("AuthZ API", () => {
       await pap.set(createPolicy({ id: "policy-1", name: "First Policy" }));
       await pap.set(createPolicy({ id: "policy-2", name: "Second Policy" }));
 
-      const req = new Request("http://localhost/api/policies");
+      const req = new Request("http://localhost/admin/policies");
       const res = await api.request(req);
 
       expect(res.status).toBe(200);
@@ -82,12 +82,12 @@ describe("AuthZ API", () => {
     });
   });
 
-  describe("GET /api/policies/:id", () => {
+  describe("GET /admin/policies/:id", () => {
     it("should return a specific policy by ID", async () => {
       const policy = createPolicy({ id: "specific-policy", name: "Test Policy" });
       await pap.set(policy);
 
-      const req = new Request("http://localhost/api/policies/specific-policy");
+      const req = new Request("http://localhost/admin/policies/specific-policy");
       const res = await api.request(req);
 
       expect(res.status).toBe(200);
@@ -97,7 +97,7 @@ describe("AuthZ API", () => {
     });
 
     it("should return 404 for non-existent policy", async () => {
-      const req = new Request("http://localhost/api/policies/non-existent");
+      const req = new Request("http://localhost/admin/policies/non-existent");
       const res = await api.request(req);
 
       expect(res.status).toBe(404);
@@ -106,7 +106,7 @@ describe("AuthZ API", () => {
     });
   });
 
-  describe("POST /api/policies", () => {
+  describe("POST /admin/policies", () => {
     it("should create a new policy", async () => {
       const policy: Policy = {
         id: "new-policy",
@@ -117,7 +117,7 @@ describe("AuthZ API", () => {
         actions: [{ method: "*" }],
       };
 
-      const req = new Request("http://localhost/api/policies", {
+      const req = new Request("http://localhost/admin/policies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(policy),
@@ -149,7 +149,7 @@ describe("AuthZ API", () => {
         actions: [{ method: "*" }],
       };
 
-      const req = new Request("http://localhost/api/policies", {
+      const req = new Request("http://localhost/admin/policies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedPolicy),
@@ -170,7 +170,7 @@ describe("AuthZ API", () => {
         actions: [],
       };
 
-      const req = new Request("http://localhost/api/policies", {
+      const req = new Request("http://localhost/admin/policies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(invalidPolicy),
@@ -190,7 +190,7 @@ describe("AuthZ API", () => {
         actions: [],
       };
 
-      const req = new Request("http://localhost/api/policies", {
+      const req = new Request("http://localhost/admin/policies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(invalidPolicy),
@@ -210,7 +210,7 @@ describe("AuthZ API", () => {
         actions: [],
       };
 
-      const req = new Request("http://localhost/api/policies", {
+      const req = new Request("http://localhost/admin/policies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(invalidPolicy),
@@ -230,7 +230,7 @@ describe("AuthZ API", () => {
         actions: [],
       };
 
-      const req = new Request("http://localhost/api/policies", {
+      const req = new Request("http://localhost/admin/policies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(invalidPolicy),
@@ -250,7 +250,7 @@ describe("AuthZ API", () => {
         resources: [],
       };
 
-      const req = new Request("http://localhost/api/policies", {
+      const req = new Request("http://localhost/admin/policies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(invalidPolicy),
@@ -263,11 +263,11 @@ describe("AuthZ API", () => {
     });
   });
 
-  describe("DELETE /api/policies/:id", () => {
+  describe("DELETE /admin/policies/:id", () => {
     it("should delete an existing policy", async () => {
       await pap.set(createPolicy({ id: "delete-me" }));
 
-      const req = new Request("http://localhost/api/policies/delete-me", {
+      const req = new Request("http://localhost/admin/policies/delete-me", {
         method: "DELETE",
       });
       const res = await api.request(req);
@@ -281,7 +281,7 @@ describe("AuthZ API", () => {
     });
 
     it("should return 404 when deleting non-existent policy", async () => {
-      const req = new Request("http://localhost/api/policies/non-existent", {
+      const req = new Request("http://localhost/admin/policies/non-existent", {
         method: "DELETE",
       });
       const res = await api.request(req);
@@ -292,7 +292,7 @@ describe("AuthZ API", () => {
     });
   });
 
-  describe("POST /api/evaluate", () => {
+  describe("POST /admin/evaluate", () => {
     it("should evaluate context against policies and return permit", async () => {
       await pap.set(
         createPolicy({
@@ -305,7 +305,7 @@ describe("AuthZ API", () => {
       );
 
       const context = createContext();
-      const req = new Request("http://localhost/api/evaluate", {
+      const req = new Request("http://localhost/admin/evaluate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(context),
@@ -330,7 +330,7 @@ describe("AuthZ API", () => {
       );
 
       const context = createContext();
-      const req = new Request("http://localhost/api/evaluate", {
+      const req = new Request("http://localhost/admin/evaluate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(context),
@@ -345,7 +345,7 @@ describe("AuthZ API", () => {
 
     it("should return default deny when no policies match", async () => {
       const context = createContext();
-      const req = new Request("http://localhost/api/evaluate", {
+      const req = new Request("http://localhost/admin/evaluate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(context),
@@ -373,7 +373,7 @@ describe("AuthZ API", () => {
       const userContext = createContext({
         subject: { id: "user-1", roles: ["user"], groups: [], claims: {} },
       });
-      const userReq = new Request("http://localhost/api/evaluate", {
+      const userReq = new Request("http://localhost/admin/evaluate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(userContext),
@@ -386,7 +386,7 @@ describe("AuthZ API", () => {
       const adminContext = createContext({
         subject: { id: "admin-1", roles: ["admin"], groups: [], claims: {} },
       });
-      const adminReq = new Request("http://localhost/api/evaluate", {
+      const adminReq = new Request("http://localhost/admin/evaluate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(adminContext),
@@ -397,7 +397,7 @@ describe("AuthZ API", () => {
     });
   });
 
-  describe("POST /api/explain", () => {
+  describe("POST /admin/explain", () => {
     it("should return context, decision, and policies for debugging", async () => {
       await pap.set(
         createPolicy({
@@ -423,7 +423,7 @@ describe("AuthZ API", () => {
       );
 
       const context = createContext();
-      const req = new Request("http://localhost/api/explain", {
+      const req = new Request("http://localhost/admin/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(context),
@@ -468,7 +468,7 @@ describe("AuthZ API", () => {
         subject: { id: "user-1", roles: ["user"], groups: [], claims: {} },
         resource: { app: "main", path: "/public/data" },
       });
-      const req = new Request("http://localhost/api/explain", {
+      const req = new Request("http://localhost/admin/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(context),
@@ -490,7 +490,7 @@ describe("AuthZ API", () => {
 
   describe("error handling", () => {
     it("should handle JSON parse errors gracefully", async () => {
-      const req = new Request("http://localhost/api/policies", {
+      const req = new Request("http://localhost/admin/policies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "not valid json",
@@ -502,7 +502,7 @@ describe("AuthZ API", () => {
     });
 
     it("should handle evaluate with invalid context structure", async () => {
-      const req = new Request("http://localhost/api/evaluate", {
+      const req = new Request("http://localhost/admin/evaluate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ invalid: "context" }),
@@ -517,7 +517,7 @@ describe("AuthZ API", () => {
   describe("real-world API scenarios", () => {
     it("should support full CRUD workflow", async () => {
       // 1. List empty policies
-      let res = await api.request(new Request("http://localhost/api/policies"));
+      let res = await api.request(new Request("http://localhost/admin/policies"));
       let data = await res.json();
       expect(data).toEqual([]);
 
@@ -532,7 +532,7 @@ describe("AuthZ API", () => {
       };
 
       res = await api.request(
-        new Request("http://localhost/api/policies", {
+        new Request("http://localhost/admin/policies", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(policy),
@@ -541,14 +541,14 @@ describe("AuthZ API", () => {
       expect(res.status).toBe(201);
 
       // 3. Get the created policy
-      res = await api.request(new Request("http://localhost/api/policies/workflow-policy"));
+      res = await api.request(new Request("http://localhost/admin/policies/workflow-policy"));
       data = await res.json();
       expect(data.name).toBe("Workflow Test");
 
       // 4. Update the policy
       const updatedPolicy = { ...policy, name: "Updated Workflow" };
       res = await api.request(
-        new Request("http://localhost/api/policies", {
+        new Request("http://localhost/admin/policies", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(updatedPolicy),
@@ -557,7 +557,7 @@ describe("AuthZ API", () => {
       expect(res.status).toBe(201);
 
       // 5. Verify update
-      res = await api.request(new Request("http://localhost/api/policies/workflow-policy"));
+      res = await api.request(new Request("http://localhost/admin/policies/workflow-policy"));
       data = await res.json();
       expect(data.name).toBe("Updated Workflow");
 
@@ -568,7 +568,7 @@ describe("AuthZ API", () => {
         action: { method: "GET" },
       });
       res = await api.request(
-        new Request("http://localhost/api/evaluate", {
+        new Request("http://localhost/admin/evaluate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(context),
@@ -579,14 +579,14 @@ describe("AuthZ API", () => {
 
       // 7. Delete the policy
       res = await api.request(
-        new Request("http://localhost/api/policies/workflow-policy", {
+        new Request("http://localhost/admin/policies/workflow-policy", {
           method: "DELETE",
         }),
       );
       expect(res.status).toBe(200);
 
       // 8. Verify deletion
-      res = await api.request(new Request("http://localhost/api/policies/workflow-policy"));
+      res = await api.request(new Request("http://localhost/admin/policies/workflow-policy"));
       expect(res.status).toBe(404);
     });
 
@@ -618,7 +618,7 @@ describe("AuthZ API", () => {
       initApi(pap, pdp);
 
       const context = createContext();
-      const req = new Request("http://localhost/api/evaluate", {
+      const req = new Request("http://localhost/admin/evaluate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(context),

@@ -1,5 +1,8 @@
+import type { ApiKeyStore } from "@buntime/shared/api-keys";
+import { createApiKeyMiddleware } from "@buntime/shared/middleware/api-key";
 import type { PluginContext, PluginImpl } from "@buntime/shared/types";
-import { api, setConfig } from "./server/api";
+import { Hono } from "hono";
+import { createAdminApi, runtimeApi, setConfig } from "./server/api";
 import type { PoolLike } from "./server/services";
 import { setPool } from "./server/services";
 
@@ -21,18 +24,32 @@ export interface MetricsConfig {
  * Metrics plugin for Buntime
  *
  * Provides endpoints:
- * - GET /api/metrics/ - JSON metrics
- * - GET /api/metrics/prometheus - Prometheus format
- * - GET /api/metrics/sse - Server-Sent Events stream
- * - GET /api/metrics/stats - Full stats (pool + workers)
+ * - GET /<base>/admin/         - JSON metrics            (X-API-Key)
+ * - GET /<base>/admin/sse      - Server-Sent Events      (X-API-Key)
+ * - GET /<base>/admin/stats    - Full stats (pool + workers) (X-API-Key)
+ * - GET /<base>/prometheus     - Prometheus scrape       (open, network-gated)
  */
 export default function metricsPlugin(pluginConfig: MetricsConfig = {}): PluginImpl {
+  // Forwarder for admin routes — populated at onInit when ctx.auth lands.
+  // `.all("/admin/*", ...)` is correct: deep catch-all under /admin only,
+  // leaving /prometheus to the runtimeApi route below.
+  let adminRouter = createAdminApi();
+  const routes = new Hono()
+    .all("/admin/*", (c) => adminRouter.fetch(c.req.raw))
+    .route("/", runtimeApi);
+
   return {
-    routes: api,
+    routes,
 
     onInit(ctx: PluginContext) {
       setPool(ctx.pool as PoolLike);
       setConfig({ sseInterval: pluginConfig.sseInterval });
+
+      const store = ctx.auth?.store as ApiKeyStore | undefined;
+      const rootKey = ctx.auth?.rootKey;
+      const middleware = store || rootKey ? createApiKeyMiddleware({ rootKey, store }) : undefined;
+      adminRouter = createAdminApi({ middleware });
+
       ctx.logger.info("Metrics plugin initialized");
     },
   };

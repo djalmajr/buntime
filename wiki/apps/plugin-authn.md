@@ -25,6 +25,10 @@ status: stable
 
 `@buntime/plugin-authn` is the authentication gate in the runtime pipeline. It intercepts all requests in the `onRequest` hook, verifies a session (cookie `better-auth.session_token`) or API key (`X-API-Key`), and injects an `X-Identity` header that other plugins and workers consume to make authorization decisions. The session engine is [better-auth](https://www.better-auth.com/), persisted via [plugin-database](./plugin-database.md).
 
+> **Cpanel exclusion.** The cpanel app (`apps/cpanel`) is **not** protected by `plugin-authn`. It declares `publicRoutes: { GET: ["/**"] }` in its manifest, which lets the SPA bundle load before any plugin exists. The cpanel runs its own gate client-side, hitting `/api/admin/session` with an `X-API-Key` managed by the core runtime's `ApiKeyStore`. This keeps the cpanel usable on day zero (when `plugin-authn` itself has not yet been installed). All other apps and plugin endpoints remain covered exactly as documented below. See [`apps/cpanel`](./cpanel.md#bootstrap-independence).
+
+> **Core plugins — control plane exclusion.** Every core plugin now declares `publicRoutes: { ALL: ["/admin/**"] }` so the operator control plane (`/<base>/admin/**`) is gated by the runtime `X-API-Key` store via [`@buntime/shared/middleware/api-key`](../../packages/shared/src/middleware/api-key.ts), **not** by `plugin-authn`. This means `plugin-authn` no longer mediates operator gestão — it goes back to its original role: authenticating **end users** (sessions) and **M2M clients** (via the per-plugin `apiKeys[]` list). For the canonical convention and per-plugin status see [Plugin auth boundary](./plugin-auth-boundary.md). The SCIM endpoints inside `plugin-authn` itself moved to `/auth/admin/scim/v2/**` and now sit behind the shared X-API-Key gate too.
+
 **Capabilities:**
 
 | Capability | Description |
@@ -457,7 +461,7 @@ CI_DEPLOY_KEY=...
 
 Multi-provider: combine `email-password` (with `allowSignUp: false` for emergency access) with OIDC SSO. The SPA renders one button per provider.
 
-Headless (API keys only): keep any provider in the array (the default includes email-password) and use `apiKeys` with `roles` per key. Call with `curl -H "X-API-Key: $KEY" https://buntime.home/api/apps`.
+Headless (API keys only): keep any provider in the array (the default includes email-password) and use `apiKeys` with `roles` per key. Call with `curl -H "X-API-Key: $KEY" https://buntime.home/api/workers`.
 
 ### Helm
 

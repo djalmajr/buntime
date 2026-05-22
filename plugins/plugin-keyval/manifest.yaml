@@ -1,6 +1,6 @@
 name: "@buntime/plugin-keyval"
 base: "/keyval"
-enabled: true
+enabled: false
 injectBase: true
 
 dependencies:

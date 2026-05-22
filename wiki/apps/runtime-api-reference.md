@@ -12,8 +12,8 @@ status: stable
 # Runtime API Reference
 
 Internal REST API for health checks, plugin/app management, admin/auth, and
-API key management. Used by the CLI/TUI, the CPanel admin (`/cpanel/admin`),
-and CI automation.
+API key management. Used by the CLI/TUI, the CPanel (`/cpanel/`), and CI
+automation.
 
 For the general architecture, see [@buntime/runtime](./runtime.md). For the
 pool that executes operations, see [Worker Pool](./worker-pool.md).
@@ -45,30 +45,45 @@ Applied to state-mutating methods (POST, PUT, PATCH, DELETE) on `/api/*`.
 Requires an `Origin` header matching the server host. Bypassed for
 `X-Buntime-Internal: true` (worker → runtime).
 
-### 2. Master Key (`RUNTIME_MASTER_KEY`)
+### 2. Root Key (`RUNTIME_ROOT_KEY`)
 
-Bootstrap key. Used by the CLI/TUI to create initial scoped keys.
+Bootstrap key. Used to create the first scoped admin/editor keys on a fresh
+deploy.
 
 ```bash
-curl -H "X-API-Key: $MASTER_KEY" ...
+curl -H "X-API-Key: $ROOT_KEY" ...
 # or
-curl -H "Authorization: Bearer $MASTER_KEY" ...
+curl -H "Authorization: Bearer $ROOT_KEY" ...
 ```
 
-The master key:
+The root key:
 
 - Bypasses CSRF.
 - Bypasses plugin `onRequest` hooks.
-- Appears as synthetic principal `master` with `role=admin`.
-- Helm exposes it as `buntime.masterKey` in the Secret.
+- Appears as synthetic principal `root` (with `role=admin`, `isRoot=true`).
+- Helm exposes it as `buntime.rootKey` in the Secret.
 
-> Do not expose the master key to the browser. It is for bootstrap only.
+> Do not expose the root key to the browser. It is for bootstrap only.
+> Pre-2026-05-20 this was named `RUNTIME_MASTER_KEY` / `master` principal —
+> the rename is breaking; update any external consumer.
 
 ### 3. API Keys (created via API)
 
-Keys generated via `POST /api/keys`. Stored as SHA-256 hashes in
-`api-keys.json` under `RUNTIME_STATE_DIR` (or the first external `pluginDir`;
-typically `/data/plugins/.buntime/api-keys.json` in the Helm chart).
+Keys generated via `POST /api/keys`. Stored as SHA-256 hashes in a **Turso DB**
+file at `${RUNTIME_STATE_DIR}/api-keys.db` (Helm: `/data/state/api-keys.db`
+on a per-pod RWO PVC).
+
+The store uses `@tursodatabase/database` (local mode) or `@tursodatabase/sync`
+(embedded replica mode, when `RUNTIME_AUTH_DB_MODE=sync`), with MVCC journal
+enabled. No external dependency for the default local mode. For multi-pod see
+[Multi-pod deployment](../ops/multi-pod-deployment.md).
+
+Backend evolution:
+- Pre-2026-05-20: JSON file (`api-keys.json`). Migrated to DB on first boot
+  and renamed to `*.migrated`.
+- 2026-05-20: `bun:sqlite`. Files are binarily SQLite-compatible.
+- 2026-05-20 (later): Turso DB. Same `.db` file opens; journal upgrades to
+  MVCC on next write. Adds `mode=sync` for embedded replicas in multi-pod.
 
 | Role | Access |
 |------|--------|
@@ -83,23 +98,32 @@ typically `/data/plugins/.buntime/api-keys.json` in the Helm chart).
 |-------|-----------|---------|
 | Admin | `/api/admin` | Session validation for CPanel admin |
 | Health | `/api/health` | Health, readiness, liveness probes |
-| Apps | `/api/apps` | List, upload, delete apps |
+| Workers | `/api/workers` | List, upload, delete workers (a.k.a. apps) |
 | Plugins | `/api/plugins` | List, upload, reload, delete plugins |
 | Keys | `/api/keys` | List, create, revoke API keys |
 | Docs | `/api/openapi.json`, `/api/docs` | Spec + Scalar UI |
 
 Details per group below.
 
-## Admin
+## Admin Session
+
+Three endpoints govern operator authentication. They accept the credential via:
+- `X-API-Key: <key>` header (programmatic clients, CLI)
+- `Authorization: Bearer <key>` header (SDKs)
+- `buntime_api_key` cookie (issued by `POST /api/admin/session` — used by the cpanel)
+
+Lifetime of the cookie is set by `RUNTIME_CPANEL_SESSION_TTL` (default `24h`, accepts strings like `30m`, `7d`).
 
 ### `GET /api/admin/session`
 
-Validates `X-API-Key` for the CPanel admin. Does **not** depend on `plugin-authn`.
-The CPanel admin (`/cpanel/admin`) uses exclusively this endpoint, keeping the
-key in the browser's `sessionStorage` (removed when the tab is closed).
+Probe the current session. Returns the principal if any of the three credential channels resolves; otherwise 401.
 
 ```bash
+# CLI (header)
 curl -H "X-API-Key: $KEY" https://buntime.home/_/api/admin/session
+
+# Browser (cookie travels automatically)
+fetch("/_/api/admin/session", { credentials: "same-origin" })
 ```
 
 Response:
@@ -112,14 +136,49 @@ Response:
     "name": "Admin Console",
     "keyPrefix": "btk_abcd1234",
     "role": "admin",
-    "permissions": ["apps:read", "apps:install", "keys:read"]
+    "permissions": ["workers:read", "workers:install", "keys:read"]
   }
 }
 ```
 
-The master key returns the synthetic `master` principal with admin permissions.
+The root key returns the synthetic `root` principal (`isRoot: true`, `role: admin`).
 The frontend uses `permissions` only to show/hide UI — real authorization
 happens in the runtime.
+
+### `POST /api/admin/session`
+
+Exchange an API key for an HttpOnly session cookie. Used by the cpanel login form so that all subsequent same-origin requests (including plugin iframes that cannot inject headers) authenticate via the cookie.
+
+```http
+POST /api/admin/session
+Content-Type: application/json
+
+{"key": "btk_..."}
+```
+
+Responses:
+- `200 OK` — body `{ authenticated: true, principal: {...} }`, headers include `Set-Cookie: buntime_api_key=...; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400` (and `Secure` on HTTPS).
+- `400 Bad Request` — body or `key` field missing/malformed.
+- `401 Unauthorized` — key does not match the root key and is not in the store.
+
+The runtime accepts the `RUNTIME_ROOT_KEY` here exactly like the header path — operators who only have the root key configured can still log in to the cpanel without provisioning a regular API key first.
+
+### `DELETE /api/admin/session`
+
+Clear the session cookie. Idempotent: returns `204 No Content` regardless of whether a cookie was present.
+
+```http
+DELETE /api/admin/session
+```
+
+Response: `204` with `Set-Cookie: buntime_api_key=; Max-Age=0; Path=/; SameSite=Strict`.
+
+### Environment variables
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RUNTIME_ROOT_KEY` | _(unset)_ | Operator bootstrap key. Matches before the store, returns synthetic `root` principal. |
+| `RUNTIME_CPANEL_SESSION_TTL` | `24h` | Cookie lifetime, parsed via `parseDurationToMs` (accepts `30m`, `2h`, `7d`, etc.). |
 
 ## Health
 
@@ -135,21 +194,27 @@ All return 200 when healthy.
 curl https://buntime.home/_/api/health/ready
 ```
 
-## Apps
+## Workers
 
-### `GET /api/apps`
+> "Workers" here means deployed serverless artifacts that the WorkerPool can
+> execute. The runtime treats apps and workers as the same concept — these
+> endpoints manage them on the filesystem (workerDirs). Pre-2026-05-19 the
+> same surface was published under `/api/apps` and gated by `apps:*`; both
+> were retired in favor of the worker vocabulary.
 
-Lists apps in `RUNTIME_WORKER_DIRS`. The runtime uses the filesystem only to
+### `GET /api/workers`
+
+Lists workers in `RUNTIME_WORKER_DIRS`. The runtime uses the filesystem only to
 discover candidate package roots; the public `name` and `version` come from
 package metadata (`manifest.yaml`, `manifest.yml`, or `package.json`). Folders
-without package metadata are ignored because they are outside the supported app
+without package metadata are ignored because they are outside the supported
 package format.
 
 ```json
 [
   {
-    "name": "my-app",
-    "path": "/data/apps/my-app",
+    "name": "my-worker",
+    "path": "/data/apps/my-worker",
     "removable": true,
     "source": "uploaded",
     "versions": ["1.0.0", "1.1.0"]
@@ -165,10 +230,10 @@ package format.
 ```
 
 `source` is `built-in` for anything that comes from the Buntime project/image
-and `uploaded` for external app roots such as `/data/apps`. Only uploaded apps
+and `uploaded` for external roots such as `/data/apps`. Only uploaded workers
 are removable.
 
-### `POST /api/apps/upload`
+### `POST /api/workers/upload`
 
 Upload via multipart/form-data. Accepts `.tgz`, `.tar.gz`, `.zip`. The archive
 must contain a `package.json` with `name` and `version`.
@@ -176,34 +241,34 @@ must contain a `package.json` with `name` and `version`.
 ```bash
 curl -X POST \
   -H "X-API-Key: $KEY" \
-  -F "file=@my-app-1.0.0.tgz" \
-  https://buntime.home/_/api/apps/upload
+  -F "file=@my-worker-1.0.0.tgz" \
+  https://buntime.home/_/api/workers/upload
 ```
 
 Errors: `NO_WORKER_DIRS` (400), `NO_FILE_PROVIDED` (400),
 `INVALID_FILE_TYPE` (400), `PATH_TRAVERSAL` (400).
 
-### `DELETE /api/apps/:scope/:name[/:version]`
+### `DELETE /api/workers/:scope/:name[/:version]`
 
-Without version: removes the entire app (all versions). With version: removes
-only that version.
+Without version: removes the entire worker (all versions). With version:
+removes only that version.
 
 ```bash
-# Full scoped app
+# Full scoped worker
 curl -X DELETE -H "X-API-Key: $KEY" \
-  "https://buntime.home/_/api/apps/@buntime/my-app"
+  "https://buntime.home/_/api/workers/@buntime/my-worker"
 
 # Specific version
 curl -X DELETE -H "X-API-Key: $KEY" \
-  "https://buntime.home/_/api/apps/@buntime/my-app/1.0.0"
+  "https://buntime.home/_/api/workers/@buntime/my-worker/1.0.0"
 
-# Non-scoped app — use `_` as scope
+# Non-scoped worker — use `_` as scope
 curl -X DELETE -H "X-API-Key: $KEY" \
-  "https://buntime.home/_/api/apps/_/my-app"
+  "https://buntime.home/_/api/workers/_/my-worker"
 ```
 
-Built-in apps cannot be removed. The runtime returns `403` with
-`BUILT_IN_APP_REMOVE_FORBIDDEN` or `BUILT_IN_APP_VERSION_REMOVE_FORBIDDEN`.
+Built-in workers cannot be removed. The runtime returns `403` with
+`BUILT_IN_WORKER_REMOVE_FORBIDDEN` or `BUILT_IN_WORKER_VERSION_REMOVE_FORBIDDEN`.
 
 ## Plugins
 
@@ -297,7 +362,7 @@ Lists non-revoked keys. **The secret is never returned**, only `keyPrefix`.
       "name": "Deploy CI",
       "keyPrefix": "btk_abcd1234",
       "role": "editor",
-      "permissions": ["apps:install", "plugins:install"],
+      "permissions": ["workers:install", "plugins:install"],
       "createdAt": 1777660000,
       "lastUsedAt": 1777660300
     }
@@ -316,7 +381,7 @@ Creates a key. **The full secret is returned only once** — the client must sav
 it immediately.
 
 ```bash
-curl -X POST -H "X-API-Key: $MASTER_KEY" \
+curl -X POST -H "X-API-Key: $ROOT_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name":"Deploy CI","role":"editor","expiresIn":"1y"}' \
   https://buntime.home/_/api/keys
@@ -393,8 +458,8 @@ Not implemented in the runtime. When enabled, it is the responsibility of
 ## Composite Examples
 
 ```bash
-# 1. Create admin key from master key
-curl -X POST -H "X-API-Key: $MASTER_KEY" -H "Content-Type: application/json" \
+# 1. Create admin key from root key
+curl -X POST -H "X-API-Key: $ROOT_KEY" -H "Content-Type: application/json" \
   -d '{"name":"Browser Admin","role":"admin","expiresIn":"30d"}' \
   https://buntime.home/_/api/keys | jq -r '.data.key' > admin-key.txt
 
@@ -413,16 +478,19 @@ curl -H "X-API-Key: $BROWSER_KEY" \
   https://buntime.home/_/api/admin/session | jq '.principal.permissions'
 ```
 
-## CPanel Admin — Notes
+## CPanel — Notes
 
-The CPanel is published at `/cpanel/admin` (e.g. `https://buntime.home/cpanel/admin`).
-Behavior:
+The CPanel is published at `/cpanel/` (e.g. `https://buntime.home/cpanel/overview`
+is the default landing). Runtime sections (`overview`, `keys`, `apps`,
+`plugins`) are first-class routes under `/cpanel/`; there is **no `/cpanel/admin`
+subpath**. Behavior:
 
-- Login: form asks for `X-API-Key`. Saved in `sessionStorage`.
+- Login: form asks for `X-API-Key`. Saved in `sessionStorage` under
+  `buntime:cpanel-api-key`.
 - Auth: uses `/api/admin/session` exclusively. Does not depend on `plugin-authn`.
-- `plugin-authn` continues governing `/cpanel` regular and plugin UIs, but
-  **cannot** block `/cpanel/admin` — the CPanel's `manifest.yaml` marks
-  `/admin`, `/admin/**`, and static assets as `publicRoutes`.
+- `plugin-authn` **cannot** block the cpanel — its `manifest.yaml` marks
+  `publicRoutes: { GET: ["/**"] }`, so the SPA bundle is always reachable;
+  the SPA itself enforces the API-key gate client-side.
 - Frontend uses only the returned `permissions` to hide actions; real
   authorization stays in the runtime.
 - Discovery: the frontend reads `/.well-known/buntime` and automatically adapts

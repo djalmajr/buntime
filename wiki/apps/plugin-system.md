@@ -435,7 +435,6 @@ Individual details on their dedicated pages:
 | `@buntime/plugin-authn` | Auth (Keycloak/OIDC/JWT, email-password, API keys) | Persistent |
 | `@buntime/plugin-authz` | XACML (PEP/PDP/PAP) | Persistent |
 | `@buntime/plugin-database` | Current multi-adapter DB service; target is Turso-only durable SQL | Persistent |
-| `@buntime/plugin-deployments` | Upload, download, file ops | Serverless |
 | `@buntime/plugin-gateway` | Rate limiting, CORS, shell routing, monitoring | Persistent |
 | `@buntime/plugin-keyval` | KV store, FTS, queues | Persistent |
 | `@buntime/plugin-logs` | In-memory logs + SSE | Persistent |

@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, mock } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BuntimePlugin } from "@buntime/shared/types";
 import type { Hono } from "hono";
@@ -293,7 +293,7 @@ describe("createApp", () => {
     });
 
     it("should require API key for protected API routes when configured", async () => {
-      Bun.env.RUNTIME_MASTER_KEY = "test-master-key";
+      Bun.env.RUNTIME_ROOT_KEY = "test-root-key";
       initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
 
       try {
@@ -304,13 +304,108 @@ describe("createApp", () => {
         const res = await app.fetch(req);
         expect(res.status).toBe(401);
       } finally {
-        delete Bun.env.RUNTIME_MASTER_KEY;
+        delete Bun.env.RUNTIME_ROOT_KEY;
+        initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+      }
+    });
+
+    it("should let POST /admin/session through the runtime gate WITHOUT credentials", async () => {
+      // The login endpoint must be reachable without prior auth — that is the
+      // whole point. Without this exception the cpanel can never log in.
+      // We assert by negation: the gate's own 401 carries the AUTH_REQUIRED
+      // code; anything past the gate produces a different response shape
+      // (or a 404 if the test coreRoutes mock doesn't mount /admin/session).
+      Bun.env.RUNTIME_ROOT_KEY = "test-root-key";
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      try {
+        const app = createApp(createDeps());
+        const req = new Request(`http://localhost${API_PATH}/admin/session`, {
+          body: JSON.stringify({ key: "test-root-key" }),
+          headers: {
+            "content-type": "application/json",
+            host: "localhost",
+            origin: "http://localhost",
+          },
+          method: "POST",
+        });
+        const res = await app.fetch(req);
+        if (res.status === 401) {
+          const body = (await res.json()) as { code?: string };
+          expect(body.code).not.toBe("AUTH_REQUIRED");
+        }
+      } finally {
+        delete Bun.env.RUNTIME_ROOT_KEY;
+        initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+      }
+    });
+
+    it("should let DELETE /admin/session through the gate (logout is idempotent)", async () => {
+      Bun.env.RUNTIME_ROOT_KEY = "test-root-key";
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      try {
+        const app = createApp(createDeps());
+        const req = new Request(`http://localhost${API_PATH}/admin/session`, {
+          headers: { host: "localhost", origin: "http://localhost" },
+          method: "DELETE",
+        });
+        const res = await app.fetch(req);
+        // The gate must not 401 this; if a downstream handler is mocked into
+        // coreRoutes for the test it may return 204, otherwise 200/404 — what
+        // matters is that the AUTH_REQUIRED gate did not fire.
+        if (res.status === 401) {
+          const body = (await res.json()) as { code?: string };
+          expect(body.code).not.toBe("AUTH_REQUIRED");
+        }
+      } finally {
+        delete Bun.env.RUNTIME_ROOT_KEY;
+        initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+      }
+    });
+
+    it("should still require credentials for GET /admin/session", async () => {
+      Bun.env.RUNTIME_ROOT_KEY = "test-root-key";
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      try {
+        const app = createApp(createDeps());
+        const req = new Request(`http://localhost${API_PATH}/admin/session`, {
+          headers: { host: "localhost" },
+        });
+        const res = await app.fetch(req);
+        expect(res.status).toBe(401);
+      } finally {
+        delete Bun.env.RUNTIME_ROOT_KEY;
+        initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+      }
+    });
+
+    it("should authenticate API requests via the session cookie", async () => {
+      // The whole point of the migration: same-origin requests with the
+      // session cookie bypass the runtime gate so plugin iframes (which
+      // cannot inject headers) reach their routes.
+      Bun.env.RUNTIME_ROOT_KEY = "test-root-key";
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      try {
+        const app = createApp(createDeps());
+        const req = new Request(`http://localhost${API_PATH}/admin/session`, {
+          headers: {
+            cookie: "buntime_api_key=test-root-key",
+            host: "localhost",
+          },
+        });
+        const res = await app.fetch(req);
+        expect(res.status).toBe(200);
+      } finally {
+        delete Bun.env.RUNTIME_ROOT_KEY;
         initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
       }
     });
 
     it("should allow API key to bypass CSRF for deployment automation", async () => {
-      Bun.env.RUNTIME_MASTER_KEY = "test-master-key";
+      Bun.env.RUNTIME_ROOT_KEY = "test-root-key";
       initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
 
       try {
@@ -319,19 +414,22 @@ describe("createApp", () => {
           method: "POST",
           headers: {
             host: "localhost",
-            [Headers.API_KEY]: "test-master-key",
+            [Headers.API_KEY]: "test-root-key",
           },
         });
         const res = await app.fetch(req);
         expect(res.status).not.toBe(403);
       } finally {
-        delete Bun.env.RUNTIME_MASTER_KEY;
+        delete Bun.env.RUNTIME_ROOT_KEY;
         initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
       }
     });
 
     it("should allow generated API keys with required permissions", async () => {
-      const apiKeys = new ApiKeyStore(join(TEST_DIR, "generated-api-keys.json"));
+      const apiKeys = await ApiKeyStore.open({
+        dbPath: join(TEST_DIR, "generated-api-keys.db"),
+        mode: "local",
+      });
       const created = await apiKeys.create({ name: "Deploy", role: "editor" });
       initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
 
@@ -347,7 +445,10 @@ describe("createApp", () => {
     });
 
     it("should reject generated API keys without required permissions", async () => {
-      const apiKeys = new ApiKeyStore(join(TEST_DIR, "viewer-api-keys.json"));
+      const apiKeys = await ApiKeyStore.open({
+        dbPath: join(TEST_DIR, "viewer-api-keys.db"),
+        mode: "local",
+      });
       const created = await apiKeys.create({ name: "Viewer", role: "viewer" });
       initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
 
@@ -530,6 +631,105 @@ describe("createApp", () => {
       const res = await app.fetch(req);
       // Should fall through to workers
       expect(await res.text()).toBe("from workers");
+    });
+  });
+
+  describe("trailing-slash redirect for entry-pointed workers", () => {
+    it("should redirect /<base> → /<base>/ when worker has entrypoint (GET)", async () => {
+      const appDir = join(TEST_DIR, "spa-app");
+      mkdirSync(appDir, { recursive: true });
+      writeFileSync(
+        join(appDir, "manifest.yaml"),
+        ["entrypoint: dist/index.html", "injectBase: true", ""].join("\n"),
+      );
+      try {
+        const app = createApp(
+          createDeps({
+            getWorkerDir: (name) => (name === "spa-app" ? appDir : undefined),
+          }),
+        );
+        const req = new Request("http://localhost/spa-app", {
+          headers: { host: "localhost" },
+        });
+        const res = await app.fetch(req);
+        expect(res.status).toBe(308);
+        expect(res.headers.get("location")).toBe("http://localhost/spa-app/");
+      } finally {
+        rmSync(appDir, { force: true, recursive: true });
+      }
+    });
+
+    it("should NOT redirect /<base>/ (already canonical)", async () => {
+      const appDir = join(TEST_DIR, "spa-app-2");
+      mkdirSync(appDir, { recursive: true });
+      writeFileSync(join(appDir, "manifest.yaml"), ["entrypoint: dist/index.html", ""].join("\n"));
+      try {
+        const workersMock = new HonoApp().all("*", () => new Response("spa"));
+        const app = createApp(
+          createDeps({
+            getWorkerDir: (name) => (name === "spa-app-2" ? appDir : undefined),
+            workers: workersMock,
+          }),
+        );
+        const req = new Request("http://localhost/spa-app-2/", {
+          headers: { host: "localhost" },
+        });
+        const res = await app.fetch(req);
+        expect(res.status).not.toBe(308);
+      } finally {
+        rmSync(appDir, { force: true, recursive: true });
+      }
+    });
+
+    it("should NOT redirect when worker has no entrypoint (serverless API workers)", async () => {
+      const appDir = join(TEST_DIR, "api-only-app");
+      mkdirSync(appDir, { recursive: true });
+      // No entrypoint — pure serverless API worker.
+      writeFileSync(join(appDir, "manifest.yaml"), "\n");
+      try {
+        const workersMock = new HonoApp().all("*", () => new Response("api"));
+        const app = createApp(
+          createDeps({
+            getWorkerDir: (name) => (name === "api-only-app" ? appDir : undefined),
+            workers: workersMock,
+          }),
+        );
+        const req = new Request("http://localhost/api-only-app", {
+          headers: { host: "localhost" },
+        });
+        const res = await app.fetch(req);
+        expect(res.status).not.toBe(308);
+      } finally {
+        rmSync(appDir, { force: true, recursive: true });
+      }
+    });
+
+    it("should NOT redirect on POST (would lose request body)", async () => {
+      const appDir = join(TEST_DIR, "spa-app-post");
+      mkdirSync(appDir, { recursive: true });
+      writeFileSync(join(appDir, "manifest.yaml"), ["entrypoint: dist/index.html", ""].join("\n"));
+      try {
+        const workersMock = new HonoApp().all("*", () => new Response("ok"));
+        const app = createApp(
+          createDeps({
+            getWorkerDir: (name) => (name === "spa-app-post" ? appDir : undefined),
+            workers: workersMock,
+          }),
+        );
+        const req = new Request("http://localhost/spa-app-post", {
+          body: '{"hello":"world"}',
+          headers: {
+            "content-type": "application/json",
+            host: "localhost",
+            origin: "http://localhost",
+          },
+          method: "POST",
+        });
+        const res = await app.fetch(req);
+        expect(res.status).not.toBe(308);
+      } finally {
+        rmSync(appDir, { force: true, recursive: true });
+      }
     });
   });
 

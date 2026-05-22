@@ -33,15 +33,19 @@ charts/
 │   ├── questions.base.yaml      # edit for runtime questions
 │   ├── release-notes.md         # injected as annotation
 │   └── templates/
-│       ├── configmap.yaml       # AUTO-GENERATED (base + manifests)
-│       ├── deployment.yaml      # pod spec + volume mounts
-│       ├── ingress.yaml         # ingress (if host is set)
-│       ├── pvc.yaml             # PVCs /data/apps and /data/plugins
-│       ├── route.yaml           # OpenShift Route (optional)
-│       ├── secret.yaml          # secrets (optional)
-│       └── service.yaml         # Service
+│       ├── configmap.yaml                          # AUTO-GENERATED (base + manifests)
+│       ├── statefulset.yaml                        # runtime pods (StatefulSet + volumeClaimTemplate state)
+│       ├── ingress.yaml                            # ingress (if host is set)
+│       ├── pvc.yaml                                # shared PVCs /data/apps and /data/plugins (RWX)
+│       ├── route.yaml                              # OpenShift Route (optional)
+│       ├── secret.yaml                             # runtime + Litestream secrets
+│       ├── service.yaml                            # ClusterIP + headless Service
+│       ├── turso-primary.yaml                      # OPTIONAL self-hosted Turso server primary
+│       └── turso-primary-litestream-config.yaml    # OPTIONAL Litestream sidecar config
 └── turso/                       # Target: Turso sync/remote service chart replacing legacy LibSQL
 ```
+
+> Note: the runtime pod is a **StatefulSet** (not a Deployment) so each replica gets its own RWO PVC for `/data/state` (api-keys.db). Shared filesystems (`/data/apps`, `/data/plugins`) remain as regular RWX PVCs. See [Multi-pod deployment](./multi-pod-deployment.md) for the full architecture.
 
 The distinction between `values.base.yaml`/`values.yaml` (and equivalents) is intentional:
 
@@ -94,19 +98,21 @@ The Buntime runtime chart currently uses a `Deployment`. That should remain the 
 
 If runtime sync caches must survive pod rescheduling or a temporary Turso sync outage, introduce a per-pod database volume. That can be done with a runtime `StatefulSet`, but it is a trade-off: the runtime becomes identity-bound and less flexible to autoscale. The preferred baseline is `Deployment` plus `pushOnWrite`/`pullOnStart`; only switch the runtime to StatefulSet if unsynced local writes must survive pod loss.
 
-Do not use StatefulSet as a substitute for shared app/plugin distribution. Apps and plugins must be visible consistently to every runtime replica. With `replicaCount > 1`, `/data/apps` and `/data/plugins` need a `ReadWriteMany`-capable storage class or a future artifact-distribution model. With `ReadWriteOnce`, run one runtime replica.
+**Runtime is a StatefulSet.** The runtime pod is provisioned as a StatefulSet so each replica gets its own RWO PVC for `/data/state` (api-keys.db). The shared volumes for **apps and plugins remain regular PVCs** — they need `ReadWriteMany` when `replicaCount > 1` (or a future artifact-distribution model). With `ReadWriteOnce` only, run one replica.
 
 ### 1. Volumes are mandatory
 
-`/data/plugins` and `/data/apps` are **always** mounted. No conditionals.
+`/data/plugins`, `/data/apps`, and `/data/state` are **always** mounted. No conditionals.
 
 ```yaml
-# templates/deployment.yaml — correct
+# templates/statefulset.yaml — correct
 volumeMounts:
   - name: plugins
     mountPath: /data/plugins
   - name: apps
     mountPath: /data/apps
+  - name: state
+    mountPath: /data/state
 volumes:
   - name: plugins
     persistentVolumeClaim:
@@ -114,6 +120,15 @@ volumes:
   - name: apps
     persistentVolumeClaim:
       claimName: {{ include "buntime.fullname" . }}-apps
+# /data/state comes from volumeClaimTemplates — one PVC per pod, RWO.
+volumeClaimTemplates:
+  - metadata:
+      name: state
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: {{ .Values.persistence.state.size }}
 ```
 
 Why: the runtime depends on the paths `/data/.apps:/data/apps` and `/data/.plugins:/data/plugins` (defaults). If the PVC disappears, `RUNTIME_WORKER_DIRS`/`RUNTIME_PLUGIN_DIRS` break in a cascade.

@@ -16,15 +16,13 @@ Centralized knowledge base for the **Buntime runtime** — a Bun runtime with an
 | [Worker Pool](./apps/worker-pool.md) | LRU cache of workers, lifecycle, TTL=0 ephemeral vs TTL>0 persistent (sliding), `idleTimeout` notification-only, `maxRequests`, isolation |
 | [Plugin System](./apps/plugin-system.md) | Auto-discovery, persistent vs serverless modes, manifest schema, hooks (`onInit`/`onRequest`/`onResponse`/`onShutdown`), topological sort, service registry |
 | [Micro-Frontend](./apps/micro-frontend.md) | Shell + iframes via `@zomme/frame`, bidirectional MessageChannel, base path injection, framework-agnostic |
-| [API Reference](./apps/runtime-api-reference.md) | REST API `/api/*` (or `/_/api/*` with prefix), discovery `/.well-known/buntime`, authentication (CSRF + master key + API keys with roles) |
+| [API Reference](./apps/runtime-api-reference.md) | REST API `/api/*` (or `/_/api/*` with prefix), discovery `/.well-known/buntime`, authentication (CSRF + root key + API keys with roles) |
 
 ### Client apps
 
 | Page | Description |
 |------|-------------|
-| [CPanel](./apps/cpanel.md) | Admin SPA UI (React + TanStack Router) hosting the micro-frontend shell; `/admin` area with `X-API-Key` |
-| [CLI/TUI](./apps/cli.md) | Go client that talks to the runtime via HTTP, discovers the API base via well-known, manages API keys/apps/plugins |
-| [Vault](./apps/vault.md) | **Draft** — vault backend (sparse documentation, nascent code; status pending confirmation) |
+| [CPanel](./apps/cpanel.md) | Operator SPA UI (React + TanStack Router) hosting the micro-frontend shell and the runtime sections (overview / keys / workers / plugins). End-to-end `X-API-Key`; no `/admin` subpath. |
 
 ### Shared packages
 
@@ -44,7 +42,6 @@ Centralized knowledge base for the **Buntime runtime** — a Bun runtime with an
 | [`plugin-keyval`](./apps/plugin-keyval.md) | Deno KV-like key-value store; current storage uses plugin-database adapters, target storage uses plugin-turso |
 | [`plugin-gateway`](./apps/plugin-gateway.md) | CORS + rate-limit + app shell (micro-frontend host) + monitoring |
 | [`plugin-proxy`](./apps/plugin-proxy.md) | Dynamic reverse proxy; static manifest rules plus dynamic rules stored through plugin-turso |
-| [`plugin-deployments`](./apps/plugin-deployments.md) | **Serverless mode** — manages apps on the runtime (upload/download/list/delete) |
 | [`plugin-authn`](./apps/plugin-authn.md) | OIDC/Keycloak/JWT/email-password authentication + identity model + SCIM (`enabled: false` by default) |
 | [`plugin-authz`](./apps/plugin-authz.md) | XACML authorization — PEP/PDP/PAP, policies, combining algorithms (`enabled: false` by default) |
 | [`plugin-logs`](./apps/plugin-logs.md) | In-memory logs with SSE streaming (`enabled: false` by default) |

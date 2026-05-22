@@ -1,5 +1,6 @@
 import { errorToResponse } from "@buntime/shared/errors";
 import { getChildLogger } from "@buntime/shared/logger";
+import { extractApiKey } from "@buntime/shared/middleware/api-key";
 import type { AppInfo, WorkerManifest } from "@buntime/shared/types";
 import type { WorkerConfig } from "@buntime/shared/utils/worker-config";
 import type { Hono } from "hono";
@@ -37,7 +38,7 @@ export interface AppDeps {
 }
 
 interface ApiAuthResult {
-  master: boolean;
+  isRoot: boolean;
   principal?: ApiKeyPrincipal;
   valid: boolean;
 }
@@ -191,34 +192,32 @@ function createProcessedRequest(ctx: RoutingContext, newUrl?: URL): Request {
 }
 
 /**
- * Check the runtime master deploy key.
+ * Authenticate an incoming request using a runtime API credential.
  *
- * This is intentionally scoped as a high-privilege runtime key: it can bypass
- * browser CSRF and plugin auth hooks for deployment automation.
+ * The credential may arrive as the `X-API-Key` header, an `Authorization:
+ * Bearer` header (CLI / automation), or the `buntime_api_key` HttpOnly
+ * session cookie issued to the cpanel by `POST /api/admin/session`.
+ * Extraction priority is enforced by the shared `extractApiKey` helper.
+ *
+ * A successful authentication bypasses every plugin `onRequest` hook
+ * downstream (see the bypass branch later in this file), so this gate is
+ * the single trusted boundary between credentialed and uncredentialed
+ * traffic.
  */
-function extractApiKey(req: Request): string | undefined {
-  const headerKey = req.headers.get(Headers.API_KEY)?.trim();
-  if (headerKey) return headerKey;
-
-  const authorization = req.headers.get("authorization")?.trim();
-  const match = authorization?.match(/^Bearer\s+(.+)$/i);
-  return match?.[1]?.trim() || undefined;
-}
-
 async function authenticateApiKey(req: Request, apiKeys?: ApiKeyStore): Promise<ApiAuthResult> {
   const suppliedKey = extractApiKey(req);
-  if (!suppliedKey) return { master: false, valid: false };
+  if (!suppliedKey) return { isRoot: false, valid: false };
 
   const apiKey = getConfig().apiKey;
   if (apiKey && suppliedKey === apiKey) {
     return {
-      master: true,
+      isRoot: true,
       principal: {
         createdAt: 0,
         id: 0,
-        isMaster: true,
-        keyPrefix: "master",
-        name: "master",
+        isRoot: true,
+        keyPrefix: "root",
+        name: "root",
         permissions: [],
         role: "admin",
       },
@@ -227,11 +226,15 @@ async function authenticateApiKey(req: Request, apiKeys?: ApiKeyStore): Promise<
   }
 
   const principal = await apiKeys?.verify(suppliedKey);
-  return principal ? { master: false, principal, valid: true } : { master: false, valid: false };
+  return principal ? { isRoot: false, principal, valid: true } : { isRoot: false, valid: false };
 }
 
-function isPublicApiRoute(pathname: string): boolean {
+function isPublicApiRoute(pathname: string, method: string): boolean {
   const relative = pathname.slice(API_PATH.length) || "/";
+  // Session-issuing endpoints are public — the caller does not yet have
+  // (POST) or no longer needs (DELETE) a credential. `GET /admin/session`
+  // stays gated: it is the authenticated-session probe.
+  if (relative === "/admin/session" && (method === "POST" || method === "DELETE")) return true;
   return (
     relative === "/health" ||
     relative.startsWith("/health/") ||
@@ -264,10 +267,12 @@ function forbiddenResponse(permission: Permission): Response {
 function requiredPermissionForApiRoute(method: string, pathname: string): Permission | undefined {
   const relative = pathname.slice(API_PATH.length) || "/";
 
-  if (relative === "/apps" || relative.startsWith("/apps/")) {
-    if (method === "GET") return "apps:read";
-    if (method === "POST") return "apps:install";
-    if (method === "DELETE") return "apps:remove";
+  if (relative === "/workers" || relative.startsWith("/workers/")) {
+    if (method === "GET") return "workers:read";
+    if (method === "POST") return "workers:install";
+    if (method === "DELETE") return "workers:remove";
+    // PUT/PATCH on a worker is reserved for the future restart endpoint
+    return "workers:restart";
   }
 
   if (relative === "/plugins" || relative.startsWith("/plugins/")) {
@@ -280,11 +285,6 @@ function requiredPermissionForApiRoute(method: string, pathname: string): Permis
     if (method === "GET") return "keys:read";
     if (method === "POST") return "keys:create";
     if (method === "DELETE") return "keys:revoke";
-  }
-
-  if (relative.startsWith("/workers")) {
-    if (method === "GET") return "workers:read";
-    return "workers:restart";
   }
 
   return undefined;
@@ -409,12 +409,12 @@ export function createApp({ apiKeys, coreRoutes, getWorkerDir, pool, registry, w
     const authRequired = apiKeyConfigured || generatedKeysConfigured;
     const auth = await authenticateApiKey(c.req.raw, apiKeys);
 
-    if (authRequired && !isPublicApiRoute(c.req.path) && !auth.valid) {
+    if (authRequired && !isPublicApiRoute(c.req.path, c.req.method) && !auth.valid) {
       return unauthorizedResponse();
     }
 
     const permission = requiredPermissionForApiRoute(c.req.method, c.req.path);
-    if (auth.valid && !auth.master && permission && !hasPermission(auth.principal!, permission)) {
+    if (auth.valid && !auth.isRoot && permission && !hasPermission(auth.principal!, permission)) {
       return forbiddenResponse(permission);
     }
 
@@ -466,6 +466,28 @@ export function createApp({ apiKeys, coreRoutes, getWorkerDir, pool, registry, w
     const resolved = await resolveTargetApp(pathname, registry, getWorkerDir);
     const appInfo = resolved ? await createAppInfo(resolved) : undefined;
 
+    // Trailing-slash redirect: when an entry-pointed worker is resolved and
+    // the path is exactly the worker's base (no trailing slash), redirect to
+    // `${base}/`. This is the standard web convention (Apache/nginx do the
+    // same for "directory" URLs). Without it, `publicRoutes: { GET: ["/**"] }`
+    // — which expands to `/<base>/**` — does NOT match the bare base, so any
+    // onRequest hook that gates by publicRoutes would 401 a user navigating
+    // to e.g. `/cpanel` instead of `/cpanel/`. Only applies to GET/HEAD so we
+    // never lose a request body, and only when the worker has an entrypoint
+    // (HTML-serving apps; serverless workers without entrypoint route freely).
+    if (
+      resolved?.config.entrypoint &&
+      (honoCtx.req.method === "GET" || honoCtx.req.method === "HEAD") &&
+      pathname === resolved.basePath
+    ) {
+      const target = new URL(honoCtx.req.url);
+      target.pathname = `${resolved.basePath}/`;
+      return new Response(null, {
+        headers: { [Headers.REQUEST_ID]: requestId, location: target.toString() },
+        status: 308, // Permanent redirect; preserves method (GET/HEAD).
+      });
+    }
+
     // Security: Check body size limit (prevents DoS via large uploads)
     // Use worker-specific limit if available, otherwise default
     const maxBodySize = resolved?.config.maxBodySizeBytes;
@@ -495,7 +517,7 @@ export function createApp({ apiKeys, coreRoutes, getWorkerDir, pool, registry, w
       });
     };
 
-    // Run plugin onRequest hooks (auth, etc.). The runtime master key is a
+    // Run plugin onRequest hooks (auth, etc.). The runtime root key is a
     // deploy key and bypasses plugin-level auth for automation, including the
     // deployments plugin API.
     let processedReq: Request;

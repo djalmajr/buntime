@@ -272,13 +272,7 @@ export function RedirectsPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-hidden p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Redirects</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage proxy rules and redirects for your applications
-          </p>
-        </div>
+      <div className="flex items-center justify-end">
         <Button size="sm" onClick={handleAddClick}>
           <Icon className="size-4" icon="lucide:plus" />
           <span>New Redirect</span>

@@ -1,0 +1,66 @@
+suite: configmap auto-wiring of turso-server URLs
+
+templates:
+  - templates/configmap.yaml
+
+release:
+  name: buntime
+  namespace: buntime
+
+tests:
+  - it: emits TURSO_SERVER_URL and admin URL when tursoServer.enabled
+    set:
+      tursoServer.enabled: true
+      tursoServer.service.dataPort: 8080
+      tursoServer.service.adminPort: 8081
+    asserts:
+      - equal:
+          path: data.TURSO_SERVER_URL
+          value: http://buntime-turso:8080
+      - equal:
+          path: data.TURSO_SERVER_ADMIN_URL
+          value: http://buntime-turso-admin:8081
+
+  - it: omits TURSO_SERVER_* URLs when tursoServer disabled
+    set:
+      tursoServer.enabled: false
+    asserts:
+      - notExists:
+          path: data.TURSO_SERVER_URL
+      - notExists:
+          path: data.TURSO_SERVER_ADMIN_URL
+
+  - it: ApiKeyStore sync URL points at the api-keys namespace under turso-server
+    set:
+      buntime.authDb.mode: sync
+      tursoServer.enabled: true
+      tursoServer.service.dataPort: 8080
+    asserts:
+      - equal:
+          path: data.RUNTIME_AUTH_DB_SYNC_URL
+          value: http://buntime-turso:8080/api-keys
+      - equal:
+          path: data.RUNTIME_AUTH_DB_MODE
+          value: sync
+
+  - it: ApiKeyStore syncUrl uses operator-provided value when tursoServer disabled
+    set:
+      buntime.authDb.mode: sync
+      buntime.authDb.syncUrl: http://external-turso:9999/some-ns
+      tursoServer.enabled: false
+    asserts:
+      - equal:
+          path: data.RUNTIME_AUTH_DB_SYNC_URL
+          value: http://external-turso:9999/some-ns
+
+  - it: default mode local emits empty sync URL
+    set:
+      buntime.authDb.mode: local
+      tursoServer.enabled: false
+    asserts:
+      - equal:
+          path: data.RUNTIME_AUTH_DB_MODE
+          value: local
+      - equal:
+          path: data.RUNTIME_AUTH_DB_SYNC_URL
+          value: ""

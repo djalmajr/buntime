@@ -17,9 +17,33 @@ data:
   RUNTIME_LOG_LEVEL: {{ .Values.buntime.logLevel | quote }}
   RUNTIME_PLUGIN_DIRS: {{ .Values.buntime.pluginDirs | quote }}
   RUNTIME_POOL_SIZE: {{ .Values.buntime.poolSize | quote }}
+  RUNTIME_STATE_DIR: "/data/state"
   RUNTIME_WORKER_CONFIG_CACHE_TTL_MS: {{ .Values.buntime.workerConfigCacheTtlMs | quote }}
   RUNTIME_WORKER_DIRS: {{ .Values.buntime.workerDirs | quote }}
   RUNTIME_WORKER_RESOLVER_CACHE_TTL_MS: {{ .Values.buntime.workerResolverCacheTtlMs | quote }}
+
+  # ApiKeyStore backend (Turso DB).
+  # mode=local: standalone Turso DB file in /data/state/api-keys.db.
+  # mode=sync : embedded replica synced with the in-cluster turso-server.
+  RUNTIME_AUTH_DB_MODE: {{ .Values.buntime.authDb.mode | quote }}
+  RUNTIME_AUTH_DB_SYNC_INTERVAL_SECONDS: {{ .Values.buntime.authDb.syncIntervalSeconds | quote }}
+  {{- if and (eq .Values.buntime.authDb.mode "sync") .Values.tursoServer.enabled }}
+  # Auto-config: point ApiKeyStore at the multi-tenant turso-server.
+  # The namespace path (`/api-keys`) is the database name the wrapper
+  # routes the request to — created automatically on first connect.
+  RUNTIME_AUTH_DB_SYNC_URL: {{ printf "http://%s-turso:%v/api-keys" (include "buntime.fullname" .) .Values.tursoServer.service.dataPort | quote }}
+  {{- else }}
+  RUNTIME_AUTH_DB_SYNC_URL: {{ .Values.buntime.authDb.syncUrl | quote }}
+  {{- end }}
+
+  {{- if .Values.tursoServer.enabled }}
+  # plugin-turso & user apps: data-plane endpoints exposed by the
+  # turso-server. The data port serves namespaces; the admin port handles
+  # lifecycle (create/delete/list) and should only be reachable from the
+  # runtime control plane.
+  TURSO_SERVER_URL: {{ printf "http://%s-turso:%v" (include "buntime.fullname" .) .Values.tursoServer.service.dataPort | quote }}
+  TURSO_SERVER_ADMIN_URL: {{ printf "http://%s-turso-admin:%v" (include "buntime.fullname" .) .Values.tursoServer.service.adminPort | quote }}
+  {{- end }}
 
   # Plugin env vars - GENERATED SECTION
   # Do not edit below this line - values are generated from plugin manifests

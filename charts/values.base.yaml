@@ -6,7 +6,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/zommehq/buntime
-  tag: latest
+  tag: "0.3.0"
   pullPolicy: Always
 
 # Test: GitLab local registry
@@ -54,9 +54,26 @@ buntime:
   # Logging level (debug, info, warn, error)
   logLevel: "info"
 
-  # High-privilege deploy key for CLI/TUI automation.
-  # Stored in a Kubernetes Secret when set.
-  masterKey: ""
+  # High-privilege deploy/bootstrap key. Stored in a Kubernetes Secret when
+  # set and exposed to the runtime as `RUNTIME_ROOT_KEY`. Requests carrying
+  # this key authenticate as the synthetic `root` principal (full access,
+  # bypasses the ApiKeyStore).
+  rootKey: ""
+
+  # ApiKeyStore backend (Turso DB; binarily SQLite-compatible).
+  # mode=local: standalone Turso DB file in /data/state/api-keys.db (single-pod, default).
+  # mode=sync : embedded replica synced with the in-cluster turso-server (multi-pod).
+  authDb:
+    mode: "local"
+    # libsql URL of the turso-server when mode=sync.
+    # Auto-populated when tursoServer.enabled=true (points at the
+    # `api-keys` namespace served by the wrapper).
+    syncUrl: ""
+    # Auth token stored in Secret (RUNTIME_AUTH_DB_SYNC_TOKEN).
+    # When tursoServer.enabled=true, share tursoServer.authToken instead.
+    syncAuthToken: ""
+    # Auto-pull interval for embedded replicas (seconds).
+    syncIntervalSeconds: 60
 
   # Max concurrent TTL=0 worker requests
   ephemeralConcurrency: 2
@@ -116,6 +133,122 @@ persistence:
     size: 10Gi
     accessMode: ReadWriteMany
     storageClass: ""  # Use default if empty
+  # Per-pod runtime state (ApiKeyStore Turso DB + future stateful metadata).
+  # Provisioned via volumeClaimTemplates on the StatefulSet — each pod gets
+  # its own PVC. RWO is enough and works across all storage classes (k3s
+  # local-path, Longhorn, EBS, ...).
+  state:
+    size: 500Mi
+    storageClass: ""
+
+# Self-hosted multi-tenant Turso server in-cluster.
+#
+# When `enabled=true`, the chart provisions a single-replica StatefulSet
+# running `turso-server` — our supervisor that wraps the official `tursodb`
+# binary (https://github.com/tursodatabase/turso) and exposes namespace
+# semantics like `sqld`:
+#
+#   - data port  (default 8080): namespace-aware reverse proxy. Clients
+#     connect using `libsql://<release>-turso:8080/<namespace>` and the
+#     wrapper forwards to the per-namespace `tursodb` process.
+#   - admin port (default 8081): REST API for namespace lifecycle. Used by
+#     the runtime/cpanel to create/delete/list namespaces.
+#
+# Namespaces are persisted across restarts. Auto-creation on first connect
+# is on by default (toggle with `autoProvision`). The garbage collector
+# archives auto-created namespaces idle longer than `autoIdleDuration`.
+#
+# Default false: single-pod deploys can run `authDb.mode=local` and skip
+# the server entirely.
+tursoServer:
+  enabled: false
+  image:
+    # turso-server: Go binary that supervises N `tursodb --sync-server`
+    # processes and proxies clients into them by namespace. Built from
+    # `apps/turso-server/Dockerfile`.
+    repository: "ghcr.io/zommehq/turso-server"
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  service:
+    dataPort: 8080
+    adminPort: 8081
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  persistence:
+    size: 5Gi
+    storageClass: ""
+  # Tokens stored as a Kubernetes Secret.
+  # `authToken` protects the data port — distributed to every client (runtime
+  # workers, plugin-turso, ApiKeyStore).
+  # `adminToken` protects the admin port — only the runtime/cpanel control
+  # plane carries it. Compromising a worker should not grant the ability to
+  # drop other tenants' databases.
+  authToken: ""
+  adminToken: ""
+  # Namespace lifecycle policy.
+  autoProvision: true        # auto-create on first connect (false → explicit only)
+  maxNamespaces: 256         # 0 to disable
+  autoIdleDuration: "168h"   # auto-created namespaces archived after this idle window (7d)
+  archiveRetention: "720h"   # archived databases removed permanently after this (30d)
+  gcInterval: "1h"
+
+  # Periodic snapshot backup via the `/v1/namespaces/:name/backup` admin
+  # endpoint (which uses `VACUUM INTO` on the running tursodb — hot, no
+  # downtime). A CronJob iterates over all known namespaces, downloads the
+  # snapshot, and uploads it to S3-compatible storage. Restore: any
+  # snapshot is a regular SQLite-compatible file; copy it back to
+  # `/var/lib/turso/<name>.db` while the namespace is stopped.
+  backup:
+    enabled: false
+    # Daily at 02:00 UTC by default; override with any standard cron spec.
+    schedule: "0 2 * * *"
+    image:
+      # Custom slim image with sh + curl + jq + mc (built from
+      # apps/turso-server/backup.Dockerfile). The official `minio/mc`
+      # image is shell-less and cannot run the loop below directly.
+      repository: "ghcr.io/zommehq/turso-backup"
+      tag: "0.1.0"
+      pullPolicy: IfNotPresent
+    # How many backups to keep per namespace in the bucket. The CronJob
+    # deletes older snapshots after each run.
+    retentionCount: 14
+    # S3-compatible destination (same credentials used by the writer pod).
+    s3:
+      endpoint: ""        # ex: "http://minio.minio.svc.cluster.local:9000"
+      bucket: ""          # ex: "turso-backups"
+      region: "us-east-1"
+      accessKeyId: ""     # Stored in Secret -backup
+      secretAccessKey: "" # Stored in Secret -backup
+      pathStyle: true
+
+  # DEPRECATED: kept as a chart switch for operators experimenting with
+  # streaming WAL backup. Litestream cannot coexist with `tursodb --sync-server`
+  # because the latter holds an exclusive file lock that Litestream's
+  # `sqlite3` connection cannot share — replication fails with `SQLITE_BUSY`
+  # in a tight loop and nothing reaches the bucket. Use `backup.enabled=true`
+  # above instead. See `wiki/ops/turso-server.md#disaster-recovery`.
+  litestream:
+    enabled: false
+    image:
+      repository: "litestream/litestream"
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    s3:
+      endpoint: ""        # ex: "http://minio.minio.svc.cluster.local:9000"
+      bucket: ""          # ex: "turso-backups"
+      region: "us-east-1"
+      accessKeyId: ""     # Stored in Secret -litestream
+      secretAccessKey: "" # Stored in Secret -litestream
+      pathStyle: true     # MinIO uses path-style URLs by default
+    # Restore-on-boot list. Newly-created namespaces are replicated
+    # automatically because Litestream watches the directory glob.
+    databases:
+      - "api-keys"
 
 # Plugin configurations - GENERATED SECTION
 # Do not edit below this line - values are generated from plugin manifests

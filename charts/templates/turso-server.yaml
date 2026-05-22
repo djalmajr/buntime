@@ -1,0 +1,240 @@
+{{- if .Values.tursoServer.enabled }}
+# =============================================================================
+# Self-hosted multi-tenant Turso server
+#
+# Single-replica StatefulSet running our `turso-server` Go supervisor. It
+# wraps `tursodb --sync-server` and exposes namespace lifecycle semantics
+# similar to `sqld`:
+#   - data port  (:8080): namespace-aware reverse proxy. Clients connect
+#     to `libsql://<release>-turso:8080/<namespace>` and the wrapper picks
+#     the matching internal tursodb process. Auto-creates on first connect
+#     when `autoProvision=true`.
+#   - admin port (:8081): REST API for create / delete / list / lock / ttl.
+#     Used by the runtime and cpanel control plane.
+#
+# Namespaces and their .db files persist on a PVC (RWO). The wrapper
+# respawns one tursodb process per namespace on every boot.
+#
+# When `litestream.enabled=true`, a sidecar replicates every `.db` in the
+# data directory to S3-compatible storage (e.g. MinIO). The initContainer
+# restores from S3 on first boot to survive PVC loss.
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "buntime.fullname" . }}-turso
+  labels:
+    {{- include "buntime.labels" . | nindent 4 }}
+    app.kubernetes.io/component: turso-server
+spec:
+  serviceName: {{ include "buntime.fullname" . }}-turso
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "buntime.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: turso-server
+  template:
+    metadata:
+      labels:
+        {{- include "buntime.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: turso-server
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if and .Values.tursoServer.enabled .Values.tursoServer.litestream.enabled }}
+      initContainers:
+        # The `litestream/litestream` image is distroless (no /bin/sh), so we
+        # cannot shell-loop. Each database in the restore list becomes one
+        # init container that runs the litestream binary directly. We point
+        # restore at the same ConfigMap consumed by the sidecar so endpoint /
+        # region / force-path-style stay aligned.
+        {{- range $i, $db := .Values.tursoServer.litestream.databases }}
+        - name: "litestream-restore-{{ $db }}"
+          image: "{{ $.Values.tursoServer.litestream.image.repository }}:{{ $.Values.tursoServer.litestream.image.tag }}"
+          imagePullPolicy: {{ $.Values.tursoServer.litestream.image.pullPolicy }}
+          args:
+            - "restore"
+            - "-config"
+            - "/etc/litestream/litestream.yml"
+            - "-if-replica-exists"
+            - "-if-db-not-exists"
+            - "/var/lib/turso/{{ $db }}.db"
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "buntime.fullname" $ }}-litestream
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "buntime.fullname" $ }}-litestream
+                  key: AWS_SECRET_ACCESS_KEY
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/turso
+            - name: litestream-config
+              mountPath: /etc/litestream
+              readOnly: true
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: turso-server
+          image: "{{ .Values.tursoServer.image.repository }}:{{ .Values.tursoServer.image.tag }}"
+          imagePullPolicy: {{ .Values.tursoServer.image.pullPolicy }}
+          ports:
+            - name: data
+              containerPort: {{ .Values.tursoServer.service.dataPort }}
+              protocol: TCP
+            - name: admin
+              containerPort: {{ .Values.tursoServer.service.adminPort }}
+              protocol: TCP
+          env:
+            - name: TURSO_DATA_DIR
+              value: "/var/lib/turso"
+            - name: TURSO_DATA_ADDR
+              value: ":{{ .Values.tursoServer.service.dataPort }}"
+            - name: TURSO_ADMIN_ADDR
+              value: ":{{ .Values.tursoServer.service.adminPort }}"
+            - name: TURSO_ALLOW_AUTO_PROVISION
+              value: {{ .Values.tursoServer.autoProvision | quote }}
+            - name: TURSO_MAX_NAMESPACES
+              value: {{ .Values.tursoServer.maxNamespaces | quote }}
+            - name: TURSO_AUTO_IDLE_DURATION
+              value: {{ .Values.tursoServer.autoIdleDuration | quote }}
+            - name: TURSO_ARCHIVE_RETENTION
+              value: {{ .Values.tursoServer.archiveRetention | quote }}
+            - name: TURSO_GC_INTERVAL
+              value: {{ .Values.tursoServer.gcInterval | quote }}
+            {{- if .Values.tursoServer.authToken }}
+            - name: TURSO_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "buntime.fullname" . }}-turso
+                  key: TURSO_AUTH_TOKEN
+            {{- end }}
+            {{- if .Values.tursoServer.adminToken }}
+            - name: TURSO_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "buntime.fullname" . }}-turso
+                  key: TURSO_ADMIN_TOKEN
+            {{- end }}
+          resources:
+            {{- toYaml .Values.tursoServer.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/turso
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: data
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: data
+            initialDelaySeconds: 10
+            periodSeconds: 10
+        {{- if .Values.tursoServer.litestream.enabled }}
+        - name: litestream
+          image: "{{ .Values.tursoServer.litestream.image.repository }}:{{ .Values.tursoServer.litestream.image.tag }}"
+          imagePullPolicy: {{ .Values.tursoServer.litestream.image.pullPolicy }}
+          args: ["replicate", "-config", "/etc/litestream/litestream.yml"]
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "buntime.fullname" . }}-litestream
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "buntime.fullname" . }}-litestream
+                  key: AWS_SECRET_ACCESS_KEY
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/turso
+              readOnly: false
+            - name: litestream-config
+              mountPath: /etc/litestream
+              readOnly: true
+        {{- end }}
+      volumes:
+        {{- if .Values.tursoServer.litestream.enabled }}
+        - name: litestream-config
+          configMap:
+            name: {{ include "buntime.fullname" . }}-turso-litestream
+        {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.tursoServer.persistence.storageClass }}
+        storageClassName: {{ .Values.tursoServer.persistence.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.tursoServer.persistence.size }}
+---
+# Data port — accessed by every runtime pod (workers + control plane).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "buntime.fullname" . }}-turso
+  labels:
+    {{- include "buntime.labels" . | nindent 4 }}
+    app.kubernetes.io/component: turso-server
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.tursoServer.service.dataPort }}
+      targetPort: data
+      protocol: TCP
+      name: data
+  selector:
+    {{- include "buntime.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: turso-server
+---
+# Admin port — separate Service so it can be locked down with NetworkPolicy
+# (only the runtime/cpanel control plane should call it).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "buntime.fullname" . }}-turso-admin
+  labels:
+    {{- include "buntime.labels" . | nindent 4 }}
+    app.kubernetes.io/component: turso-server
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.tursoServer.service.adminPort }}
+      targetPort: admin
+      protocol: TCP
+      name: admin
+  selector:
+    {{- include "buntime.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: turso-server
+{{- if or .Values.tursoServer.authToken .Values.tursoServer.adminToken }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "buntime.fullname" . }}-turso
+  labels:
+    {{- include "buntime.labels" . | nindent 4 }}
+    app.kubernetes.io/component: turso-server
+type: Opaque
+stringData:
+  {{- if .Values.tursoServer.authToken }}
+  TURSO_AUTH_TOKEN: {{ .Values.tursoServer.authToken | quote }}
+  {{- end }}
+  {{- if .Values.tursoServer.adminToken }}
+  TURSO_ADMIN_TOKEN: {{ .Values.tursoServer.adminToken | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}

@@ -1,18 +1,17 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "buntime.fullname" . }}
   labels:
     {{- include "buntime.labels" . | nindent 4 }}
 spec:
+  serviceName: {{ include "buntime.fullname" . }}-headless
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
-  strategy:
+  podManagementPolicy: Parallel
+  updateStrategy:
     type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
   selector:
     matchLabels:
       {{- include "buntime.selectorLabels" . | nindent 6 }}
@@ -41,7 +40,7 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "buntime.fullname" . }}
-            {{- if .Values.buntime.masterKey }}
+            {{- if or .Values.buntime.rootKey .Values.tursoServer.enabled .Values.buntime.authDb.syncAuthToken }}
             - secretRef:
                 name: {{ include "buntime.fullname" . }}
             {{- end }}
@@ -52,6 +51,8 @@ spec:
               mountPath: /data/apps
             - name: turso
               mountPath: /data/turso
+            - name: state
+              mountPath: /data/state
           livenessProbe:
             httpGet:
               path: {{ .Values.buntime.apiPrefix }}/api/health/live
@@ -73,3 +74,16 @@ spec:
             claimName: {{ include "buntime.fullname" . }}-apps
         - name: turso
           emptyDir: {}
+  # Each pod gets its own /data/state — RWO, universal across storage classes.
+  # Holds the ApiKeyStore Turso DB (embedded replica in `sync` mode).
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.persistence.state.storageClass }}
+        storageClassName: {{ .Values.persistence.state.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.state.size }}

@@ -1,0 +1,144 @@
+suite: turso-server backup CronJob + Secret
+
+templates:
+  - templates/turso-server-backup-cronjob.yaml
+  - templates/secret.yaml
+
+release:
+  name: buntime
+  namespace: buntime
+
+tests:
+  - it: backup CronJob not rendered unless both turso-server and backup are enabled
+    set:
+      tursoServer.enabled: true
+      tursoServer.backup.enabled: false
+    template: templates/turso-server-backup-cronjob.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: CronJob renders with the configured schedule and image
+    set:
+      buntime.rootKey: rk
+      tursoServer.enabled: true
+      tursoServer.authToken: data
+      tursoServer.adminToken: admin
+      tursoServer.backup.enabled: true
+      tursoServer.backup.schedule: "*/30 * * * *"
+      tursoServer.backup.image.repository: registry.example/zomme/turso-backup
+      tursoServer.backup.image.tag: "1.2.3"
+      tursoServer.backup.s3.endpoint: http://minio:9000
+      tursoServer.backup.s3.bucket: turso-backups
+      tursoServer.backup.s3.accessKeyId: ak
+      tursoServer.backup.s3.secretAccessKey: sk
+      tursoServer.backup.retentionCount: 30
+    template: templates/turso-server-backup-cronjob.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: CronJob
+      - equal:
+          path: metadata.name
+          value: buntime-turso-backup
+      - equal:
+          path: spec.schedule
+          value: "*/30 * * * *"
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].image
+          value: registry.example/zomme/turso-backup:1.2.3
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: RETENTION_COUNT
+            value: "30"
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: ADMIN_URL
+            value: http://buntime-turso-admin:8081
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: S3_ENDPOINT
+            value: http://minio:9000
+
+  - it: CronJob pulls admin token from the turso-server Secret
+    set:
+      buntime.rootKey: rk
+      tursoServer.enabled: true
+      tursoServer.authToken: data
+      tursoServer.adminToken: admin
+      tursoServer.backup.enabled: true
+      tursoServer.backup.s3.endpoint: http://minio:9000
+      tursoServer.backup.s3.bucket: b
+      tursoServer.backup.s3.accessKeyId: ak
+      tursoServer.backup.s3.secretAccessKey: sk
+    template: templates/turso-server-backup-cronjob.yaml
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: ADMIN_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: buntime-turso
+                key: TURSO_ADMIN_TOKEN
+
+  - it: -backup Secret holds S3 credentials when backup is enabled
+    set:
+      buntime.rootKey: rk
+      tursoServer.enabled: true
+      tursoServer.authToken: data
+      tursoServer.backup.enabled: true
+      tursoServer.backup.s3.endpoint: http://minio:9000
+      tursoServer.backup.s3.bucket: b
+      tursoServer.backup.s3.accessKeyId: my-key
+      tursoServer.backup.s3.secretAccessKey: my-secret
+    template: templates/secret.yaml
+    # Secret template renders multiple documents in this configuration:
+    # the runtime Secret + the -backup Secret. Match against the
+    # -backup one specifically.
+    documentSelector:
+      path: metadata.name
+      value: buntime-backup
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: stringData.AWS_ACCESS_KEY_ID
+          value: my-key
+      - equal:
+          path: stringData.AWS_SECRET_ACCESS_KEY
+          value: my-secret
+
+  - it: runtime Secret receives TURSO_SERVER_TOKEN when tursoServer.authToken is set
+    set:
+      buntime.rootKey: rk
+      tursoServer.enabled: true
+      tursoServer.authToken: data-tok
+    template: templates/secret.yaml
+    documentSelector:
+      path: metadata.name
+      value: buntime
+    asserts:
+      - equal:
+          path: stringData.TURSO_SERVER_TOKEN
+          value: data-tok
+      - equal:
+          path: stringData.RUNTIME_AUTH_DB_SYNC_TOKEN
+          value: data-tok
+
+  - it: runtime Secret omits TURSO_SERVER_ADMIN_TOKEN when adminToken not set
+    set:
+      buntime.rootKey: rk
+      tursoServer.enabled: true
+      tursoServer.authToken: data-tok
+    template: templates/secret.yaml
+    documentSelector:
+      path: metadata.name
+      value: buntime
+    asserts:
+      - notExists:
+          path: stringData.TURSO_SERVER_ADMIN_TOKEN

@@ -1,5 +1,57 @@
 # Change Log
 
+## [2026-05-22] deploy | home-workload v0.3.0 (cookie auth + file-browser + Turso questions overhaul)
+
+### Motivation
+
+Validate end-to-end the v0.3.0 surface — cookie-based admin sessions, file-browser absorption, `plugin-deployments` retirement, `plugin-keyval` default-off, and the completed Turso questions tab — on the real `home-workload` k3s cluster (3 nodes, k3s 1.35.4 @ 192.168.252.{2,3,4}). The previous deploy from task #75 was at chart 0.2.26 / appVersion 1.1.0; this lifts the cluster to 0.3.0 / 1.2.0 with a runtime image rebuilt from current HEAD.
+
+### What changed (vs cluster state before this deploy)
+
+- **Helm release `buntime`**: revision 1 → 5 (revisions 2-4 failed before image landed; 5 succeeded after local rebuild).
+- **Chart**: bumped `0.2.26 → 0.3.0`. `appVersion 1.1.0 → 1.2.0`.
+- **Runtime image**: rebuilt locally and pushed `ghcr.io/zommehq/buntime:{v0.3.0,0.3.0,latest}` (digest `sha256:b0068e8a…`). The GitLab CI pipeline did not auto-publish — see "What broke" below.
+- **No data loss**: existing PVCs (`buntime-apps`, `buntime-plugins`, `state-buntime-0`, `data-buntime-turso-0` on `local-path`) preserved. Smoke tokens (`smoke-root-key`, `data-token-123`, `admin-token-456`) carried over via `--reuse-values`.
+- **Backup**: disabled in this deploy (`tursoServer.backup.enabled=false`) — MinIO bucket `buntime-turso-backups` not yet created. MinIO namespace exists; bucket bootstrap is a follow-up.
+
+### Process notes
+
+- **Image-pull secret name mismatch**: the existing cluster uses `gitlab-registry-pull`, not the `gitlab-home` name from the plan. Overlay matched the actual cluster name.
+- **StorageClass mismatch**: the cluster only has `local-path` (k3s default); plan assumed `longhorn` (not installed). Overlay switched to RWO + `local-path` at 2Gi (apps/plugins). Multi-pod across nodes will require Longhorn or NFS — out of scope for this deploy.
+- **PVC label conflict on first upgrade**: rev 1 PVCs had `kubectl-client-side-apply` field-managed labels (`app.kubernetes.io/version`, `helm.sh/chart`) that conflicted with Helm 4's server-side apply. Fix: `helm upgrade ... --force-conflicts` to transfer ownership.
+- **Service selector overlap**: `service/buntime` selector matches BOTH `buntime-0` and `buntime-turso-0`. `kubectl port-forward svc/buntime` picks turso randomly; use `pod/buntime-0` for smoke. Chart-level fix is a follow-up (add `component: runtime` selector to runtime service, `component: turso-server` to turso services).
+
+### What broke
+
+- **GitLab CI did not publish the v0.3.0 image**. Pipeline registration on the `runtime-performance-resilience` branch + `v0.3.0` tag yielded no new tags in `ghcr.io/zommehq/buntime` (only `latest` predating the work). Root cause unknown — likely missing runner registration or rule mismatch on the project. Worked around by `docker build + push` from the developer mac. Investigation tracked as follow-up.
+- **GitHub mirror push deferred** — user explicitly requested "no GitHub during the testing phase". Branch + tag live only on `gitlab.example.com` for now.
+
+### Smoke results (via `kubectl port-forward pod/buntime-0 18000:8000`)
+
+- `POST /_/api/admin/session` with `Content-Type: application/json` + `Origin` header + `{"key":"smoke-root-key"}` → **HTTP 200** with `set-cookie: buntime_api_key=…; Max-Age=86400; HttpOnly; SameSite=Strict`. Response body includes principal + permissions.
+- `DELETE /_/api/admin/session` with `Origin` → **HTTP 204** with `set-cookie: buntime_api_key=; Max-Age=0` (cookie cleared).
+- `POST` without `Content-Type: application/json` → **HTTP 400** "Request body must be JSON".
+- `POST` without `Origin` header → **HTTP 403** "Forbidden - Origin required" (CSRF gate active).
+- `GET /_/api/plugins/loaded` → 3 plugins: `@buntime/plugin-turso`, `@buntime/plugin-gateway`, `@buntime/plugin-proxy`. **No `plugin-keyval`** — disabled-by-default flag honored at load time.
+- `GET /_/api/workers/files/list?path=` → mount root listing (`apps/` directory present).
+- `GET /_/api/plugins/files/list?path=` → mount root listing (`plugins/` directory present).
+- Pod logs confirm: turso multi-tenant namespaces `runtime`, `gateway`, `proxy` all connected against `http://buntime-turso:8080`. No keyval references.
+
+### Deploy artifacts committed
+
+- `deploy/values.home-workload.yaml` — overlay matching real cluster topology.
+- `deploy/install-home-workload.sh` — one-shot installer (untracked; for manual operator use).
+- `charts/templates/configmap.yaml` regenerated to drop stale `plugins.deployments.excludes` reference left over from the retired plugin.
+
+### Follow-ups
+
+- Debug + fix GitLab CI pipeline so subsequent pushes auto-publish without manual `docker build`. Likely runner registration or `image:build` rules tweak.
+- Provision MinIO bucket `buntime-turso-backups` and flip `tursoServer.backup.enabled=true`. Re-verify daily snapshot CronJob in v0.3.1.
+- Split the chart's runtime vs turso-server selector labels (currently both share the same selector → service ambiguity).
+- When Longhorn or NFS lands on the lab, switch persistence to RWX and lift `replicaCount` to 2+ to exercise the sync-mode multi-pod path the chart was designed for.
+
+---
+
 ## [2026-05-21] apps | absorb plugin-deployments into cpanel; rename Platform → Plugins
 
 ### Motivation

@@ -43,8 +43,8 @@ interface FrameNavigateDetail {
 
 /**
  * Resolve a human-readable title for the current plugin route from the
- * loaded plugins' menu metadata. Falls back to the segment in title case so
- * the cpanel shell always shows *something* in the breadcrumb area.
+ * loaded plugins' menu metadata. Falls back to the segment in title case
+ * so the shell always has something to identify the iframe page.
  */
 function usePluginPageTitle(segment: string | undefined): string {
   const { t } = useTranslation();
@@ -56,7 +56,6 @@ function usePluginPageTitle(segment: string | undefined): string {
     const allMenus = (plugins$.data ?? []).flatMap((p) => p.menus ?? []);
     const top = allMenus.find((m) => m.path === basePath);
     if (top) return top.title.includes(":") ? t(top.title) : top.title;
-    // Fallback: segment with first letter uppercased.
     return segment.charAt(0).toUpperCase() + segment.slice(1);
   }, [plugins$.data, segment, t]);
 }
@@ -73,10 +72,10 @@ function FragmentRouter() {
   const segmentRef = useRef(segment);
   segmentRef.current = segment;
 
-  // Publish the page title to the cpanel shell so `DefaultHeader` renders a
-  // breadcrumb like the runtime sections (Keys/Workers/Plugins/Overview).
-  // Without this, plugin iframes would render flush against the sidebar with
-  // no shell-level header — inconsistent with the rest of the UI.
+  // Publish the page title to the cpanel shell so DefaultHeader renders the
+  // iframe identification. The plugin content itself MUST NOT render its own
+  // h1+description — that creates the double-header bug. Keep it lean: shell
+  // owns the title, plugin owns the content + actions.
   useEffect(() => {
     if (pageTitle) {
       setHeader({ title: pageTitle });

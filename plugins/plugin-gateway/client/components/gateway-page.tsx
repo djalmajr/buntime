@@ -53,22 +53,15 @@ export function GatewayPage() {
 
   return (
     <div className="m-4 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Gateway Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Monitor and manage gateway features</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant={isConnected ? "success" : "destructive"} className="animate-pulse">
-            {isConnected ? "Live" : "Disconnected"}
-          </Badge>
-          {data && (
-            <span className="text-xs text-muted-foreground">
-              Updated: {new Date(data.timestamp).toLocaleTimeString()}
-            </span>
-          )}
-        </div>
+      <div className="flex items-center justify-end gap-2">
+        <Badge variant={isConnected ? "success" : "destructive"} className="animate-pulse">
+          {isConnected ? "Live" : "Disconnected"}
+        </Badge>
+        {data && (
+          <span className="text-xs text-muted-foreground">
+            Updated: {new Date(data.timestamp).toLocaleTimeString()}
+          </span>
+        )}
       </div>
 
       {/* Error Banner */}

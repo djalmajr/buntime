@@ -1,5 +1,45 @@
 # Change Log
 
+## [2026-05-23] docs | upload archive contract + FileBrowser path-policy scope limitation
+
+### Motivation
+
+User asked what the upload zip expects for workers vs plugins, and whether
+uploading while browsing inside a version folder or scoped plugin folder
+(`@scope/name`) creates correctly. The wiki only mentioned `package.json with
+name and version` in passing — missing `manifest.yaml` priority, the version
+default, `package/` prefix auto-strip, scoped-name layout, and the difference
+between the two upload mechanisms in the cpanel FileBrowser.
+
+While documenting, surfaced a real bug: `workersPathPolicy` and
+`pluginsPathPolicy` use the first path segment as the unit name and do not
+recognise `@scope/name` as a single unit. The explicit Upload button bypasses
+this (server uses `parsePackageName` correctly), but drag-drop into a scoped
+folder is broken for workers and partially broken for plugins.
+
+### What changed
+
+- `wiki/apps/runtime-api-reference.md` — `/api/workers/upload` and
+  `/api/plugins/upload` sections expanded with the full archive contract:
+  accepted extensions, internal layout (root vs `package/` prefix), manifest
+  precedence (`manifest.yaml` > `manifest.yml` > `package.json`), required vs
+  optional fields, version default (`"latest"`), and the layout tables for
+  scoped vs unscoped names.
+- `wiki/apps/cpanel.md` — new section "File-browser — two upload paths, two
+  contracts" distinguishing `<UploadArchiveButton>` (path-agnostic install)
+  from drag-drop via `/api/{workers,plugins}/files/upload` (path-policy
+  gated). Documents the `@scope/name` policy bug with a comparison table.
+- `CLAUDE.md` — new rule "Wiki-as-canonical-source — gap detection": if a
+  user question cannot be answered from the wiki, that question's content is
+  a wiki candidate. Update the wiki in the same turn, log, reindex.
+
+### Verification
+
+- `qmd --index buntime query "upload archive zip plugin worker"` (post-embed)
+  → should hit the new sections.
+
+---
+
 ## [2026-05-22] deploy | home-workload v0.3.0 (cookie auth + file-browser + Turso questions overhaul)
 
 ### Motivation

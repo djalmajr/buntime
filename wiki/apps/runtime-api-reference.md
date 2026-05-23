@@ -235,8 +235,35 @@ are removable.
 
 ### `POST /api/workers/upload`
 
-Upload via multipart/form-data. Accepts `.tgz`, `.tar.gz`, `.zip`. The archive
-must contain a `package.json` with `name` and `version`.
+Upload via multipart/form-data. Accepts `.tgz`, `.tar.gz`, `.zip`.
+
+**Archive contract** (shared with `/api/plugins/upload` below):
+
+- **Extensions accepted**: `.tgz`, `.tar.gz`, `.zip`. Anything else → `INVALID_FILE_TYPE`.
+- **Internal layout**: files either at the archive root, or wrapped in a single
+  top-level `package/` folder (npm-pack convention). Tgz auto-strips via
+  `tar --strip-components=1`; zip detects + manually unwraps a single `package/`
+  folder if present.
+- **Metadata source** (read at the effective root, after unwrap):
+  - **`manifest.yaml`** (or `manifest.yml`) is preferred. Read keys: `name`, `version`.
+  - **`package.json`** is fallback. Same keys.
+  - `name` is **required** (from either source). Missing name → 400.
+  - `version` is **optional** — defaults to `"latest"` when neither file declares it.
+- **Scoped names supported**: `name: "@scope/foo"` parses correctly. See "Install paths" below.
+
+**Install path (workers)** — derived from `name` + `version`:
+
+| `name`              | `version` | Installed at                            |
+|---------------------|-----------|------------------------------------------|
+| `my-worker`         | `1.0.0`   | `<workerDir>/my-worker/1.0.0/`           |
+| `@scope/my-worker`  | `1.0.0`   | `<workerDir>/@scope/my-worker/1.0.0/`    |
+| `my-worker`         | (missing) | `<workerDir>/my-worker/latest/`          |
+
+If the install path already exists, the existing folder is removed first, then
+the archive contents are moved into place. This is an upsert, not a merge.
+
+`<workerDir>` is the first writable entry in `RUNTIME_WORKER_DIRS` (selected by
+`selectInstallDir()`; image-provided dirs starting with `.` are skipped).
 
 ```bash
 curl -X POST \
@@ -317,6 +344,18 @@ Lists active plugins in the registry (runtime state).
 ```
 
 ### `POST /api/plugins/upload`
+
+Same archive contract as `/api/workers/upload` (see above). Difference: install
+path **omits the version segment** because the plugin loader does not scan
+version subdirectories.
+
+| `name`              | Installed at                       |
+|---------------------|-------------------------------------|
+| `my-plugin`         | `<pluginDir>/my-plugin/`           |
+| `@scope/my-plugin`  | `<pluginDir>/@scope/my-plugin/`    |
+
+`version` from the manifest is read for the response payload but does not
+affect the layout. If `<pluginDir>/<name>/` exists, it's removed first.
 
 ```bash
 curl -X POST \

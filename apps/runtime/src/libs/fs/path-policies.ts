@@ -12,6 +12,11 @@
  *   reads `manifest.yaml` at the plugin root. Anything below the plugin root
  *   is free-form.
  *
+ * Both policies are **scope-aware**: if the first segment starts with `@`,
+ * the next segment is treated as the second half of the unit name (npm-style
+ * scoped packages: `@scope/name` is ONE name, not two folders). All depth
+ * and unit-root math then shifts by one segment for the scoped case.
+ *
  * A `PathPolicy` captures these differences so a single `DirInfo` class and a
  * single `createFsRoutes` factory can serve both surfaces.
  */
@@ -88,14 +93,26 @@ function splitParts(path: string | undefined | null): string[] {
   return path.split("/").filter(Boolean);
 }
 
+/** True if the first segment looks like an npm scope (`@something`). */
+function hasScopePrefix(parts: string[]): boolean {
+  return parts.length >= 1 && parts[0]!.startsWith("@");
+}
+
+/** Strip leading/trailing slashes for canonical comparison. */
+function cleanPath(path: string | undefined | null): string {
+  return (path ?? "").replace(/^\/+|\/+$/g, "");
+}
+
 // ---------------------------------------------------------------------------
-// Workers policy (semver-aware)
+// Workers policy (semver-aware, scope-aware)
 // ---------------------------------------------------------------------------
 
 /**
  * Workers policy — accepts both `{name}/{version}/...` (nested) and
- * `{name}@{version}/...` (flat). Uploads/moves must land inside a version
- * folder. The version folder itself is the "unit" for manifest detection.
+ * `{name}@{version}/...` (flat). Scoped variants `@scope/name/{version}/...`
+ * and `@scope/name@{version}/...` shift the "name index" by one segment.
+ * Uploads/moves must land inside a version folder. The version folder itself
+ * is the "unit" for manifest detection.
  */
 export const workersPathPolicy: PathPolicy = {
   name: "workers",
@@ -104,63 +121,79 @@ export const workersPathPolicy: PathPolicy = {
     const parts = splitParts(relativePath);
     if (parts.length === 0) return EMPTY;
 
-    const firstPart = parts[0]!;
+    const scoped = hasScopePrefix(parts);
 
-    // Flat: app@version/...
-    const flat = parseFlatFolder(firstPart);
+    // Just the @scope folder, no name yet.
+    if (scoped && parts.length === 1) {
+      return { appName: null, depth: 1, unitRoot: null, version: null };
+    }
+
+    const nameIdx = scoped ? 1 : 0;
+    const nameSeg = parts[nameIdx]!;
+    const fullName = scoped ? `${parts[0]}/${nameSeg}` : nameSeg;
+
+    // Flat form: `<name>@<version>` at the name slot.
+    const flat = parseFlatFolder(nameSeg);
     if (flat) {
+      const unitRoot = scoped ? `${parts[0]}/${nameSeg}` : nameSeg;
+      const fullAppName = scoped ? `${parts[0]}/${flat.name}` : flat.name;
       return {
-        appName: flat.name,
-        depth: parts.length + 1, // flat folder counts as app+version
-        unitRoot: firstPart,
+        appName: fullAppName,
+        // Flat folder counts as app+version, so depth bumps by 1 to keep
+        // legacy depth semantics ("flat unit root is depth 2 in the
+        // unscoped case, depth 3 in the scoped case").
+        depth: parts.length + 1,
+        unitRoot,
         version: flat.version,
       };
     }
 
-    // Nested: app/...
-    const appName = firstPart;
-    if (parts.length === 1) {
-      return { appName, depth: 1, unitRoot: null, version: null };
+    // Nested form: name/version/...
+    const versionIdx = nameIdx + 1;
+    if (parts.length === versionIdx) {
+      // We're at the name folder; no version segment yet.
+      return { appName: fullName, depth: parts.length, unitRoot: null, version: null };
     }
 
-    const secondPart = parts[1]!;
-    if (isValidVersion(secondPart)) {
-      return {
-        appName,
-        depth: parts.length,
-        unitRoot: `${appName}/${secondPart}`,
-        version: secondPart,
-      };
+    const versionSeg = parts[versionIdx]!;
+    if (!isValidVersion(versionSeg)) {
+      return { appName: fullName, depth: parts.length, unitRoot: null, version: null };
     }
 
-    return { appName, depth: parts.length, unitRoot: null, version: null };
+    const unitRoot = scoped ? `${parts[0]}/${nameSeg}/${versionSeg}` : `${nameSeg}/${versionSeg}`;
+    return {
+      appName: fullName,
+      depth: parts.length,
+      unitRoot,
+      version: versionSeg,
+    };
   },
 
   canWriteAt(relativePath) {
     return workersPathPolicy.parse(relativePath).unitRoot !== null;
   },
 
-  isInsideUnit(relativePath) {
-    const parsed = workersPathPolicy.parse(relativePath);
-    if (!parsed.unitRoot) return false;
-    // Flat: flat folder itself reports depth=2 (policy bumps), inside is 3+.
-    // Nested: version folder is depth=2, inside is depth=3+.
-    return parsed.depth >= 3;
-  },
-
   isUnitRoot(relativePath) {
     const parsed = workersPathPolicy.parse(relativePath);
     if (!parsed.unitRoot) return false;
-    return parsed.depth === 2;
+    return cleanPath(relativePath) === parsed.unitRoot;
+  },
+
+  isInsideUnit(relativePath) {
+    const parsed = workersPathPolicy.parse(relativePath);
+    if (!parsed.unitRoot) return false;
+    const clean = cleanPath(relativePath);
+    return clean !== parsed.unitRoot && clean.startsWith(`${parsed.unitRoot}/`);
   },
 };
 
 // ---------------------------------------------------------------------------
-// Plugins policy (free-form)
+// Plugins policy (free-form, scope-aware)
 // ---------------------------------------------------------------------------
 
 /**
  * Plugins policy — plugins live as flat `{name}/` folders (no versioning).
+ * Scoped plugins use `@scope/name/` and are treated as a single unit.
  * The plugin root is the "unit" with a manifest. Anything below it is
  * free-form: uploads, moves, mkdir all allowed.
  */
@@ -171,7 +204,14 @@ export const pluginsPathPolicy: PathPolicy = {
     const parts = splitParts(relativePath);
     if (parts.length === 0) return EMPTY;
 
-    const appName = parts[0]!;
+    const scoped = hasScopePrefix(parts);
+
+    // Just the @scope folder, no plugin name yet.
+    if (scoped && parts.length === 1) {
+      return { appName: null, depth: 1, unitRoot: null, version: null };
+    }
+
+    const appName = scoped ? `${parts[0]}/${parts[1]}` : parts[0]!;
     return {
       appName,
       depth: parts.length,
@@ -181,17 +221,20 @@ export const pluginsPathPolicy: PathPolicy = {
   },
 
   canWriteAt(relativePath) {
-    // Allow writes anywhere at or under a plugin folder.
-    return pluginsPathPolicy.parse(relativePath).depth >= 1;
-  },
-
-  isInsideUnit(relativePath) {
-    // Strictly INSIDE a plugin folder, not the plugin folder itself.
-    return pluginsPathPolicy.parse(relativePath).depth >= 2;
+    return pluginsPathPolicy.parse(relativePath).unitRoot !== null;
   },
 
   isUnitRoot(relativePath) {
-    return pluginsPathPolicy.parse(relativePath).depth === 1;
+    const parsed = pluginsPathPolicy.parse(relativePath);
+    if (!parsed.unitRoot) return false;
+    return cleanPath(relativePath) === parsed.unitRoot;
+  },
+
+  isInsideUnit(relativePath) {
+    const parsed = pluginsPathPolicy.parse(relativePath);
+    if (!parsed.unitRoot) return false;
+    const clean = cleanPath(relativePath);
+    return clean !== parsed.unitRoot && clean.startsWith(`${parsed.unitRoot}/`);
   },
 };
 
@@ -214,10 +257,12 @@ export type DeploymentPathInfo = {
  */
 export function parseDeploymentPath(path: string | undefined | null): DeploymentPathInfo {
   const parsed = workersPathPolicy.parse(path);
-  // Detect format: if first segment matches `<name>@<version>`, it's flat.
+  // Detect format: if the name segment (parts[1] when scoped, parts[0] otherwise)
+  // matches `<name>@<version>`, it's flat.
   const parts = splitParts(path);
-  const firstPart = parts[0];
-  const flat = firstPart ? parseFlatFolder(firstPart) : null;
+  const scoped = hasScopePrefix(parts);
+  const nameSeg = scoped ? parts[1] : parts[0];
+  const flat = nameSeg ? parseFlatFolder(nameSeg) : null;
   const format: "flat" | "nested" | null = parts.length === 0 ? null : flat ? "flat" : "nested";
 
   return {

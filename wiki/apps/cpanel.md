@@ -315,24 +315,25 @@ context action) hits a different endpoint that **respects the current path**
 and is gated by a `PathPolicy` (`workersPathPolicy` or `pluginsPathPolicy` in
 `apps/runtime/src/libs/fs/path-policies.ts`).
 
-The policies use the **first path segment** as the unit name. They do not
-handle `@scope/name`-style two-segment unit names — a known limitation:
+Both policies are **scope-aware**. If the first segment starts with `@`, the
+next segment is treated as the second half of the unit name — `@scope/name`
+is recognised as one unit, not two folders:
 
 | Path                            | Workers policy              | Plugins policy             |
 |---------------------------------|------------------------------|-----------------------------|
+| `@scope/`                       | rejected (no name yet)       | rejected (not a plugin yet) |
 | `my-worker/1.0.0/`              | unit root (writes allowed)   | n/a                         |
 | `my-worker/1.0.0/src/`          | inside unit (writes allowed) | n/a                         |
-| `@scope/my-worker/1.0.0/`       | **rejected** (parses `@scope` as appName, `my-worker` is not a valid semver, so no `unitRoot` → `canWriteAt` returns false) | n/a |
-| `@scope/my-worker/1.0.0/src/`   | **rejected** (same reason)   | n/a                         |
+| `@scope/my-worker/1.0.0/`       | unit root (writes allowed)   | n/a                         |
+| `@scope/my-worker/1.0.0/src/`   | inside unit (writes allowed) | n/a                         |
+| `@scope/my-worker@1.0.0/`       | unit root, flat variant      | n/a                         |
 | `my-plugin/`                    | n/a                          | unit root                   |
-| `@scope/my-plugin/`             | n/a                          | **misidentified**: policy treats `@scope` as the plugin name and `my-plugin` as something inside it. Writes are allowed (free-form policy) but `isUnitRoot` returns false at `@scope/my-plugin`, so the manifest at that path is not detected as the unit's manifest by `DirInfo`. |
+| `@scope/my-plugin/`             | n/a                          | unit root                   |
+| `@scope/my-plugin/dist/x.js`    | n/a                          | inside unit (writes allowed) |
 
-**Practical impact today**: the explicit Upload button is the supported path
-for scoped names. Drag-drop into existing scoped folders works for plugins
-(free-form policy allows writes) but DirInfo will not surface a `manifest.yaml`
-badge at `@scope/name`. Drag-drop is broken for scoped *worker* folders. See
-follow-up [TODO in path-policies.ts (scope-aware parse)](#) for the planned
-fix.
+Drag-drop and the explicit Upload button both work for scoped names. The
+`@scope` folder alone (no name segment) is treated as an "above any unit"
+location: writes are rejected; navigation is fine.
 
 ## Cross-references
 

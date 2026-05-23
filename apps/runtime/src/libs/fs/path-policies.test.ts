@@ -118,11 +118,20 @@ describe("parseDeploymentPath", () => {
       });
     });
 
-    it("treats scoped @scope/app@1.0.0 as nested (slash separator)", () => {
+    it("parses scoped flat @scope/app@1.0.0 as scope+flat unit", () => {
       const result = parseDeploymentPath("@scope/app@1.0.0");
-      expect(result.format).toBe("nested");
-      expect(result.appName).toBe("@scope");
-      expect(result.isInsideVersion).toBe(false);
+      expect(result.format).toBe("flat");
+      expect(result.appName).toBe("@scope/app");
+      expect(result.isInsideVersion).toBe(true);
+      expect(result.version).toBe("1.0.0");
+    });
+
+    it("parses scoped flat with deeper path inside", () => {
+      const result = parseDeploymentPath("@scope/app@1.0.0/src/index.ts");
+      expect(result.format).toBe("flat");
+      expect(result.appName).toBe("@scope/app");
+      expect(result.isInsideVersion).toBe(true);
+      expect(result.version).toBe("1.0.0");
     });
 
     it("rejects invalid version after '@'", () => {
@@ -255,8 +264,12 @@ describe("extractAppName", () => {
     expect(extractAppName("hello-api@1.0.0/src/file.ts")).toBe("hello-api"));
   it("nested → app name", () => expect(extractAppName("hello-api/1.0.0")).toBe("hello-api"));
   it("app-only → app name", () => expect(extractAppName("hello-api")).toBe("hello-api"));
-  it("scoped → scope (slash is separator)", () =>
-    expect(extractAppName("@scope/my-app@1.0.0")).toBe("@scope"));
+  it("scoped flat → @scope/name", () =>
+    expect(extractAppName("@scope/my-app@1.0.0")).toBe("@scope/my-app"));
+  it("scoped nested → @scope/name", () =>
+    expect(extractAppName("@scope/my-app/1.0.0/src")).toBe("@scope/my-app"));
+  it("only @scope → null (no plugin/app name yet)", () =>
+    expect(extractAppName("@scope")).toBe(null));
 });
 
 // -------------------------------------------------------------------------
@@ -304,6 +317,60 @@ describe("workersPathPolicy", () => {
       version: "1.0.0",
     });
   });
+
+  // ----- scoped workers -----
+
+  it("canWriteAt: false at @scope alone (no name yet)", () => {
+    expect(workersPathPolicy.canWriteAt("@scope")).toBe(false);
+  });
+
+  it("canWriteAt: false at @scope/name (no version yet)", () => {
+    expect(workersPathPolicy.canWriteAt("@scope/foo")).toBe(false);
+  });
+
+  it("canWriteAt: true at scoped nested version folder", () => {
+    expect(workersPathPolicy.canWriteAt("@scope/foo/1.0.0")).toBe(true);
+  });
+
+  it("canWriteAt: true inside scoped nested version", () => {
+    expect(workersPathPolicy.canWriteAt("@scope/foo/1.0.0/dist/index.js")).toBe(true);
+  });
+
+  it("canWriteAt: true at scoped flat unit", () => {
+    expect(workersPathPolicy.canWriteAt("@scope/foo@1.0.0")).toBe(true);
+  });
+
+  it("canWriteAt: true inside scoped flat unit", () => {
+    expect(workersPathPolicy.canWriteAt("@scope/foo@1.0.0/src")).toBe(true);
+  });
+
+  it("isUnitRoot: true for scoped nested version folder", () => {
+    expect(workersPathPolicy.isUnitRoot("@scope/foo/1.0.0")).toBe(true);
+  });
+
+  it("isUnitRoot: false inside scoped nested version", () => {
+    expect(workersPathPolicy.isUnitRoot("@scope/foo/1.0.0/src")).toBe(false);
+  });
+
+  it("isUnitRoot: true for scoped flat unit", () => {
+    expect(workersPathPolicy.isUnitRoot("@scope/foo@1.0.0")).toBe(true);
+  });
+
+  it("isInsideUnit: true inside scoped nested version", () => {
+    expect(workersPathPolicy.isInsideUnit("@scope/foo/1.0.0/src/index.ts")).toBe(true);
+  });
+
+  it("isInsideUnit: false at scoped nested version root", () => {
+    expect(workersPathPolicy.isInsideUnit("@scope/foo/1.0.0")).toBe(false);
+  });
+
+  it("parse: scoped nested resolves to @scope/name + version", () => {
+    expect(workersPathPolicy.parse("@scope/foo/1.0.0/src")).toMatchObject({
+      appName: "@scope/foo",
+      unitRoot: "@scope/foo/1.0.0",
+      version: "1.0.0",
+    });
+  });
 });
 
 describe("pluginsPathPolicy", () => {
@@ -336,7 +403,48 @@ describe("pluginsPathPolicy", () => {
   });
 
   it("accepts non-semver names (plugins don't version)", () => {
+    expect(pluginsPathPolicy.canWriteAt("plugin-foo")).toBe(true);
+  });
+
+  // ----- scoped plugins -----
+
+  it("canWriteAt: false at @scope alone (not a plugin yet)", () => {
+    expect(pluginsPathPolicy.canWriteAt("@scope")).toBe(false);
+  });
+
+  it("canWriteAt: true at scoped plugin root", () => {
     expect(pluginsPathPolicy.canWriteAt("@scope/plugin")).toBe(true);
-    expect(pluginsPathPolicy.parse("@scope/plugin").appName).toBe("@scope");
+  });
+
+  it("canWriteAt: true deep inside scoped plugin", () => {
+    expect(pluginsPathPolicy.canWriteAt("@scope/plugin/dist/chunk.js")).toBe(true);
+  });
+
+  it("isUnitRoot: true at scoped plugin root", () => {
+    expect(pluginsPathPolicy.isUnitRoot("@scope/plugin")).toBe(true);
+  });
+
+  it("isUnitRoot: false inside scoped plugin", () => {
+    expect(pluginsPathPolicy.isUnitRoot("@scope/plugin/dist")).toBe(false);
+  });
+
+  it("isUnitRoot: false at @scope alone", () => {
+    expect(pluginsPathPolicy.isUnitRoot("@scope")).toBe(false);
+  });
+
+  it("isInsideUnit: true inside scoped plugin", () => {
+    expect(pluginsPathPolicy.isInsideUnit("@scope/plugin/server")).toBe(true);
+  });
+
+  it("isInsideUnit: false at scoped plugin root", () => {
+    expect(pluginsPathPolicy.isInsideUnit("@scope/plugin")).toBe(false);
+  });
+
+  it("parse: scoped plugin resolves to @scope/name as the unit", () => {
+    expect(pluginsPathPolicy.parse("@scope/plugin/dist/x.js")).toMatchObject({
+      appName: "@scope/plugin",
+      unitRoot: "@scope/plugin",
+      depth: 4,
+    });
   });
 });

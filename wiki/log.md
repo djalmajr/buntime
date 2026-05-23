@@ -1,5 +1,52 @@
 # Change Log
 
+## [2026-05-23] fix | scope-aware FileBrowser path policies
+
+### Motivation
+
+The path policies in `apps/runtime/src/libs/fs/path-policies.ts` and the
+client mirror at `apps/cpanel/src/components/file-browser/path-policy.ts`
+used the first path segment as the unit name. For npm-scoped names
+`@scope/name`, that meant:
+
+- Workers: `@scope/foo/1.0.0/` was rejected — `@scope` was treated as the app
+  name and `foo` failed the semver check, so `unitRoot` was null and
+  `canWriteAt` returned false. Drag-drop into scoped worker version folders
+  was unusable.
+- Plugins: `@scope/foo/` was misidentified — `@scope` was treated as the
+  plugin name and `foo` as something inside it. Writes worked (free-form
+  policy) but `isUnitRoot` returned false at `@scope/foo`, so DirInfo did
+  not detect the manifest there.
+
+The `<UploadArchiveButton>` install path was unaffected (server uses
+`parsePackageName` correctly), but drag-drop and the FileBrowser's badge
+detection were broken for scoped paths.
+
+### What changed
+
+- Both `workersPathPolicy` and `pluginsPathPolicy` now detect `@scope` as
+  the first segment and consume one extra segment for the unit name. Unit
+  root, `canWriteAt`, `isUnitRoot`, and `isInsideUnit` all shift their math
+  accordingly. The implementation replaces depth-based comparisons with a
+  string-equality check against the parsed `unitRoot`, which is simpler and
+  inherently correct regardless of segment count.
+- `apps/cpanel/src/components/file-browser/path-policy.ts` mirrors the same
+  scope-aware logic, plus `validateFolderName` and `folderHints` now offer
+  sensible UX at `@scope/<here>` (the name slot of a scoped unit).
+- Tests: `path-policies.test.ts` extended with 14 scoped cases covering both
+  workers (nested + flat) and plugins. Updated the legacy
+  `parseDeploymentPath("@scope/app@1.0.0")` and `extractAppName(...)` tests
+  to reflect that `@scope/app` is now recognised as a single name.
+
+### Verification
+
+- `bun test apps/runtime/src/libs/fs/path-policies.test.ts` — 78/0 (was
+  70/0 before the new cases).
+- `bun test` — 2723/0 across the suite.
+- `bun run lint` — clean.
+
+---
+
 ## [2026-05-23] docs | upload archive contract + FileBrowser path-policy scope limitation
 
 ### Motivation

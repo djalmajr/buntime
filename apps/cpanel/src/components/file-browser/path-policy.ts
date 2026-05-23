@@ -3,6 +3,10 @@
  * `apps/runtime/src/libs/fs/path-policies.ts`. Encapsulates the format
  * differences between the workers surface (semver `app@version` / `app/version`)
  * and the plugins surface (flat `name/`).
+ *
+ * Both policies are **scope-aware**: if the first segment starts with `@`,
+ * the next segment is treated as the second half of the unit name
+ * (npm-style scoped packages: `@scope/name` is ONE name, not two folders).
  */
 
 // kebab-case: lowercase letters, numbers, hyphens (not at start/end)
@@ -55,6 +59,14 @@ function splitParts(path: string): string[] {
   return path ? path.split("/").filter(Boolean) : [];
 }
 
+function hasScopePrefix(parts: string[]): boolean {
+  return parts.length >= 1 && parts[0]!.startsWith("@");
+}
+
+function cleanPath(path: string): string {
+  return path.replace(/^\/+|\/+$/g, "");
+}
+
 // ---------------------------------------------------------------------------
 
 export const workersClientPolicy: ClientPathPolicy = {
@@ -72,45 +84,67 @@ export const workersClientPolicy: ClientPathPolicy = {
         unitRoot: null,
       };
     }
-    const first = parts[0]!;
-    const flat = parseFlat(first);
-    if (flat) {
-      // Flat: depth bumped by 1 (flat folder counts as app+version)
-      const depth = parts.length + 1;
+    const scoped = hasScopePrefix(parts);
+
+    // @scope alone — no name yet.
+    if (scoped && parts.length === 1) {
       return {
-        appName: flat.name,
-        depth,
-        isInsideUnit: depth >= 3,
-        isUnitRoot: depth === 2,
-        unitRoot: first,
-      };
-    }
-    if (parts.length === 1) {
-      return {
-        appName: first,
+        appName: null,
         depth: 1,
         isInsideUnit: false,
         isUnitRoot: false,
         unitRoot: null,
       };
     }
-    const second = parts[1]!;
-    if (isValidVersion(second)) {
-      const depth = parts.length;
+
+    const nameIdx = scoped ? 1 : 0;
+    const nameSeg = parts[nameIdx]!;
+    const fullName = scoped ? `${parts[0]}/${nameSeg}` : nameSeg;
+    const clean = cleanPath(relativePath);
+
+    // Flat form: name@version
+    const flat = parseFlat(nameSeg);
+    if (flat) {
+      const unitRoot = scoped ? `${parts[0]}/${nameSeg}` : nameSeg;
+      const fullAppName = scoped ? `${parts[0]}/${flat.name}` : flat.name;
+      const depth = parts.length + 1; // flat folder counts as app+version
       return {
-        appName: first,
+        appName: fullAppName,
         depth,
-        isInsideUnit: depth >= 3,
-        isUnitRoot: depth === 2,
-        unitRoot: `${first}/${second}`,
+        isInsideUnit: clean !== unitRoot && clean.startsWith(`${unitRoot}/`),
+        isUnitRoot: clean === unitRoot,
+        unitRoot,
       };
     }
+
+    // Nested form: name/version
+    const versionIdx = nameIdx + 1;
+    if (parts.length === versionIdx) {
+      return {
+        appName: fullName,
+        depth: parts.length,
+        isInsideUnit: false,
+        isUnitRoot: false,
+        unitRoot: null,
+      };
+    }
+    const versionSeg = parts[versionIdx]!;
+    if (!isValidVersion(versionSeg)) {
+      return {
+        appName: fullName,
+        depth: parts.length,
+        isInsideUnit: false,
+        isUnitRoot: false,
+        unitRoot: null,
+      };
+    }
+    const unitRoot = scoped ? `${parts[0]}/${nameSeg}/${versionSeg}` : `${nameSeg}/${versionSeg}`;
     return {
-      appName: first,
+      appName: fullName,
       depth: parts.length,
-      isInsideUnit: false,
-      isUnitRoot: false,
-      unitRoot: null,
+      isInsideUnit: clean !== unitRoot && clean.startsWith(`${unitRoot}/`),
+      isUnitRoot: clean === unitRoot,
+      unitRoot,
     };
   },
 
@@ -123,8 +157,12 @@ export const workersClientPolicy: ClientPathPolicy = {
     if (!trimmed) return "Name is required";
 
     const parsed = workersClientPolicy.parse(parentPath);
-    // depth 0/1: creating an app folder OR a flat app@version
-    if (parsed.depth <= 1) {
+    const parts = splitParts(parentPath);
+    const scoped = hasScopePrefix(parts);
+
+    // depth 0/1 (or 1 for @scope without name yet): creating an app folder
+    // OR a flat app@version. For @scope/<here> we're at the name slot.
+    if (parsed.depth <= 1 || (scoped && parsed.depth === 1)) {
       const isKebab = KEBAB_CASE_REGEX.test(trimmed);
       const isFlat = parseFlat(trimmed) !== null;
       if (!isKebab && !isFlat) {
@@ -132,8 +170,8 @@ export const workersClientPolicy: ClientPathPolicy = {
       }
       return null;
     }
-    // depth 2 nested without version → must be a semver
-    if (parsed.depth === 2 && !parsed.unitRoot) {
+    // depth==2 unscoped without version → must be semver. Same for depth==3 scoped.
+    if (!parsed.unitRoot && (parsed.depth === 2 || (scoped && parsed.depth === 2))) {
       if (!SEMVER_REGEX.test(trimmed)) {
         return "Version must follow semantic versioning (e.g., 1.0.0, 1.0.0-rc.1)";
       }
@@ -145,13 +183,22 @@ export const workersClientPolicy: ClientPathPolicy = {
 
   folderHints(parentPath) {
     const parsed = workersClientPolicy.parse(parentPath);
-    if (parsed.depth <= 1) {
+    const parts = splitParts(parentPath);
+    const scoped = hasScopePrefix(parts);
+
+    if (parsed.depth === 0) {
       return {
-        placeholder: "my-app or my-app@1.0.0",
-        description: "Enter a name for the application (kebab-case) or app with version.",
+        placeholder: "my-app, my-app@1.0.0 or @scope",
+        description: "Enter an app name (kebab-case), app@version, or a scope folder (@my-scope).",
       };
     }
-    if (parsed.depth === 2 && !parsed.unitRoot) {
+    if (scoped && parsed.depth === 1) {
+      return {
+        placeholder: "my-app or my-app@1.0.0",
+        description: "Enter a name for the scoped app (kebab-case) or app with version.",
+      };
+    }
+    if (!parsed.unitRoot && parsed.depth >= 1) {
       return {
         placeholder: "1.0.0",
         description: "Enter the version number (semantic versioning).",
@@ -181,17 +228,32 @@ export const pluginsClientPolicy: ClientPathPolicy = {
         unitRoot: null,
       };
     }
+    const scoped = hasScopePrefix(parts);
+
+    // @scope alone — no plugin yet.
+    if (scoped && parts.length === 1) {
+      return {
+        appName: null,
+        depth: 1,
+        isInsideUnit: false,
+        isUnitRoot: false,
+        unitRoot: null,
+      };
+    }
+
+    const appName = scoped ? `${parts[0]}/${parts[1]}` : parts[0]!;
+    const clean = cleanPath(relativePath);
     return {
-      appName: parts[0]!,
+      appName,
       depth: parts.length,
-      isInsideUnit: parts.length >= 2,
-      isUnitRoot: parts.length === 1,
-      unitRoot: parts[0]!,
+      isInsideUnit: clean !== appName && clean.startsWith(`${appName}/`),
+      isUnitRoot: clean === appName,
+      unitRoot: appName,
     };
   },
 
   canWriteAt(relativePath) {
-    return pluginsClientPolicy.parse(relativePath).depth >= 1;
+    return pluginsClientPolicy.parse(relativePath).unitRoot !== null;
   },
 
   validateFolderName(_parentPath, name) {

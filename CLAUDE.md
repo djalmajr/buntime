@@ -115,6 +115,12 @@ The following rules condition agent action and must be followed without lookup. 
 - **If `bun run lint` reports warnings or errors — even in files you did not touch — fix them.** The codebase must be left cleaner than you found it.
 - For runtime dev, use `bun --watch` (not `bun --hot`) — `--hot` breaks timers/cron (croner doesn't fire) and leaks zombie port bindings.
 
+### Wiki-as-canonical-source — gap detection
+
+- **If you can't answer a user question by quoting the wiki, that question's content is a wiki candidate.** Don't reply solely by reading code: in the same turn, write the missing knowledge into the appropriate `wiki/` page (per the audience boundary in CONVENTIONS.md), log the change, and reindex. The reply to the user can then point at the new wiki section.
+- Specifically: API contracts, archive/file formats, env-var schemas, path layouts, named conventions, deploy topology, integration quirks, and known bugs/gotchas you discover during debugging are all wiki material. Code is the implementation; the wiki is the contract.
+- Reverse signal: if the wiki answer disagrees with the code, the wiki is stale — update it (don't trust it blindly) and log the correction.
+
 ## Language
 
 Wiki content is in **en-US**. The project may have international audience and contributors. This `CLAUDE.md`, `AGENTS.md`, and the `wiki/` directory are all in English. Personal user rules in `~/.agents/rules/` may remain in their original language.

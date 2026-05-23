@@ -288,6 +288,52 @@ https://buntime.home/_/api/admin/session  # real endpoint (with RUNTIME_API_PREF
 | Cpanel isolated from `plugin-authn` end-to-end | `publicRoutes: { GET: ["/**"] }` keeps the SPA bundle reachable; the SPA itself enforces the API-key gate client-side |
 | Plugin endpoints still protected | `plugin-authn` continues to protect plugin endpoints and plugin UI hosts (the iframes are separate origins) |
 
+## File-browser — two upload paths, two contracts
+
+The Workers/Plugins tabs expose **two distinct upload mechanisms** that hit
+different runtime endpoints and follow different rules. Knowing which one you
+are using matters because they validate paths differently.
+
+### Path-agnostic install — `<UploadArchiveButton>`
+
+The explicit "Upload" button in the tab header sends the archive to
+`POST /api/{workers,plugins}/upload`. The server reads `manifest.yaml` /
+`package.json` from the archive and places the contents at the **policy-derived
+install path**, ignoring the FileBrowser's current path. So uploading while
+browsing inside `@scope/foo/1.0.0/` (workers) or `@scope/foo/` (plugins) lands
+the new install at the right semver/plugin folder regardless of where you are
+in the tree.
+
+Layout rules and full archive contract: see
+[Runtime API reference — workers upload](./runtime-api-reference.md#post-apiworkersupload).
+Scoped names work end-to-end on this path.
+
+### Drag-drop into the current folder — `/api/{workers,plugins}/files/upload`
+
+Dropping files onto a folder in the FileBrowser (or using the "Upload here"
+context action) hits a different endpoint that **respects the current path**
+and is gated by a `PathPolicy` (`workersPathPolicy` or `pluginsPathPolicy` in
+`apps/runtime/src/libs/fs/path-policies.ts`).
+
+The policies use the **first path segment** as the unit name. They do not
+handle `@scope/name`-style two-segment unit names — a known limitation:
+
+| Path                            | Workers policy              | Plugins policy             |
+|---------------------------------|------------------------------|-----------------------------|
+| `my-worker/1.0.0/`              | unit root (writes allowed)   | n/a                         |
+| `my-worker/1.0.0/src/`          | inside unit (writes allowed) | n/a                         |
+| `@scope/my-worker/1.0.0/`       | **rejected** (parses `@scope` as appName, `my-worker` is not a valid semver, so no `unitRoot` → `canWriteAt` returns false) | n/a |
+| `@scope/my-worker/1.0.0/src/`   | **rejected** (same reason)   | n/a                         |
+| `my-plugin/`                    | n/a                          | unit root                   |
+| `@scope/my-plugin/`             | n/a                          | **misidentified**: policy treats `@scope` as the plugin name and `my-plugin` as something inside it. Writes are allowed (free-form policy) but `isUnitRoot` returns false at `@scope/my-plugin`, so the manifest at that path is not detected as the unit's manifest by `DirInfo`. |
+
+**Practical impact today**: the explicit Upload button is the supported path
+for scoped names. Drag-drop into existing scoped folders works for plugins
+(free-form policy allows writes) but DirInfo will not surface a `manifest.yaml`
+badge at `@scope/name`. Drag-drop is broken for scoped *worker* folders. See
+follow-up [TODO in path-policies.ts (scope-aware parse)](#) for the planned
+fix.
+
 ## Cross-references
 
 - Core API consumed by the cpanel: [Runtime API reference](./runtime-api-reference.md)

@@ -219,3 +219,15 @@ export async function deletePlugin(pluginName: string): Promise<void> {
     method: "DELETE",
   });
 }
+
+/**
+ * Enable or disable an installed plugin at runtime (no restart). Flips the
+ * plugin's manifest `enabled` flag, rescans, and hot-reloads the registry +
+ * live routes. `pluginName` is the manifest name (e.g. `@scope/plugin`).
+ */
+export async function setPluginEnabled(pluginName: string, enabled: boolean): Promise<void> {
+  const action = enabled ? "enable" : "disable";
+  await runtimeFetch(`/plugins/${encodeURIComponent(pluginName)}/${action}`, {
+    method: "POST",
+  });
+}

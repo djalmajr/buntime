@@ -8,6 +8,7 @@ import { Icon } from "~/components/ui/icon";
 import { useApiKey } from "~/contexts/api-key-auth-context";
 import { reloadPlugins, uploadPlugin } from "~/helpers/admin-api";
 import { pluginsFsApi } from "~/helpers/fs-api";
+import { PluginManager } from "./plugin-manager";
 
 /**
  * Plugins admin tab — file-browser over `RUNTIME_PLUGIN_DIRS`. Plugins live
@@ -44,39 +45,44 @@ export function PluginsTab(_props: {
   });
 
   return (
-    <FileBrowser
-      api={pluginsFsApi}
-      canWrite={canWrite}
-      headerExtra={
-        canWrite ? (
-          <>
-            <Button
-              disabled={reload$.isPending}
-              onClick={() => reload$.mutate()}
-              size="sm"
-              variant="outline"
-            >
-              <Icon
-                className={reload$.isPending ? "size-4 animate-spin" : "size-4"}
-                icon="lucide:refresh-cw"
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="p-4 pb-0">
+        <PluginManager canManage={canWrite} />
+      </div>
+      <FileBrowser
+        api={pluginsFsApi}
+        canWrite={canWrite}
+        headerExtra={
+          canWrite ? (
+            <>
+              <Button
+                disabled={reload$.isPending}
+                onClick={() => reload$.mutate()}
+                size="sm"
+                variant="outline"
+              >
+                <Icon
+                  className={reload$.isPending ? "size-4 animate-spin" : "size-4"}
+                  icon="lucide:refresh-cw"
+                />
+                {t("admin.plugins.reload")}
+              </Button>
+              <UploadArchiveButton
+                label={t("admin.common.upload")}
+                onSuccess={() => {
+                  queryClient.invalidateQueries({ queryKey: ["fs-list", pluginsFsApi.base] });
+                  queryClient.invalidateQueries({ queryKey: ["fs-roots", pluginsFsApi.base] });
+                  queryClient.invalidateQueries({ queryKey: ["plugins"] });
+                }}
+                onUpload={uploadPlugin}
+                successMessage={t("admin.plugins.uploaded")}
               />
-              {t("admin.plugins.reload")}
-            </Button>
-            <UploadArchiveButton
-              label={t("admin.common.upload")}
-              onSuccess={() => {
-                queryClient.invalidateQueries({ queryKey: ["fs-list", pluginsFsApi.base] });
-                queryClient.invalidateQueries({ queryKey: ["fs-roots", pluginsFsApi.base] });
-                queryClient.invalidateQueries({ queryKey: ["plugins"] });
-              }}
-              onUpload={uploadPlugin}
-              successMessage={t("admin.plugins.uploaded")}
-            />
-          </>
-        ) : null
-      }
-      policy={pluginsClientPolicy}
-      routePath="/plugins"
-    />
+            </>
+          ) : null
+        }
+        policy={pluginsClientPolicy}
+        routePath="/plugins"
+      />
+    </div>
   );
 }

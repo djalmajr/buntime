@@ -237,6 +237,27 @@ describe("WorkerPool", () => {
       }
     });
 
+    it("should NOT collide a namespaced @scope/app with an unscoped app of the same bare name", async () => {
+      // Both are nested `.../hello-worker/1.0.0`; without scope-awareness the
+      // pool key would be `hello-worker@1.0.0` for both and collide.
+      const scopedDir = join(TEST_DIR, "@team/hello-worker/1.0.0");
+      const unscopedDir = join(TEST_DIR, "hello-worker/1.0.0");
+      createWorkerApp(scopedDir);
+      createWorkerApp(unscopedDir);
+
+      const pool = new WorkerPool({ maxSize: 5 });
+      const config = createMockConfig();
+      try {
+        const a = await pool.fetch(scopedDir, config, new Request("http://localhost/"));
+        const b = await pool.fetch(unscopedDir, config, new Request("http://localhost/"));
+        expect(a.status).toBe(200);
+        expect(b.status).toBe(200);
+      } finally {
+        pool.shutdown();
+        await Bun.sleep(100);
+      }
+    });
+
     it("should handle nested app directory structure", async () => {
       const appDir = join(TEST_DIR, "nested-app/1.0.0");
       createWorkerApp(appDir);

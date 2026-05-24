@@ -93,12 +93,30 @@ function resolveEphemeralQueueLimit(config: PoolConfig): number {
  * Falls back to package.json version if available.
  */
 async function parseAppKey(appDir: string): Promise<string> {
-  const [, parent = "", folder = ""] = appDir.match(/([^/]+)\/([^/]+)\/?$/) || [];
+  const segments = appDir.split("/").filter(Boolean);
+  const folder = segments.at(-1) ?? "";
+  const parent = segments.at(-2) ?? "";
+  const grandparent = segments.at(-3) ?? "";
 
-  // Determine structure: nested (folder is semver) or flat (folder has @version)
-  const isNestedStructure = /^\d+\.\d+\.\d+/.test(folder);
-  const name = isNestedStructure ? parent : (folder.split("@")[0] ?? folder);
-  let version = isNestedStructure ? folder : (folder.split("@")[1] ?? "latest");
+  // Nested layout: leaf folder is the version (semver or "latest"). Flat layout:
+  // leaf folder is `name@version`. In both, a directory whose name starts with
+  // `@` one level up is an npm-style namespace and MUST be part of the key —
+  // otherwise `@team/app` and an unscoped `app` collide on `app@version`.
+  const isNested = /^\d+\.\d+\.\d+/.test(folder) || folder === "latest";
+
+  let name: string;
+  let version: string;
+  if (isNested) {
+    // <dir>/name/<version>  or  <dir>/@scope/name/<version>
+    name = grandparent.startsWith("@") ? `${grandparent}/${parent}` : parent;
+    version = folder;
+  } else {
+    // <dir>/name@version  or  <dir>/@scope/name@version
+    const at = folder.indexOf("@", 1);
+    const bare = at === -1 ? folder : folder.slice(0, at);
+    version = at === -1 ? "latest" : folder.slice(at + 1);
+    name = parent.startsWith("@") ? `${parent}/${bare}` : bare;
+  }
 
   // Try to get version from package.json (overrides folder version)
   try {

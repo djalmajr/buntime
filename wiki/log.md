@@ -1,5 +1,119 @@
 # Change Log
 
+## [2026-05-24] fix | Turso durability — push-after-commit makes dynamic state survive restarts
+
+### Motivation
+
+Dynamic `plugin-proxy` rules created via `POST /redirects/admin/rules` vanished
+after a pod roll on home-workload. Root cause: `TursoService.transaction()`
+committed to the local sync replica but never **pushed** to the `buntime-turso`
+server, so on restart the replica pulled authoritative (rule-less) state. The
+`ApiKeyStore` survives because it pushes after every write — the service-level
+transaction path did not.
+
+### What changed (`plugins/plugin-turso/server/service.ts`)
+
+- `transaction()` now **pushes after a successful `COMMIT` in sync mode**,
+  best-effort (failures logged, not thrown). Local mode is unchanged. This makes
+  all transactional writes durable (proxy rules, gateway shell-excludes, …)
+  without per-consumer push calls.
+- Added an `openAdapter` test seam to `TursoServiceImpl` + `TursoServiceOptions`
+  so push-after-commit can be unit-tested with a fake adapter (no live server).
+- Tests: `plugin-turso/plugin.test.ts` — pushes once after a sync write, never in
+  local mode. Suite 2787/0, lint clean.
+
+### Deploy + verification (home-workload, image `0.3.11`)
+
+- Built/pushed `ghcr.io/zommehq/buntime:0.3.11`; `helm upgrade` rev 17.
+- Created 4 proxy rules (`/api`, `/gestor-licencas-api`, `/gestao-pessoas-api`,
+  `/a` → `example-backend`, path-preserving). **`kubectl delete pod buntime-0`** →
+  re-listed: **all 4 rules present** (durability proven). Each route proxies
+  (401 from the backend, no `x-request-id`); `/_/api/health` 200.
+- Chrome: `buntime.example.com/` renders the `example-spa` shell (4biz login →
+  Keycloak). A transient `no available server` right after the roll is the cold
+  worker pool — clears on the next load.
+
+### Wiki
+
+- [plugin-turso](./apps/plugin-turso.md#push-after-commit-durability) documents the
+  push-after-commit contract; the [runbook](./ops/runbook-apps-gateway-proxy.md)
+  durability note updated to "fixed" + the 4-route table.
+
+---
+
+## [2026-05-24] docs | runbook — apps, gateway app-shell, proxy redirects (Rancher-local)
+
+### Motivation
+
+Replicated the `example-backend` gateway/shell setup onto the Rancher-local
+(home-workload) cluster: deployed `example-spa` as the app-shell worker and
+proxied `/api → https://backend.example.com`. Captured the full operator
+journey + the non-obvious gotchas as a runbook. (Requested as `docs/runbooks/`,
+but the repo wiki-guardrail blocks markdown outside the allowlist, so it lives in
+`wiki/ops/` per the canonical-docs policy — operator chose this over editing the
+allowlist.)
+
+### What changed
+
+- New [`wiki/ops/runbook-apps-gateway-proxy.md`](./ops/runbook-apps-gateway-proxy.md):
+  (1) run a worker (upload surfaces, addressing, enable/disable); (2) gateway
+  app-shell (`GATEWAY_SHELL_DIR` via `plugins.gateway.shellDir`, the
+  `example-spa` worked example, the shell-serving condition); (3) proxy
+  redirects (`/redirects/admin/rules` API, static vs dynamic, the `/api` rule);
+  (4) troubleshooting table. Indexed in `wiki/index.md`.
+
+### Key findings recorded
+
+- **Auth bypasses the shell.** A valid runtime credential (`buntime_api_key`
+  cookie or `X-API-Key`) makes the runtime skip *all* plugin `onRequest` hooks,
+  so `/` returns `Not Found` instead of the shell for an operator with a cpanel
+  session. End-users (app-IdP auth) are unaffected. This explained a confusing
+  browser-only `Not Found` while `curl` (no auth) served the shell.
+- **Dynamic proxy rules did not survive a pod roll** under Turso sync mode on this
+  cluster — re-apply after restart, or use a static manifest rule.
+- **`RUNTIME_API_PREFIX=/_`** keeps the runtime API at `/_/api` and frees `/api`
+  for the proxy. Bare single-segment `/api` is shell-served (navigation);
+  multi-segment `/api/...` proxies.
+
+### Verification (Chrome + curl)
+
+- `buntime.example.com/` and `localhost:8099/` render the `example-spa` shell
+  (4biz login), redirecting to `keycloak-oxygen.example.com` (the example-backend
+  IdP). `/api/health` proxies (401 from the backend, no `x-request-id`);
+  `/_/api/health` stays the runtime (200, `x-request-id`); `/cpanel/` excluded.
+
+---
+
+## [2026-05-24] fix | plugin-proxy admin API path corrected (was stale `/api`)
+
+### Motivation
+
+While configuring a `/api -> https://backend.example.com` redirect on the
+Rancher-local (home-workload) buntime, `GET /redirects/api/rules` returned the
+plugin SPA, not JSON. The code (`plugins/plugin-proxy/server/api.ts`) mounts the
+admin API with `.basePath("/admin")` — the wiki documented `/redirects/api/*`,
+which never existed. Reverse signal (wiki disagrees with code) → wiki was stale.
+
+### What changed
+
+- `wiki/apps/plugin-proxy.md`: management endpoints corrected to
+  `/redirects/admin/*` (`GET|POST /admin/rules`, `GET|PUT|DELETE /admin/rules/:id`,
+  `PUT /admin/rules/reorder`, `PATCH /admin/rules/:id/toggle`). Clarified the
+  auth model (own `createApiKeyMiddleware` with root/store key via
+  `X-API-Key`/`Bearer`; `/admin/**` is in `publicRoutes`; outside the `/_/api`
+  CSRF surface so no `Origin` needed) and why `/api` is left free (for a proxy
+  rule to claim). Fixed all curl examples + troubleshooting.
+
+### Verification (home-workload)
+
+- `POST /redirects/admin/rules` (root key `X-API-Key`) → `201`; rule listed.
+- Proxy works: local `/api` → `401 application/problem+json` (example-backend
+  backend, no `x-request-id`), matching the direct call; `/_/api/health` → `200`
+  with `x-request-id` (runtime intact). Confirms `RUNTIME_API_PREFIX=/_` frees
+  `/api` for the proxy.
+
+---
+
 ## [2026-05-24] feat | namespace-scoped API-key permissions (Phase 2)
 
 ### Motivation

@@ -13,7 +13,7 @@ sources:
   - https://docs.turso.tech/tursodb/concurrent-writes
   - https://docs.turso.tech/sdk/ts/reference
   - https://docs.turso.tech/sync/usage
-updated: 2026-05-02
+updated: 2026-05-24
 tags: [plugin, proxy, redirects, websocket, storage]
 status: stable
 ---
@@ -225,16 +225,25 @@ Path rewrite and `changeOrigin` operate on the upgrade the same way as in HTTP. 
 
 ## API Reference
 
-All routes are under `/{base}/api/*` — default `/redirects/api/*`. Authentication follows the `plugin-authn` configuration; in deployments with auth enabled, send `Authorization: Bearer <token>` and (for `POST/PUT/DELETE`) `Origin` to pass the CSRF protection.
+All routes are under `/{base}/admin/*` — default `/redirects/admin/*` (the
+admin API is mounted with `.basePath("/admin")`, **not** `/api`; `/api` is left
+free so a proxy rule can claim it). The manifest lists `/admin/**` in
+`publicRoutes` so `plugin-authn` does not intercept; the gate is the plugin's
+own `createApiKeyMiddleware` — send the runtime root key or an `admin`/`editor`
+store key via `X-API-Key` or `Authorization: Bearer`. These routes sit outside
+the runtime's `/_/api` CSRF surface, so no `Origin` is required (harmless to send).
 
-| Method   | Endpoint              | Description                                         |
-|----------|-----------------------|-----------------------------------------------------|
-| `GET`    | `/api/rules`          | List all rules (static + dynamic)                   |
-| `POST`   | `/api/rules`          | Create dynamic rule in `proxy_rules` through `plugin-turso` |
-| `PUT`    | `/api/rules/:id`      | Update dynamic rule (static → 400 error)            |
-| `DELETE` | `/api/rules/:id`      | Remove dynamic rule (static → 400 error)            |
+| Method   | Endpoint                    | Description                                                  |
+|----------|-----------------------------|-------------------------------------------------------------|
+| `GET`    | `/admin/rules`              | List all rules (static + dynamic)                           |
+| `GET`    | `/admin/rules/:id`          | Get a single rule by id                                     |
+| `POST`   | `/admin/rules`              | Create dynamic rule in `proxy_rules` through `plugin-turso`  |
+| `PUT`    | `/admin/rules/reorder`      | Reorder dynamic rules (`{ ids: string[] }`)                 |
+| `PUT`    | `/admin/rules/:id`          | Update dynamic rule (static → error)                        |
+| `PATCH`  | `/admin/rules/:id/toggle`   | Enable/disable a dynamic rule                               |
+| `DELETE` | `/admin/rules/:id`          | Remove dynamic rule (static → 403 error)                    |
 
-### `GET /api/rules`
+### `GET /admin/rules`
 
 `200 OK` response with array of rules. Static rules appear with `readonly: true`, dynamic with `readonly: false`.
 
@@ -256,12 +265,12 @@ All routes are under `/{base}/api/*` — default `/redirects/api/*`. Authenticat
 ]
 ```
 
-### `POST /api/rules`
+### `POST /admin/rules`
 
-Body is a `ProxyRule` without `id`. `201 Created` response returns the created rule with a generated UUID `id`. Body parameters follow the [Rule model](#rule-model-proxyrule) table.
+Body is a `ProxyRule` without `id`. `201 Created` response returns the created rule with a generated UUID `id` (plus `order`, `enabled`, `readonly: false`). Body parameters follow the [Rule model](#rule-model-proxyrule) table.
 
 ```bash
-curl -X POST http://localhost:8000/redirects/api/rules \
+curl -X POST http://localhost:8000/redirects/admin/rules \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Backend API",
@@ -276,13 +285,13 @@ curl -X POST http://localhost:8000/redirects/api/rules \
   }'
 ```
 
-### `PUT /api/rules/:id`
+### `PUT /admin/rules/:id`
 
-Updates a dynamic rule — body with fields to change. Attempting to edit a static rule returns `400 Bad Request` with `{"error":"Cannot modify static rule"}`.
+Updates a dynamic rule — body with fields to change. Attempting to edit a static rule returns an error. `PUT /admin/rules/reorder` (`{ ids }`) reorders dynamic rules; `PATCH /admin/rules/:id/toggle` flips a rule's `enabled` flag.
 
-### `DELETE /api/rules/:id`
+### `DELETE /admin/rules/:id`
 
-Removes a dynamic rule. Response `{"success": true}`. Static rules return `403` with `{"error":"Cannot delete static rules"}`.
+Removes a dynamic rule. Static rules return `403` with `{"error":"Cannot delete static rules"}`.
 
 ### TypeScript types
 
@@ -484,7 +493,7 @@ TOKEN="your-jwt-token"
 BASE_URL="https://buntime.home"
 HDRS=(-H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -H "Origin: $BASE_URL")
 
-curl -X POST $BASE_URL/redirects/api/rules "${HDRS[@]}" -d '{
+curl -X POST $BASE_URL/redirects/admin/rules "${HDRS[@]}" -d '{
   "name": "Front Manager API",
   "pattern": "^/api(/.*)?$",
   "target": "https://backend.example.com",
@@ -493,7 +502,7 @@ curl -X POST $BASE_URL/redirects/api/rules "${HDRS[@]}" -d '{
   "publicRoutes": { "GET": ["/api/config/**"] }
 }'
 
-curl -X POST $BASE_URL/redirects/api/rules "${HDRS[@]}" -d '{
+curl -X POST $BASE_URL/redirects/admin/rules "${HDRS[@]}" -d '{
   "name": "Edge Runtime",
   "pattern": "^/a(/.*)?$",
   "target": "https://edge.example.com",
@@ -502,7 +511,7 @@ curl -X POST $BASE_URL/redirects/api/rules "${HDRS[@]}" -d '{
   "publicRoutes": { "GET": ["/a/translate-api/**"] }
 }'
 
-curl -s $BASE_URL/redirects/api/rules -H "Authorization: Bearer $TOKEN" \
+curl -s $BASE_URL/redirects/admin/rules -H "Authorization: Bearer $TOKEN" \
   | jq '.[] | {name, pattern}'
 ```
 
@@ -512,10 +521,10 @@ For a reusable TypeScript CRUD SDK, see `plugins/plugin-proxy/docs/api-reference
 
 ```bash
 # List and filter
-curl -s http://localhost:8000/redirects/api/rules | jq '.[] | {name, pattern, target}'
+curl -s http://localhost:8000/redirects/admin/rules | jq '.[] | {name, pattern, target}'
 
 # Check ${ENV_VAR} resolution
-curl -s http://localhost:8000/redirects/api/rules | jq '.[].target'
+curl -s http://localhost:8000/redirects/admin/rules | jq '.[].target'
 
 # Test HTTP match
 curl -v http://localhost:8000/api/users
@@ -529,7 +538,7 @@ wscat -c ws://localhost:8000/ws/chat
 | Symptom                                    | Investigation                                                                                  |
 |--------------------------------------------|-----------------------------------------------------------------------------------------------|
 | Rule does not match request                | Validate regex against the pathname; check order (static → dynamic, more specific first); confirm `enabled: true` in manifest |
-| Connection to target fails                 | `curl <target>` directly; check resolved `${ENV_VAR}` (`curl /redirects/api/rules \| jq '.[].target'`); for dev HTTPS self-signed use `secure: false` |
+| Connection to target fails                 | `curl <target>` directly; check resolved `${ENV_VAR}` (`curl /redirects/admin/rules \| jq '.[].target'`); for dev HTTPS self-signed use `secure: false` |
 | Dynamic rules disappear after restart      | Confirm [`plugin-turso`](./plugin-turso.md) is active and configured with durable local/sync storage |
 | `400 Cannot modify/delete static rule`     | The rule is from `manifest.yaml` — edit the manifest and redeploy                             |
 | WebSocket does not upgrade                 | `ws: true` on the rule; pattern matches the upgrade path; deploy must be on the main thread (not a worker) |

@@ -476,4 +476,56 @@ describe("namespace access control", () => {
     const res = await call(app, "GET", "/files/list?path=apps/@team");
     expect(res.status).toBe(200);
   });
+
+  // Batch ops: each path is guarded individually; move-batch also guards the
+  // shared destination up front.
+  it("delete-batch deletes allowed paths and reports forbidden ones", async () => {
+    const app = buildAppAs(principal(["@acme"]));
+    const res = await call(app, "POST", "/files/delete-batch", {
+      paths: ["apps/@acme/checkout", "apps/@team/billing"],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { errors?: string[]; success: boolean };
+    expect(body.success).toBe(true);
+    expect(body.errors?.length).toBe(1);
+    expect(body.errors?.[0]).toContain("@team");
+    // Allowed unit was removed; forbidden one survives (use a `*` key to inspect).
+    const root = buildAppAs(principal(["*"]));
+    const acme = (await (
+      await call(root, "GET", "/files/list?path=apps/@acme")
+    ).json()) as { data: { entries: Array<{ name: string }> } };
+    expect(acme.data.entries.map((e) => e.name)).not.toContain("checkout");
+    const team = (await (await call(root, "GET", "/files/list?path=apps/@team")).json()) as {
+      data: { entries: Array<{ name: string }> };
+    };
+    expect(team.data.entries.map((e) => e.name)).toContain("billing");
+  });
+
+  it("move-batch 403s when the destination namespace is forbidden", async () => {
+    const app = buildAppAs(principal(["@acme"]));
+    const res = await call(app, "POST", "/files/move-batch", {
+      destPath: "apps/@team/dest",
+      paths: ["apps/@acme/checkout"],
+    });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { code?: string }).code).toBe("NAMESPACE_DENIED");
+  });
+
+  it("move-batch reports a forbidden source path without moving it", async () => {
+    const app = buildAppAs(principal(["@acme"]));
+    const res = await call(app, "POST", "/files/move-batch", {
+      destPath: "apps/@acme",
+      paths: ["apps/@team/billing"],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { errors?: string[]; success: boolean };
+    expect(body.errors?.[0]).toContain("@team");
+  });
+
+  it("download-batch 404s when every path is forbidden", async () => {
+    const app = buildAppAs(principal(["@acme"]));
+    const res = await call(app, "GET", "/files/download-batch?paths=apps/@team/billing");
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { code?: string }).code).toBe("NO_VALID_PATHS");
+  });
 });

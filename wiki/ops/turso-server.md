@@ -305,10 +305,10 @@ The image is built from [`apps/turso-server/Dockerfile`](../../apps/turso-server
 ```sh
 cd apps/turso-server
 docker buildx build --platform=linux/arm64,linux/amd64 \
-  -t ghcr.io/zommehq/turso-server:0.1.0 \
-  -t ghcr.io/zommehq/turso-server:latest .
-docker push ghcr.io/zommehq/turso-server:0.1.0
-docker push ghcr.io/zommehq/turso-server:latest
+  -t registry.example.com/zomme/turso-server:0.1.0 \
+  -t registry.example.com/zomme/turso-server:latest .
+docker push registry.example.com/zomme/turso-server:0.1.0
+docker push registry.example.com/zomme/turso-server:latest
 ```
 
 Multi-arch is supported (debian:bookworm-slim base on both archs). The

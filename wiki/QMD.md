@@ -1,6 +1,6 @@
 # QMD — configuration for this wiki
 
-> Concrete commands to index this wiki with [QMD](https://github.com/tobi/qmd) (local search: BM25 + vector + LLM reranking). The generic wiki-skills guide (installation, multilingual embedding model, MCP daemon) is at [`essential-skills/docs/wiki/qmd-setup.md`](https://github.com/user/essential-skills/blob/main/docs/wiki/qmd-setup.md). This file only contains what is specific to the Buntime wiki.
+> Concrete commands to index this wiki with [QMD](https://github.com/tobi/qmd) (local search: BM25 + vector + LLM reranking). The generic wiki-skills guide (installation, multilingual embedding model, MCP daemon) is at [`essential-skills/docs/wiki/qmd-setup.md`](https://github.com/example/essential-skills/blob/main/docs/wiki/qmd-setup.md). This file only contains what is specific to the Buntime wiki.
 
 > **Deliberately restricted scope**: we only index the `wiki/` directory of this repo. Source code, plugins, charts, and original docs that still exist outside `wiki/` are **not** indexed — the wiki is the canonical source and any information outside it is considered a pending migration.
 

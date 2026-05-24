@@ -22,7 +22,7 @@ the Buntime pod running in the local Rancher/k3s environment.
 | Deployment | `buntime` |
 | Pod | `buntime-76dcb486b7-w99z8` |
 | Replicas | `1` |
-| Image | `ghcr.io/zommehq/buntime:runtime-performance-resilience` |
+| Image | `registry.example.com/zomme/buntime:runtime-performance-resilience` |
 | CPU request / limit | `250m` / `2` |
 | Memory request / limit | `256Mi` / `1Gi` |
 | Gateway rate limit | `100` requests / `1m` from `GATEWAY_RATE_LIMIT_REQUESTS` and `GATEWAY_RATE_LIMIT_WINDOW` |

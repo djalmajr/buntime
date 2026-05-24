@@ -15,7 +15,7 @@ status: stable
 
 End-to-end operator procedure for the **Rancher-local** Buntime install (the
 multipass/k3s cluster managed by the local Rancher: kubeconfig
-`~/.kube/home/workload.yaml`, context `home-workload`, namespace `buntime`).
+`~/.kube/cluster.yaml`, context `home-workload`, namespace `buntime`).
 Goes from "run a worker" to "front a micro-frontend shell that proxies `/api` to
 a remote backend". Distilled from the `example-backend` → home-workload replication.
 
@@ -31,12 +31,15 @@ For contracts and internals, cross-ref [plugin-gateway](../apps/plugin-gateway.m
 - The runtime's management API is under **`RUNTIME_API_PREFIX`** — on this cluster
   `/_`, so it answers at **`/_/api/...`**. This frees the bare **`/api`** path for
   a [proxy rule](#3-proxy-redirects-plugin-proxy) to claim.
-- **A valid runtime credential bypasses every plugin `onRequest` hook** (gateway
-  shell, proxy, authn). Remember this — it is the source of the most confusing
-  symptom (see [Troubleshooting](#4-troubleshooting)).
+- **Only a _header_ credential bypasses plugin `onRequest` hooks** (gateway shell,
+  proxy, authn) — i.e. `X-API-Key` or `Authorization: Bearer` (automation). A
+  **cookie** session (`buntime_api_key`, set by cpanel) does **not** bypass them,
+  so logging into cpanel no longer breaks the app-shell at `/`. This was the
+  source of the most confusing symptom before the fix (image ≥ `1.2.3-rc.1`,
+  `hasHeaderCredential` in `app.ts`); see [Troubleshooting](#4-troubleshooting).
 
 ```bash
-export KUBECONFIG=~/.kube/home/workload.yaml      # context: home-workload
+export KUBECONFIG=~/.kube/cluster.yaml      # context: home-workload
 kubectl -n buntime get pods                        # buntime-0 + buntime-turso-0
 
 # Reach it two ways:
@@ -148,13 +151,14 @@ path. Consequences:
 - A bare single-segment path (`/api`, `/foo`) **is** shell-served as a navigation.
   Harmless — apps call multi-segment API paths.
 
-> **Auth gotcha (read this):** the shell only serves requests **without** a valid
-> runtime credential. If the browser carries a `buntime_api_key` session cookie
-> (from a cpanel login) or you send `X-API-Key`, the runtime treats the request as
-> authenticated and **skips all plugin `onRequest` hooks**, so `/` returns
-> `Not Found` instead of the shell. End-users authenticate via the *app's* own
-> IdP (e.g. Keycloak), not the runtime key, so they are unaffected. To see the
-> shell as an operator, clear the cookie: `fetch('/_/api/admin/session',{method:'DELETE',credentials:'include'})` then reload.
+> **Auth gotcha (fixed in `1.2.3-rc.1`):** only a **header** credential
+> (`X-API-Key` / `Authorization: Bearer`) skips plugin `onRequest` hooks — that is
+> the automation path. A **cookie** session (`buntime_api_key` from a cpanel login)
+> does **not**, so you can be logged into cpanel and still get the shell at `/` in
+> the same browser. Before the fix the cookie also skipped the hooks, so `/`
+> returned `Not Found` for anyone with a cpanel session — if you see that, the
+> runtime image predates the fix (workaround then: clear the cookie via
+> `fetch('/_/api/admin/session',{method:'DELETE',credentials:'include'})`).
 
 CORS (`plugins.gateway.cors.origin`, default `*`) and rate-limit
 (`plugins.gateway.rateLimit.requests`/`window`) are set the same way.
@@ -181,7 +185,7 @@ RK=smoke-root-key
 # Create: /api/* -> https://backend.example.com/api/*
 curl -s -X POST http://localhost:8099/redirects/admin/rules \
   -H "X-API-Key: $RK" -H "Content-Type: application/json" -d '{
-    "name": "Demo Oxygen API",
+    "name": "Example Backend API",
     "pattern": "^/api(/.*)?$",
     "target": "https://backend.example.com",
     "rewrite": "/api$1",
@@ -228,7 +232,8 @@ the `target`.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `/` returns plain `Not Found` in the browser, but `curl` (no auth) shows the shell | Browser carries a `buntime_api_key` cpanel session cookie → authenticated → plugin `onRequest` (shell) skipped | `fetch('/_/api/admin/session',{method:'DELETE',credentials:'include'})` then reload, or use a clean browser profile |
+| `/` returns plain `Not Found` in the browser, but `curl` (no auth) shows the shell | Runtime image **predates `1.2.3-rc.1`**: a `buntime_api_key` cpanel cookie was treated like a header credential and skipped the shell `onRequest` | Upgrade the image (cookie sessions no longer bypass `onRequest`). Stopgap on old images: clear the cookie via `fetch('/_/api/admin/session',{method:'DELETE',credentials:'include'})` then reload |
+| App-shell SPA renders but a sub-resource 404s (`/workers/x.js`, `/assets/x.js`) | Multi-segment asset path not routed to the shell worker (only document + single-segment paths are) | Emit the asset at a single-segment root path; see [`spa-as-app-shell`](../agents/spa-as-app-shell.md) |
 | Dynamic proxy rule gone after `helm upgrade`/restart | Turso sync-mode durability | Re-`POST` the rule; for permanence use a static manifest rule |
 | `GET /redirects/api/rules` returns HTML, not JSON | Wrong path — API is `/redirects/admin/rules` | Use `/admin`, not `/api` |
 | `GET /api` (bare) returns the shell instead of proxying | Single-segment path is treated as a navigation by the shell | Expected; real calls use multi-segment `/api/...` which proxy correctly |

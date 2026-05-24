@@ -56,6 +56,7 @@ Centralized knowledge base for the **Buntime runtime** — a Bun runtime with an
 | [Local dev](./ops/local-dev.md) | `bun dev` at the root, `.env`, external plugins in watch mode, 3 modes (dev/bundle/binary), Docker Compose profiles |
 | [Helm charts](./ops/helm-charts.md) | `charts/buntime` + `charts/libsql` structure, generation scripts, principles (mandatory volumes, defaults), Rancher questions |
 | [Runbook — apps, app-shell, proxy](./ops/runbook-apps-gateway-proxy.md) | End-to-end operator steps on the Rancher-local cluster: upload/address workers, configure the gateway micro-frontend shell (`example-spa`), and proxy `/api` to a backend; with the auth-bypass + Turso-durability gotchas |
+| [Runbook — GitLab CI worker packages](./ops/runbook-gitlab-ci-worker-packages.md) | Build a worker `.tgz` in GitLab CI, publish to the Generic Package Registry, manual upload to Buntime; worker-upload archive contract + GitLab Runner setup on arm64 k3s (helper image, clone_url, self-signed TLS, no-curl, artifacts 405) |
 | [Release flow](./ops/release-flow.md) | Dual versioning (chart vs runtime), `bump-version.ts`, **two flows**: GitHub Actions/GHCR/`zommehq/charts` and self-hosted GitLab/`registry.example.com` |
 | [JSR publish](./ops/jsr-publish.md) | `@buntime/shared` via GitHub Actions OIDC; version sync `jsr.json` ↔ `package.json` |
 | [Logging](./ops/logging.md) | Runtime central logger (`@buntime/shared/logger`), transports, request ID correlation; cross-ref to `plugin-logs` |
@@ -77,6 +78,7 @@ How-to references for automated agents — patterns the agent looks up at task t
 | Page | Description |
 |------|-------------|
 | [Testing patterns](./agents/testing-patterns.md) | `bun:test` skeleton, `WorkerPool` and `PluginContext` mock factories, Hono `app.fetch` testing, temp-dir setup, plugin lifecycle test, error testing, anti-patterns |
+| [SPA as app-shell](./agents/spa-as-app-shell.md) | Porting a client SPA (Vite/UnoCSS) to a Buntime gateway app-shell worker: single-segment assets, `window.__config` server injection, bundling SharedWorkers, UnoCSS→Tailwind class gaps, defensive rendering |
 | [Turso clean-session plan](./agents/turso-clean-session-plan.md) | What has been completed for `plugin-turso`, what the next clean session should do, and guardrails for the next consumer migration |
 | [Turso implementation handoff](./agents/turso-implementation-handoff.md) | Clean-session handoff for implementing `plugin-turso` and migrating `keyval`, `gateway`, and `proxy` storage dependencies |
 

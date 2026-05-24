@@ -203,7 +203,7 @@ Pipeline in `.gitlab-ci.yml` for the `gitlab.example.com` lab:
 
 | Job | Stage | Role |
 |-----|-------|------|
-| `image:build` | `image` | Build + push to `ghcr.io/zommehq/buntime` |
+| `image:build` | `image` | Build + push to `registry.example.com/zomme/buntime` |
 | `cli:build:linux` | `cli` | Linux amd64 + arm64 |
 | `cli:build:windows` | `cli` | Windows amd64 |
 | `cli:build:macos` | `cli` | macOS amd64 + arm64 (shell runner tagged `macos`) |
@@ -250,7 +250,7 @@ GitLab provides `CI_REGISTRY`, `CI_REGISTRY_IMAGE`, `CI_REGISTRY_USER`, `CI_REGI
 ```yaml
 # values-k3s.yaml
 image:
-  repository: ghcr.io/zommehq/buntime
+  repository: registry.example.com/zomme/buntime
   tag: runtime-performance-resilience  # or commit SHA
   pullPolicy: Always
 imagePullSecrets:

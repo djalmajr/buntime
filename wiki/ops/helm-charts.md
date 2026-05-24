@@ -179,7 +179,7 @@ or CLI when the caller has the matching permission.
 | Path | Default | Description |
 |------|---------|-------------|
 | `replicaCount` | `1` | Use ≥2 only with `ReadWriteMany` PVC |
-| `image.repository` | `ghcr.io/zommehq/buntime` | Switch to `ghcr.io/zommehq/buntime` for the GitLab flow |
+| `image.repository` | `ghcr.io/zommehq/buntime` | Switch to `registry.example.com/zomme/buntime` for the GitLab flow |
 | `image.tag` | `latest` | `latest`, `{version}`, `{major}.{minor}`, or a custom tag |
 | `image.pullPolicy` | `Always` | Use `IfNotPresent` when importing the image directly into k3s |
 | `imagePullSecrets` | `[]` | Required for self-hosted GitLab (`gitlab-registry`) |

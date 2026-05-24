@@ -191,13 +191,26 @@ When `shellDir` is configured, **every document navigation** (`Sec-Fetch-Dest: d
 
 ### Request type detection
 
-| `Sec-Fetch-Dest`              | Behavior                                       |
-|-------------------------------|------------------------------------------------|
-| `document`                    | Goes to the shell (unless excluded)            |
-| `iframe`, `embed`, `object`   | Automatic bypass — directly to the worker      |
-| any other (fetch, asset)      | Bypass — directly to the worker/asset          |
+The `onRequest` shell branch fires when:
+
+```ts
+!isApiRoute && !shouldBypass && (isDocument || (isRootPath && !isFrameEmbedding))
+//                                              ^ single path segment: !url.pathname.slice(1).includes("/")
+```
+
+So the shell worker is invoked not only for document navigations but also for **single-segment** asset paths:
+
+| Request                       | `Sec-Fetch-Dest`            | Path shape         | Routed to shell worker?                       |
+|-------------------------------|-----------------------------|--------------------|-----------------------------------------------|
+| Document navigation           | `document`                  | any                | Yes (unless excluded)                         |
+| Single-segment asset          | not `document`              | `/chunk-abc.js`    | **Yes** — shell worker serves the file        |
+| Multi-segment asset           | not `document`              | `/assets/x.js`     | **No** — falls through to worker/proxy resolution |
+| Frame embed                   | `iframe`, `embed`, `object` | single-segment     | No — bypass directly to the worker            |
+| API route                     | —                           | `/_/api/*`, etc.   | No — always bypass                            |
 
 API routes (`/_/api/*`, `/gateway/api/*`, etc.) always bypass.
+
+> **Gotcha — a shell app's build assets must live at single-segment paths.** Because the shell worker is only invoked for document navigations and single-segment paths (`isRootPath`), an app served *as the shell* must emit its assets at the root (`/chunk-abc.js`), **not** in a sub-directory (`/assets/…`, `/workers/…`). A multi-segment asset request is never handed to the shell worker — it falls through to normal app/proxy resolution and 404s (or, if a proxy rule matches the prefix, is mis-routed upstream, e.g. a `^/api` rule swallowing nothing but a generic `Unauthorized` leaking through). Bun's HTML bundler emits flat root assets by default, so Bun-built shells work out of the box; bundlers that nest under `/assets/` (Vite/CRA default) need their output flattened or the asset moved to a single segment. **Seen in practice:** a SharedWorker bundled to `/workers/session.worker.js` returned the runtime's error JSON instead of the script because the gateway never routed it to the shell worker — moving the build output to `/session.worker.js` (single segment) fixed it.
 
 ### Exclude sources (merge)
 

@@ -1,5 +1,99 @@
 # Change Log
 
+## [2026-05-24] chore | Genericize the wiki for the public repo
+
+The Buntime repo (and this wiki) is **public and generic** — Buntime carries no
+business rules of its own. Scrubbed all client- and personal-specific identifiers
+across the wiki, replacing them with neutral placeholders, with no change to the
+technical content:
+
+- Hosts/domains → `*.example.com` (e.g. backend/keycloak/gitlab/registry/buntime
+  hosts), local `*.home` hosts → `*.example.com`.
+- App/package/org names → `example-spa`, `@scope/app`, `example-org`,
+  `example-backend`, `exampleApp`.
+- Personal paths/handles → `/path/to/buntime`, `~/.kube/cluster.yaml`, generic user.
+- Any credential/token values or their on-disk locations removed.
+
+Rule going forward: keep the wiki environment-agnostic — use placeholders, never
+real client names, hostnames, credentials, or personal paths.
+
+## [2026-05-24] doc | GitLab CI worker packages + SPA-as-app-shell recipe + cookie-bypass fix
+
+### Motivation
+
+A long session deployed the `example-spa` SPA to home-workload as a Buntime
+app-shell, fixed several runtime/SPA issues, and stood up a GitLab CI pipeline
+that builds and publishes a Buntime worker package. Capturing the durable
+learnings (per the CLAUDE.md gap rule) so the next agent finds them by search.
+
+### What changed
+
+- **New** `wiki/ops/runbook-gitlab-ci-worker-packages.md` — build a worker `.tgz`
+  in GitLab CI, publish to the Generic Package Registry (indefinite retention),
+  upload to Buntime manually. Documents the **worker-upload archive contract**
+  (`.tgz`/`.tar.gz`/`.zip` only; `tar --strip-components=1` ⇒ `package/` top dir;
+  install at `<workerDir>/<name>/<version>/` from manifest/package.json) and the
+  **GitLab Runner setup on arm64 k3s** with every gotcha hit in order: YAML
+  literal-block for `:`-bearing scripts, `arm64` helper image, in-cluster
+  `clone_url` for self-signed TLS, `bun fetch` (no curl in `oven/bun`),
+  `NODE_TLS_REJECT_UNAUTHORIZED=0` for upload, `artifacts:` 405 → use the package
+  registry, protected-`main` → feature branch.
+- **New** `wiki/agents/spa-as-app-shell.md` — reusable recipe: single-segment
+  assets, `window.__config` server-side injection (`AUTH_CONFIG`/`CONFIG_API`,
+  `PUBLIC_AUTH_CONFIG` dev-only), bundling SharedWorkers to a served path, the
+  UnoCSS→Tailwind class-gap table (`font-600`→`font-semibold`, `max-w-none`+`height`
+  attr → `max-h-6 object-contain`), and defensive rendering (`AppIcon` guard,
+  search-expand on React state).
+- **Updated (reverse-signal)** `wiki/ops/runbook-apps-gateway-proxy.md` — the
+  cookie-bypass behaviour was **fixed** this session (image ≥ `1.2.3-rc.1`,
+  `hasHeaderCredential` in `app.ts`): only a **header** credential bypasses plugin
+  `onRequest`; a `buntime_api_key` **cookie** no longer does, so cpanel and the
+  app-shell coexist. Mental-model bullet, auth gotcha, and troubleshooting row
+  updated; added a multi-segment-asset 404 troubleshooting row.
+- `wiki/index.md` — listed both new pages.
+
+### Notes
+
+- Runtime fixes (cookie-bypass + proxy `x-forwarded`/`x-real-ip`) are deployed on
+  home-workload as image `1.2.3-rc.1` (local build → `registry.example.com` →
+  `helm upgrade` rev 19); not yet committed/released in the buntime repo.
+- example-spa source changes shipped as MR !5 on `gitlab.example.com`
+  (`edge-functions/example-spa`, branch `buntime-edge-fixes`).
+
+## [2026-05-24] doc | Gateway app-shell only routes document + single-segment paths to the shell worker
+
+### Motivation
+
+Diagnosing why a example-spa (app-shell) micro-frontend errored locally took
+non-trivial time. The chain: (1) a SharedWorker was not bundled, (2) once bundled
+to `/workers/session.worker.js` it returned the runtime's error JSON instead of
+the script, and (3) a `Sidebar` `AppIcon` crash masked the real state. Root cause
+of (2): the gateway shell branch (`plugin-gateway/plugin.ts` `onRequest`) serves
+the shell worker only for `isDocument || (isRootPath && !isFrameEmbedding)`, where
+`isRootPath` is a **single path segment**. A multi-segment asset path
+(`/workers/…`, `/assets/…`) is never handed to the shell worker — it falls through
+to normal worker/proxy resolution. The existing wiki "Request type detection"
+table omitted the `isRootPath` rule entirely (only mentioned `Sec-Fetch-Dest`),
+so it was a reverse-signal gap: wiki stale vs. code.
+
+### What changed
+
+- `wiki/apps/plugin-gateway.md` "Shell routing → Request type detection":
+  replaced the `Sec-Fetch-Dest`-only table with the real condition
+  (`isDocument || (isRootPath && !isFrameEmbedding)`), a 5-row routing matrix, and
+  a **gotcha** that a shell app's build assets must live at single-segment root
+  paths (Bun's HTML bundler emits flat assets → works; Vite/CRA nest under
+  `/assets/` → need flattening). Documents the SharedWorker `/workers/...` →
+  `/session.worker.js` fix as the concrete example.
+
+### Notes
+
+- The fixes themselves live in `example-org/edge-functions/example-spa` (separate
+  repo, not Buntime): separate worker build entrypoint, single-segment worker URL,
+  and an `AppIcon` guard (`typeof icon === "function"` else `<img>` with fallback,
+  since `app.icon` can be `undefined`). Buntime itself was correct; only the wiki
+  contract was incomplete.
+
 ## [2026-05-24] fix | Turso durability — push-after-commit makes dynamic state survive restarts
 
 ### Motivation
@@ -24,12 +118,12 @@ transaction path did not.
 
 ### Deploy + verification (home-workload, image `0.3.11`)
 
-- Built/pushed `ghcr.io/zommehq/buntime:0.3.11`; `helm upgrade` rev 17.
+- Built/pushed `registry.example.com/zomme/buntime:0.3.11`; `helm upgrade` rev 17.
 - Created 4 proxy rules (`/api`, `/gestor-licencas-api`, `/gestao-pessoas-api`,
   `/a` → `example-backend`, path-preserving). **`kubectl delete pod buntime-0`** →
   re-listed: **all 4 rules present** (durability proven). Each route proxies
   (401 from the backend, no `x-request-id`); `/_/api/health` 200.
-- Chrome: `buntime.example.com/` renders the `example-spa` shell (4biz login →
+- Chrome: `buntime.example.com/` renders the `example-spa` shell (app login →
   Keycloak). A transient `no available server` right after the roll is the cold
   worker pool — clears on the next load.
 
@@ -78,7 +172,7 @@ allowlist.)
 ### Verification (Chrome + curl)
 
 - `buntime.example.com/` and `localhost:8099/` render the `example-spa` shell
-  (4biz login), redirecting to `keycloak-oxygen.example.com` (the example-backend
+  (app login), redirecting to `keycloak.example.com` (the example-backend
   IdP). `/api/health` proxies (401 from the backend, no `x-request-id`);
   `/_/api/health` stays the runtime (200, `x-request-id`); `/cpanel/` excluded.
 
@@ -119,7 +213,7 @@ which never existed. Reverse signal (wiki disagrees with code) → wiki was stal
 ### Motivation
 
 Phase 1 made `@namespace/app` URL-addressable; Phase 2 restricts *who* may
-see/deploy to a namespace. Teams (`@acme`, `@team`) or environments
+see/deploy to a namespace. Teams (`@example`, `@example-org`) or environments
 (`@staging`, `@production`) now map to per-key access boundaries.
 
 ### What changed
@@ -160,7 +254,7 @@ see/deploy to a namespace. Teams (`@acme`, `@team`) or environments
 Scoped workers (`@team/app`) could be uploaded + stored but never served — the
 runtime resolved an app from the first path segment only, so `/@team/app`
 404'd. Turned the inconsistency into a feature: namespaces for context
-separation (teams `@acme`/`@team`, or environments
+separation (teams `@example`/`@example-org`, or environments
 `@staging`/`@production`), complementing the physical multi-dir support.
 
 ### What changed (apps/runtime/src)
@@ -390,7 +484,7 @@ Validate end-to-end the v0.3.0 surface — cookie-based admin sessions, file-bro
 
 - **Helm release `buntime`**: revision 1 → 5 (revisions 2-4 failed before image landed; 5 succeeded after local rebuild).
 - **Chart**: bumped `0.2.26 → 0.3.0`. `appVersion 1.1.0 → 1.2.0`.
-- **Runtime image**: rebuilt locally and pushed `ghcr.io/zommehq/buntime:{v0.3.0,0.3.0,latest}` (digest `sha256:b0068e8a…`). The GitLab CI pipeline did not auto-publish — see "What broke" below.
+- **Runtime image**: rebuilt locally and pushed `registry.example.com/zomme/buntime:{v0.3.0,0.3.0,latest}` (digest `sha256:b0068e8a…`). The GitLab CI pipeline did not auto-publish — see "What broke" below.
 - **No data loss**: existing PVCs (`buntime-apps`, `buntime-plugins`, `state-buntime-0`, `data-buntime-turso-0` on `local-path`) preserved. Smoke tokens (`smoke-root-key`, `data-token-123`, `admin-token-456`) carried over via `--reuse-values`.
 - **Backup**: disabled in this deploy (`tursoServer.backup.enabled=false`) — MinIO bucket `buntime-turso-backups` not yet created. MinIO namespace exists; bucket bootstrap is a follow-up.
 
@@ -403,7 +497,7 @@ Validate end-to-end the v0.3.0 surface — cookie-based admin sessions, file-bro
 
 ### What broke
 
-- **GitLab CI did not publish the v0.3.0 image**. Pipeline registration on the `runtime-performance-resilience` branch + `v0.3.0` tag yielded no new tags in `ghcr.io/zommehq/buntime` (only `latest` predating the work). Root cause unknown — likely missing runner registration or rule mismatch on the project. Worked around by `docker build + push` from the developer mac. Investigation tracked as follow-up.
+- **GitLab CI did not publish the v0.3.0 image**. Pipeline registration on the `runtime-performance-resilience` branch + `v0.3.0` tag yielded no new tags in `registry.example.com/zomme/buntime` (only `latest` predating the work). Root cause unknown — likely missing runner registration or rule mismatch on the project. Worked around by `docker build + push` from the developer mac. Investigation tracked as follow-up.
 - **GitHub mirror push deferred** — user explicitly requested "no GitHub during the testing phase". Branch + tag live only on `gitlab.example.com` for now.
 
 ### Smoke results (via `kubectl port-forward pod/buntime-0 18000:8000`)
@@ -621,7 +715,7 @@ Official `minio/mc` is shell-less (no `/bin/sh`, no `awk/grep`, no
 alpine-based image bundling `mc` + `curl` + `jq` + `bash`:
 
 - **`apps/turso-server/backup.Dockerfile`** → published as
-  `ghcr.io/zommehq/turso-backup:0.1.0` (~30 MB, multi-arch).
+  `registry.example.com/zomme/turso-backup:0.1.0` (~30 MB, multi-arch).
 - The Dockerfile fetches the `mc` binary from `dl.min.io` matching the
   build's `TARGETARCH`.
 
@@ -638,7 +732,7 @@ the child tursodb process was killed. Fix:
   only when `Supervisor.Stop` runs. The caller's `ctx` is still
   honored by `waitForPort`, so a cancelled caller still abandons its
   wait — the process keeps running for the next caller.
-- Image bumped to `ghcr.io/zommehq/turso-server:0.1.1`
+- Image bumped to `registry.example.com/zomme/turso-server:0.1.1`
   (and `0.2.0` for the version that adds the backup endpoint).
 
 ### Litestream initContainer command shape
@@ -759,7 +853,7 @@ client driver.
 ### Wider repo wiring
 
 - **`charts/`** — replaced the `tursoPrimary` block with `tursoServer`:
-  - `values.base.yaml`: new image (`ghcr.io/zommehq/turso-server`),
+  - `values.base.yaml`: new image (`registry.example.com/zomme/turso-server`),
     two tokens (`authToken`, `adminToken`), `autoProvision`,
     `maxNamespaces`, GC tunables.
   - `templates/turso-server.yaml`: 1-replica StatefulSet, two ClusterIP
@@ -900,7 +994,7 @@ Concrete chart changes:
   `["/var/lib/turso/api-keys.db", "--sync-server", "0.0.0.0:<port>"]`,
   added `imagePullSecrets` block.
 - `charts/values.base.yaml`: `tursoPrimary.image.repository =
-  "ghcr.io/zommehq/turso"`, `tag = "0.6.0"`.
+  "registry.example.com/zomme/turso"`, `tag = "0.6.0"`.
 - `charts/configmap.base.yaml`: `RUNTIME_AUTH_DB_SYNC_URL` now uses
   `http://<release>-turso-primary:<port>` (not `libsql://`). Removed
   bogus `/api-keys` path suffix (the sync-server serves a single DB by
@@ -912,7 +1006,7 @@ Concrete chart changes:
 
 ### Turso server image
 
-Built `ghcr.io/zommehq/turso:0.6.0` from the official arm64
+Built `registry.example.com/zomme/turso:0.6.0` from the official arm64
 binary (`turso_cli-aarch64-unknown-linux-gnu.tar.xz` from the v0.6.0
 release) wrapped in `debian:bookworm-slim`. The bundled `tursodb` binary
 exposes `--mcp` and `--sync-server` modes via undocumented flags surfaced

@@ -189,7 +189,7 @@ file in a one-off pod:
 
 ```sh
 mc cp m/turso-backups/api-keys/api-keys-<ts>.db ./api-keys.db
-docker run --rm -v $(pwd):/work ghcr.io/zommehq/turso:0.6.0 \
+docker run --rm -v $(pwd):/work registry.example.com/zomme/turso:0.6.0 \
   /work/api-keys.db "SELECT * FROM api_keys"
 ```
 

@@ -491,9 +491,9 @@ describe("namespace access control", () => {
     expect(body.errors?.[0]).toContain("@team");
     // Allowed unit was removed; forbidden one survives (use a `*` key to inspect).
     const root = buildAppAs(principal(["*"]));
-    const acme = (await (
-      await call(root, "GET", "/files/list?path=apps/@acme")
-    ).json()) as { data: { entries: Array<{ name: string }> } };
+    const acme = (await (await call(root, "GET", "/files/list?path=apps/@acme")).json()) as {
+      data: { entries: Array<{ name: string }> };
+    };
     expect(acme.data.entries.map((e) => e.name)).not.toContain("checkout");
     const team = (await (await call(root, "GET", "/files/list?path=apps/@team")).json()) as {
       data: { entries: Array<{ name: string }> };

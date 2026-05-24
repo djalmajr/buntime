@@ -236,7 +236,7 @@ into a namespace it doesn't own.
 | `namespaces` value | Meaning |
 |---|---|
 | `["*"]` (default) | Full access — every namespace **and** unscoped units. This is the value for legacy keys and the runtime root key. |
-| `["@acme", "@team"]` | Only these scopes. **Cannot** touch unscoped units (an unscoped resource requires `*`). |
+| `["@example", "@example-org"]` | Only these scopes. **Cannot** touch unscoped units (an unscoped resource requires `*`). |
 
 - Stored as a JSON column on `api_keys`; surfaced on `ApiKeyInfo` /
   `ApiKeyPrincipal` and validated against `/^@[a-z0-9][a-z0-9._-]*$/i`

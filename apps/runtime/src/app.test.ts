@@ -464,6 +464,81 @@ describe("createApp", () => {
       expect(res.status).toBe(403);
       expect(await res.json()).toMatchObject({ code: "PERMISSION_DENIED" });
     });
+
+    it("rejects a worker action in a namespace the key cannot access", async () => {
+      const apiKeys = await ApiKeyStore.open({
+        dbPath: join(TEST_DIR, "ns-worker-deny.db"),
+        mode: "local",
+      });
+      // admin role => all permissions, so only the namespace gate can 403.
+      const created = await apiKeys.create({
+        name: "CentralIT",
+        namespaces: ["@acme"],
+        role: "admin",
+      });
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      const app = createApp(createDeps({ apiKeys }));
+      const req = new Request(
+        `http://localhost${API_PATH}/workers/@team/billing/1.0.0/disable`,
+        {
+          headers: { host: "localhost", [Headers.API_KEY]: created.key },
+          method: "POST",
+        },
+      );
+      const res = await app.fetch(req);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ code: "NAMESPACE_DENIED" });
+    });
+
+    it("allows a worker action in the key's own namespace", async () => {
+      const apiKeys = await ApiKeyStore.open({
+        dbPath: join(TEST_DIR, "ns-worker-allow.db"),
+        mode: "local",
+      });
+      const created = await apiKeys.create({
+        name: "CentralIT",
+        namespaces: ["@acme"],
+        role: "admin",
+      });
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      const app = createApp(createDeps({ apiKeys }));
+      const req = new Request(
+        `http://localhost${API_PATH}/workers/@acme/checkout/1.0.0/disable`,
+        {
+          headers: { host: "localhost", [Headers.API_KEY]: created.key },
+          method: "POST",
+        },
+      );
+      const res = await app.fetch(req);
+      // The gate lets it through; the mock coreRoutes has no such route (404),
+      // proving only that we did NOT 403 on the namespace.
+      expect(res.status).not.toBe(403);
+    });
+
+    it("rejects a plugin action in a namespace the key cannot access", async () => {
+      const apiKeys = await ApiKeyStore.open({
+        dbPath: join(TEST_DIR, "ns-plugin-deny.db"),
+        mode: "local",
+      });
+      const created = await apiKeys.create({
+        name: "CentralIT",
+        namespaces: ["@acme"],
+        role: "admin",
+      });
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      const app = createApp(createDeps({ apiKeys }));
+      // Plugin name is URL-encoded (`@team/foo`).
+      const req = new Request(`http://localhost${API_PATH}/plugins/%40team%2Ffoo`, {
+        headers: { host: "localhost", [Headers.API_KEY]: created.key },
+        method: "DELETE",
+      });
+      const res = await app.fetch(req);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ code: "NAMESPACE_DENIED" });
+    });
   });
 
   describe("request ID tracking", () => {

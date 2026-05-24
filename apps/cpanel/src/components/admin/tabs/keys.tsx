@@ -41,6 +41,9 @@ function ApiKeysTable({
             <tr className="bg-muted/50 border-b">
               <th className="p-3 text-left text-sm font-medium">{t("admin.keys.name")}</th>
               <th className="p-3 text-left text-sm font-medium">{t("admin.keys.role")}</th>
+              <th className="p-3 text-left text-sm font-medium">
+                {t("admin.keys.namespacesColumn")}
+              </th>
               <th className="p-3 text-left text-sm font-medium">{t("admin.keys.prefixColumn")}</th>
               <th className="p-3 text-left text-sm font-medium">
                 {t("admin.keys.lastUsedColumn")}
@@ -85,6 +88,18 @@ function ApiKeysTable({
                     <span className="bg-secondary text-secondary-foreground rounded px-2 py-0.5 text-xs">
                       {t(`admin.roles.${key.role}`)}
                     </span>
+                  </td>
+                  <td className="p-3">
+                    <div className="flex flex-wrap gap-1">
+                      {(key.namespaces ?? ["*"]).map((ns) => (
+                        <span
+                          className="bg-muted text-muted-foreground rounded px-2 py-0.5 font-mono text-xs"
+                          key={ns}
+                        >
+                          {ns}
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   <td className="text-muted-foreground p-3 font-mono text-xs">{key.keyPrefix}</td>
                   <td className="text-muted-foreground p-3 text-sm">
@@ -137,6 +152,7 @@ export function KeysTab({
   const [expiresIn, setExpiresIn] = useState("1y");
   const [role, setRole] = useState<ApiKeyRole>("editor");
   const [permissions, setPermissions] = useState<ApiPermission[]>([]);
+  const [namespaces, setNamespaces] = useState("*");
   const [createdKey, setCreatedKey] = useState<string | null>(null);
 
   const keys$ = useQuery({
@@ -152,19 +168,26 @@ export function KeysTab({
   });
 
   const create$ = useMutation({
-    mutationFn: () =>
-      createApiKey({
+    mutationFn: () => {
+      const parsedNamespaces = namespaces
+        .split(/[\s,]+/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+      return createApiKey({
         description: description.trim() || undefined,
         expiresIn,
         name: name.trim(),
+        namespaces: parsedNamespaces.length ? parsedNamespaces : ["*"],
         permissions: role === "custom" ? permissions : undefined,
         role,
-      }),
+      });
+    },
     onSuccess: (result) => {
       setCreatedKey(result.data.key);
       setName("");
       setDescription("");
       setPermissions([]);
+      setNamespaces("*");
       setRole("editor");
       queryClient.invalidateQueries({ queryKey: ["admin", "keys"] });
       toast.success(t("admin.keys.created"));
@@ -285,6 +308,22 @@ export function KeysTab({
                       ))}
                     </select>
                   </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium" htmlFor="key-namespaces">
+                    {t("admin.keys.namespaces")}
+                  </label>
+                  <Input
+                    className="mt-1"
+                    id="key-namespaces"
+                    onChange={(event) => setNamespaces(event.target.value)}
+                    placeholder="*"
+                    value={namespaces}
+                  />
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    {t("admin.keys.namespacesHint")}
+                  </p>
                 </div>
 
                 {role === "custom" && (

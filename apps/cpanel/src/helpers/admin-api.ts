@@ -23,6 +23,8 @@ export interface AdminPrincipal {
   isRoot?: boolean;
   keyPrefix: string;
   name: string;
+  /** Namespaces this key may access; `["*"]` means all. */
+  namespaces: string[];
   permissions: ApiPermission[];
   role: ApiKeyRole;
 }
@@ -41,6 +43,8 @@ export interface ApiKeyInfo {
   keyPrefix: string;
   lastUsedAt?: number;
   name: string;
+  /** Namespaces this key may access; `["*"]` means all. */
+  namespaces: string[];
   permissions: ApiPermission[];
   role: ApiKeyRole;
 }
@@ -49,6 +53,8 @@ export interface CreateApiKeyInput {
   description?: string;
   expiresIn?: string;
   name: string;
+  /** Namespaces this key may access; omit/`["*"]` for full access. */
+  namespaces?: string[];
   permissions?: ApiPermission[];
   role: ApiKeyRole;
 }

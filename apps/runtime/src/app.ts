@@ -11,8 +11,11 @@ import {
   type ApiKeyPrincipal,
   type ApiKeyStore,
   hasPermission,
+  namespaceOf,
   type Permission,
+  principalCanAccessNamespace,
 } from "@/libs/api-keys";
+import "@/libs/hono-context";
 import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
 import type { PluginRegistry } from "@/plugins/registry";
@@ -226,6 +229,7 @@ async function authenticateApiKey(req: Request, apiKeys?: ApiKeyStore): Promise<
         isRoot: true,
         keyPrefix: "root",
         name: "root",
+        namespaces: ["*"],
         permissions: [],
         role: "admin",
       },
@@ -293,6 +297,54 @@ function requiredPermissionForApiRoute(method: string, pathname: string): Permis
     if (method === "GET") return "keys:read";
     if (method === "POST") return "keys:create";
     if (method === "DELETE") return "keys:revoke";
+  }
+
+  return undefined;
+}
+
+function namespaceForbiddenResponse(namespace: string | null): Response {
+  return new Response(
+    JSON.stringify({
+      code: "NAMESPACE_DENIED",
+      error: namespace
+        ? `Access denied for namespace: ${namespace}`
+        : "Access denied for unscoped resources",
+    }),
+    {
+      headers: { "Content-Type": "application/json" },
+      status: 403,
+    },
+  );
+}
+
+/**
+ * Namespace targeted by a management request whose namespace is visible in the
+ * URL path (worker `/:scope/:name`, plugin `/:name`). Returns:
+ * - `undefined` — not a namespace-specific route here (list, upload, plugin
+ *   reload, or the `/files` browser surface — the latter self-enforces in
+ *   `fs.ts` because its path can arrive in the request body).
+ * - `null` — an explicitly unscoped resource; requires the `*` namespace.
+ * - `"@scope"` — the resource lives under that namespace.
+ */
+function requiredNamespaceForApiRoute(pathname: string): string | null | undefined {
+  const relative = pathname.slice(API_PATH.length) || "/";
+  const segments = relative.split("/").filter(Boolean);
+  const [head, second] = segments;
+
+  if (head === "workers") {
+    // `:scope` is `@ns` for scoped workers or a placeholder (`_`) otherwise.
+    if (!second || second === "files" || second === "upload") return undefined;
+    const scope = decodeURIComponent(second);
+    return scope.startsWith("@") ? scope : null;
+  }
+
+  if (head === "plugins") {
+    // `:name` is the URL-encoded package name (`@scope%2Fname` or `name`).
+    if (!second || second === "files" || second === "upload" || second === "reload") {
+      return undefined;
+    }
+    if (second === "loaded") return undefined;
+    return namespaceOf(decodeURIComponent(second));
   }
 
   return undefined;
@@ -421,9 +473,25 @@ export function createApp({ apiKeys, coreRoutes, getWorkerDir, pool, registry, w
       return unauthorizedResponse();
     }
 
+    // Publish the principal so downstream handlers (fs, workers, plugins) can
+    // apply namespace-scoped access control on body-derived paths.
+    if (auth.valid && auth.principal) {
+      c.set("principal", auth.principal);
+    }
+
     const permission = requiredPermissionForApiRoute(c.req.method, c.req.path);
     if (auth.valid && !auth.isRoot && permission && !hasPermission(auth.principal!, permission)) {
       return forbiddenResponse(permission);
+    }
+
+    // Namespace gate for URL-path-visible management routes. The `/files`
+    // browser surface is intentionally excluded here and enforces itself in
+    // fs.ts (its target path can arrive in the request body).
+    if (auth.valid && !auth.isRoot && auth.principal) {
+      const namespace = requiredNamespaceForApiRoute(c.req.path);
+      if (namespace !== undefined && !principalCanAccessNamespace(auth.principal, namespace)) {
+        return namespaceForbiddenResponse(namespace);
+      }
     }
 
     const csrfResponse = validateCsrf(

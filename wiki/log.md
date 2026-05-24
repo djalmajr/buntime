@@ -1,5 +1,44 @@
 # Change Log
 
+## [2026-05-24] feat | namespace-scoped API-key permissions (Phase 2)
+
+### Motivation
+
+Phase 1 made `@namespace/app` URL-addressable; Phase 2 restricts *who* may
+see/deploy to a namespace. Teams (`@acme`, `@team`) or environments
+(`@staging`, `@production`) now map to per-key access boundaries.
+
+### What changed
+
+- **Data model** (`packages/shared/src/api-keys.ts`): `namespaces` JSON column
+  on `api_keys` (idempotent `ALTER` migration), surfaced on `ApiKeyInfo` /
+  `ApiKeyPrincipal` / `CreateApiKeyInput`. Helpers `namespaceOf`,
+  `principalCanAccessNamespace`, `normalizeNamespaces`, `parseNamespaces`,
+  const `WILDCARD_NAMESPACE = "*"`. Default + legacy keys + root = `["*"]`
+  (full access); unscoped resources require `*`.
+- **Enforcement** (`apps/runtime/src`): the API gate publishes the principal on
+  the Hono context (new `libs/hono-context.ts` `ContextVariableMap`
+  augmentation) and 403s `NAMESPACE_DENIED` for URL-path-visible worker/plugin
+  management routes. `routes/fs.ts` self-enforces the FileBrowser surface
+  (path may arrive in the body): guards descend + mutate ops, filters
+  mount-level listings. Worker/plugin **upload** handlers gate by the archive's
+  package `@scope` after extraction.
+- **Filtering**: `GET /api/workers`, `/api/plugins`, `/api/plugins/loaded` hide
+  units outside the key's namespaces.
+- **cpanel**: key-create Sheet gains a Namespaces field (default `*`); keys
+  table shows each key's namespaces; admin session principal exposes its list
+  (`admin.ts toResponsePrincipal`).
+
+### Verification
+
+- Unit: namespace cases in `api-keys.test.ts`, `fs.test.ts` (filter/guard/`*`/
+  root), `workers.test.ts` + `plugins.test.ts` (list filter + upload guard),
+  `app.test.ts` (path-param gate). Full suite 2781/0; lint + typecheck clean.
+- Browser (home-workload): a `@test`-scoped key sees/manages only `@test/*`
+  and 403s elsewhere; the FileBrowser hides other namespaces.
+
+---
+
 ## [2026-05-24] feat | worker namespaces — `@namespace/app` URL-addressable
 
 ### Motivation

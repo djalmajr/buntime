@@ -14,6 +14,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from "@buntime/shared/
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { getConfig } from "@/config";
+import { namespaceOf, principalCanAccessNamespace } from "@/libs/api-keys";
 import { PluginInfoSchema, SuccessResponse } from "@/libs/openapi";
 import { setManifestEnabled } from "@/libs/registry/manifest-enabled";
 import {
@@ -175,13 +176,22 @@ export function createPluginsRoutes(deps: PluginsRoutesDeps) {
           tags: ["Plugins"],
         }),
         (ctx) => {
-          const plugins = registry.getAll().map((plugin) => ({
-            base: plugin.base,
-            dependencies: plugin.dependencies ?? [],
-            menus: plugin.menus ?? [],
-            name: plugin.name,
-            optionalDependencies: plugin.optionalDependencies ?? [],
-          }));
+          const principal = ctx.get("principal");
+          const plugins = registry
+            .getAll()
+            .filter(
+              (plugin) =>
+                !principal ||
+                principal.isRoot ||
+                principalCanAccessNamespace(principal, namespaceOf(plugin.name)),
+            )
+            .map((plugin) => ({
+              base: plugin.base,
+              dependencies: plugin.dependencies ?? [],
+              menus: plugin.menus ?? [],
+              name: plugin.name,
+              optionalDependencies: plugin.optionalDependencies ?? [],
+            }));
           return ctx.json(plugins);
         },
       )
@@ -217,7 +227,12 @@ export function createPluginsRoutes(deps: PluginsRoutesDeps) {
         }),
         async (ctx) => {
           const plugins = await listInstalledPlugins(getPluginDirs(deps));
-          return ctx.json(plugins);
+          const principal = ctx.get("principal");
+          const visible =
+            principal && !principal.isRoot
+              ? plugins.filter((p) => principalCanAccessNamespace(principal, namespaceOf(p.name)))
+              : plugins;
+          return ctx.json(visible);
         },
       )
 
@@ -329,6 +344,22 @@ export function createPluginsRoutes(deps: PluginsRoutesDeps) {
             await extractArchive(file, tempDir, format);
 
             const packageInfo = await readPackageInfo(tempDir);
+
+            // Namespace gate: a restricted key may only deploy into its own
+            // namespace(s). The archive's package name carries the `@scope`.
+            const principal = ctx.get("principal");
+            if (
+              principal &&
+              !principal.isRoot &&
+              !principalCanAccessNamespace(principal, namespaceOf(packageInfo.name))
+            ) {
+              const ns = namespaceOf(packageInfo.name);
+              throw new ForbiddenError(
+                ns ? `Access denied for namespace: ${ns}` : "Access denied for unscoped resources",
+                "NAMESPACE_DENIED",
+              );
+            }
+
             // Use the external/writable pluginDir and install directly at the
             // package root because the plugin loader does not scan version dirs.
             const targetDir = selectInstallDir(pluginDirs);

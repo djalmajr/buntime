@@ -70,7 +70,10 @@
       "prefixColumn": "Prefix",
       "revoke": "Revoke",
       "revoked": "Key revoked",
-      "role": "Role"
+      "role": "Role",
+      "namespaces": "Namespaces",
+      "namespacesColumn": "Namespaces",
+      "namespacesHint": "Space- or comma-separated scopes (e.g. @team-a @team-b). Use * for full access."
     },
     "login": {
       "apiKey": "API key",

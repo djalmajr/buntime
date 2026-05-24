@@ -120,6 +120,7 @@ function rootPrincipal(): ApiKeyPrincipal {
     isRoot: true,
     keyPrefix: "root",
     name: "root",
+    namespaces: ["*"],
     permissions: [],
     role: "admin",
   };

@@ -18,6 +18,7 @@ interface AdminPrincipalResponse {
   isRoot?: boolean;
   keyPrefix: string;
   name: string;
+  namespaces: string[];
   permissions: string[];
   role: string;
 }
@@ -29,6 +30,7 @@ function toRootPrincipal(): ApiKeyPrincipal {
     isRoot: true,
     keyPrefix: "root",
     name: "root",
+    namespaces: ["*"],
     permissions: [],
     role: "admin",
   };
@@ -40,6 +42,7 @@ function toResponsePrincipal(principal: ApiKeyPrincipal): AdminPrincipalResponse
     ...(principal.isRoot ? { isRoot: true } : {}),
     keyPrefix: principal.keyPrefix,
     name: principal.name,
+    namespaces: [...principal.namespaces],
     permissions:
       principal.isRoot || principal.role === "admin"
         ? [...ALL_PERMISSIONS]

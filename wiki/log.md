@@ -1,5 +1,49 @@
 # Change Log
 
+## [2026-05-24] feat | worker enable/disable + FileBrowser dropdown toggle + worker upload tests
+
+### What changed
+
+- **Worker enable/disable (no restart).** `manifest.enabled` (default true)
+  added to WorkerManifest/WorkerConfig/defaults/parse + the worker-config Zod
+  schema. `resolveTargetApp` skips a version whose `enabled===false` (its base
+  path 404s). New `POST /api/workers/:scope/:name/:version/{enable,disable}`
+  edits the version manifest + clears the config cache. `GET /api/workers`
+  now returns `disabledVersions` per worker.
+- **Enable/disable moved into the FileBrowser dropdown** (per the user's
+  request) for BOTH plugins and workers — replaced the dedicated
+  "Manage plugins" list. FileBrowser/FileRow gained an `extraActions(entry)`
+  render prop; the Plugins/Workers tabs resolve a row folder to its unit +
+  enabled state and inject an Enable/Disable item.
+- **Shared `setManifestEnabled`** helper (libs/registry/manifest-enabled.ts),
+  used by both plugin and worker toggles; creates manifest.yaml when a worker
+  ships only package.json.
+- **Worker upload tests** added to workers.test.ts (archive contract, scoped
+  install path, latest default, upsert) + worker enable/disable tests.
+
+### Two gotchas found + documented (wiki/apps/worker-pool.md)
+
+- **Scoped workers are not URL-addressable.** `APP_NAME_PATTERN` resolves a
+  worker from the first path segment, so `@scope/name` workers upload/store
+  fine but have no resolving URL. Use unscoped names for HTTP-served workers.
+  (The demo worker had to be renamed from `@test/hello-worker` to
+  `hello-worker`.)
+- **`boolean()` zod helper coerces explicit `false` to its default.** A field
+  defaulting to `true` (`enabled`) must use `z.boolean().optional()` +
+  default in parseWorkerConfig, else `enabled: false` flipped back to true and
+  disable had no effect.
+
+### Verification (browser, no restart)
+
+- Uploaded a SPA+API worker (`hello-worker`: index.ts serves HTML at `/` +
+  JSON at `/api/ping`). SPA renders, button calls its own API → pong.
+- Workers tab → version folder dropdown → Disable → `/hello-worker/` 404s +
+  `disabledVersions:["1.0.0"]`; Enable → 200 again. Round-trip, no restart.
+- Plugins tab → plugin-root dropdown shows Enable/Disable (scoped plugin
+  resolved via path-suffix match). Suite 2738/0, lint clean.
+
+---
+
 ## [2026-05-24] feat | plugin route hot-reload (no restart) + enable/disable
 
 ### Motivation

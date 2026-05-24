@@ -87,6 +87,31 @@ type WorkerResponse =
 
 Request/Response body travels as a transferable `ArrayBuffer`, avoiding copies.
 
+## Enabling / disabling a worker version
+
+`manifest.enabled` (default `true`) gates whether a worker version is served.
+When `false`, `resolveTargetApp` treats the version as not-installed and the
+base path 404s — no process restart needed. Toggle it via
+`POST /api/workers/:scope/:name/:version/{enable,disable}` (see the
+[API reference](./runtime-api-reference.md)); the endpoint edits the version's
+manifest and clears the worker-config cache so the next request reflects it.
+
+> [!WARNING]
+> **Scoped workers are not URL-addressable.** The runtime resolves a worker
+> from the first path segment (`APP_NAME_PATTERN = /^\/([^/]+)/`), so
+> `@scope/name` workers can be uploaded and stored (`/api/workers/upload`
+> accepts them, installing at `<workerDir>/@scope/name/<version>/`) but there
+> is no clean URL that resolves them — `/name` looks for an unscoped worker and
+> `/@scope` captures only the scope segment. Use unscoped worker names for
+> anything served over HTTP. Plugins differ: they declare an explicit `base`.
+
+> [!NOTE]
+> The shared `boolean()` zod helper coerces *any* falsy value (including an
+> explicit `false`) to its default. That is fine for flags whose default is
+> `false`, but a field defaulting to `true` (like `enabled`) must use a plain
+> `z.boolean().optional()` and apply the default in `parseWorkerConfig`, or an
+> explicit `enabled: false` silently flips back to `true`.
+
 ## TTL — Sliding, not fixed
 
 The TTL policy defines the entire personality of a worker:

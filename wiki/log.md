@@ -41,11 +41,16 @@ native routes are rebuilt live.
 - `apps/runtime/src/routes/plugins.ts` — reload triggers `reloadServerRoutes`; new enable/disable routes + `setManifestEnabled`/`findPluginDir` helpers.
 - Tests: `registry.test.ts` (reload handler) + `plugins.test.ts` (enable/disable manifest edit, comment preservation, reload trigger, 404). Suite 2729/0.
 
-### Known follow-up
+### cpanel UI
 
-- cpanel UI toggle for enable/disable is not yet wired (the FileBrowser is
-  generic; a per-row plugin action needs threading loaded/enabled state). The
-  capability is fully available via the API today.
+- A "Manage plugins" list (`apps/cpanel/src/components/admin/tabs/plugin-manager.tsx`)
+  sits above the file-browser in the Plugins tab. It lists every installed
+  plugin (built-in + uploaded), shows enabled state (= present in the loaded
+  set), and a one-click enable/disable toggle backed by `setPluginEnabled()`.
+  The file-browser is the wrong surface for this (it only shows uploaded
+  plugins; built-ins live in the hidden `.plugins` dir), hence the dedicated
+  list. Browser-verified: disabling removes the plugin's sidebar menu + routes
+  live; enabling restores them — no restart.
 
 ---
 

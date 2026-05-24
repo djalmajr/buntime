@@ -277,6 +277,87 @@ describe("TursoServiceImpl", () => {
     await service.close();
   });
 
+  it("opens one replica per namespace in multi-tenant mode (with dedup + health)", async () => {
+    const openedUrls: string[] = [];
+    const service = new TursoServiceImpl({
+      config: {
+        localPath: "/data/turso/runtime.db",
+        mode: "sync",
+        server: { url: "http://turso-server:8080" },
+      },
+      logger: createMockLogger(),
+      openAdapter: async ({ config }) => {
+        openedUrls.push(config.sync?.url ?? "");
+        return createFakeAdapter("sync").adapter as unknown as TursoAdapter;
+      },
+    });
+
+    const a1 = await service.connect("proxy");
+    const a2 = await service.connect("proxy"); // cached — must not open a 2nd replica
+    await service.connect("gateway");
+
+    expect(a1).toBe(a2);
+    // Each namespace routes to `<server.url>/<namespace>` with a per-namespace
+    // local replica (the in-cluster turso-server topology).
+    expect(openedUrls).toEqual([
+      "http://turso-server:8080/proxy",
+      "http://turso-server:8080/gateway",
+    ]);
+
+    const health = await service.health();
+    expect(health.namespaces.toSorted()).toEqual(["gateway", "proxy"]);
+    expect(health.sync.enabled).toBe(true);
+    expect(health.ok).toBe(true);
+
+    await service.close();
+  });
+
+  it("retries a transaction on a retryable (busy) conflict", async () => {
+    const { adapter } = createFakeAdapter("local");
+    const service = new TursoServiceImpl({
+      config: { localPath: "/tmp/fake.db", mode: "local" },
+      logger: createMockLogger(),
+      openAdapter: async () => adapter as unknown as TursoAdapter,
+    });
+
+    let attempts = 0;
+    const result = await service.transaction(
+      { maxRetries: 3, namespace: "proxy", retryDelayMs: 0 },
+      async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error("database is busy"); // retryable
+        }
+        return "ok";
+      },
+    );
+
+    expect(result).toBe("ok");
+    expect(attempts).toBe(2);
+
+    await service.close();
+  });
+
+  it("does not retry a non-retryable transaction error", async () => {
+    const { adapter } = createFakeAdapter("local");
+    const service = new TursoServiceImpl({
+      config: { localPath: "/tmp/fake.db", mode: "local" },
+      logger: createMockLogger(),
+      openAdapter: async () => adapter as unknown as TursoAdapter,
+    });
+
+    let attempts = 0;
+    await expect(
+      service.transaction({ maxRetries: 3, namespace: "proxy", retryDelayMs: 0 }, async () => {
+        attempts += 1;
+        throw new Error("syntax error"); // not retryable
+      }),
+    ).rejects.toThrow(/syntax error/);
+    expect(attempts).toBe(1);
+
+    await service.close();
+  });
+
   it("should reject invalid namespaces", async () => {
     const service = new TursoServiceImpl({
       config: resolveTursoConfig({ localPath: ":memory:" }),

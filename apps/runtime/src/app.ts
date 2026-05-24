@@ -241,6 +241,19 @@ async function authenticateApiKey(req: Request, apiKeys?: ApiKeyStore): Promise<
   return principal ? { isRoot: false, principal, valid: true } : { isRoot: false, valid: false };
 }
 
+/**
+ * Whether the request carries an API credential in a header (`X-API-Key` or
+ * `Authorization: Bearer`) rather than only the `buntime_api_key` cookie. Used
+ * to scope the plugin-onRequest bypass to programmatic/automation callers, so a
+ * browser cpanel session (cookie) does not disable content plugins (gateway
+ * app-shell, proxy) for ordinary app traffic.
+ */
+function hasHeaderCredential(req: Request): boolean {
+  if (req.headers.get("x-api-key")?.trim()) return true;
+  const authorization = req.headers.get("authorization")?.trim();
+  return /^Bearer\s+.+/i.test(authorization ?? "");
+}
+
 function isPublicApiRoute(pathname: string, method: string): boolean {
   const relative = pathname.slice(API_PATH.length) || "/";
   // Session-issuing endpoints are public — the caller does not yet have
@@ -593,12 +606,17 @@ export function createApp({ apiKeys, coreRoutes, getWorkerDir, pool, registry, w
       });
     };
 
-    // Run plugin onRequest hooks (auth, etc.). The runtime root key is a
-    // deploy key and bypasses plugin-level auth for automation, including the
-    // deployments plugin API.
+    // Run plugin onRequest hooks (auth, content routing, etc.). A valid runtime
+    // credential bypasses these so automation can reach plugin-gated APIs — but
+    // ONLY when presented in a header (X-API-Key / Authorization: Bearer). The
+    // `buntime_api_key` cookie is a browser session for the cpanel and must NOT
+    // disable content plugins (gateway app-shell, proxy) for ordinary app
+    // traffic on the same browser. (`authenticateApiKey` prefers the header over
+    // the cookie, so `auth.valid && header present` means the header credential
+    // is the valid one — a stray invalid header makes auth.valid false instead.)
     let processedReq: Request;
     const auth = await authenticateApiKey(honoCtx.req.raw, apiKeys);
-    if (auth.valid) {
+    if (auth.valid && hasHeaderCredential(honoCtx.req.raw)) {
       processedReq = honoCtx.req.raw;
     } else {
       const processed = await registry.runOnRequest(honoCtx.req.raw, appInfo);

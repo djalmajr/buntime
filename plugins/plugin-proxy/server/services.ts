@@ -365,6 +365,26 @@ export async function httpProxy(req: Request, rule: CompiledRule, path: string):
     headers.delete(header);
   }
 
+  // Reverse-proxy forwarded headers. Set BEFORE changeOrigin (which rewrites
+  // Host) and BEFORE custom headers (so a rule can still override). Preserves an
+  // upstream ingress's chain when present; otherwise derives from the request +
+  // socket. Many backends behind nginx/Kong require `x-real-ip` / `x-forwarded-*`.
+  const clientIp = bunServer?.requestIP(req)?.address ?? "";
+  const existingXff = headers.get("x-forwarded-for");
+  if (clientIp) {
+    headers.set("x-forwarded-for", existingXff ? `${existingXff}, ${clientIp}` : clientIp);
+  }
+  const realIp = existingXff?.split(",")[0]?.trim() || clientIp;
+  if (realIp && !headers.has("x-real-ip")) {
+    headers.set("x-real-ip", realIp);
+  }
+  if (!headers.has("x-forwarded-host")) {
+    headers.set("x-forwarded-host", headers.get("host") ?? url.host);
+  }
+  if (!headers.has("x-forwarded-proto")) {
+    headers.set("x-forwarded-proto", url.protocol.replace(/:$/, ""));
+  }
+
   // Apply changeOrigin
   if (rule.changeOrigin) {
     headers.set("host", targetUrl.host);

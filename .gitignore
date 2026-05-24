@@ -46,3 +46,11 @@ charts/questions.yml
 !.opencode/commands/
 !.opencode/plugins/
 .playwright-mcp/
+
+# Local cluster deploy overlays (env-specific; keep out of the public repo)
+deploy/values.home-workload.yaml
+deploy/install-home-workload.sh
+
+# Agent-tool configs (local, non-Claude)
+.codex/
+opencode.json

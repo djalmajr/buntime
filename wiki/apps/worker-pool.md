@@ -93,7 +93,7 @@ Workers are addressed by name in the URL. A namespaced (npm-scoped) worker
 `@namespace/app` — stored at `<workerDir>/@namespace/app/<version>/` — is
 served at **`/@namespace/app/...`** (keep the `@`). An unscoped worker `app`
 serves at `/app/...`. Namespaces give teams/environments a separate context:
-`@acme/checkout`, `@team/billing`, `@staging/api`, `@production/api`.
+`@example/checkout`, `@example-org/billing`, `@staging/api`, `@production/api`.
 
 This is a *logical* grouping orthogonal to the *physical* multi-directory
 support (`RUNTIME_WORKER_DIRS`): a namespace can live in any worker dir, and
@@ -110,7 +110,7 @@ for the version separator; its nested/flat/simple dir searches already handle a
 `@scope/app` name via `join`.
 
 > [!NOTE]
-> **Future (not built):** a vhost/subdomain form (`app.acme.host` via
+> **Future (not built):** a vhost/subdomain form (`app.example.host` via
 > `plugin-vhosts`) would map a host → `@ns/app` and reuse the same resolver.
 > Separately, per-environment **plugin** activation (enable a plugin only under
 > e.g. `@production`) is a wanted capability — plugins currently load globally

@@ -529,3 +529,63 @@ describe("namespace access control", () => {
     expect(((await res.json()) as { code?: string }).code).toBe("NO_VALID_PATHS");
   });
 });
+
+// ===========================================================================
+// Archive download + batch move — the real cpanel batch features (happy paths).
+// ===========================================================================
+
+describe("archive download + batch move", () => {
+  it("downloads a directory as a zip", async () => {
+    const app = buildApp({ dirs: [WORKERS_DIR], policy: workersPathPolicy });
+    await mkdir(join(WORKERS_DIR, "my-app", "1.0.0"), { recursive: true });
+    await writeFile(join(WORKERS_DIR, "my-app", "1.0.0", "index.js"), "export default 1;");
+
+    const res = await call(app, "GET", "/files/download?path=apps/my-app/1.0.0");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/zip");
+    expect(res.headers.get("content-disposition")).toContain(".zip");
+  });
+
+  it("download-batch zips multiple paths", async () => {
+    const app = buildApp({ dirs: [WORKERS_DIR], policy: workersPathPolicy });
+    await mkdir(join(WORKERS_DIR, "app-a", "1.0.0"), { recursive: true });
+    await mkdir(join(WORKERS_DIR, "app-b", "1.0.0"), { recursive: true });
+    await writeFile(join(WORKERS_DIR, "app-a", "1.0.0", "f.txt"), "a");
+    await writeFile(join(WORKERS_DIR, "app-b", "1.0.0", "f.txt"), "b");
+
+    const res = await call(
+      app,
+      "GET",
+      "/files/download-batch?paths=apps/app-a/1.0.0,apps/app-b/1.0.0",
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/zip");
+  });
+
+  it("download-batch 404s when no path is valid", async () => {
+    const app = buildApp({ dirs: [WORKERS_DIR], policy: workersPathPolicy });
+    const res = await call(app, "GET", "/files/download-batch?paths=apps/nope");
+    expect(res.status).toBe(404);
+  });
+
+  it("move-batch moves files into a destination", async () => {
+    // Plugins surface: permissive policy, so plain files move freely.
+    const app = buildApp({ dirs: [PLUGINS_DIR], policy: pluginsPathPolicy });
+    await mkdir(join(PLUGINS_DIR, "src"), { recursive: true });
+    await mkdir(join(PLUGINS_DIR, "dest"), { recursive: true });
+    await writeFile(join(PLUGINS_DIR, "src", "a.txt"), "a");
+    await writeFile(join(PLUGINS_DIR, "src", "b.txt"), "b");
+
+    const res = await call(app, "POST", "/files/move-batch", {
+      destPath: "plugins/dest",
+      paths: ["plugins/src/a.txt", "plugins/src/b.txt"],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { errors?: string[]; success: boolean };
+    expect(body.success).toBe(true);
+    expect(body.errors).toBeUndefined();
+
+    const { readdir } = await import("node:fs/promises");
+    expect((await readdir(join(PLUGINS_DIR, "dest"))).toSorted()).toEqual(["a.txt", "b.txt"]);
+  });
+});

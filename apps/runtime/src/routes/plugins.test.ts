@@ -104,4 +104,77 @@ describe("plugins routes", () => {
     expect(response.status).toBe(200);
     await expect(readdir(join(uploadDir, "plugin-uploaded"))).rejects.toThrow();
   });
+
+  describe("enable/disable (hot-reload)", () => {
+    async function createManifestPlugin(
+      baseDir: string,
+      dirName: string,
+      manifest: string,
+    ): Promise<string> {
+      const pluginPath = join(baseDir, dirName);
+      await mkdir(pluginPath, { recursive: true });
+      await writeFile(join(pluginPath, "manifest.yaml"), manifest);
+      return pluginPath;
+    }
+
+    function appWithHotReload(): { app: Hono; reloadCount: () => number } {
+      let reloads = 0;
+      const registry = new PluginRegistry();
+      registry.setReloadHandler(() => {
+        reloads += 1;
+      });
+      const app = new Hono().route(
+        "/plugins",
+        createPluginsRoutes({
+          loader: new PluginLoader({ pluginDirs: [builtInDir, uploadDir] }),
+          pluginDirs: [builtInDir, uploadDir],
+          registry,
+        }),
+      );
+      app.onError((error) => errorToResponse(error));
+      return { app, reloadCount: () => reloads };
+    }
+
+    it("disables a plugin: sets enabled:false and triggers a server reload", async () => {
+      const dir = await createManifestPlugin(
+        uploadDir,
+        "plugin-toggle",
+        '# a comment\nname: "@acme/plugin-toggle"\nbase: "/toggle"\n',
+      );
+      const { app, reloadCount } = appWithHotReload();
+
+      const res = await app.request("/plugins/%40acme%2Fplugin-toggle/disable", { method: "POST" });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ data: { enabled: false }, success: true });
+      const manifest = await Bun.file(join(dir, "manifest.yaml")).text();
+      expect(manifest).toContain("enabled: false");
+      // Comment preserved (surgical edit, not YAML round-trip).
+      expect(manifest).toContain("# a comment");
+      expect(reloadCount()).toBe(1);
+    });
+
+    it("enables a previously disabled plugin (replaces the existing line)", async () => {
+      const dir = await createManifestPlugin(
+        uploadDir,
+        "plugin-toggle",
+        'name: "@acme/plugin-toggle"\nenabled: false\nbase: "/toggle"\n',
+      );
+      const { app } = appWithHotReload();
+
+      const res = await app.request("/plugins/%40acme%2Fplugin-toggle/enable", { method: "POST" });
+
+      expect(res.status).toBe(200);
+      const manifest = await Bun.file(join(dir, "manifest.yaml")).text();
+      expect(manifest).toContain("enabled: true");
+      expect(manifest).not.toContain("enabled: false");
+    });
+
+    it("returns 404 for an unknown plugin", async () => {
+      const { app } = appWithHotReload();
+      const res = await app.request("/plugins/%40acme%2Fnope/disable", { method: "POST" });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toMatchObject({ code: "PLUGIN_NOT_FOUND" });
+    });
+  });
 });

@@ -18,6 +18,35 @@ export class PluginRegistry {
   private pluginDirs: Map<string, string> = new Map(); // pluginName -> directory
   private plugins: Map<string, BuntimePlugin> = new Map();
   private providers: Map<string, unknown> = new Map(); // pluginName -> provides exports
+  private reloadHandler?: () => void;
+
+  /**
+   * Register a callback that refreshes the live HTTP server's native routes.
+   *
+   * `server.routes` (Bun.serve native routes) are fixed at boot, unlike Hono
+   * `routes` and `server.fetch` which `app.fetch` dispatches dynamically from
+   * the registry on every request. After a rescan adds/removes plugins, the
+   * runtime calls `reloadServerRoutes()` so newly uploaded (or toggled)
+   * plugins' native routes go live WITHOUT a process restart.
+   *
+   * Wired once in `index.ts` to `server.reload({ fetch, routes, websocket })`.
+   */
+  setReloadHandler(fn: () => void): void {
+    this.reloadHandler = fn;
+  }
+
+  /**
+   * Invoke the registered server-reload callback (no-op if none set, e.g. in
+   * tests or when running embedded without a Bun.serve instance).
+   */
+  reloadServerRoutes(): void {
+    if (!this.reloadHandler) {
+      this.logger.debug("reloadServerRoutes called with no handler registered");
+      return;
+    }
+    this.reloadHandler();
+    this.logger.debug("Server native routes reloaded");
+  }
 
   /**
    * Get number of registered plugins

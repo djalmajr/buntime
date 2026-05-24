@@ -16,6 +16,32 @@ describe("PluginRegistry", () => {
     registry = new PluginRegistry();
   });
 
+  describe("reloadServerRoutes", () => {
+    it("invokes the registered handler", () => {
+      let calls = 0;
+      registry.setReloadHandler(() => {
+        calls += 1;
+      });
+      registry.reloadServerRoutes();
+      registry.reloadServerRoutes();
+      expect(calls).toBe(2);
+    });
+
+    it("is a no-op when no handler is registered", () => {
+      expect(() => registry.reloadServerRoutes()).not.toThrow();
+    });
+
+    it("survives clear() (server ref persists across rescans)", () => {
+      let calls = 0;
+      registry.setReloadHandler(() => {
+        calls += 1;
+      });
+      registry.clear();
+      registry.reloadServerRoutes();
+      expect(calls).toBe(1);
+    });
+  });
+
   describe("register", () => {
     it("should register a plugin", () => {
       const plugin = createMockPlugin();

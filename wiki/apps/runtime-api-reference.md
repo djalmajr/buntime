@@ -366,13 +366,40 @@ curl -X POST \
 
 ### `POST /api/plugins/reload`
 
-Re-scans `pluginDirs` and performs a full reload. Use after a manual upload or
-filesystem edit.
+Re-scans `pluginDirs`, performs a full reload, **and refreshes the live HTTP
+server's native route table** (`server.reload()`), so a freshly uploaded
+plugin's routes — including `server.routes` — go live without a process
+restart. Use after a manual upload or filesystem edit.
 
 ```bash
 curl -X POST -H "X-API-Key: $KEY" \
   https://buntime.home/_/api/plugins/reload
 ```
+
+### `POST /api/plugins/:name/enable` and `POST /api/plugins/:name/disable`
+
+Toggle a single plugin's `enabled` flag at runtime (no restart). The name is
+URL-encoded; scoped names work. Flips `manifest.enabled` on disk (surgical
+edit, comments preserved), rescans, and refreshes routes.
+
+```bash
+# Disable a scoped plugin
+curl -X POST -H "X-API-Key: $KEY" \
+  "https://buntime.home/_/api/plugins/%40acme%2Fplugin-x/disable"
+
+# Re-enable it
+curl -X POST -H "X-API-Key: $KEY" \
+  "https://buntime.home/_/api/plugins/%40acme%2Fplugin-x/enable"
+```
+
+Response: `{ "success": true, "data": { "name": "@acme/plugin-x", "enabled": false } }`.
+Errors: `PLUGIN_NOT_FOUND` (404), `PLUGIN_MANIFEST_NOT_FOUND` (404). Requires
+`plugins:install`.
+
+> [!NOTE]
+> See [Plugin System — Hot Reload](./plugin-system.md#hot-reload) for why the
+> three plugin route surfaces (Hono `routes`, `server.fetch`, `server.routes`)
+> reach the live server differently.
 
 ### `DELETE /api/plugins/:name`
 

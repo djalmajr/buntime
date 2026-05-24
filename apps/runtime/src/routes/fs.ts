@@ -14,13 +14,67 @@
  */
 
 import { basename, join } from "node:path";
-import { errorToResponse, NotFoundError, ValidationError } from "@buntime/shared/errors";
+import {
+  errorToResponse,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+} from "@buntime/shared/errors";
 import { splitList } from "@buntime/shared/utils/string";
 import { Hono } from "hono";
+import { type ApiKeyPrincipal, principalCanAccessNamespace } from "@/libs/api-keys";
 import { DirInfo } from "@/libs/fs/dir-info";
 import type { PathPolicy } from "@/libs/fs/path-policies";
 
 const DEFAULT_EXCLUDES = [".git", "node_modules"];
+
+/**
+ * Namespace implied by a file-browser path (`<mount>/<unit>/...`): the second
+ * segment when it is an `@scope`. A path that does not descend into a specific
+ * unit (root or mount level) yields `undefined`, so list output is filtered
+ * per entry instead of being blocked outright.
+ */
+function namespaceFromBrowserPath(path: string): string | null | undefined {
+  const segments = path.split("/").filter(Boolean);
+  if (segments.length < 2) return undefined;
+  const unit = segments[1] ?? "";
+  return unit.startsWith("@") ? unit : null;
+}
+
+/**
+ * Whether a principal may act on a file-browser path. Root, `*` keys, and
+ * root/mount-level paths (no specific unit) always pass — the latter are
+ * filtered per entry by {@link filterEntriesByNamespace} instead.
+ */
+function canAccessBrowserPath(principal: ApiKeyPrincipal | undefined, path: string): boolean {
+  if (!principal || principal.isRoot) return true;
+  const ns = namespaceFromBrowserPath(path);
+  if (ns === undefined) return true;
+  return principalCanAccessNamespace(principal, ns);
+}
+
+/** Throw `403` when a non-root principal targets a namespace it cannot access. */
+function guardBrowserNamespace(principal: ApiKeyPrincipal | undefined, path: string): void {
+  if (canAccessBrowserPath(principal, path)) return;
+  const ns = namespaceFromBrowserPath(path);
+  throw new ForbiddenError(
+    ns ? `Access denied for namespace: ${ns}` : "Access denied for unscoped resources",
+    "NAMESPACE_DENIED",
+  );
+}
+
+/** Hide list entries whose namespace the principal cannot access. */
+function filterEntriesByNamespace<T extends { path: string }>(
+  entries: T[],
+  principal: ApiKeyPrincipal | undefined,
+): T[] {
+  if (!principal || principal.isRoot) return entries;
+  return entries.filter((entry) => {
+    const ns = namespaceFromBrowserPath(entry.path);
+    if (ns === undefined) return true;
+    return principalCanAccessNamespace(principal, ns);
+  });
+}
 
 export interface FsRoutesOptions {
   /**
@@ -142,21 +196,26 @@ export function createFsRoutes(opts: FsRoutesOptions) {
         return ctx.json({ data: { entries, path: "" }, success: true });
       }
 
+      guardBrowserNamespace(ctx.get("principal"), path);
       const { baseDir, relativePath, rootName } = resolvePath(path);
       const dir = dirOf(baseDir, relativePath);
       const rawEntries = await dir.list();
-      const entries = rawEntries
-        .filter((entry) => entry.visibility !== "internal")
-        .map((entry) => ({
-          ...entry,
-          path: rootName + (entry.path ? `/${entry.path}` : `/${entry.name}`),
-        }));
+      const entries = filterEntriesByNamespace(
+        rawEntries
+          .filter((entry) => entry.visibility !== "internal")
+          .map((entry) => ({
+            ...entry,
+            path: rootName + (entry.path ? `/${entry.path}` : `/${entry.name}`),
+          })),
+        ctx.get("principal"),
+      );
       const currentVisibility = await dir.getVisibility();
       return ctx.json({ data: { currentVisibility, entries, path }, success: true });
     })
     .post("/mkdir", async (ctx) => {
       const { path } = await ctx.req.json<{ path: string }>();
       if (!path) throw new ValidationError("Path is required", "PATH_REQUIRED");
+      guardBrowserNamespace(ctx.get("principal"), path);
 
       const { baseDir, relativePath } = resolvePath(path);
       if (!baseDir) {
@@ -169,6 +228,7 @@ export function createFsRoutes(opts: FsRoutesOptions) {
     .delete("/delete", async (ctx) => {
       const { path } = await ctx.req.json<{ path: string }>();
       if (!path) throw new ValidationError("Path is required", "PATH_REQUIRED");
+      guardBrowserNamespace(ctx.get("principal"), path);
 
       const { baseDir, relativePath, rootName } = resolvePath(path);
       if (!baseDir) {
@@ -186,6 +246,7 @@ export function createFsRoutes(opts: FsRoutesOptions) {
       if (!path || !newName) {
         throw new ValidationError("Path and newName are required", "PATH_AND_NAME_REQUIRED");
       }
+      guardBrowserNamespace(ctx.get("principal"), path);
 
       const { baseDir, relativePath, rootName } = resolvePath(path);
       if (!baseDir || !relativePath) {
@@ -201,6 +262,9 @@ export function createFsRoutes(opts: FsRoutesOptions) {
       if (destPath === undefined) {
         throw new ValidationError("Destination path is required", "DEST_PATH_REQUIRED");
       }
+      const movePrincipal = ctx.get("principal");
+      guardBrowserNamespace(movePrincipal, path);
+      guardBrowserNamespace(movePrincipal, destPath);
 
       const source = resolvePath(path);
       const dest = resolvePath(destPath || source.rootName);
@@ -227,6 +291,7 @@ export function createFsRoutes(opts: FsRoutesOptions) {
       if (!files.length) {
         throw new ValidationError("No files provided", "NO_FILES_PROVIDED");
       }
+      guardBrowserNamespace(ctx.get("principal"), targetPath);
 
       const { baseDir, relativePath } = resolvePath(targetPath);
       if (!baseDir) {
@@ -262,6 +327,7 @@ export function createFsRoutes(opts: FsRoutesOptions) {
     })
     .get("/refresh", async (ctx) => {
       const path = ctx.req.query("path") || "";
+      guardBrowserNamespace(ctx.get("principal"), path);
       const { baseDir, relativePath } = resolvePath(path);
 
       if (!baseDir) {
@@ -275,6 +341,7 @@ export function createFsRoutes(opts: FsRoutesOptions) {
     })
     .post("/refresh", async (ctx) => {
       const { path } = await ctx.req.json<{ path?: string }>();
+      guardBrowserNamespace(ctx.get("principal"), path || "");
       const { baseDir, relativePath } = resolvePath(path || "");
 
       if (!baseDir) {
@@ -289,6 +356,7 @@ export function createFsRoutes(opts: FsRoutesOptions) {
     .get("/download", async (ctx) => {
       const path = ctx.req.query("path");
       if (!path) throw new ValidationError("Path is required", "PATH_REQUIRED");
+      guardBrowserNamespace(ctx.get("principal"), path);
 
       const { baseDir, relativePath, rootName } = resolvePath(path);
       if (!baseDir) {
@@ -349,9 +417,11 @@ export function createFsRoutes(opts: FsRoutesOptions) {
         throw new ValidationError("Paths are required", "PATHS_REQUIRED");
       }
 
+      const deletePrincipal = ctx.get("principal");
       const errors: string[] = [];
       for (const path of paths) {
         try {
+          guardBrowserNamespace(deletePrincipal, path);
           const { baseDir, relativePath } = resolvePath(path);
           if (!baseDir || !relativePath) {
             errors.push(`${path}: Cannot delete root`);
@@ -374,11 +444,14 @@ export function createFsRoutes(opts: FsRoutesOptions) {
         throw new ValidationError("Destination path is required", "DEST_PATH_REQUIRED");
       }
 
+      const movePrincipal = ctx.get("principal");
+      guardBrowserNamespace(movePrincipal, destPath);
       const dest = resolvePath(destPath);
       const errors: string[] = [];
 
       for (const path of paths) {
         try {
+          guardBrowserNamespace(movePrincipal, path);
           const source = resolvePath(path);
           if (!source.baseDir || !source.relativePath) {
             errors.push(`${path}: Cannot move root`);
@@ -411,9 +484,11 @@ export function createFsRoutes(opts: FsRoutesOptions) {
       const tempDir = `/tmp/buntime-download-${Date.now()}`;
       await fs.mkdir(tempDir, { recursive: true });
 
+      const downloadPrincipal = ctx.get("principal");
       try {
         let copiedCount = 0;
         for (const path of paths) {
+          if (!canAccessBrowserPath(downloadPrincipal, path)) continue;
           const { baseDir, relativePath, rootName } = resolvePath(path);
           if (!baseDir) continue;
 

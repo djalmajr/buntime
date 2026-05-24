@@ -70,7 +70,10 @@
       "prefixColumn": "Prefixo",
       "revoke": "Revogar",
       "revoked": "Chave revogada",
-      "role": "Perfil"
+      "role": "Perfil",
+      "namespaces": "Namespaces",
+      "namespacesColumn": "Namespaces",
+      "namespacesHint": "Escopos separados por espaço ou vírgula (ex.: @time-a @time-b). Use * para acesso total."
     },
     "login": {
       "apiKey": "Chave de API",

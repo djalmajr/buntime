@@ -3,8 +3,8 @@ title: "Security"
 audience: ops
 sources:
   - apps/runtime/docs/security.md
-updated: 2026-05-02
-tags: [security, csrf, api-keys, csp]
+updated: 2026-05-24
+tags: [security, csrf, api-keys, csp, namespaces]
 status: stable
 ---
 
@@ -221,6 +221,61 @@ function escapeHtml(value: string): string {
 ```
 
 Prevents XSS via a manipulated `X-Forwarded-Prefix` header or base path.
+
+## Namespace-scoped access control
+
+API keys carry a **`namespaces`** list alongside their role/permissions. A
+namespace is the npm-style `@scope` of a worker/plugin name (see
+[worker-pool namespaces](../apps/worker-pool.md#namespaces--namespaceapp-addressing)).
+It gates *which* `@scope` units a key may see and manage, independent of the
+permission set — a key can hold `workers:install` yet still be denied a deploy
+into a namespace it doesn't own.
+
+### Model
+
+| `namespaces` value | Meaning |
+|---|---|
+| `["*"]` (default) | Full access — every namespace **and** unscoped units. This is the value for legacy keys and the runtime root key. |
+| `["@acme", "@team"]` | Only these scopes. **Cannot** touch unscoped units (an unscoped resource requires `*`). |
+
+- Stored as a JSON column on `api_keys`; surfaced on `ApiKeyInfo` /
+  `ApiKeyPrincipal` and validated against `/^@[a-z0-9][a-z0-9._-]*$/i`
+  (`normalizeNamespaces`).
+- The runtime **root key** and any key with role behaviour `isRoot` bypass the
+  namespace gate entirely (`principalCanAccessNamespace` short-circuits on
+  `isRoot`).
+
+### Enforcement points
+
+The namespace of a target is derived per surface, then checked with
+`principalCanAccessNamespace(principal, ns)`:
+
+| Surface | Where the namespace comes from | Behaviour |
+|---|---|---|
+| `/api/workers/:scope/:name/...`, `/api/plugins/:name` (enable/disable/delete) | URL path (`:scope`, decoded plugin name) | API middleware (`app.ts`) returns `403 NAMESPACE_DENIED` before the route runs. |
+| `/api/{workers,plugins}/files/*` (the FileBrowser: list/upload/mkdir/delete/rename/move/download) | the `path` (query **or** request body) | `fs.ts` self-enforces — it cannot be gated in the middleware because the path arrives in the body. Listing a forbidden `@scope` 403s; mount-level listings are **filtered** so siblings the key can't access are hidden. |
+| `POST /api/{workers,plugins}/upload` | the archive's `package.json` name (known only after extraction) | the upload handler 403s after `readPackageInfo` if the package's `@scope` is out of bounds. |
+| `GET /api/workers`, `GET /api/plugins`, `GET /api/plugins/loaded` | each item's name | results are **filtered** to the key's namespaces. |
+
+The principal is published on the Hono context (`c.set("principal", …)`) by the
+API gate and read by the sub-routers (`c.get("principal")`); the
+`ContextVariableMap` augmentation lives in
+`apps/runtime/src/libs/hono-context.ts`. Hono propagates context variables
+across `app.route()` mounts, so a single set in the gate reaches every handler.
+
+### cpanel
+
+The key-create Sheet (`/cpanel/keys`) has a **Namespaces** field (default `*`,
+space/comma-separated); the keys table shows each key's namespaces; the session
+principal exposes its own list. A restricted key only sees its namespaces'
+workers/plugins and the FileBrowser hides folders it cannot access.
+
+> [!NOTE]
+> **Future (not built):** per-environment **plugin activation** (enable a
+> plugin only under e.g. `@production`) is a separate, wanted capability —
+> plugins still load globally (`manifest.enabled` is all-or-nothing). Likely
+> expressed via vhosts. Tracked in
+> [worker-pool](../apps/worker-pool.md#namespaces--namespaceapp-addressing).
 
 ## Best practices
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { ApiKeyStore, hasPermission } from "./api-keys";
+import { ApiKeyStore, hasPermission, namespaceOf, principalCanAccessNamespace } from "./api-keys";
 
 const TEST_DIR = join(import.meta.dir, ".test-api-keys");
 
@@ -195,5 +195,70 @@ describe("ApiKeyStore sync semantics", () => {
     const env = await newSyncStore();
     await env.store.close();
     await env.store.close(); // must not throw
+  });
+});
+
+describe("namespaces", () => {
+  afterEach(() => {
+    rmSync(TEST_DIR, { force: true, recursive: true });
+  });
+
+  it("defaults to ['*'] (full access) when not specified", async () => {
+    const store = await createStore("ns-default");
+    const { key } = await store.create({ name: "Default", role: "editor" });
+    const principal = await store.verify(key);
+    expect(principal?.namespaces).toEqual(["*"]);
+    await store.close();
+  });
+
+  it("persists a restricted namespace list", async () => {
+    const store = await createStore("ns-restricted");
+    const { key } = await store.create({
+      name: "CentralIT",
+      namespaces: ["@acme"],
+      role: "editor",
+    });
+    const principal = await store.verify(key);
+    expect(principal?.namespaces).toEqual(["@acme"]);
+    await store.close();
+  });
+
+  it("rejects an invalid namespace token", async () => {
+    const store = await createStore("ns-invalid");
+    await expect(
+      store.create({ name: "Bad", namespaces: ["not-a-scope"], role: "editor" }),
+    ).rejects.toThrow(/Invalid namespace/);
+    await store.close();
+  });
+
+  describe("namespaceOf", () => {
+    it("extracts the scope from a scoped name", () => {
+      expect(namespaceOf("@acme/checkout")).toBe("@acme");
+    });
+    it("returns null for an unscoped name", () => {
+      expect(namespaceOf("checkout")).toBeNull();
+    });
+  });
+
+  describe("principalCanAccessNamespace", () => {
+    const wild = { isRoot: false, namespaces: ["*"] };
+    const scoped = { isRoot: false, namespaces: ["@acme"] };
+    const root = { isRoot: true, namespaces: ["@nope"] };
+
+    it("'*' grants any namespace incl. unscoped", () => {
+      expect(principalCanAccessNamespace(wild, "@team")).toBe(true);
+      expect(principalCanAccessNamespace(wild, null)).toBe(true);
+    });
+    it("a specific namespace grants only itself", () => {
+      expect(principalCanAccessNamespace(scoped, "@acme")).toBe(true);
+      expect(principalCanAccessNamespace(scoped, "@team")).toBe(false);
+    });
+    it("unscoped resources require '*'", () => {
+      expect(principalCanAccessNamespace(scoped, null)).toBe(false);
+    });
+    it("root accesses everything regardless of list", () => {
+      expect(principalCanAccessNamespace(root, "@anything")).toBe(true);
+      expect(principalCanAccessNamespace(root, null)).toBe(true);
+    });
   });
 });

@@ -17,6 +17,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from "@buntime/shared/
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { getConfig } from "@/config";
+import { namespaceOf, principalCanAccessNamespace } from "@/libs/api-keys";
 import { SuccessResponse, WorkerInfoSchema } from "@/libs/openapi";
 import { clearWorkerConfigCache } from "@/libs/pool/config";
 import { setManifestEnabled } from "@/libs/registry/manifest-enabled";
@@ -250,7 +251,12 @@ export function createWorkersRoutes(deps: WorkersRoutesDeps = {}) {
         }),
         async (ctx) => {
           const workers = await listInstalledWorkers(getWorkerDirs(deps));
-          return ctx.json(workers);
+          const principal = ctx.get("principal");
+          const visible =
+            principal && !principal.isRoot
+              ? workers.filter((w) => principalCanAccessNamespace(principal, namespaceOf(w.name)))
+              : workers;
+          return ctx.json(visible);
         },
       )
       .post(
@@ -329,6 +335,21 @@ export function createWorkersRoutes(deps: WorkersRoutesDeps = {}) {
 
             // Read package info (only name and version)
             const packageInfo = await readPackageInfo(tempDir);
+
+            // Namespace gate: a restricted key may only deploy into its own
+            // namespace(s). The archive's package name carries the `@scope`.
+            const principal = ctx.get("principal");
+            if (
+              principal &&
+              !principal.isRoot &&
+              !principalCanAccessNamespace(principal, namespaceOf(packageInfo.name))
+            ) {
+              const ns = namespaceOf(packageInfo.name);
+              throw new ForbiddenError(
+                ns ? `Access denied for namespace: ${ns}` : "Access denied for unscoped resources",
+                "NAMESPACE_DENIED",
+              );
+            }
 
             // Use the first external/writable workerDir as installation target.
             // In Helm this avoids writing uploads into image-provided /data/.apps.

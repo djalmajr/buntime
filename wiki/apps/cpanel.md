@@ -186,6 +186,11 @@ the runtime treats apps and workers as the same concept (pre-2026-05-19 the
 two vocabularies coexisted with `apps:*` for filesystem ops and `workers:*`
 for runtime ops; they collapsed into one set).
 
+Orthogonal to permissions, each key carries a **namespaces** list that scopes
+*which* `@scope` workers/plugins it can see and manage — the key-create Sheet
+exposes a Namespaces field (default `*`). See
+[namespace-scoped access control](../ops/security.md#namespace-scoped-access-control).
+
 ### Features
 
 | Section | Path | Operations |

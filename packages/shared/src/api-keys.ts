@@ -65,6 +65,9 @@ export const ALL_PERMISSIONS = [
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
 
+/** Wildcard namespace — grants management access to every namespace. */
+export const WILDCARD_NAMESPACE = "*";
+
 export interface ApiKeyInfo {
   createdAt: number;
   createdBy?: number;
@@ -74,6 +77,12 @@ export interface ApiKeyInfo {
   keyPrefix: string;
   lastUsedAt?: number;
   name: string;
+  /**
+   * Namespaces this key may see/manage (workers + plugins). `["*"]` = all
+   * (default, backward-compatible). A specific entry like `@acme` grants
+   * `@acme/*` only; unscoped resources require `*`.
+   */
+  namespaces: string[];
   permissions: Permission[];
   role: KeyRole;
 }
@@ -86,6 +95,8 @@ export interface CreateApiKeyInput {
   description?: string;
   expiresIn?: string;
   name?: string;
+  /** Namespaces the key may manage. Defaults to `["*"]` (all). */
+  namespaces?: string[];
   permissions?: Permission[];
   role?: KeyRole;
 }
@@ -175,6 +186,27 @@ function normalizePermissions(role: KeyRole, permissions?: string[]): Permission
   return [...new Set(selected)] as Permission[];
 }
 
+const NAMESPACE_PATTERN = /^@[a-z0-9][a-z0-9._-]*$/i;
+
+/**
+ * Normalize a key's namespace list. Empty/undefined → `["*"]` (all). Validates
+ * each entry is `*` or an `@scope` token; dedupes. `*` collapses to `["*"]`.
+ */
+function normalizeNamespaces(namespaces?: string[]): string[] {
+  const list = (namespaces ?? []).map((n) => n.trim()).filter(Boolean);
+  if (list.length === 0 || list.includes(WILDCARD_NAMESPACE)) return [WILDCARD_NAMESPACE];
+
+  for (const ns of list) {
+    if (!NAMESPACE_PATTERN.test(ns)) {
+      throw new ValidationError(
+        `Invalid namespace: ${ns} (use "*" or "@scope")`,
+        "INVALID_NAMESPACE",
+      );
+    }
+  }
+  return [...new Set(list)];
+}
+
 function parseExpiresAt(expiresIn?: string): number | undefined {
   if (!expiresIn || expiresIn === "never") return undefined;
 
@@ -203,6 +235,31 @@ export function hasPermission(principal: ApiKeyPrincipal, permission: Permission
   return principal.permissions.includes(permission);
 }
 
+/**
+ * The namespace a worker/plugin name belongs to: the `@scope` prefix, or
+ * `null` for an unscoped name. Accepts a name (`@scope/app`, `app`) — callers
+ * pass the resolved unit name, not a raw path.
+ */
+export function namespaceOf(name: string): string | null {
+  return name.startsWith("@") ? (name.split("/")[0] ?? null) : null;
+}
+
+/**
+ * Whether a principal may see/manage a resource in namespace `ns` (the result
+ * of {@link namespaceOf}). Root and `*` keys access everything; an unscoped
+ * resource (`ns === null`) requires `*`; otherwise the namespace must be listed.
+ */
+export function principalCanAccessNamespace(
+  principal: Pick<ApiKeyPrincipal, "isRoot" | "namespaces">,
+  ns: string | null,
+): boolean {
+  if (principal.isRoot) return true;
+  const allowed = principal.namespaces ?? [WILDCARD_NAMESPACE];
+  if (allowed.includes(WILDCARD_NAMESPACE)) return true;
+  if (ns === null) return false;
+  return allowed.includes(ns);
+}
+
 /** Raw row shape returned by SQL `SELECT * FROM api_keys`. */
 interface ApiKeyRow {
   id: number;
@@ -212,11 +269,23 @@ interface ApiKeyRow {
   description: string | null;
   role: string;
   permissions: string;
+  namespaces: string | null;
   created_at: number;
   created_by: number | null;
   expires_at: number | null;
   last_used_at: number | null;
   revoked_at: number | null;
+}
+
+/** Parse the namespaces column; missing/empty → `["*"]` (legacy keys = all). */
+function parseNamespaces(raw: string | null | undefined): string[] {
+  if (!raw) return [WILDCARD_NAMESPACE];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? (parsed as string[]) : [WILDCARD_NAMESPACE];
+  } catch {
+    return [WILDCARD_NAMESPACE];
+  }
 }
 
 function rowToPublic(row: ApiKeyRow): ApiKeyInfo {
@@ -229,6 +298,7 @@ function rowToPublic(row: ApiKeyRow): ApiKeyInfo {
     keyPrefix: row.key_prefix,
     ...(row.last_used_at !== null ? { lastUsedAt: row.last_used_at } : {}),
     name: row.name,
+    namespaces: parseNamespaces(row.namespaces),
     permissions: JSON.parse(row.permissions) as Permission[],
     role: row.role as KeyRole,
   };
@@ -251,6 +321,7 @@ const SCHEMA_SQL = `
     description   TEXT,
     role          TEXT    NOT NULL,
     permissions   TEXT    NOT NULL,
+    namespaces    TEXT,
     created_at    INTEGER NOT NULL,
     created_by    INTEGER,
     expires_at    INTEGER,
@@ -304,6 +375,19 @@ interface SyncClientLike extends RawClientLike {
 }
 
 /**
+ * Add the `namespaces` column to a pre-existing `api_keys` table that was
+ * created before namespaces existed. Idempotent: checks `PRAGMA table_info`
+ * and no-ops when the column is already present (incl. fresh DBs where
+ * `SCHEMA_SQL` already created it). Existing rows keep `NULL`, which
+ * `parseNamespaces` reads as `["*"]` — so old keys retain full access.
+ */
+async function migrateAddNamespacesColumn(client: RawClientLike): Promise<void> {
+  const cols = await client.prepare("PRAGMA table_info(api_keys)").all<{ name: string }>();
+  if (cols.some((c) => c.name === "namespaces")) return;
+  await client.exec("ALTER TABLE api_keys ADD COLUMN namespaces TEXT");
+}
+
+/**
  * If a legacy JSON store exists in the same directory as the DB file and the
  * DB is empty, migrate every row across in a single transaction and rename
  * the JSON to `<file>.migrated` (kept as defensive backup, never deleted).
@@ -335,9 +419,9 @@ async function migrateLegacyJsonIfPresent(client: RawClientLike, dbPath: string)
 
   const insert = client.prepare(`
     INSERT INTO api_keys
-      (id, key_hash, key_prefix, name, description, role, permissions,
+      (id, key_hash, key_prefix, name, description, role, permissions, namespaces,
        created_at, created_by, expires_at, last_used_at, revoked_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   for (const key of keys) {
@@ -349,6 +433,8 @@ async function migrateLegacyJsonIfPresent(client: RawClientLike, dbPath: string)
       key.description ?? null,
       key.role,
       JSON.stringify(key.permissions),
+      // Legacy keys predate namespaces → full access.
+      JSON.stringify([WILDCARD_NAMESPACE]),
       key.createdAt,
       key.createdBy ?? null,
       key.expiresAt ?? null,
@@ -396,6 +482,7 @@ export class ApiKeyStore {
    */
   static async __forTests(client: RawClientLike, mode: "local" | "sync"): Promise<ApiKeyStore> {
     await client.exec(SCHEMA_SQL);
+    await migrateAddNamespacesColumn(client);
     return new ApiKeyStore(client, mode);
   }
 
@@ -435,6 +522,7 @@ export class ApiKeyStore {
       await client.exec("PRAGMA journal_mode = mvcc");
     }
     await client.exec(SCHEMA_SQL);
+    await migrateAddNamespacesColumn(client);
     await migrateLegacyJsonIfPresent(client, cfg.dbPath);
 
     const store = new ApiKeyStore(client, cfg.mode);
@@ -527,6 +615,7 @@ export class ApiKeyStore {
 
       const role = normalizeRole(input.role);
       const permissions = normalizePermissions(role, input.permissions);
+      const namespaces = normalizeNamespaces(input.namespaces);
       const expiresAt = parseExpiresAt(input.expiresIn);
       const description = input.description?.trim() || null;
       const key = generateKey();
@@ -536,9 +625,9 @@ export class ApiKeyStore {
       const inserted = await this.client
         .prepare(`
           INSERT INTO api_keys
-            (key_hash, key_prefix, name, description, role, permissions,
+            (key_hash, key_prefix, name, description, role, permissions, namespaces,
              created_at, expires_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           RETURNING id
         `)
         .get<{ id: number }>(
@@ -548,6 +637,7 @@ export class ApiKeyStore {
           description,
           role,
           JSON.stringify(permissions),
+          JSON.stringify(namespaces),
           at,
           expiresAt ?? null,
         );

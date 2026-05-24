@@ -13,6 +13,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Hono } from "hono";
+import type { ApiKeyPrincipal } from "@/libs/api-keys";
 import { DirInfo } from "@/libs/fs/dir-info";
 import { pluginsPathPolicy, workersPathPolicy } from "@/libs/fs/path-policies";
 import { createFsRoutes } from "./fs";
@@ -379,6 +380,100 @@ describe("refresh", () => {
     const app = buildApp({ dirs: [WORKERS_DIR], policy: workersPathPolicy });
     await mkdir(join(WORKERS_DIR, "my-app"), { recursive: true });
     const res = await call(app, "POST", "/files/refresh", { path: "apps/my-app" });
+    expect(res.status).toBe(200);
+  });
+});
+
+// ===========================================================================
+// Namespace-scoped access control — a restricted key may only see/manage its
+// own `@namespace` units. Root and `*` keys are unaffected.
+// ===========================================================================
+
+describe("namespace access control", () => {
+  function principal(namespaces: string[], isRoot = false): ApiKeyPrincipal {
+    return {
+      createdAt: 0,
+      id: 1,
+      isRoot,
+      keyPrefix: "btk_test",
+      name: "test",
+      namespaces,
+      permissions: [],
+      role: "editor",
+    };
+  }
+
+  function buildAppAs(p: ApiKeyPrincipal | undefined) {
+    const router = createFsRoutes({
+      pathPolicy: workersPathPolicy,
+      resolveDirs: () => [WORKERS_DIR],
+    });
+    return new Hono()
+      .use("*", async (c, next) => {
+        if (p) c.set("principal", p);
+        await next();
+      })
+      .route("/files", router);
+  }
+
+  beforeEach(async () => {
+    await mkdir(join(WORKERS_DIR, "@acme", "checkout", "1.0.0"), { recursive: true });
+    await mkdir(join(WORKERS_DIR, "@team", "billing", "1.0.0"), { recursive: true });
+    await mkdir(join(WORKERS_DIR, "hello-worker", "1.0.0"), { recursive: true });
+  });
+
+  it("filters mount-level listing to accessible namespaces", async () => {
+    const app = buildAppAs(principal(["@acme"]));
+    const res = await call(app, "GET", "/files/list?path=apps");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { entries: Array<{ name: string }> } };
+    const names = body.data.entries.map((e) => e.name).sort();
+    expect(names).toEqual(["@acme"]);
+  });
+
+  it("403s when listing into a forbidden namespace", async () => {
+    const app = buildAppAs(principal(["@acme"]));
+    const res = await call(app, "GET", "/files/list?path=apps/@team");
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBe("NAMESPACE_DENIED");
+  });
+
+  it("allows listing into an accessible namespace", async () => {
+    const app = buildAppAs(principal(["@acme"]));
+    const res = await call(app, "GET", "/files/list?path=apps/@acme");
+    expect(res.status).toBe(200);
+  });
+
+  it("403s on mkdir into a forbidden namespace", async () => {
+    const app = buildAppAs(principal(["@acme"]));
+    const res = await call(app, "POST", "/files/mkdir", { path: "apps/@team/x" });
+    expect(res.status).toBe(403);
+  });
+
+  it("allows mkdir into an accessible namespace", async () => {
+    const app = buildAppAs(principal(["@acme"]));
+    const res = await call(app, "POST", "/files/mkdir", { path: "apps/@acme/x" });
+    expect(res.status).toBe(200);
+  });
+
+  it("denies unscoped units unless the key holds '*'", async () => {
+    const app = buildAppAs(principal(["@acme"]));
+    const res = await call(app, "GET", "/files/list?path=apps/hello-worker");
+    expect(res.status).toBe(403);
+  });
+
+  it("'*' key sees every namespace and unscoped unit", async () => {
+    const app = buildAppAs(principal(["*"]));
+    const res = await call(app, "GET", "/files/list?path=apps");
+    const body = (await res.json()) as { data: { entries: Array<{ name: string }> } };
+    const names = body.data.entries.map((e) => e.name).sort();
+    expect(names).toEqual(["@acme", "@team", "hello-worker"]);
+  });
+
+  it("root key bypasses all namespace checks", async () => {
+    const app = buildAppAs(principal(["@acme"], true));
+    const res = await call(app, "GET", "/files/list?path=apps/@team");
     expect(res.status).toBe(200);
   });
 });

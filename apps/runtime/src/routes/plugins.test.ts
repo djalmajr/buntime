@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { errorToResponse } from "@buntime/shared/errors";
 import { Hono } from "hono";
+import type { ApiKeyPrincipal } from "@/libs/api-keys";
 import { PluginLoader } from "@/plugins/loader";
 import { PluginRegistry } from "@/plugins/registry";
 import { createPluginsRoutes } from "./plugins";
@@ -176,5 +177,95 @@ describe("plugins routes", () => {
       expect(res.status).toBe(404);
       expect(await res.json()).toMatchObject({ code: "PLUGIN_NOT_FOUND" });
     });
+  });
+});
+
+describe("plugins namespace scoping", () => {
+  let nsDir = "";
+
+  function principal(namespaces: string[], isRoot = false): ApiKeyPrincipal {
+    return {
+      createdAt: 0,
+      id: 1,
+      isRoot,
+      keyPrefix: "btk_test",
+      name: "test",
+      namespaces,
+      permissions: [],
+      role: "editor",
+    };
+  }
+
+  function appAs(p?: ApiKeyPrincipal): Hono {
+    const app = new Hono()
+      .use("*", async (c, next) => {
+        if (p) c.set("principal", p);
+        await next();
+      })
+      .route(
+        "/plugins",
+        createPluginsRoutes({
+          loader: new PluginLoader({ pluginDirs: [] }),
+          pluginDirs: [nsDir],
+          registry: new PluginRegistry(),
+        }),
+      );
+    app.onError((error) => errorToResponse(error));
+    return app;
+  }
+
+  async function makeTgz(files: Record<string, string>): Promise<Blob> {
+    const stage = await mkdtemp(join(tmpdir(), "buntime-plugin-tgz-"));
+    const pkgRoot = join(stage, "package");
+    for (const [rel, content] of Object.entries(files)) {
+      const abs = join(pkgRoot, rel);
+      await mkdir(dirname(abs), { recursive: true });
+      await writeFile(abs, content);
+    }
+    const out = join(stage, "pkg.tgz");
+    const proc = Bun.spawn(["tar", "-czf", out, "-C", stage, "package"], { stderr: "pipe" });
+    await proc.exited;
+    const bytes = await Bun.file(out).arrayBuffer();
+    await rm(stage, { force: true, recursive: true });
+    return new Blob([bytes], { type: "application/gzip" });
+  }
+
+  async function upload(app: Hono, packageName: string): Promise<Response> {
+    const fd = new FormData();
+    fd.append(
+      "file",
+      await makeTgz({ "package.json": JSON.stringify({ name: packageName }) }),
+      "p.tgz",
+    );
+    return app.request("/plugins/upload", { method: "POST", body: fd });
+  }
+
+  beforeEach(async () => {
+    nsDir = await mkdtemp(join(tmpdir(), "buntime-plugins-ns-"));
+    await createPlugin(nsDir, "@acme/gateway", "@acme/gateway");
+    await createPlugin(nsDir, "@team/redirects", "@team/redirects");
+    await createPlugin(nsDir, "legacy-plugin", "legacy-plugin");
+  });
+
+  afterEach(async () => {
+    await rm(nsDir, { force: true, recursive: true });
+  });
+
+  it("filters GET /plugins to the key's namespaces", async () => {
+    const res = await appAs(principal(["@acme"])).request("/plugins");
+    expect(res.status).toBe(200);
+    const names = ((await res.json()) as Array<{ name: string }>).map((p) => p.name).sort();
+    expect(names).toEqual(["@acme/gateway"]);
+  });
+
+  it("rejects plugin upload into a forbidden namespace", async () => {
+    const res = await upload(appAs(principal(["@acme"])), "@team/intruder");
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "NAMESPACE_DENIED" });
+  });
+
+  it("allows plugin upload into the key's own namespace", async () => {
+    const res = await upload(appAs(principal(["@acme"])), "@acme/new-plugin");
+    expect(res.status).toBe(200);
   });
 });

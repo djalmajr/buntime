@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { errorToResponse } from "@buntime/shared/errors";
 import { Hono } from "hono";
+import type { ApiKeyPrincipal } from "@/libs/api-keys";
 import { createWorkersRoutes } from "./workers";
 
 /**
@@ -257,5 +258,76 @@ describe("workers routes", () => {
       expect(res.status).toBe(404);
       expect(await res.json()).toMatchObject({ code: "WORKER_VERSION_NOT_FOUND" });
     });
+  });
+});
+
+describe("workers namespace scoping", () => {
+  let nsDir = "";
+
+  function principal(namespaces: string[], isRoot = false): ApiKeyPrincipal {
+    return {
+      createdAt: 0,
+      id: 1,
+      isRoot,
+      keyPrefix: "btk_test",
+      name: "test",
+      namespaces,
+      permissions: [],
+      role: "editor",
+    };
+  }
+
+  function appAs(p?: ApiKeyPrincipal): Hono {
+    const app = new Hono()
+      .use("*", async (c, next) => {
+        if (p) c.set("principal", p);
+        await next();
+      })
+      .route("/workers", createWorkersRoutes({ workerDirs: [nsDir] }));
+    app.onError((error) => errorToResponse(error));
+    return app;
+  }
+
+  beforeEach(async () => {
+    nsDir = await mkdtemp(join(tmpdir(), "buntime-workers-ns-"));
+    await createWorkerVersion(nsDir, "@acme/checkout", "1.0.0", "@acme/checkout");
+    await createWorkerVersion(nsDir, "@team/billing", "1.0.0", "@team/billing");
+    await createWorkerVersion(nsDir, "hello-worker", "1.0.0", "hello-worker");
+  });
+
+  afterEach(async () => {
+    await rm(nsDir, { force: true, recursive: true });
+  });
+
+  it("filters GET /workers to the key's namespaces", async () => {
+    const res = await appAs(principal(["@acme"])).request("/workers");
+    expect(res.status).toBe(200);
+    const names = ((await res.json()) as Array<{ name: string }>).map((w) => w.name).sort();
+    expect(names).toEqual(["@acme/checkout"]);
+  });
+
+  it("'*' key lists every worker", async () => {
+    const res = await appAs(principal(["*"])).request("/workers");
+    const names = ((await res.json()) as Array<{ name: string }>).map((w) => w.name).sort();
+    expect(names).toEqual(["@acme/checkout", "@team/billing", "hello-worker"]);
+  });
+
+  it("rejects upload into a forbidden namespace", async () => {
+    const res = await uploadTgz(
+      appAs(principal(["@acme"])),
+      { "package.json": JSON.stringify({ name: "@team/intruder", version: "1.0.0" }) },
+      "intruder.tgz",
+    );
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "NAMESPACE_DENIED" });
+  });
+
+  it("allows upload into the key's own namespace", async () => {
+    const res = await uploadTgz(
+      appAs(principal(["@acme"])),
+      { "package.json": JSON.stringify({ name: "@acme/new-app", version: "1.0.0" }) },
+      "new-app.tgz",
+    );
+    expect(res.status).toBe(200);
   });
 });

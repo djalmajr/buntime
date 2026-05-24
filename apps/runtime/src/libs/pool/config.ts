@@ -43,7 +43,11 @@ const sizeSchema = z.union([z.number().positive(), z.string()]);
 
 const workerConfigSchema = z.object({
   autoInstall: boolean(WorkerConfigDefaults.autoInstall, z.boolean()),
-  enabled: boolean(WorkerConfigDefaults.enabled, z.boolean()),
+  // Plain optional boolean (not the `boolean()` helper) so an explicit
+  // `enabled: false` is preserved — the helper coerces falsy values to its
+  // default, which would flip a disabled worker back on. parseWorkerConfig
+  // applies the `true` default when the key is absent.
+  enabled: z.boolean().optional(),
   entrypoint: z.string().optional(),
   env: z.record(z.string(), z.coerce.string()).optional(),
   envPrefix: z.array(z.string()).default([...WorkerConfigDefaults.envPrefix]),

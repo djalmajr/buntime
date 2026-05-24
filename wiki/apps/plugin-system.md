@@ -444,6 +444,17 @@ menus:
 
 Details in [Micro-Frontend Architecture](./micro-frontend.md).
 
+> [!IMPORTANT]
+> **The shell loads the plugin base with a trailing slash.** `<z-frame>`
+> normalizes its `src` to `/<base>/` (e.g. `/hello/`, not `/hello`). Workers
+> with an `entrypoint` get a 308 redirect from `/<base>` to `/<base>/` and the
+> worker pool serves the HTML — so this is transparent. But a plugin that
+> serves its own UI through `server.routes` must register **both** `/<base>`
+> and `/<base>/` (Bun native routes match exactly), otherwise the iframe loads
+> `/<base>/` and 404s while a direct `fetch('/<base>')` succeeds — a confusing
+> asymmetry. Prefer an `entrypoint` for UI plugins; reach for `server.routes`
+> HTML only for trivial pages, and serve the trailing-slash form too.
+
 ## Middleware vs `onRequest`
 
 Hono middleware is a native alternative to `onRequest`. Differences:

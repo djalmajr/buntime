@@ -1,3 +1,11 @@
+## What's New in 0.3.2
+
+### Runtime / Turso
+- **Dynamic state now survives pod restarts.** `plugin-turso`'s `transaction()` pushes the embedded replica to the sync server after each commit in sync mode (best-effort). Previously, transactional writes — `plugin-proxy` redirect rules, `plugin-gateway` shell-excludes — lived only in the local replica and were lost on restart because the replica re-pulls authoritative state from the server on reconnect. Local mode is unchanged.
+
+### Gateway / Proxy (docs)
+- Corrected the `plugin-proxy` admin API path: rules are managed at `/redirects/admin/rules` (not `/api`). New operator runbook covers deploying apps, the micro-frontend app-shell, and proxy redirects on the Rancher-local cluster, including the auth-bypasses-the-shell gotcha.
+
 ## What's New in 0.3.1
 
 ### Namespaces

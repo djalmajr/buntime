@@ -8,7 +8,7 @@ sources:
   - https://docs.turso.tech/sync/usage
   - https://docs.turso.tech/sync/local-sync-server
   - https://docs.turso.tech/tursodb/concurrent-writes
-updated: 2026-05-02
+updated: 2026-05-24
 tags: [plugin, turso, storage, sync, k8s]
 status: draft
 ---
@@ -118,6 +118,23 @@ The plugin auto-detects the mode from env vars. Precedence (first match wins):
 requires CDC. The downgrade is transparent — callers still get
 serializable behavior, just without MVCC retry semantics. Use explicit
 `type: "exclusive"` for DDL.
+
+#### Push-after-commit (durability)
+
+In sync mode, `transaction()` **pushes the replica to the sync server after a
+successful `COMMIT`** (best-effort — push failures are logged, not thrown; the
+row lives locally and syncs on the next push). Without this, a committed write
+only exists in the local replica (`/data/turso/runtime.db`) and is **lost on pod
+restart**, because the replica pulls authoritative state from the server on
+reconnect. This is what makes dynamic state written through a transaction —
+`plugin-proxy` rules, `plugin-gateway` shell-excludes — survive a restart, the
+same guarantee `ApiKeyStore` gets from its own push-after-write. Plain reads via
+`connect().prepare().all()` do not transact and do not push.
+
+> Symptom this fixes: a dynamic proxy rule created via `POST
+> /redirects/admin/rules` vanished after `helm upgrade`/pod roll until the
+> service pushed on commit (shipped in app `1.2.2+`). See
+> [the runbook](../ops/runbook-apps-gateway-proxy.md#3-proxy-redirects-plugin-proxy).
 
 ## Chart Direction
 

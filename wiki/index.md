@@ -55,6 +55,7 @@ Centralized knowledge base for the **Buntime runtime** — a Bun runtime with an
 | [Environment variables](./ops/environments.md) | Full table of env vars for the runtime and core plugins, defaults, pool size per env, `/data` layout |
 | [Local dev](./ops/local-dev.md) | `bun dev` at the root, `.env`, external plugins in watch mode, 3 modes (dev/bundle/binary), Docker Compose profiles |
 | [Helm charts](./ops/helm-charts.md) | `charts/buntime` + `charts/libsql` structure, generation scripts, principles (mandatory volumes, defaults), Rancher questions |
+| [Runbook — apps, app-shell, proxy](./ops/runbook-apps-gateway-proxy.md) | End-to-end operator steps on the Rancher-local cluster: upload/address workers, configure the gateway micro-frontend shell (`example-spa`), and proxy `/api` to a backend; with the auth-bypass + Turso-durability gotchas |
 | [Release flow](./ops/release-flow.md) | Dual versioning (chart vs runtime), `bump-version.ts`, **two flows**: GitHub Actions/GHCR/`zommehq/charts` and self-hosted GitLab/`registry.example.com` |
 | [JSR publish](./ops/jsr-publish.md) | `@buntime/shared` via GitHub Actions OIDC; version sync `jsr.json` ↔ `package.json` |
 | [Logging](./ops/logging.md) | Runtime central logger (`@buntime/shared/logger`), transports, request ID correlation; cross-ref to `plugin-logs` |

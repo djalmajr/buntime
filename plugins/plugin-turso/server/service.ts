@@ -28,6 +28,12 @@ const TransactionBeginSql = {
 export interface TursoServiceOptions {
   config: TursoResolvedConfig;
   logger: PluginLogger;
+  /**
+   * Test seam: override how adapters are opened. Defaults to
+   * `TursoAdapter.open`. Lets tests inject a fake adapter (e.g. to assert
+   * push-after-write in sync mode) without a live turso-server.
+   */
+  openAdapter?: typeof TursoAdapter.open;
 }
 
 interface TursoEnvironment {
@@ -199,10 +205,12 @@ export class TursoServiceImpl implements TursoService {
   private readonly config: TursoResolvedConfig;
   private readonly logger: PluginLogger;
   private readonly namespaces = new Set<string>();
+  private readonly openAdapter: typeof TursoAdapter.open;
 
   constructor(options: TursoServiceOptions) {
     this.config = options.config;
     this.logger = options.logger;
+    this.openAdapter = options.openAdapter ?? TursoAdapter.open;
   }
 
   async close(): Promise<void> {
@@ -239,7 +247,7 @@ export class TursoServiceImpl implements TursoService {
       }
       const open = (async () => {
         const perNamespaceConfig = this.buildNamespaceConfig(ns);
-        const adapter = await TursoAdapter.open({
+        const adapter = await this.openAdapter({
           config: perNamespaceConfig,
           logger: this.logger,
         });
@@ -256,7 +264,7 @@ export class TursoServiceImpl implements TursoService {
 
     // Single-tenant mode: one adapter shared across the process.
     if (!this.adapter) {
-      this.adapter = await TursoAdapter.open({
+      this.adapter = await this.openAdapter({
         config: this.config,
         logger: this.logger,
       });
@@ -424,6 +432,23 @@ export class TursoServiceImpl implements TursoService {
       try {
         const result = await callback(db);
         await db.exec("COMMIT");
+        // Durability: in sync mode a committed write only lives in the local
+        // replica until it is pushed to the sync server. Push best-effort so
+        // dynamic state written through a transaction (proxy rules, gateway
+        // shell-excludes, etc.) survives a pod restart — on restart the replica
+        // pulls from the server, so an unpushed write would otherwise be lost.
+        // Mirrors ApiKeyStore's push-after-write. Failures are swallowed: the
+        // row lives locally and will sync on the next push.
+        if (this.config.mode === "sync") {
+          try {
+            await db.push();
+          } catch (pushError) {
+            this.logger.warn("Turso push after transaction failed (best-effort)", {
+              error: getErrorMessage(pushError),
+              namespace: options.namespace,
+            });
+          }
+        }
         return result;
       } catch (error) {
         await db.exec("ROLLBACK").catch((rollbackError) => {

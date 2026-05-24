@@ -8,9 +8,39 @@ import { PluginLoader } from "../../apps/runtime/src/plugins/loader.ts";
 import tursoPlugin, {
   tursoPlugin as namedExport,
   resolveTursoConfig,
+  type TursoAdapter,
   type TursoService,
   TursoServiceImpl,
 } from "./plugin.ts";
+
+/**
+ * Build a fake adapter (cast to `TursoAdapter`) with a `push` spy, so a
+ * `TursoServiceImpl` can be exercised without a live turso-server. Used to
+ * assert the durability behavior of `transaction()` (push-after-commit in
+ * sync mode).
+ */
+function createFakeAdapter(mode: "local" | "sync") {
+  const push = mock(async () => {});
+  const exec = mock(async (_sql: string) => {});
+  const adapter = {
+    checkpoint: async () => {},
+    close: async () => {},
+    exec,
+    getRawClient: () => ({}),
+    getSyncStats: async () => null,
+    localPath: "/tmp/fake.db",
+    mode,
+    prepare: () => ({
+      all: async () => [],
+      get: async () => null,
+      run: async () => ({ changes: 1, lastInsertRowid: 1 }),
+    }),
+    pull: async () => false,
+    push,
+    transaction: async (cb: (db: unknown) => Promise<unknown>) => cb(adapter),
+  };
+  return { adapter, exec, push };
+}
 
 function createMockLogger(): PluginLogger {
   return {
@@ -207,6 +237,42 @@ describe("TursoServiceImpl", () => {
       .get<{ value: number }>("requests");
 
     expect(row?.value).toBe(1);
+
+    await service.close();
+  });
+
+  it("pushes after a write transaction in sync mode (durability)", async () => {
+    const { adapter, push } = createFakeAdapter("sync");
+    const service = new TursoServiceImpl({
+      config: { localPath: "/tmp/fake.db", mode: "sync", sync: { url: "http://fake-sync" } },
+      logger: createMockLogger(),
+      openAdapter: async () => adapter as unknown as TursoAdapter,
+    });
+
+    await service.transaction({ namespace: "proxy" }, async (tx) => {
+      await tx.prepare("INSERT INTO proxy_rules (id) VALUES (?)").run("r1");
+    });
+
+    // Without this push, the committed write only lives in the local replica
+    // and is lost when the pod restarts (the symptom this fix resolves).
+    expect(push).toHaveBeenCalledTimes(1);
+
+    await service.close();
+  });
+
+  it("does not push in local mode", async () => {
+    const { adapter, push } = createFakeAdapter("local");
+    const service = new TursoServiceImpl({
+      config: { localPath: "/tmp/fake.db", mode: "local" },
+      logger: createMockLogger(),
+      openAdapter: async () => adapter as unknown as TursoAdapter,
+    });
+
+    await service.transaction({ namespace: "proxy" }, async (tx) => {
+      await tx.prepare("INSERT INTO t (id) VALUES (?)").run("r1");
+    });
+
+    expect(push).toHaveBeenCalledTimes(0);
 
     await service.close();
   });

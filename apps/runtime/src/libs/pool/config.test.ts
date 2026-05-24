@@ -93,6 +93,19 @@ describe("loadWorkerConfig", () => {
       expect(config.lowMemory).toBe(true);
     });
 
+    it("should default enabled to true and surface enabled:false from the manifest", async () => {
+      const onDir = join(baseTestDir, `enabled-on-${Date.now()}-${Math.random()}`);
+      const offDir = join(baseTestDir, `enabled-off-${Date.now()}-${Math.random()}`);
+      mkdirSync(onDir, { recursive: true });
+      mkdirSync(offDir, { recursive: true });
+
+      writeManifest(onDir, { timeout: 30 });
+      writeManifest(offDir, { enabled: false });
+
+      expect((await loadWorkerConfig(onDir)).enabled).toBe(true);
+      expect((await loadWorkerConfig(offDir)).enabled).toBe(false);
+    });
+
     it("should cache config reads within the configured TTL", async () => {
       const uniqueDir = join(baseTestDir, `manifest-cache-${Date.now()}-${Math.random()}`);
       mkdirSync(uniqueDir, { recursive: true });

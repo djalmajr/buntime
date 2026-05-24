@@ -43,6 +43,7 @@ const sizeSchema = z.union([z.number().positive(), z.string()]);
 
 const workerConfigSchema = z.object({
   autoInstall: boolean(WorkerConfigDefaults.autoInstall, z.boolean()),
+  enabled: boolean(WorkerConfigDefaults.enabled, z.boolean()),
   entrypoint: z.string().optional(),
   env: z.record(z.string(), z.coerce.string()).optional(),
   envPrefix: z.array(z.string()).default([...WorkerConfigDefaults.envPrefix]),

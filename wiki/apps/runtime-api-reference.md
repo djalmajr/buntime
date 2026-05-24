@@ -275,6 +275,32 @@ curl -X POST \
 Errors: `NO_WORKER_DIRS` (400), `NO_FILE_PROVIDED` (400),
 `INVALID_FILE_TYPE` (400), `PATH_TRAVERSAL` (400).
 
+### `POST /api/workers/:scope/:name/:version/{enable,disable}`
+
+Toggle a worker **version** at runtime (no restart). Disabling writes
+`enabled: false` to that version's `manifest.yaml` (creating the manifest if
+the worker shipped only `package.json`) and clears the worker-config cache. A
+disabled version is treated as not-installed — its base path 404s. Use `_` as
+scope for unscoped workers.
+
+```bash
+# Disable hello-app 1.0.0 (unscoped)
+curl -X POST -H "X-API-Key: $KEY" \
+  "https://buntime.home/_/api/workers/_/hello-app/1.0.0/disable"
+
+# Re-enable a scoped worker version
+curl -X POST -H "X-API-Key: $KEY" \
+  "https://buntime.home/_/api/workers/@acme/api/0.1.0/enable"
+```
+
+`GET /api/workers` returns `disabledVersions: string[]` per worker so the
+cpanel can render the right toggle state. Requires `workers:install`.
+
+> [!NOTE]
+> Enable/disable is exposed in the cpanel as a per-row action in the Workers
+> file-browser dropdown (on the version folder). The same pattern exists for
+> plugins in the Plugins tab.
+
 ### `DELETE /api/workers/:scope/:name[/:version]`
 
 Without version: removes the entire worker (all versions). With version:

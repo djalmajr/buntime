@@ -13,6 +13,8 @@ import type { FileEntry } from "~/helpers/fs-api";
 
 interface FileRowProps {
   entry: FileEntry;
+  /** Optional extra dropdown items (e.g. plugin/worker enable-disable). */
+  extraActions?: (entry: FileEntry) => React.ReactNode;
   readOnly?: boolean;
   selected?: boolean;
   onDelete: (entry: FileEntry) => void;
@@ -33,6 +35,7 @@ function formatBytes(bytes: number): string {
 
 export function FileRow({
   entry,
+  extraActions,
   readOnly,
   selected,
   onDelete,
@@ -42,6 +45,7 @@ export function FileRow({
   onRename,
   onSelect,
 }: FileRowProps) {
+  const extra = extraActions?.(entry);
   const handleClick = () => {
     if (entry.isDirectory) onNavigate(entry.path);
   };
@@ -184,6 +188,12 @@ export function FileRow({
                 <Icon className="size-4" icon="lucide:download" />
                 Download
               </DropdownMenuItem>
+              {extra && (
+                <>
+                  <DropdownMenuSeparator />
+                  {extra}
+                </>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="gap-2"

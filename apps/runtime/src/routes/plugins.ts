@@ -15,6 +15,7 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { getConfig } from "@/config";
 import { PluginInfoSchema, SuccessResponse } from "@/libs/openapi";
+import { setManifestEnabled } from "@/libs/registry/manifest-enabled";
 import {
   createTempDir,
   detectArchiveFormat,
@@ -122,33 +123,6 @@ async function listInstalledPlugins(pluginDirs: string[]): Promise<PluginInfo[]>
     removable: plugin.removable,
     source: plugin.source,
   }));
-}
-
-/**
- * Set the `enabled` flag in a plugin's manifest, preserving comments and
- * formatting. Surgically replaces an existing top-level `enabled:` line, or
- * prepends one when absent. Returns false if no manifest file exists.
- *
- * The manifest is the source of truth for enabled state (the loader skips
- * `enabled: false`), so toggling here + a rescan is enough to load/unload a
- * plugin at runtime.
- */
-async function setManifestEnabled(pluginDir: string, enabled: boolean): Promise<boolean> {
-  for (const filename of ["manifest.yaml", "manifest.yml"]) {
-    const manifestPath = join(pluginDir, filename);
-    const file = Bun.file(manifestPath);
-    if (!(await file.exists())) continue;
-
-    const content = await file.text();
-    const line = `enabled: ${enabled}`;
-    // Match a top-level `enabled:` line (no leading whitespace).
-    const enabledRe = /^enabled:[^\n]*$/m;
-    const next = enabledRe.test(content) ? content.replace(enabledRe, line) : `${line}\n${content}`;
-
-    await Bun.write(manifestPath, next);
-    return true;
-  }
-  return false;
 }
 
 /**

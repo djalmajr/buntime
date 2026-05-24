@@ -7,7 +7,11 @@
   },
   "admin": {
     "workers": {
+      "disable": "Desabilitar",
+      "disabled": "{{name}} desabilitado",
       "empty": "Nenhum worker instalado.",
+      "enable": "Habilitar",
+      "enabled": "{{name}} habilitado",
       "listTitle": "Workers",
       "nameColumn": "Nome",
       "pathColumn": "Caminho",
@@ -15,6 +19,7 @@
       "removeVersion": "Remover versão {{version}}",
       "searchPlaceholder": "Buscar workers...",
       "sourceColumn": "Origem",
+      "toggleFailed": "Falha ao alternar worker",
       "uploaded": "Worker enviado",
       "uploadTitle": "Enviar worker",
       "versionRemoved": "Versão removida",

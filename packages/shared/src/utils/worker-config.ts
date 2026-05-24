@@ -20,6 +20,7 @@ export type AppVisibility = "internal" | "protected" | "public";
  */
 export const WorkerConfigDefaults = {
   autoInstall: false,
+  enabled: true,
   envPrefix: ["PUBLIC_", "VITE_"] as readonly string[],
   idleTimeout: 60,
   injectBase: false,
@@ -45,6 +46,15 @@ export const WorkerConfigDefaults = {
  */
 export interface WorkerManifest {
   autoInstall?: boolean;
+
+  /**
+   * When false, the runtime refuses to resolve/serve this worker version —
+   * requests to its base path 404 as if it were not installed. Toggled at
+   * runtime via the workers enable/disable endpoints (no restart).
+   * @default true
+   */
+  enabled?: boolean;
+
   entrypoint?: string;
 
   /**
@@ -134,6 +144,7 @@ export interface WorkerManifest {
  */
 export interface WorkerConfig {
   autoInstall: boolean;
+  enabled: boolean;
   entrypoint?: string;
   env?: Record<string, string>;
   envPrefix: string[];
@@ -166,6 +177,7 @@ export interface WorkerConfig {
 export function parseWorkerConfig(manifest: WorkerManifest | null | undefined): WorkerConfig {
   return {
     autoInstall: manifest?.autoInstall ?? WorkerConfigDefaults.autoInstall,
+    enabled: manifest?.enabled ?? WorkerConfigDefaults.enabled,
     entrypoint: manifest?.entrypoint,
     env: manifest?.env,
     envPrefix: manifest?.envPrefix ?? [...WorkerConfigDefaults.envPrefix],

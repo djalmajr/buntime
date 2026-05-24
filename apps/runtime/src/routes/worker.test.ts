@@ -22,6 +22,7 @@ afterAll(() => {
 // Mock WorkerConfig
 const _createMockWorkerConfig = (): WorkerConfig => ({
   autoInstall: false,
+  enabled: true,
   entrypoint: "index.ts",
   env: {},
   envPrefix: ["PUBLIC_", "VITE_"],

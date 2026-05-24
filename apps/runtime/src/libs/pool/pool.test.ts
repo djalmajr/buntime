@@ -10,6 +10,7 @@ const TEST_DIR = join(import.meta.dir, ".test-pool");
 // Create a mock worker config
 const createMockConfig = (overrides: Partial<WorkerConfig> = {}): WorkerConfig => ({
   autoInstall: false,
+  enabled: true,
   entrypoint: "index.ts",
   env: {},
   envPrefix: ["PUBLIC_", "VITE_"],

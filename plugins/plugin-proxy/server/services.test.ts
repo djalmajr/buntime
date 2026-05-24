@@ -361,6 +361,65 @@ describe("HTTP proxy", () => {
       }
       fetchMock.mockRestore();
     });
+
+    it("sets x-forwarded-host and x-forwarded-proto from the request", async () => {
+      const fetchMock = spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+      const request = new Request("http://localhost:8080/api");
+      const rule = compileRule(createRule({ target: TARGET }), false);
+      if (rule) {
+        await httpProxy(request, rule, "/api");
+        const h = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+        expect(h.get("x-forwarded-host")).toBe("localhost:8080");
+        expect(h.get("x-forwarded-proto")).toBe("http");
+      }
+      fetchMock.mockRestore();
+    });
+
+    it("derives x-real-ip from an upstream x-forwarded-for and preserves the chain", async () => {
+      const fetchMock = spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+      const request = new Request("http://localhost:8080/api", {
+        headers: { "x-forwarded-for": "9.9.9.9" },
+      });
+      const rule = compileRule(createRule({ target: TARGET }), false);
+      if (rule) {
+        await httpProxy(request, rule, "/api");
+        const h = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+        expect(h.get("x-real-ip")).toBe("9.9.9.9");
+        expect(h.get("x-forwarded-for")).toBe("9.9.9.9");
+      }
+      fetchMock.mockRestore();
+    });
+
+    it("does not overwrite an existing x-real-ip", async () => {
+      const fetchMock = spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+      const request = new Request("http://localhost:8080/api", {
+        headers: { "x-forwarded-for": "9.9.9.9", "x-real-ip": "8.8.8.8" },
+      });
+      const rule = compileRule(createRule({ target: TARGET }), false);
+      if (rule) {
+        await httpProxy(request, rule, "/api");
+        const h = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+        expect(h.get("x-real-ip")).toBe("8.8.8.8");
+      }
+      fetchMock.mockRestore();
+    });
+
+    it("sets x-real-ip/x-forwarded-for from the socket when there is no upstream chain", async () => {
+      const fake = { requestIP: () => ({ address: "5.6.7.8" }) };
+      setProxyServer(fake as unknown as Parameters<typeof setProxyServer>[0]);
+      const fetchMock = spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+      const request = new Request("http://localhost:8080/api");
+      const rule = compileRule(createRule({ target: TARGET }), false);
+      if (rule) {
+        await httpProxy(request, rule, "/api");
+        const h = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+        expect(h.get("x-real-ip")).toBe("5.6.7.8");
+        expect(h.get("x-forwarded-for")).toBe("5.6.7.8");
+      }
+      fetchMock.mockRestore();
+      // Reset so the injected socket IP does not leak into later tests.
+      setProxyServer({ requestIP: () => null } as unknown as Parameters<typeof setProxyServer>[0]);
+    });
   });
 
   describe("response handling", () => {

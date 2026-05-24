@@ -479,13 +479,10 @@ describe("createApp", () => {
       initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
 
       const app = createApp(createDeps({ apiKeys }));
-      const req = new Request(
-        `http://localhost${API_PATH}/workers/@team/billing/1.0.0/disable`,
-        {
-          headers: { host: "localhost", [Headers.API_KEY]: created.key },
-          method: "POST",
-        },
-      );
+      const req = new Request(`http://localhost${API_PATH}/workers/@team/billing/1.0.0/disable`, {
+        headers: { host: "localhost", [Headers.API_KEY]: created.key },
+        method: "POST",
+      });
       const res = await app.fetch(req);
       expect(res.status).toBe(403);
       expect(await res.json()).toMatchObject({ code: "NAMESPACE_DENIED" });
@@ -504,13 +501,10 @@ describe("createApp", () => {
       initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
 
       const app = createApp(createDeps({ apiKeys }));
-      const req = new Request(
-        `http://localhost${API_PATH}/workers/@acme/checkout/1.0.0/disable`,
-        {
-          headers: { host: "localhost", [Headers.API_KEY]: created.key },
-          method: "POST",
-        },
-      );
+      const req = new Request(`http://localhost${API_PATH}/workers/@acme/checkout/1.0.0/disable`, {
+        headers: { host: "localhost", [Headers.API_KEY]: created.key },
+        method: "POST",
+      });
       const res = await app.fetch(req);
       // The gate lets it through; the mock coreRoutes has no such route (404),
       // proving only that we did NOT 403 on the namespace.
@@ -603,6 +597,73 @@ describe("createApp", () => {
       });
       const res = await app.fetch(req);
       expect(res.status).toBe(401);
+    });
+
+    // The runtime-credential bypass of plugin onRequest hooks must be scoped to
+    // HEADER credentials (automation). A `buntime_api_key` cookie is a browser
+    // cpanel session and must NOT disable content plugins (gateway app-shell,
+    // proxy) for ordinary app traffic on the same browser.
+    it("does NOT bypass onRequest hooks for a cookie session", async () => {
+      const apiKeys = await ApiKeyStore.open({
+        dbPath: join(TEST_DIR, "cookie-no-bypass.db"),
+        mode: "local",
+      });
+      const created = await apiKeys.create({ name: "Session", role: "editor" });
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      const hookCalled = { value: false };
+      registry.register(
+        createMockPlugin({
+          base: "/shell-like",
+          name: "shell-like",
+          onRequest: async () => {
+            hookCalled.value = true;
+            return new Response("shell-served", { status: 200 });
+          },
+        }),
+      );
+
+      const app = createApp(createDeps({ apiKeys }));
+      const req = new Request("http://localhost/some-app", {
+        headers: {
+          cookie: `buntime_api_key=${created.key}`,
+          host: "localhost",
+          origin: "http://localhost",
+        },
+      });
+      const res = await app.fetch(req);
+      expect(hookCalled.value).toBe(true); // onRequest ran despite the valid cookie
+      expect(await res.text()).toBe("shell-served");
+    });
+
+    it("bypasses onRequest hooks for a header credential (automation)", async () => {
+      const apiKeys = await ApiKeyStore.open({
+        dbPath: join(TEST_DIR, "header-bypass.db"),
+        mode: "local",
+      });
+      const created = await apiKeys.create({ name: "Automation", role: "editor" });
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+
+      const hookCalled = { value: false };
+      registry.register(
+        createMockPlugin({
+          base: "/shell-like-2",
+          name: "shell-like-2",
+          onRequest: async () => {
+            hookCalled.value = true;
+            return new Response("shell-served", { status: 200 });
+          },
+        }),
+      );
+
+      const workersMock = new HonoApp().all("*", () => new Response("worker-fallback"));
+      const app = createApp(createDeps({ apiKeys, workers: workersMock }));
+      const req = new Request("http://localhost/some-app", {
+        headers: { host: "localhost", [Headers.API_KEY]: created.key },
+      });
+      const res = await app.fetch(req);
+      expect(hookCalled.value).toBe(false); // onRequest bypassed for the header credential
+      expect(await res.text()).toBe("worker-fallback");
     });
   });
 

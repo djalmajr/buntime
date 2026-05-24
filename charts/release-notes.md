@@ -1,3 +1,16 @@
+## What's New in 0.3.1
+
+### Namespaces
+- **`@namespace/app` workers are URL-addressable.** A scoped worker stored at `<workerDir>/@team/app/<version>/` now serves at `/@team/app/...` (the `@` is kept). Gives teams (`@acme`, `@team`) or environments (`@staging`, `@production`) a separate context, complementing the physical multi-directory support. Unscoped workers keep serving at `/app/...`.
+- **Namespace-scoped API-key permissions.** Keys carry a `namespaces` list (`["*"]` = full access, the default and the value for legacy/root keys). A restricted key only sees and manages its own `@scope` workers/plugins: the runtime 403s `NAMESPACE_DENIED` on management routes, gates uploads by the package scope, filters worker/plugin lists, and the cpanel FileBrowser hides folders the key cannot access. The key-create form gains a Namespaces field.
+
+### Runtime
+- **Enable/disable a worker or plugin without a restart.** `manifest.enabled` (default `true`) gates whether a worker version is served (`POST /api/workers/:scope/:name/:version/{enable,disable}`); plugins toggle via `POST /api/plugins/:name/{enable,disable}` with a live `server.reload()`. Disabled units 404 at their base path.
+- Scope-aware filesystem path policies so drag-drop, upload, and management work correctly inside `@scope/...` folders.
+
+### Cpanel
+- Gateway and Redirects iframe headers unified with the Plugins/Workers surfaces; enable/disable surfaced as a FileBrowser dropdown action.
+
 ## What's New in 0.3.0
 
 ### Authentication

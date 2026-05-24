@@ -2,8 +2,8 @@ apiVersion: v2
 name: buntime
 description: A Helm chart for Buntime - Worker Pool Runtime for Bun applications
 type: application
-version: 0.3.0
-appVersion: "1.2.0"
+version: 0.3.1
+appVersion: "1.2.1"
 icon: https://bun.sh/logo.svg
 keywords:
   - buntime

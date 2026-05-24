@@ -9,6 +9,7 @@ const TEST_DIR = join(import.meta.dir, ".test-instance");
 
 const createMockConfig = (overrides: Partial<WorkerConfig> = {}): WorkerConfig => ({
   autoInstall: false,
+  enabled: true,
   entrypoint: "index.ts",
   env: {},
   envPrefix: ["PUBLIC_", "VITE_"],

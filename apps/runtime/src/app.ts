@@ -83,6 +83,12 @@ async function resolveTargetApp(
     const dir = getWorkerDir(appName);
     if (dir) {
       const workerConfig = await loadWorkerConfig(dir);
+      // A disabled worker version is treated as not-installed: the request
+      // falls through to a 404 instead of being served. Toggled at runtime via
+      // the workers enable/disable endpoints (manifest.enabled + cache clear).
+      if (workerConfig.enabled === false) {
+        return undefined;
+      }
       return {
         basePath: `/${appName}`,
         config: workerConfig,

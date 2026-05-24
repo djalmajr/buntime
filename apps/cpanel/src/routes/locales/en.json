@@ -7,7 +7,11 @@
   },
   "admin": {
     "workers": {
+      "disable": "Disable",
+      "disabled": "{{name}} disabled",
       "empty": "No workers installed.",
+      "enable": "Enable",
+      "enabled": "{{name}} enabled",
       "listTitle": "Workers",
       "nameColumn": "Name",
       "pathColumn": "Path",
@@ -15,6 +19,7 @@
       "removeVersion": "Remove version {{version}}",
       "searchPlaceholder": "Search workers...",
       "sourceColumn": "Source",
+      "toggleFailed": "Failed to toggle worker",
       "uploaded": "Worker uploaded",
       "uploadTitle": "Upload worker",
       "versionRemoved": "Version removed",

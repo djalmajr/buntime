@@ -1,10 +1,36 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { errorToResponse } from "@buntime/shared/errors";
 import { Hono } from "hono";
 import { createWorkersRoutes } from "./workers";
+
+/**
+ * Build a gzipped tarball (npm-pack style: files wrapped in `package/`) from a
+ * map of relative path -> content. The upload handler strips the wrapper.
+ */
+async function makeTgz(files: Record<string, string>): Promise<Blob> {
+  const stage = await mkdtemp(join(tmpdir(), "buntime-tgz-"));
+  const pkgRoot = join(stage, "package");
+  for (const [rel, content] of Object.entries(files)) {
+    const abs = join(pkgRoot, rel);
+    await mkdir(dirname(abs), { recursive: true });
+    await writeFile(abs, content);
+  }
+  const out = join(stage, "pkg.tgz");
+  const proc = Bun.spawn(["tar", "-czf", out, "-C", stage, "package"], { stderr: "pipe" });
+  await proc.exited;
+  const bytes = await Bun.file(out).arrayBuffer();
+  await rm(stage, { force: true, recursive: true });
+  return new Blob([bytes], { type: "application/gzip" });
+}
+
+async function uploadTgz(app: Hono, files: Record<string, string>, filename = "w.tgz") {
+  const fd = new FormData();
+  fd.append("file", await makeTgz(files), filename);
+  return app.request("/workers/upload", { method: "POST", body: fd });
+}
 
 let builtInDir = "";
 let testDir = "";
@@ -116,6 +142,120 @@ describe("workers routes", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({
       code: "BUILT_IN_WORKER_VERSION_REMOVE_FORBIDDEN",
+    });
+  });
+
+  describe("upload", () => {
+    it("rejects a non-archive file type", async () => {
+      const fd = new FormData();
+      fd.append("file", new Blob(["x"], { type: "text/plain" }), "worker.txt");
+      const res = await createTestApp().request("/workers/upload", { method: "POST", body: fd });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ code: "INVALID_FILE_TYPE" });
+    });
+
+    it("installs an unscoped worker at {name}/{version}/", async () => {
+      const res = await uploadTgz(createTestApp(), {
+        "index.ts": "export default { fetch: () => new Response('ok') };",
+        "package.json": JSON.stringify({ name: "hello-app", version: "1.2.3" }),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        data: { worker: { name: "hello-app", version: "1.2.3" } },
+        success: true,
+      });
+      expect(await Bun.file(join(uploadDir, "hello-app", "1.2.3", "package.json")).exists()).toBe(
+        true,
+      );
+    });
+
+    it("installs a scoped worker at @scope/{name}/{version}/", async () => {
+      const res = await uploadTgz(createTestApp(), {
+        "manifest.yaml": 'name: "@acme/api"\nversion: "0.1.0"\n',
+        "index.ts": "export default { fetch: () => new Response('ok') };",
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        data: { worker: { name: "@acme/api", version: "0.1.0" } },
+      });
+      expect(await Bun.file(join(uploadDir, "@acme", "api", "0.1.0", "index.ts")).exists()).toBe(
+        true,
+      );
+    });
+
+    it("defaults the version to 'latest' when the manifest omits it", async () => {
+      const res = await uploadTgz(createTestApp(), {
+        "manifest.yaml": 'name: "no-version-app"\n',
+        "index.ts": "export default { fetch: () => new Response('ok') };",
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        data: { worker: { name: "no-version-app", version: "latest" } },
+      });
+      expect(await Bun.file(join(uploadDir, "no-version-app", "latest", "index.ts")).exists()).toBe(
+        true,
+      );
+    });
+
+    it("upserts: re-uploading the same version replaces the folder", async () => {
+      const app = createTestApp();
+      await uploadTgz(app, {
+        "package.json": JSON.stringify({ name: "upsert-app", version: "1.0.0" }),
+        "old.txt": "old",
+      });
+      await uploadTgz(app, {
+        "package.json": JSON.stringify({ name: "upsert-app", version: "1.0.0" }),
+        "new.txt": "new",
+      });
+      const dir = join(uploadDir, "upsert-app", "1.0.0");
+      expect(await Bun.file(join(dir, "new.txt")).exists()).toBe(true);
+      expect(await Bun.file(join(dir, "old.txt")).exists()).toBe(false);
+    });
+  });
+
+  describe("enable/disable (hot, no restart)", () => {
+    it("disables a worker version by writing manifest.enabled=false", async () => {
+      await createWorkerVersion(uploadDir, "toggle-app", "1.0.0", "@acme/toggle-app");
+      const res = await createTestApp().request("/workers/%40acme/toggle-app/1.0.0/disable", {
+        method: "POST",
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        data: { enabled: false, name: "@acme/toggle-app", version: "1.0.0" },
+        success: true,
+      });
+      const manifest = await Bun.file(
+        join(uploadDir, "toggle-app", "1.0.0", "manifest.yaml"),
+      ).text();
+      expect(manifest).toContain("enabled: false");
+    });
+
+    it("enables a worker version (replaces an existing disabled flag)", async () => {
+      const dir = join(uploadDir, "toggle-app", "1.0.0");
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "toggle-app", version: "1.0.0" }),
+      );
+      await writeFile(join(dir, "manifest.yaml"), 'enabled: false\nttl: "1m"\n');
+
+      const res = await createTestApp().request("/workers/_/toggle-app/1.0.0/enable", {
+        method: "POST",
+      });
+      expect(res.status).toBe(200);
+      const manifest = await Bun.file(join(dir, "manifest.yaml")).text();
+      expect(manifest).toContain("enabled: true");
+      expect(manifest).not.toContain("enabled: false");
+      // Unrelated keys preserved.
+      expect(manifest).toContain('ttl: "1m"');
+    });
+
+    it("returns 404 for an unknown worker version", async () => {
+      const res = await createTestApp().request("/workers/_/nope/9.9.9/disable", {
+        method: "POST",
+      });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toMatchObject({ code: "WORKER_VERSION_NOT_FOUND" });
     });
   });
 });

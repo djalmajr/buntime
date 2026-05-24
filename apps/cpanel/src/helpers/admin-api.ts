@@ -70,6 +70,8 @@ export interface ApiKeyMeta {
 }
 
 export interface InstalledWorkerInfo {
+  /** Versions whose manifest sets `enabled: false`. */
+  disabledVersions?: string[];
   name: string;
   path: string;
   removable?: boolean;
@@ -183,6 +185,21 @@ export function uploadWorker(file: File): Promise<UploadResponse> {
 
 export async function deleteWorker(workerName: string): Promise<void> {
   await runtimeFetch(`/workers/${workerPathSegments(workerName)}`, { method: "DELETE" });
+}
+
+/**
+ * Enable or disable a specific worker version at runtime (no restart). A
+ * disabled version is treated as not-installed (its base path 404s).
+ */
+export async function setWorkerVersionEnabled(
+  workerName: string,
+  version: string,
+  enabled: boolean,
+): Promise<void> {
+  const action = enabled ? "enable" : "disable";
+  await runtimeFetch(`/workers/${workerPathSegments(workerName, version)}/${action}`, {
+    method: "POST",
+  });
 }
 
 export async function deleteWorkerVersion(workerName: string, version: string): Promise<void> {

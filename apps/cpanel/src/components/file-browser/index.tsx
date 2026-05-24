@@ -42,6 +42,12 @@ export interface FileBrowserProps {
   canWrite?: boolean;
   /** Optional extra header content rendered to the right of the breadcrumb. */
   headerExtra?: React.ReactNode;
+  /**
+   * Optional per-row dropdown menu items. Receives the row entry and returns
+   * extra `<DropdownMenuItem>`s (or null). Used by the Plugins/Workers tabs to
+   * inject enable/disable actions for plugin/worker-version folders.
+   */
+  extraActions?: (entry: FileEntry) => React.ReactNode;
 }
 
 export function FileBrowser({
@@ -50,6 +56,7 @@ export function FileBrowser({
   routePath,
   canWrite = true,
   headerExtra,
+  extraActions,
 }: FileBrowserProps) {
   const queryClient = useQueryClient();
   const search = useSearch({ from: routePath }) as { path?: string };
@@ -586,6 +593,7 @@ export function FileBrowser({
               filteredEntries.map((entry) => (
                 <FileRow
                   entry={entry}
+                  extraActions={extraActions}
                   key={entry.path}
                   readOnly={!canWrite || entry.visibility === "protected"}
                   selected={selectedPaths.has(entry.path)}

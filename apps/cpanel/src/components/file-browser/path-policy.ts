@@ -36,6 +36,8 @@ export interface ClientParsedPath {
   isInsideUnit: boolean;
   isUnitRoot: boolean;
   unitRoot: string | null;
+  /** Semver/“latest” version when the path is inside a worker unit. */
+  version: string | null;
 }
 
 export interface ClientPathPolicy {
@@ -82,6 +84,7 @@ export const workersClientPolicy: ClientPathPolicy = {
         isInsideUnit: false,
         isUnitRoot: false,
         unitRoot: null,
+        version: null,
       };
     }
     const scoped = hasScopePrefix(parts);
@@ -94,6 +97,7 @@ export const workersClientPolicy: ClientPathPolicy = {
         isInsideUnit: false,
         isUnitRoot: false,
         unitRoot: null,
+        version: null,
       };
     }
 
@@ -114,6 +118,7 @@ export const workersClientPolicy: ClientPathPolicy = {
         isInsideUnit: clean !== unitRoot && clean.startsWith(`${unitRoot}/`),
         isUnitRoot: clean === unitRoot,
         unitRoot,
+        version: flat.version,
       };
     }
 
@@ -126,6 +131,7 @@ export const workersClientPolicy: ClientPathPolicy = {
         isInsideUnit: false,
         isUnitRoot: false,
         unitRoot: null,
+        version: null,
       };
     }
     const versionSeg = parts[versionIdx]!;
@@ -136,6 +142,7 @@ export const workersClientPolicy: ClientPathPolicy = {
         isInsideUnit: false,
         isUnitRoot: false,
         unitRoot: null,
+        version: null,
       };
     }
     const unitRoot = scoped ? `${parts[0]}/${nameSeg}/${versionSeg}` : `${nameSeg}/${versionSeg}`;
@@ -145,6 +152,7 @@ export const workersClientPolicy: ClientPathPolicy = {
       isInsideUnit: clean !== unitRoot && clean.startsWith(`${unitRoot}/`),
       isUnitRoot: clean === unitRoot,
       unitRoot,
+      version: versionSeg,
     };
   },
 
@@ -226,6 +234,7 @@ export const pluginsClientPolicy: ClientPathPolicy = {
         isInsideUnit: false,
         isUnitRoot: false,
         unitRoot: null,
+        version: null,
       };
     }
     const scoped = hasScopePrefix(parts);
@@ -238,6 +247,7 @@ export const pluginsClientPolicy: ClientPathPolicy = {
         isInsideUnit: false,
         isUnitRoot: false,
         unitRoot: null,
+        version: null,
       };
     }
 
@@ -249,6 +259,7 @@ export const pluginsClientPolicy: ClientPathPolicy = {
       isInsideUnit: clean !== appName && clean.startsWith(`${appName}/`),
       isUnitRoot: clean === appName,
       unitRoot: appName,
+      version: null,
     };
   },
 

@@ -162,7 +162,12 @@ export function createWorkerResolver(workerDirs: string[], options: WorkerResolv
 }
 
 function resolveWorkerDir(workerDirs: string[], workerName: string): string {
-  const [name, versionRange] = workerName.split("@");
+  // Split name@version. Skip index 0 so a leading scope `@` (npm-style
+  // `@namespace/app`) is not mistaken for the version separator. The nested /
+  // flat / simple dir searches already handle a `@scope/app` name via `join`.
+  const atIndex = workerName.indexOf("@", 1);
+  const name = atIndex === -1 ? workerName : workerName.slice(0, atIndex);
+  const versionRange = atIndex === -1 ? undefined : workerName.slice(atIndex + 1);
   if (!name) return "";
 
   // Collect all versions from all directories

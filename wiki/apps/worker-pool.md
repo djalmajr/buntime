@@ -87,6 +87,35 @@ type WorkerResponse =
 
 Request/Response body travels as a transferable `ArrayBuffer`, avoiding copies.
 
+## Namespaces — `@namespace/app` addressing
+
+Workers are addressed by name in the URL. A namespaced (npm-scoped) worker
+`@namespace/app` — stored at `<workerDir>/@namespace/app/<version>/` — is
+served at **`/@namespace/app/...`** (keep the `@`). An unscoped worker `app`
+serves at `/app/...`. Namespaces give teams/environments a separate context:
+`@acme/checkout`, `@team/billing`, `@staging/api`, `@production/api`.
+
+This is a *logical* grouping orthogonal to the *physical* multi-directory
+support (`RUNTIME_WORKER_DIRS`): a namespace can live in any worker dir, and
+the resolver scans them all. Plugins differ — they declare an explicit
+single-segment `base` in their manifest, so their `@scope` only affects
+storage/listing, not the served URL.
+
+The single source of truth for "how many path segments form the name" is
+`parseAppPath` (`apps/runtime/src/utils/app-path.ts`): two segments when the
+first starts with `@`, one otherwise. It is used by both `resolveTargetApp`
+(app.ts) and the worker router (routes/worker.ts). `resolveWorkerDir` splits
+`name@version` with `indexOf("@", 1)` so a leading scope `@` is not mistaken
+for the version separator; its nested/flat/simple dir searches already handle a
+`@scope/app` name via `join`.
+
+> [!NOTE]
+> **Future (not built):** a vhost/subdomain form (`app.acme.host` via
+> `plugin-vhosts`) would map a host → `@ns/app` and reuse the same resolver.
+> Separately, per-environment **plugin** activation (enable a plugin only under
+> e.g. `@production`) is a wanted capability — plugins currently load globally
+> (`manifest.enabled` is all-or-nothing). Both are tracked for later.
+
 ## Enabling / disabling a worker version
 
 `manifest.enabled` (default `true`) gates whether a worker version is served.
@@ -95,15 +124,6 @@ base path 404s — no process restart needed. Toggle it via
 `POST /api/workers/:scope/:name/:version/{enable,disable}` (see the
 [API reference](./runtime-api-reference.md)); the endpoint edits the version's
 manifest and clears the worker-config cache so the next request reflects it.
-
-> [!WARNING]
-> **Scoped workers are not URL-addressable.** The runtime resolves a worker
-> from the first path segment (`APP_NAME_PATTERN = /^\/([^/]+)/`), so
-> `@scope/name` workers can be uploaded and stored (`/api/workers/upload`
-> accepts them, installing at `<workerDir>/@scope/name/<version>/`) but there
-> is no clean URL that resolves them — `/name` looks for an unscoped worker and
-> `/@scope` captures only the scope segment. Use unscoped worker names for
-> anything served over HTTP. Plugins differ: they declare an explicit `base`.
 
 > [!NOTE]
 > The shared `boolean()` zod helper coerces *any* falsy value (including an

@@ -1,5 +1,47 @@
 # Change Log
 
+## [2026-05-24] feat | worker namespaces — `@namespace/app` URL-addressable
+
+### Motivation
+
+Scoped workers (`@team/app`) could be uploaded + stored but never served — the
+runtime resolved an app from the first path segment only, so `/@team/app`
+404'd. Turned the inconsistency into a feature: namespaces for context
+separation (teams `@acme`/`@team`, or environments
+`@staging`/`@production`), complementing the physical multi-dir support.
+
+### What changed (apps/runtime/src)
+
+- New `utils/app-path.ts` `parseAppPath(pathname)` → `{name, basePath, rest}` —
+  two segments when the first starts with `@`, one otherwise. Single source of
+  truth for the worker-name-from-path rule.
+- `app.ts resolveTargetApp` + `routes/worker.ts` (now a `/*` catch-all) both
+  use `parseAppPath`; dropped the single-segment `APP_NAME_PATTERN` /
+  `:app/*` assumptions. Reserved/dot guard now applies to the first segment.
+- `utils/get-worker-dir.ts resolveWorkerDir`: version split via
+  `indexOf("@", 1)` so a leading scope `@` isn't read as the version
+  separator. The nested/flat/simple dir searches already handled `@scope/app`
+  via `join`, so that was the only change needed.
+- `createWorkerRequest`/`x-base`/trailing-slash 308: unchanged — they just
+  receive `/@ns/app` as the base now.
+
+### Scope
+
+Phase 1 = **workers/apps** path addressing only. Plugins keep their explicit
+`base`. Documented future directions in worker-pool.md: vhost/subdomain
+addressing (via plugin-vhosts) + per-environment plugin activation.
+Namespace-scoped **permissions** remain a deferred Phase 2.
+
+### Verification
+
+- Unit: `app-path.test.ts` (8), scoped cases in `get-worker-dir.test.ts`,
+  namespaced serving in `worker.test.ts`. Suite 2753/0, lint clean.
+- Browser (home-workload): the previously-unreachable `@test/hello-worker`
+  must now serve at `/@test/hello-worker/` (SPA + api/ping) with the 308
+  trailing-slash redirect; unscoped `hello-worker` + plugin bases unaffected.
+
+---
+
 ## [2026-05-24] feat | worker enable/disable + FileBrowser dropdown toggle + worker upload tests
 
 ### What changed

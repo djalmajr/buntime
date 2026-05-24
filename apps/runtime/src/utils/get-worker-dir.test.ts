@@ -351,4 +351,48 @@ describe("getWorkerDir", () => {
       expect(result).toBe("");
     });
   });
+
+  describe("namespaced (@scope/name) workers", () => {
+    it("resolves a scoped worker with no version (highest semver)", () => {
+      createNestedVersions("@acme/checkout", ["1.0.0", "1.2.0"]);
+
+      const result = getWorkerDir("@acme/checkout");
+      expect(result).toBe(join(TEST_DIR, "@acme/checkout/1.2.0"));
+    });
+
+    it("resolves a scoped worker with an exact version (leading @ not split as version)", () => {
+      createNestedVersions("@acme/checkout", ["1.0.0", "2.0.0"]);
+
+      const result = getWorkerDir("@acme/checkout@1.0.0");
+      expect(result).toBe(join(TEST_DIR, "@acme/checkout/1.0.0"));
+    });
+
+    it("resolves a scoped worker by version range", () => {
+      createNestedVersions("@team/billing", ["1.0.0", "1.5.3", "2.0.0"]);
+
+      const result = getWorkerDir("@team/billing@1");
+      expect(result).toBe(join(TEST_DIR, "@team/billing/1.5.3"));
+    });
+
+    it("resolves a scoped 'latest' tag", () => {
+      createNestedVersions("@staging/api", ["latest"]);
+
+      expect(getWorkerDir("@staging/api")).toBe(join(TEST_DIR, "@staging/api/latest"));
+      expect(getWorkerDir("@staging/api@latest")).toBe(join(TEST_DIR, "@staging/api/latest"));
+    });
+
+    it("does not confuse a scoped worker with an unscoped one of the same bare name", () => {
+      createNestedVersions("checkout", ["9.9.9"]);
+      createNestedVersions("@acme/checkout", ["1.0.0"]);
+
+      expect(getWorkerDir("checkout")).toBe(join(TEST_DIR, "checkout/9.9.9"));
+      expect(getWorkerDir("@acme/checkout")).toBe(join(TEST_DIR, "@acme/checkout/1.0.0"));
+    });
+
+    it("returns empty for a bare scope with no app segment", () => {
+      createNestedVersions("@acme/checkout", ["1.0.0"]);
+
+      expect(getWorkerDir("@acme")).toBe("");
+    });
+  });
 });

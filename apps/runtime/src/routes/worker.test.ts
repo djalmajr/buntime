@@ -125,6 +125,25 @@ describe("createWorkerRoutes", () => {
 
       expect(pool.fetchMock).toHaveBeenCalled();
     });
+
+    it("should route a namespaced @scope/app worker with correct base + path", async () => {
+      const routes = createWorkerRoutes(
+        createDeps({
+          getWorkerDir: (name) =>
+            name === "@team/checkout" ? "/mock/apps/@team/checkout/1.0.0" : "",
+        }),
+      );
+      const req = new Request("http://localhost/@team/checkout/api/ping");
+      await routes.fetch(req);
+
+      expect(pool.fetchMock).toHaveBeenCalled();
+      const call = pool.fetchMock.mock.calls[0] as unknown as [string, unknown, Request];
+      expect(call[0]).toBe("/mock/apps/@team/checkout/1.0.0");
+      // Worker sees the path relative to its namespaced base + the x-base header.
+      const workerReq = call[2];
+      expect(new URL(workerReq.url).pathname).toBe("/api/ping");
+      expect(workerReq.headers.get("x-base")).toBe("/@team/checkout");
+    });
   });
 
   describe("plugin app resolution", () => {

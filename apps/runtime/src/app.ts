@@ -6,7 +6,7 @@ import type { WorkerConfig } from "@buntime/shared/utils/worker-config";
 import type { Hono } from "hono";
 import { Hono as HonoApp } from "hono";
 import { getConfig } from "@/config";
-import { API_PATH, APP_NAME_PATTERN, Headers } from "@/constants";
+import { API_PATH, Headers } from "@/constants";
 import {
   type ApiKeyPrincipal,
   type ApiKeyStore,
@@ -17,6 +17,7 @@ import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
 import type { PluginRegistry } from "@/plugins/registry";
 import { createWellKnownRoutes } from "@/routes/well-known";
+import { parseAppPath } from "@/utils/app-path";
 import {
   BodyTooLargeError,
   cloneRequestBody,
@@ -76,11 +77,12 @@ async function resolveTargetApp(
     };
   }
 
-  // 2. Check regular worker apps (pattern: /:app/*)
-  const match = pathname.match(APP_NAME_PATTERN);
-  if (match?.[1]) {
-    const appName = match[1];
-    const dir = getWorkerDir(appName);
+  // 2. Check regular worker apps. `parseAppPath` extracts the worker name —
+  // two segments for a namespaced `@scope/app`, one otherwise — and the base
+  // path it is mounted at.
+  const parsed = parseAppPath(pathname);
+  if (parsed) {
+    const dir = getWorkerDir(parsed.name);
     if (dir) {
       const workerConfig = await loadWorkerConfig(dir);
       // A disabled worker version is treated as not-installed: the request
@@ -90,10 +92,10 @@ async function resolveTargetApp(
         return undefined;
       }
       return {
-        basePath: `/${appName}`,
+        basePath: parsed.basePath,
         config: workerConfig,
         dir,
-        name: appName,
+        name: parsed.name,
         type: "worker",
       };
     }

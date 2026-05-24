@@ -5,6 +5,7 @@ import { RESERVED_PATHS } from "@/constants";
 import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
 import type { PluginRegistry } from "@/plugins/registry";
+import { type ParsedAppPath, parseAppPath } from "@/utils/app-path";
 import { createWorkerRequest } from "@/utils/request";
 
 export interface WorkerRoutesConfig {
@@ -50,20 +51,20 @@ export function createWorkerRoutes({ config, getWorkerDir, pool, registry }: Wor
   }
 
   /**
-   * Handle app (traditional worker)
+   * Handle app (traditional or namespaced worker). `parsed` carries the
+   * resolved name (`app` or `@scope/app`), its base path, and the remaining
+   * path relative to that base.
    */
-  async function runApp(ctx: Context, app: string) {
-    const dir = getWorkerDir(app);
-    if (!dir) throw new NotFoundError(`App not found: ${app}`, "APP_NOT_FOUND");
+  async function runApp(ctx: Context, parsed: ParsedAppPath) {
+    const dir = getWorkerDir(parsed.name);
+    if (!dir) throw new NotFoundError(`App not found: ${parsed.name}`, "APP_NOT_FOUND");
 
     const workerConfig = await loadWorkerConfig(dir);
-    const originalUrl = new URL(ctx.req.url);
-    const relativePath = originalUrl.pathname.slice(`/${app}`.length) || "/";
 
     const req = createWorkerRequest({
-      base: `/${app}`,
+      base: parsed.basePath,
       originalRequest: ctx.req.raw,
-      targetPath: relativePath,
+      targetPath: parsed.rest,
     });
 
     return pool.fetch(dir, workerConfig, req);
@@ -72,9 +73,12 @@ export function createWorkerRoutes({ config, getWorkerDir, pool, registry }: Wor
   /**
    * Main request handler - checks plugin apps first, then apps
    */
-  async function run(ctx: Context, app: string) {
-    // 0. Skip reserved paths (e.g., .well-known, .git, api, health)
-    if (app.startsWith(".") || RESERVED_PATHS.includes(`/${app}`)) {
+  async function run(ctx: Context, parsed: ParsedAppPath) {
+    // 0. Skip reserved paths (e.g., .well-known, .git, api, health). The guard
+    // applies to the FIRST segment; namespaced names (`@scope/...`) never
+    // collide with reserved single-segment paths.
+    const firstSegment = parsed.name.split("/")[0]!;
+    if (firstSegment.startsWith(".") || RESERVED_PATHS.includes(`/${firstSegment}`)) {
       return new Response("Not Found", { status: 404 });
     }
 
@@ -83,7 +87,7 @@ export function createWorkerRoutes({ config, getWorkerDir, pool, registry }: Wor
     if (pluginResponse) return pluginResponse;
 
     // 2. Fallback to app
-    return runApp(ctx, app);
+    return runApp(ctx, parsed);
   }
 
   /**
@@ -97,11 +101,14 @@ export function createWorkerRoutes({ config, getWorkerDir, pool, registry }: Wor
   }
 
   /**
-   * Handle app routes
+   * Catch-all: parse the app key (single- or two-segment namespaced name) and
+   * route. Root (`/`) returns version info.
    */
   async function handleAppRoute(ctx: Context) {
-    return run(ctx, ctx.req.param("app"));
+    const parsed = parseAppPath(ctx.req.path);
+    if (!parsed) return handleRoot(ctx);
+    return run(ctx, parsed);
   }
 
-  return new Hono().all(":app/*", handleAppRoute).all("/*", handleRoot);
+  return new Hono().all("/*", handleAppRoute);
 }

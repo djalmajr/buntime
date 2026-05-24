@@ -344,15 +344,54 @@ Plugin always reads `Bun.env.X ?? pluginConfig.x ?? "default"`.
 ## Hot Reload
 
 ```bash
-# Upload tarball
+# Upload tarball/zip (extracts to pluginDirs; does NOT load yet)
 POST /api/plugins/upload
 
-# Re-scan and reload all
+# Re-scan + reload all (loads newly uploaded plugins, no process restart)
 POST /api/plugins/reload
+
+# Enable / disable a single plugin at runtime (no restart)
+POST /api/plugins/<url-encoded-name>/enable
+POST /api/plugins/<url-encoded-name>/disable
 ```
 
 `reload` clears the registry, re-scans directories, sorts topologically,
-and re-runs `onInit`.
+re-runs `onInit`, **and refreshes the live HTTP server's native route table**.
+
+### How routes go live without a restart
+
+The runtime serves three kinds of plugin HTTP surface, and each reaches the
+live server differently:
+
+| Surface | Declared as | How it dispatches | Hot-reloads on `reload`? |
+|---|---|---|---|
+| Hono routes | `PluginImpl.routes` (a `Hono` app) | `app.fetch` queries the registry per request (`handlePluginRoutes`) | Yes — inherently dynamic |
+| Fetch handler | `PluginImpl.server.fetch` | `app.fetch` iterates the registry per request | Yes — inherently dynamic |
+| Native routes | `PluginImpl.server.routes` (Bun.serve route table) | Bun matches these *before* `app.fetch`; the table is fixed at `Bun.serve()` time | Yes — `reload` calls `server.reload({ routes })` via `registry.reloadServerRoutes()` |
+
+> [!IMPORTANT]
+> Before this was wired, `server.routes` plugins appeared "loaded" (in the
+> registry, `onInit` ran) but their HTTP routes 404'd until a process restart,
+> because Bun's native route table is built once at boot. `reload` now calls
+> `server.reload()` so native routes are rebuilt from the current registry.
+> Hono `routes` and `server.fetch` were always hot because `app.fetch`
+> dispatches them dynamically.
+
+Implementation: `index.ts` registers a reload handler via
+`registry.setReloadHandler(() => server.reload({ fetch, routes: buildServeRoutes(), websocket }))`.
+`buildServeRoutes()` re-collects `server.routes` from the registry. Both
+`/reload` and the enable/disable routes call `registry.reloadServerRoutes()`
+after `loader.rescan()`.
+
+### Enable / disable
+
+`enable`/`disable` flip the plugin's manifest `enabled` flag on disk (a
+surgical line edit that preserves comments and formatting — not a YAML
+round-trip), then rescan + refresh routes. Because the manifest is the source
+of truth for enabled state (the loader skips `enabled: false`), the change
+survives restarts. Names are URL-encoded, so scoped names work:
+`POST /api/plugins/%40acme%2Fplugin-x/disable`. Disabling a plugin unmounts
+its routes and menus on the next request; enabling re-loads it live.
 
 ## Public Routes
 

@@ -1,5 +1,54 @@
 # Change Log
 
+## [2026-05-24] feat | plugin route hot-reload (no restart) + enable/disable
+
+### Motivation
+
+A browser smoke test of an uploaded plugin exposed a gap: a plugin using
+`server.routes` (Bun.serve native routes) appeared "loaded" after
+`POST /api/plugins/reload` (registry updated, `onInit` ran) but its HTTP
+routes returned 404 until a process restart. Bun's native route table is
+built once at `Bun.serve()` time; the reload never rebuilt it. The user's
+requirement: load uploaded plugins without a restart, and support
+enable/disable at runtime.
+
+### Root cause + fix
+
+Three plugin HTTP surfaces reach the live server differently:
+- Hono `routes` and `server.fetch` — `app.fetch` dispatches them dynamically
+  from the registry per request, so they were always hot.
+- `server.routes` — Bun matches these before `app.fetch` from a table fixed
+  at boot, so they were stale after a reload.
+
+Fix: `index.ts` now registers `registry.setReloadHandler(() => server.reload(...))`
+with a `buildServeRoutes()` helper that re-collects `server.routes` from the
+current registry. `POST /api/plugins/reload` (and the new enable/disable
+routes) call `registry.reloadServerRoutes()` after `loader.rescan()`, so
+native routes are rebuilt live.
+
+### New: enable/disable endpoints
+
+- `POST /api/plugins/:name/enable` and `/disable` (name URL-encoded; scoped
+  names supported). Surgically edits the plugin's `manifest.enabled` line
+  (preserving comments — not a YAML round-trip), then rescans + refreshes
+  routes. Manifest is the source of truth for enabled state, so the toggle
+  survives restarts. Requires `plugins:install`.
+
+### Files
+
+- `apps/runtime/src/plugins/registry.ts` — `setReloadHandler` + `reloadServerRoutes` (survives `clear()`).
+- `apps/runtime/src/index.ts` — `buildServeRoutes()` + reload handler wiring; dropped the `hasPluginRoutes` boot conditional.
+- `apps/runtime/src/routes/plugins.ts` — reload triggers `reloadServerRoutes`; new enable/disable routes + `setManifestEnabled`/`findPluginDir` helpers.
+- Tests: `registry.test.ts` (reload handler) + `plugins.test.ts` (enable/disable manifest edit, comment preservation, reload trigger, 404). Suite 2729/0.
+
+### Known follow-up
+
+- cpanel UI toggle for enable/disable is not yet wired (the FileBrowser is
+  generic; a per-row plugin action needs threading loaded/enabled state). The
+  capability is fully available via the API today.
+
+---
+
 ## [2026-05-23] fix | scope-aware FileBrowser path policies
 
 ### Motivation

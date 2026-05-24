@@ -124,6 +124,45 @@ async function listInstalledPlugins(pluginDirs: string[]): Promise<PluginInfo[]>
   }));
 }
 
+/**
+ * Set the `enabled` flag in a plugin's manifest, preserving comments and
+ * formatting. Surgically replaces an existing top-level `enabled:` line, or
+ * prepends one when absent. Returns false if no manifest file exists.
+ *
+ * The manifest is the source of truth for enabled state (the loader skips
+ * `enabled: false`), so toggling here + a rescan is enough to load/unload a
+ * plugin at runtime.
+ */
+async function setManifestEnabled(pluginDir: string, enabled: boolean): Promise<boolean> {
+  for (const filename of ["manifest.yaml", "manifest.yml"]) {
+    const manifestPath = join(pluginDir, filename);
+    const file = Bun.file(manifestPath);
+    if (!(await file.exists())) continue;
+
+    const content = await file.text();
+    const line = `enabled: ${enabled}`;
+    // Match a top-level `enabled:` line (no leading whitespace).
+    const enabledRe = /^enabled:[^\n]*$/m;
+    const next = enabledRe.test(content) ? content.replace(enabledRe, line) : `${line}\n${content}`;
+
+    await Bun.write(manifestPath, next);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Find an installed plugin directory by its manifest `name` or directory name.
+ */
+async function findPluginDir(pluginDirs: string[], name: string): Promise<string | null> {
+  for (const plugin of await discoverInstalledPlugins(pluginDirs)) {
+    if (plugin.name === name || plugin.directoryName === name) {
+      return plugin.path;
+    }
+  }
+  return null;
+}
+
 interface PluginsRoutesDeps {
   loader: PluginLoader;
   pluginDirs?: string[];
@@ -234,6 +273,9 @@ export function createPluginsRoutes(deps: PluginsRoutesDeps) {
         }),
         async (ctx) => {
           await loader.rescan();
+          // Refresh the live server's native routes so newly discovered
+          // plugins' server.routes go live without a process restart.
+          registry.reloadServerRoutes();
           const plugins = loader.list();
           return ctx.json({ ok: true, plugins });
         },
@@ -407,6 +449,70 @@ export function createPluginsRoutes(deps: PluginsRoutesDeps) {
           }
 
           return ctx.json({ success: true });
+        },
+      )
+
+      // Enable or disable a plugin at runtime (no restart).
+      // Toggles manifest.enabled, rescans, and refreshes live server routes.
+      .post(
+        "/:name/:action{enable|disable}",
+        describeRoute({
+          tags: ["Plugins"],
+          summary: "Enable or disable a plugin",
+          description:
+            "Flips the plugin's manifest `enabled` flag and hot-reloads the registry " +
+            "without a process restart. `:name` is URL-encoded (scoped names supported).",
+          parameters: [
+            {
+              name: "name",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "Plugin name (URL encoded, e.g. %40scope%2Fname)",
+            },
+            {
+              name: "action",
+              in: "path",
+              required: true,
+              schema: { enum: ["enable", "disable"], type: "string" },
+              description: "enable or disable",
+            },
+          ],
+          responses: {
+            200: {
+              description: "Plugin toggled and registry hot-reloaded",
+              content: { "application/json": { schema: SuccessResponse } },
+            },
+          },
+        }),
+        async (ctx) => {
+          const pluginDirs = getPluginDirs(deps);
+          const name = decodeURIComponent(ctx.req.param("name"));
+          const enabled = ctx.req.param("action") === "enable";
+
+          if (!name) {
+            throw new ValidationError("Plugin name is required", "MISSING_NAME");
+          }
+
+          const dir = await findPluginDir(pluginDirs, name);
+          if (!dir) {
+            throw new NotFoundError(`Plugin not found: ${name}`, "PLUGIN_NOT_FOUND");
+          }
+
+          const updated = await setManifestEnabled(dir, enabled);
+          if (!updated) {
+            throw new NotFoundError(
+              `Plugin manifest not found for: ${name}`,
+              "PLUGIN_MANIFEST_NOT_FOUND",
+            );
+          }
+
+          // Hot-reload: rescan picks up the new enabled state; reloadServerRoutes
+          // refreshes Bun's native route table so the change takes effect now.
+          await loader.rescan();
+          registry.reloadServerRoutes();
+
+          return ctx.json({ data: { enabled, name }, success: true });
         },
       )
   );

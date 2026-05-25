@@ -4,6 +4,7 @@ import { parseWorkerConfig, WorkerConfigDefaults } from "./worker-config";
 describe("WorkerConfigDefaults", () => {
   it("should have correct default values", () => {
     expect(WorkerConfigDefaults.autoInstall).toBe(false);
+    expect(WorkerConfigDefaults.enabled).toBe(true);
     expect(WorkerConfigDefaults.envPrefix).toEqual(["PUBLIC_", "VITE_"]);
     expect(WorkerConfigDefaults.idleTimeout).toBe(60);
     expect(WorkerConfigDefaults.injectBase).toBe(false);
@@ -17,6 +18,7 @@ describe("WorkerConfigDefaults", () => {
     const keys = Object.keys(WorkerConfigDefaults).sort();
     expect(keys).toEqual([
       "autoInstall",
+      "enabled",
       "envPrefix",
       "idleTimeout",
       "injectBase",

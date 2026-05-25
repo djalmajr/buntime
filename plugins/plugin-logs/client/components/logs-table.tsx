@@ -66,7 +66,7 @@ export function LogsTable() {
         if (filter) params.set("level", filter);
         params.set("limit", "100");
 
-        const res = await fetch(`${basePath}/api?${params}`);
+        const res = await fetch(`${basePath}/admin/?${params}`, { credentials: "same-origin" });
         const data = await res.json();
         setLogs(data.logs);
         setStats(data.stats);
@@ -79,7 +79,8 @@ export function LogsTable() {
 
     fetchLogs();
 
-    const eventSource = new EventSource(`${basePath}/api/sse`);
+    // Same-origin EventSource sends the cpanel session cookie automatically.
+    const eventSource = new EventSource(`${basePath}/admin/sse`);
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.logs?.length) {
@@ -94,14 +95,14 @@ export function LogsTable() {
   }, [basePath, filter]);
 
   const handleClear = async () => {
-    await fetch(`${basePath}/api/clear`, { method: "POST" });
+    await fetch(`${basePath}/admin/clear`, { credentials: "same-origin", method: "POST" });
     setLogs([]);
     setStats({ counts: { debug: 0, error: 0, info: 0, warn: 0 }, total: 0 });
   };
 
   if (loading) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="p-4 space-y-4">
         <Skeleton className="h-8 w-32" />
         <Skeleton className="h-4 w-48" />
         <Skeleton className="h-64 w-full" />

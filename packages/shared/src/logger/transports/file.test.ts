@@ -217,8 +217,8 @@ describe("FileTransport", () => {
       const content = readFileSync(path, "utf-8");
       const lines = content.trim().split("\n");
       expect(lines).toHaveLength(2);
-      expect(JSON.parse(lines[0]).message).toBe("line 1");
-      expect(JSON.parse(lines[1]).message).toBe("line 2");
+      expect(JSON.parse(lines[0]!).message).toBe("line 1");
+      expect(JSON.parse(lines[1]!).message).toBe("line 2");
     });
 
     it("should create directory if it does not exist", async () => {
@@ -281,8 +281,8 @@ describe("FileTransport", () => {
       const content = readFileSync(path, "utf-8");
       const lines = content.trim().split("\n");
       expect(lines).toHaveLength(2);
-      expect(JSON.parse(lines[0]).message).toBe("batch 1");
-      expect(JSON.parse(lines[1]).message).toBe("batch 2");
+      expect(JSON.parse(lines[0]!).message).toBe("batch 1");
+      expect(JSON.parse(lines[1]!).message).toBe("batch 2");
     });
   });
 

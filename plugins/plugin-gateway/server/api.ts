@@ -1,4 +1,5 @@
 import { errorToResponse } from "@buntime/shared/errors";
+import type { MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { ResponseCache } from "./cache";
@@ -13,6 +14,13 @@ import type { GatewayConfig, GatewaySSEData, GatewayStats } from "./types";
 export interface GatewayApiDeps {
   /** Get current config */
   getConfig: () => GatewayConfig;
+  /**
+   * Lazy auth middleware. Called on each request — returns the X-API-Key
+   * middleware once the plugin has been initialised with the runtime auth
+   * context, or `undefined` before `onInit` runs (in which case admin
+   * routes are unprotected — typical for unit-test environments).
+   */
+  getMiddleware?: () => MiddlewareHandler | undefined;
   /** Get rate limiter instance */
   getRateLimiter: () => RateLimiter | null;
   /** Get response cache instance (may be null if disabled) */
@@ -25,9 +33,9 @@ export interface GatewayApiDeps {
   getShellConfig: () => {
     dir: string;
     envExcludes: Set<string>;
-    keyvalExcludes: Set<string>;
-    addKeyValExclude: (basename: string) => void;
-    removeKeyValExclude: (basename: string) => boolean;
+    tursoExcludes: Set<string>;
+    addTursoExclude: (basename: string) => void;
+    removeTursoExclude: (basename: string) => boolean;
   } | null;
   /** SSE update interval in milliseconds */
   sseInterval?: number;
@@ -43,7 +51,7 @@ async function buildSSEData(deps: GatewayApiDeps): Promise<GatewaySSEData> {
   const persistence = deps.getPersistence();
   const shellConfig = deps.getShellConfig();
 
-  // Get shell excludes (combined env + keyval)
+  // Get shell excludes (combined env + Turso)
   let shellExcludes: ShellExcludeEntry[] = [];
   if (shellConfig) {
     shellExcludes = await persistence.getAllShellExcludes(shellConfig.envExcludes);
@@ -93,9 +101,18 @@ async function buildSSEData(deps: GatewayApiDeps): Promise<GatewaySSEData> {
 export function createGatewayApi(deps: GatewayApiDeps) {
   const sseInterval = deps.sseInterval ?? 1000;
 
+  const app = new Hono().basePath("/admin");
+
+  // Lazy auth gate. Defers middleware resolution to request time so the API
+  // can be constructed at module load before onInit wires the auth context.
+  app.use("*", async (c, next) => {
+    const middleware = deps.getMiddleware?.();
+    if (middleware) return middleware(c, next);
+    return next();
+  });
+
   return (
-    new Hono()
-      .basePath("/api")
+    app
 
       // =========================================================================
       // SSE - Real-time updates
@@ -136,7 +153,9 @@ export function createGatewayApi(deps: GatewayApiDeps) {
           shell: {
             enabled: !!shellConfig,
             dir: shellConfig?.dir ?? null,
-            excludesCount: shellConfig ? shellConfig.envExcludes.size + shellConfig.keyvalExcludes.size : 0,
+            excludesCount: shellConfig
+              ? shellConfig.envExcludes.size + shellConfig.tursoExcludes.size
+              : 0,
           },
           logs: logger.getStats(),
         };
@@ -181,7 +200,7 @@ export function createGatewayApi(deps: GatewayApiDeps) {
           return ctx.json({ error: "Rate limiting not enabled" }, 400);
         }
 
-        const limit = parseInt(ctx.req.query("limit") ?? "100");
+        const limit = parseInt(ctx.req.query("limit") ?? "100", 10);
         const buckets = rateLimiter.getActiveBuckets().slice(0, limit);
 
         return ctx.json(buckets);
@@ -210,11 +229,11 @@ export function createGatewayApi(deps: GatewayApiDeps) {
       })
 
       // =========================================================================
-      // Metrics History - Historical data from KeyVal
+      // Metrics History - Historical data from Turso
       // =========================================================================
       .get("/metrics/history", async (ctx) => {
         const persistence = deps.getPersistence();
-        const limit = parseInt(ctx.req.query("limit") ?? "60");
+        const limit = parseInt(ctx.req.query("limit") ?? "60", 10);
 
         const history = await persistence.getMetricsHistory(limit);
         return ctx.json(history);
@@ -270,10 +289,10 @@ export function createGatewayApi(deps: GatewayApiDeps) {
 
         // Update in-memory set for immediate effect
         if (added) {
-          shellConfig.addKeyValExclude(basename);
+          shellConfig.addTursoExclude(basename);
         }
 
-        return ctx.json({ added, basename, source: "keyval" });
+        return ctx.json({ added, basename, source: "turso" });
       })
 
       .delete("/shell/excludes/:basename", async (ctx) => {
@@ -295,7 +314,7 @@ export function createGatewayApi(deps: GatewayApiDeps) {
 
         // Update in-memory set for immediate effect
         if (removed) {
-          shellConfig.removeKeyValExclude(basename);
+          shellConfig.removeTursoExclude(basename);
         }
 
         return ctx.json({ removed, basename });
@@ -307,7 +326,7 @@ export function createGatewayApi(deps: GatewayApiDeps) {
       .get("/logs", (ctx) => {
         const logger = deps.getRequestLogger();
 
-        const limit = parseInt(ctx.req.query("limit") ?? "50");
+        const limit = parseInt(ctx.req.query("limit") ?? "50", 10);
         const ip = ctx.req.query("ip");
         const rateLimited = ctx.req.query("rateLimited");
         const statusRange = ctx.req.query("statusRange");
@@ -316,7 +335,7 @@ export function createGatewayApi(deps: GatewayApiDeps) {
           limit,
           ip: ip || undefined,
           rateLimited: rateLimited === "true" ? true : undefined,
-          statusRange: statusRange ? parseInt(statusRange) : undefined,
+          statusRange: statusRange ? parseInt(statusRange, 10) : undefined,
         });
 
         return ctx.json(logs);

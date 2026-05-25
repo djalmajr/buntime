@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "buntime.fullname" . }}
+  labels:
+    {{- include "buntime.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "buntime.fullname" . }}-headless
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "buntime.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Force pod recreation on every helm upgrade (pulls latest image)
+        rollme: {{ randAlphaNum 5 | quote }}
+      labels:
+        {{- include "buntime.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.buntime.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "buntime.fullname" . }}
+            {{- if or .Values.buntime.rootKey .Values.tursoServer.enabled .Values.buntime.authDb.syncAuthToken }}
+            - secretRef:
+                name: {{ include "buntime.fullname" . }}
+            {{- end }}
+          volumeMounts:
+            - name: plugins
+              mountPath: /data/plugins
+            - name: apps
+              mountPath: /data/apps
+            - name: turso
+              mountPath: /data/turso
+            - name: state
+              mountPath: /data/state
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.buntime.apiPrefix }}/api/health/live
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.buntime.apiPrefix }}/api/health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: plugins
+          persistentVolumeClaim:
+            claimName: {{ include "buntime.fullname" . }}-plugins
+        - name: apps
+          persistentVolumeClaim:
+            claimName: {{ include "buntime.fullname" . }}-apps
+        - name: turso
+          emptyDir: {}
+  # Each pod gets its own /data/state — RWO, universal across storage classes.
+  # Holds the ApiKeyStore Turso DB (embedded replica in `sync` mode).
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.persistence.state.storageClass }}
+        storageClassName: {{ .Values.persistence.state.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.state.size }}

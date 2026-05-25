@@ -49,7 +49,7 @@ describe("logger/logger", () => {
 
       // ASSERT
       expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].message).toBe("test message");
+      expect(mockTransport.entries[0]!.message).toBe("test message");
     });
 
     it("should throw error when file transport is specified without filePath", () => {
@@ -87,8 +87,8 @@ describe("logger/logger", () => {
 
       // ASSERT
       expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].level).toBe("debug");
-      expect(mockTransport.entries[0].message).toBe("debug message");
+      expect(mockTransport.entries[0]!.level).toBe("debug");
+      expect(mockTransport.entries[0]!.message).toBe("debug message");
     });
 
     it("should log info messages when level is info", () => {
@@ -104,7 +104,7 @@ describe("logger/logger", () => {
 
       // ASSERT
       expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].level).toBe("info");
+      expect(mockTransport.entries[0]!.level).toBe("info");
     });
 
     it("should log warn messages when level is warn", () => {
@@ -120,7 +120,7 @@ describe("logger/logger", () => {
 
       // ASSERT
       expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].level).toBe("warn");
+      expect(mockTransport.entries[0]!.level).toBe("warn");
     });
 
     it("should log error messages when level is error", () => {
@@ -136,7 +136,7 @@ describe("logger/logger", () => {
 
       // ASSERT
       expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].level).toBe("error");
+      expect(mockTransport.entries[0]!.level).toBe("error");
     });
 
     it("should not log debug messages when level is info", () => {
@@ -169,7 +169,7 @@ describe("logger/logger", () => {
 
       // ASSERT
       expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].level).toBe("warn");
+      expect(mockTransport.entries[0]!.level).toBe("warn");
     });
 
     it("should only log error when level is error", () => {
@@ -188,7 +188,7 @@ describe("logger/logger", () => {
 
       // ASSERT
       expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].level).toBe("error");
+      expect(mockTransport.entries[0]!.level).toBe("error");
     });
   });
 
@@ -205,7 +205,7 @@ describe("logger/logger", () => {
       logger.debug("debug test");
 
       // ASSERT
-      expect(mockTransport.entries[0].level).toBe("debug");
+      expect(mockTransport.entries[0]!.level).toBe("debug");
     });
 
     it("should include meta data in debug logs", () => {
@@ -220,7 +220,7 @@ describe("logger/logger", () => {
       logger.debug("debug with meta", { key: "value" });
 
       // ASSERT
-      expect(mockTransport.entries[0].meta).toEqual({ key: "value" });
+      expect(mockTransport.entries[0]!.meta).toEqual({ key: "value" });
     });
   });
 
@@ -237,7 +237,7 @@ describe("logger/logger", () => {
       logger.info("info test");
 
       // ASSERT
-      expect(mockTransport.entries[0].level).toBe("info");
+      expect(mockTransport.entries[0]!.level).toBe("info");
     });
 
     it("should include meta data in info logs", () => {
@@ -252,7 +252,7 @@ describe("logger/logger", () => {
       logger.info("info with meta", { userId: 123 });
 
       // ASSERT
-      expect(mockTransport.entries[0].meta).toEqual({ userId: 123 });
+      expect(mockTransport.entries[0]!.meta).toEqual({ userId: 123 });
     });
   });
 
@@ -269,7 +269,7 @@ describe("logger/logger", () => {
       logger.error("error test");
 
       // ASSERT
-      expect(mockTransport.entries[0].level).toBe("error");
+      expect(mockTransport.entries[0]!.level).toBe("error");
     });
 
     it("should include meta data in error logs", () => {
@@ -284,7 +284,7 @@ describe("logger/logger", () => {
       logger.error("error with meta", { errorCode: 500 });
 
       // ASSERT
-      expect(mockTransport.entries[0].meta).toEqual({ errorCode: 500 });
+      expect(mockTransport.entries[0]!.meta).toEqual({ errorCode: 500 });
     });
   });
 
@@ -302,7 +302,7 @@ describe("logger/logger", () => {
       childLogger.info("child message");
 
       // ASSERT
-      expect(mockTransport.entries[0].context).toBe("my-context");
+      expect(mockTransport.entries[0]!.context).toBe("my-context");
     });
 
     it("should chain child contexts with colon separator", () => {
@@ -319,7 +319,7 @@ describe("logger/logger", () => {
       child2.info("nested message");
 
       // ASSERT
-      expect(mockTransport.entries[0].context).toBe("parent:child");
+      expect(mockTransport.entries[0]!.context).toBe("parent:child");
     });
 
     it("should inherit log level from parent", () => {
@@ -337,7 +337,7 @@ describe("logger/logger", () => {
 
       // ASSERT
       expect(mockTransport.entries).toHaveLength(1);
-      expect(mockTransport.entries[0].message).toBe("should appear");
+      expect(mockTransport.entries[0]!.message).toBe("should appear");
     });
 
     it("should share transports with parent", () => {
@@ -437,8 +437,8 @@ describe("logger/logger", () => {
       logger.info("test message");
 
       // ASSERT
-      expect(mockTransport.entries[0].timestamp).toBeDefined();
-      expect(mockTransport.entries[0].timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+      expect(mockTransport.entries[0]!.timestamp).toBeDefined();
+      expect(mockTransport.entries[0]!.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     });
 
     it("should write to multiple transports", () => {
@@ -456,8 +456,8 @@ describe("logger/logger", () => {
       // ASSERT
       expect(transport1.entries).toHaveLength(1);
       expect(transport2.entries).toHaveLength(1);
-      expect(transport1.entries[0].message).toBe("multi-transport message");
-      expect(transport2.entries[0].message).toBe("multi-transport message");
+      expect(transport1.entries[0]!.message).toBe("multi-transport message");
+      expect(transport2.entries[0]!.message).toBe("multi-transport message");
     });
   });
 });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { api, setConfig } from "./api";
+import { api, runtimeApi, setConfig } from "./api";
 import type { PoolLike } from "./services";
 import { setPool } from "./services";
 
@@ -34,9 +34,14 @@ function resetPool() {
   setPool(undefined as unknown as PoolLike);
 }
 
-// Helper to make requests to the API
+// Helper to make requests to the API. Routes `/prometheus` to the runtime
+// router (open data plane), everything else to the admin router.
 function request(path: string) {
-  return api.request(`http://localhost${path}`);
+  const url = `http://localhost${path}`;
+  if (path === "/prometheus" || path.startsWith("/prometheus?")) {
+    return runtimeApi.request(url);
+  }
+  return api.request(url);
 }
 
 describe("api routes", () => {
@@ -62,9 +67,9 @@ describe("api routes", () => {
     });
   });
 
-  describe("GET /api", () => {
+  describe("GET /admin/", () => {
     it("should return 503 when pool is not initialized", async () => {
-      const res = await request("/api");
+      const res = await request("/admin");
 
       expect(res.status).toBe(503);
       const body = await res.json();
@@ -75,7 +80,7 @@ describe("api routes", () => {
       const mockPool = createMockPool();
       setPool(mockPool);
 
-      const res = await request("/api");
+      const res = await request("/admin");
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -95,7 +100,7 @@ describe("api routes", () => {
       });
       setPool(mockPool);
 
-      const res = await request("/api");
+      const res = await request("/admin");
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -104,9 +109,9 @@ describe("api routes", () => {
     });
   });
 
-  describe("GET /api/prometheus", () => {
+  describe("GET /prometheus", () => {
     it("should return 503 when pool is not initialized", async () => {
-      const res = await request("/api/prometheus");
+      const res = await request("/prometheus");
 
       expect(res.status).toBe(503);
       const body = await res.text();
@@ -117,7 +122,7 @@ describe("api routes", () => {
       const mockPool = createMockPool();
       setPool(mockPool);
 
-      const res = await request("/api/prometheus");
+      const res = await request("/prometheus");
 
       expect(res.status).toBe(200);
       // Content-Type header is set but Hono may add charset
@@ -139,7 +144,7 @@ describe("api routes", () => {
       });
       setPool(mockPool);
 
-      const res = await request("/api/prometheus");
+      const res = await request("/prometheus");
       const body = await res.text();
 
       expect(body).toContain("buntime_avg_response_time_ms 42.5");
@@ -156,7 +161,7 @@ describe("api routes", () => {
       });
       setPool(mockPool);
 
-      const res = await request("/api/prometheus");
+      const res = await request("/prometheus");
       const body = await res.text();
 
       expect(body).toContain("buntime_numeric_value 100");
@@ -165,9 +170,9 @@ describe("api routes", () => {
     });
   });
 
-  describe("GET /api/stats", () => {
+  describe("GET /admin/stats", () => {
     it("should return empty objects when pool is not initialized", async () => {
-      const res = await request("/api/stats");
+      const res = await request("/admin/stats");
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -178,7 +183,7 @@ describe("api routes", () => {
       const mockPool = createMockPool();
       setPool(mockPool);
 
-      const res = await request("/api/stats");
+      const res = await request("/admin/stats");
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -203,7 +208,7 @@ describe("api routes", () => {
       });
       setPool(mockPool);
 
-      const res = await request("/api/stats");
+      const res = await request("/admin/stats");
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -214,13 +219,13 @@ describe("api routes", () => {
     });
   });
 
-  describe("GET /api/sse", () => {
+  describe("GET /admin/sse", () => {
     it("should return SSE stream response", async () => {
       const mockPool = createMockPool();
       setPool(mockPool);
       setConfig({ sseInterval: 100 });
 
-      const res = await request("/api/sse");
+      const res = await request("/admin/sse");
 
       expect(res.status).toBe(200);
       expect(res.headers.get("Content-Type")).toContain("text/event-stream");
@@ -242,7 +247,7 @@ describe("api routes", () => {
       setPool(mockPool);
       setConfig({}); // No interval set
 
-      const res = await request("/api/sse");
+      const res = await request("/admin/sse");
 
       expect(res.status).toBe(200);
       expect(res.headers.get("Content-Type")).toContain("text/event-stream");
@@ -258,7 +263,7 @@ describe("api routes", () => {
       setPool(mockPool);
       setConfig({ sseInterval: 50 });
 
-      const res = await request("/api/sse");
+      const res = await request("/admin/sse");
       const reader = res.body?.getReader();
 
       if (reader) {
@@ -285,7 +290,7 @@ describe("api routes", () => {
       // by testing routes that could throw with invalid state
 
       // Make a request that won't throw but validates error handling exists
-      const res = await request("/api");
+      const res = await request("/admin");
       expect(res.status).toBe(503); // Expected behavior, not an error
     });
 
@@ -298,7 +303,7 @@ describe("api routes", () => {
       });
       setPool(errorPool);
 
-      const res = await request("/api");
+      const res = await request("/admin");
 
       // The onError handler should catch the error and return a proper response
       expect(res.status).toBeGreaterThanOrEqual(400);
@@ -313,7 +318,7 @@ describe("api routes", () => {
       });
       setPool(errorPool);
 
-      const res = await request("/api/prometheus");
+      const res = await request("/prometheus");
 
       // The onError handler should catch the error
       expect(res.status).toBeGreaterThanOrEqual(400);

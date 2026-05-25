@@ -1,8 +1,18 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type Mock,
+  spyOn,
+} from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as runtimeConfig from "@/config";
-import { loadWorkerConfig } from "./config";
+import { clearWorkerConfigCache, loadWorkerConfig } from "./config";
 
 // Helper to write YAML manifest
 function writeManifest(dir: string, data: Record<string, unknown>) {
@@ -23,9 +33,18 @@ describe("loadWorkerConfig", () => {
     }
   });
 
+  let getConfigSpy: Mock<typeof runtimeConfig.getConfig>;
+
+  afterEach(() => {
+    getConfigSpy?.mockRestore();
+  });
+
   beforeEach(() => {
-    spyOn(runtimeConfig, "getConfig").mockReturnValue({
+    clearWorkerConfigCache();
+    getConfigSpy = spyOn(runtimeConfig, "getConfig").mockReturnValue({
+      authDb: { mode: "local", syncIntervalSeconds: 60 },
       bodySize: { default: 10 * 1024 * 1024, max: 100 * 1024 * 1024 },
+      cpanelSessionTtlMs: 24 * 60 * 60 * 1000,
       delayMs: 100,
       isCompiled: false,
       isDev: true,
@@ -33,6 +52,7 @@ describe("loadWorkerConfig", () => {
       pluginDirs: ["./plugins"],
       poolSize: 10,
       port: 8000,
+      stateDir: "/tmp/.buntime",
       version: "1.0.0",
       workerDirs: ["/tmp"],
     });
@@ -71,6 +91,37 @@ describe("loadWorkerConfig", () => {
       expect(config.timeoutMs).toBe(45 * 1000);
       expect(config.maxRequests).toBe(500);
       expect(config.lowMemory).toBe(true);
+    });
+
+    it("should default enabled to true and surface enabled:false from the manifest", async () => {
+      const onDir = join(baseTestDir, `enabled-on-${Date.now()}-${Math.random()}`);
+      const offDir = join(baseTestDir, `enabled-off-${Date.now()}-${Math.random()}`);
+      mkdirSync(onDir, { recursive: true });
+      mkdirSync(offDir, { recursive: true });
+
+      writeManifest(onDir, { timeout: 30 });
+      writeManifest(offDir, { enabled: false });
+
+      expect((await loadWorkerConfig(onDir)).enabled).toBe(true);
+      expect((await loadWorkerConfig(offDir)).enabled).toBe(false);
+    });
+
+    it("should cache config reads within the configured TTL", async () => {
+      const uniqueDir = join(baseTestDir, `manifest-cache-${Date.now()}-${Math.random()}`);
+      mkdirSync(uniqueDir, { recursive: true });
+
+      writeManifest(uniqueDir, { timeout: 45 });
+      const first = await loadWorkerConfig(uniqueDir);
+
+      writeManifest(uniqueDir, { timeout: 60 });
+      const second = await loadWorkerConfig(uniqueDir);
+
+      expect(second).toBe(first);
+      expect(second.timeoutMs).toBe(45 * 1000);
+
+      clearWorkerConfigCache(uniqueDir);
+      const third = await loadWorkerConfig(uniqueDir);
+      expect(third.timeoutMs).toBe(60 * 1000);
     });
 
     it("should use defaults when no manifest exists", async () => {

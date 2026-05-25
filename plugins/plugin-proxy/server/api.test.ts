@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import type { TursoDatabase, TursoHealth, TursoService } from "@buntime/plugin-turso";
 import type { PluginContext } from "@buntime/shared/types";
 import { api } from "./api";
 import {
@@ -6,6 +7,7 @@ import {
   getDynamicRules,
   initializeProxyService,
   type ProxyRule,
+  type StoredRule,
   setDynamicRules,
   shutdownProxyService,
 } from "./services";
@@ -15,6 +17,7 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
     config: {},
     globalConfig: {
       poolSize: 10,
+      pluginDirs: ["./plugins"],
       workerDirs: ["./apps"],
     },
     getPlugin: mock(() => undefined),
@@ -24,37 +27,110 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
       info: mock(() => {}),
       warn: mock(() => {}),
     },
+    runtime: {
+      api: "1.0.0",
+      version: "test",
+    },
     ...overrides,
   };
 }
 
-function createMockKv(): {
+function createMockTurso(): {
   delete: ReturnType<typeof mock>;
-  get: ReturnType<typeof mock>;
-  list: ReturnType<typeof mock>;
+  service: TursoService;
   set: ReturnType<typeof mock>;
   store: Map<string, unknown>;
 } {
-  const store = new Map<string, unknown>();
+  const store = new Map<string, StoredRule>();
+  const set = mock((rule: StoredRule) => {
+    store.set(rule.id, rule);
+  });
+  const deleteRule = mock((id: string) => {
+    store.delete(id);
+  });
+
+  const db = {
+    checkpoint: mock(async () => {}),
+    close: mock(async () => {}),
+    exec: mock(async () => {}),
+    getRawClient: mock(() => ({})),
+    getSyncStats: mock(async () => null),
+    localPath: ":memory:",
+    mode: "local",
+    prepare: mock((sql: string) => ({
+      all: mock(async () => {
+        if (!sql.includes("FROM proxy_rules")) {
+          return [];
+        }
+
+        return Array.from(store.values())
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.id.localeCompare(b.id))
+          .map((rule) => ({ rule_json: JSON.stringify(rule) }));
+      }),
+      get: mock(async () => null),
+      run: mock(async (...args: unknown[]) => {
+        if (sql.includes("INSERT INTO proxy_rules")) {
+          const id = String(args[0]);
+          const ruleJson = String(args[2]);
+          const parsed: unknown = JSON.parse(ruleJson);
+          if (
+            typeof parsed === "object" &&
+            parsed !== null &&
+            "pattern" in parsed &&
+            "target" in parsed
+          ) {
+            const rule = parsed as StoredRule;
+            store.set(id, rule);
+            set(rule);
+          }
+        }
+
+        if (sql.includes("DELETE FROM proxy_rules")) {
+          const id = String(args[0]);
+          deleteRule(id);
+        }
+
+        return { changes: 1, lastInsertRowid: 1 };
+      }),
+    })),
+    pull: mock(async () => false),
+    push: mock(async () => {}),
+    transaction: mock(async (callback) => callback(db as unknown as TursoDatabase)),
+  } as unknown as TursoDatabase;
 
   return {
-    delete: mock((key: string[]) => {
-      store.delete(key.join("/"));
-      return Promise.resolve();
-    }),
-    get: mock((key: string[]) => {
-      return Promise.resolve({ value: store.get(key.join("/")) });
-    }),
-    list: mock(function* () {
-      for (const [key, value] of store) {
-        yield { key: key.split("/"), value };
-      }
-    }),
-    set: mock((key: string[], value: unknown) => {
-      store.set(key.join("/"), value);
-      return Promise.resolve();
-    }),
+    delete: deleteRule,
+    service: {
+      close: mock(async () => {}),
+      connect: mock(async () => db),
+      health: mock(
+        async (): Promise<TursoHealth> => ({
+          connected: true,
+          localPath: ":memory:",
+          mode: "local",
+          namespaces: ["proxy"],
+          ok: true,
+          sync: { enabled: false },
+        }),
+      ),
+      transaction: mock(async (_options, callback) => callback(db)),
+    },
+    set,
     store,
+  };
+}
+
+function createMockKv(): TursoService & {
+  delete: ReturnType<typeof mock>;
+  set: ReturnType<typeof mock>;
+  store: Map<string, unknown>;
+} {
+  const turso = createMockTurso();
+  return {
+    ...turso.service,
+    delete: turso.delete,
+    set: turso.set,
+    store: turso.store,
   };
 }
 
@@ -67,12 +143,12 @@ describe("Proxy API", () => {
     shutdownProxyService();
   });
 
-  describe("GET /api/rules", () => {
+  describe("GET /admin/rules", () => {
     it("should return empty array when no rules configured", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules");
+      const req = new Request("http://localhost:8000/admin/rules");
       const res = await api.fetch(req);
 
       expect(res.status).toBe(200);
@@ -88,7 +164,7 @@ describe("Proxy API", () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, staticRules);
 
-      const req = new Request("http://localhost:8000/api/rules");
+      const req = new Request("http://localhost:8000/admin/rules");
       const res = await api.fetch(req);
 
       expect(res.status).toBe(200);
@@ -114,7 +190,7 @@ describe("Proxy API", () => {
         setDynamicRules([dynamicRule]);
       }
 
-      const req = new Request("http://localhost:8000/api/rules");
+      const req = new Request("http://localhost:8000/admin/rules");
       const res = await api.fetch(req);
 
       expect(res.status).toBe(200);
@@ -127,12 +203,12 @@ describe("Proxy API", () => {
     });
   });
 
-  describe("GET /api/rules/:id", () => {
+  describe("GET /admin/rules/:id", () => {
     it("should return 404 when rule not found", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/nonexistent");
+      const req = new Request("http://localhost:8000/admin/rules/nonexistent");
       const res = await api.fetch(req);
 
       expect(res.status).toBe(404);
@@ -145,7 +221,7 @@ describe("Proxy API", () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, staticRules);
 
-      const req = new Request("http://localhost:8000/api/rules/static-0");
+      const req = new Request("http://localhost:8000/admin/rules/static-0");
       const res = await api.fetch(req);
 
       expect(res.status).toBe(200);
@@ -166,7 +242,7 @@ describe("Proxy API", () => {
         setDynamicRules([dynamicRule]);
       }
 
-      const req = new Request("http://localhost:8000/api/rules/my-dynamic-rule");
+      const req = new Request("http://localhost:8000/admin/rules/my-dynamic-rule");
       const res = await api.fetch(req);
 
       expect(res.status).toBe(200);
@@ -177,12 +253,12 @@ describe("Proxy API", () => {
     });
   });
 
-  describe("POST /api/rules", () => {
-    it("should return 400 when kv not enabled", async () => {
+  describe("POST /admin/rules", () => {
+    it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules", {
+      const req = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({ pattern: "^/test$", target: "http://test" }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -191,7 +267,7 @@ describe("Proxy API", () => {
 
       expect(res.status).toBe(400);
       const data = await res.json();
-      expect(data.error).toBe("Dynamic rules not enabled (plugin-keyval not configured)");
+      expect(data.error).toBe("Dynamic rules not enabled (plugin-turso not configured)");
     });
 
     it("should return 400 when pattern missing", async () => {
@@ -201,7 +277,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules", {
+      const req = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({ target: "http://test" }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -220,7 +296,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules", {
+      const req = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({ pattern: "^/test$" }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -239,7 +315,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules", {
+      const req = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({ pattern: "[invalid", target: "http://test" }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -258,7 +334,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules", {
+      const req = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({
           name: "My Rule",
           pattern: "^/test/(.*)$",
@@ -277,7 +353,7 @@ describe("Proxy API", () => {
       expect(data.target).toBe("http://test:8080");
       expect(data.readonly).toBe(false);
 
-      // Verify it was saved to kv
+      // Verify it was saved to Turso
       expect(mockKv.set).toHaveBeenCalled();
 
       // Verify it's in dynamic rules
@@ -286,12 +362,12 @@ describe("Proxy API", () => {
     });
   });
 
-  describe("PUT /api/rules/:id", () => {
-    it("should return 400 when kv not enabled", async () => {
+  describe("PUT /admin/rules/:id", () => {
+    it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/some-id", {
+      const req = new Request("http://localhost:8000/admin/rules/some-id", {
         body: JSON.stringify({ target: "http://new-target" }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -311,7 +387,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, staticRules);
 
-      const req = new Request("http://localhost:8000/api/rules/static-0", {
+      const req = new Request("http://localhost:8000/admin/rules/static-0", {
         body: JSON.stringify({ target: "http://new-target" }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -330,7 +406,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/nonexistent", {
+      const req = new Request("http://localhost:8000/admin/rules/nonexistent", {
         body: JSON.stringify({ target: "http://new-target" }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -357,7 +433,7 @@ describe("Proxy API", () => {
         setDynamicRules([dynamicRule]);
       }
 
-      const req = new Request("http://localhost:8000/api/rules/my-rule", {
+      const req = new Request("http://localhost:8000/admin/rules/my-rule", {
         body: JSON.stringify({ pattern: "[invalid" }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -384,7 +460,7 @@ describe("Proxy API", () => {
         setDynamicRules([dynamicRule]);
       }
 
-      const req = new Request("http://localhost:8000/api/rules/my-rule", {
+      const req = new Request("http://localhost:8000/admin/rules/my-rule", {
         body: JSON.stringify({
           name: "New Name",
           target: "http://new-target:9000",
@@ -401,17 +477,17 @@ describe("Proxy API", () => {
       expect(data.target).toBe("http://new-target:9000");
       expect(data.pattern).toBe("^/test/(.*)$"); // unchanged
 
-      // Verify it was saved to kv
+      // Verify it was saved to Turso
       expect(mockKv.set).toHaveBeenCalled();
     });
   });
 
-  describe("DELETE /api/rules/:id", () => {
-    it("should return 400 when kv not enabled", async () => {
+  describe("DELETE /admin/rules/:id", () => {
+    it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/some-id", {
+      const req = new Request("http://localhost:8000/admin/rules/some-id", {
         method: "DELETE",
       });
       const res = await api.fetch(req);
@@ -429,7 +505,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, staticRules);
 
-      const req = new Request("http://localhost:8000/api/rules/static-0", {
+      const req = new Request("http://localhost:8000/admin/rules/static-0", {
         method: "DELETE",
       });
       const res = await api.fetch(req);
@@ -446,7 +522,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/nonexistent", {
+      const req = new Request("http://localhost:8000/admin/rules/nonexistent", {
         method: "DELETE",
       });
       const res = await api.fetch(req);
@@ -473,7 +549,7 @@ describe("Proxy API", () => {
 
       expect(getDynamicRules().length).toBe(1);
 
-      const req = new Request("http://localhost:8000/api/rules/my-rule", {
+      const req = new Request("http://localhost:8000/admin/rules/my-rule", {
         method: "DELETE",
       });
       const res = await api.fetch(req);
@@ -482,7 +558,7 @@ describe("Proxy API", () => {
       const data = await res.json();
       expect(data.success).toBe(true);
 
-      // Verify it was deleted from kv
+      // Verify it was deleted from Turso
       expect(mockKv.delete).toHaveBeenCalled();
 
       // Verify it's removed from dynamic rules
@@ -490,12 +566,12 @@ describe("Proxy API", () => {
     });
   });
 
-  describe("PUT /api/rules/reorder", () => {
-    it("should return 400 when kv not enabled", async () => {
+  describe("PUT /admin/rules/reorder", () => {
+    it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/reorder", {
+      const req = new Request("http://localhost:8000/admin/rules/reorder", {
         body: JSON.stringify({ ids: ["a"] }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -514,7 +590,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/reorder", {
+      const req = new Request("http://localhost:8000/admin/rules/reorder", {
         body: JSON.stringify({ ids: [] }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -534,7 +610,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, staticRules);
 
-      const req = new Request("http://localhost:8000/api/rules/reorder", {
+      const req = new Request("http://localhost:8000/admin/rules/reorder", {
         body: JSON.stringify({ ids: ["static-0"] }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -551,13 +627,10 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const dynamicRule = compileRule(
-        { id: "rule-1", pattern: "^/a$", target: "http://a" },
-        false,
-      );
+      const dynamicRule = compileRule({ id: "rule-1", pattern: "^/a$", target: "http://a" }, false);
       if (dynamicRule) setDynamicRules([dynamicRule]);
 
-      const req = new Request("http://localhost:8000/api/rules/reorder", {
+      const req = new Request("http://localhost:8000/admin/rules/reorder", {
         body: JSON.stringify({ ids: ["nonexistent"] }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -578,7 +651,7 @@ describe("Proxy API", () => {
       const rule2 = compileRule({ id: "rule-2", pattern: "^/b$", target: "http://b" }, false);
       if (rule1 && rule2) setDynamicRules([rule1, rule2]);
 
-      const req = new Request("http://localhost:8000/api/rules/reorder", {
+      const req = new Request("http://localhost:8000/admin/rules/reorder", {
         body: JSON.stringify({ ids: ["rule-1"] }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -612,7 +685,7 @@ describe("Proxy API", () => {
       if (rule1 && rule2 && rule3) setDynamicRules([rule1, rule2, rule3]);
 
       // Reorder: Third, First, Second
-      const req = new Request("http://localhost:8000/api/rules/reorder", {
+      const req = new Request("http://localhost:8000/admin/rules/reorder", {
         body: JSON.stringify({ ids: ["rule-3", "rule-1", "rule-2"] }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
@@ -629,11 +702,11 @@ describe("Proxy API", () => {
       expect(data[2].id).toBe("rule-2");
       expect(data[2].order).toBe(2);
 
-      // Verify saved to kv
+      // Verify saved to Turso
       expect(mockKv.set).toHaveBeenCalledTimes(3);
 
       // Verify GET returns new order
-      const getReq = new Request("http://localhost:8000/api/rules");
+      const getReq = new Request("http://localhost:8000/admin/rules");
       const getRes = await api.fetch(getReq);
       const rules = await getRes.json();
       expect(rules[0].id).toBe("rule-3");
@@ -649,7 +722,7 @@ describe("Proxy API", () => {
       initializeProxyService(ctx, []);
 
       // Create first rule
-      const req1 = new Request("http://localhost:8000/api/rules", {
+      const req1 = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({ name: "Rule 1", pattern: "^/a$", target: "http://a" }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -659,7 +732,7 @@ describe("Proxy API", () => {
       expect(data1.order).toBe(0);
 
       // Create second rule
-      const req2 = new Request("http://localhost:8000/api/rules", {
+      const req2 = new Request("http://localhost:8000/admin/rules", {
         body: JSON.stringify({ name: "Rule 2", pattern: "^/b$", target: "http://b" }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -670,12 +743,12 @@ describe("Proxy API", () => {
     });
   });
 
-  describe("PATCH /api/rules/:id/toggle", () => {
-    it("should return 400 when kv not enabled", async () => {
+  describe("PATCH /admin/rules/:id/toggle", () => {
+    it("should return 400 when Turso is not enabled", async () => {
       const ctx = createMockContext();
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/some-id/toggle", {
+      const req = new Request("http://localhost:8000/admin/rules/some-id/toggle", {
         method: "PATCH",
       });
       const res = await api.fetch(req);
@@ -691,7 +764,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, staticRules);
 
-      const req = new Request("http://localhost:8000/api/rules/static-0/toggle", {
+      const req = new Request("http://localhost:8000/admin/rules/static-0/toggle", {
         method: "PATCH",
       });
       const res = await api.fetch(req);
@@ -706,7 +779,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctx, []);
 
-      const req = new Request("http://localhost:8000/api/rules/nonexistent/toggle", {
+      const req = new Request("http://localhost:8000/admin/rules/nonexistent/toggle", {
         method: "PATCH",
       });
       const res = await api.fetch(req);
@@ -727,7 +800,7 @@ describe("Proxy API", () => {
       );
       if (rule) setDynamicRules([rule]);
 
-      const req = new Request("http://localhost:8000/api/rules/my-rule/toggle", {
+      const req = new Request("http://localhost:8000/admin/rules/my-rule/toggle", {
         method: "PATCH",
       });
       const res = await api.fetch(req);
@@ -737,7 +810,7 @@ describe("Proxy API", () => {
       expect(data.enabled).toBe(false);
 
       // Toggle back
-      const req2 = new Request("http://localhost:8000/api/rules/my-rule/toggle", {
+      const req2 = new Request("http://localhost:8000/admin/rules/my-rule/toggle", {
         method: "PATCH",
       });
       const res2 = await api.fetch(req2);
@@ -758,7 +831,7 @@ describe("Proxy API", () => {
       });
       initializeProxyService(ctxWithKv, []);
 
-      const req = new Request("http://localhost:8000/api/rules", {
+      const req = new Request("http://localhost:8000/admin/rules", {
         body: "invalid json",
         headers: { "Content-Type": "application/json" },
         method: "POST",

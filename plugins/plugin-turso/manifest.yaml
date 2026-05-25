@@ -1,0 +1,45 @@
+name: "@buntime/plugin-turso"
+enabled: true
+
+pluginEntry: dist/plugin.js
+
+mode: local
+localPath: ./data/turso/runtime.db
+
+sync:
+  url: ""
+  authToken: ""
+
+config:
+  mode:
+    type: enum
+    label: Turso Mode
+    description: Local mode opens a local Turso database file; sync mode keeps a local file synchronized with a Turso sync endpoint.
+    env: TURSO_MODE
+    default: local
+    options:
+      - local
+      - sync
+  localPath:
+    type: string
+    label: Local Database Path
+    description: Path to the local Turso database file used by local and sync modes.
+    env: TURSO_LOCAL_PATH
+    default: /data/turso/runtime.db
+  sync:
+    type: object
+    label: Sync Settings
+    description: Turso Sync settings used when mode is sync.
+    properties:
+      url:
+        type: string
+        label: Sync URL
+        description: Turso sync endpoint URL.
+        env: TURSO_SYNC_URL
+        default: ""
+      authToken:
+        type: password
+        label: Sync Auth Token
+        description: Authentication token for the Turso sync endpoint.
+        env: TURSO_SYNC_AUTH_TOKEN
+        default: ""

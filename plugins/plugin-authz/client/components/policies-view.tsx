@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { basePath } from "~/utils/api";
+import { authFetch, basePath } from "~/utils/api";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
@@ -61,7 +61,7 @@ export function PoliciesView() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${basePath}/api/authz/policies`);
+      const response = await authFetch(`${basePath}/admin/policies`);
       const data = await response.json();
       setPolicies(data);
     } catch (err) {
@@ -78,7 +78,7 @@ export function PoliciesView() {
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this policy?")) return;
     try {
-      await fetch(`${basePath}/api/authz/policies/${id}`, { method: "DELETE" });
+      await authFetch(`${basePath}/admin/policies/${id}`, { method: "DELETE" });
       await loadPolicies();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to delete policy");
@@ -87,7 +87,7 @@ export function PoliciesView() {
 
   const handleSave = async () => {
     try {
-      await fetch(`${basePath}/api/authz/policies`, {
+      await authFetch(`${basePath}/admin/policies`, {
         body: JSON.stringify(editingPolicy),
         headers: { "Content-Type": "application/json" },
         method: "POST",

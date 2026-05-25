@@ -1,5 +1,7 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, dirname, extname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { getChildLogger } from "@buntime/shared/logger";
 import type {
   BuntimePlugin,
@@ -68,6 +70,29 @@ function resolvePluginImpl(
   return mod as PluginImpl;
 }
 
+function getPluginModuleUrl(path: string): string {
+  try {
+    const contents = readFileSync(path);
+    const hash = createHash("sha256").update(contents).digest("hex").slice(0, 16);
+    const ext = extname(path);
+    const cachePath = join(dirname(path), `.buntime-${basename(path, ext)}-${hash}${ext}`);
+
+    if (!existsSync(cachePath)) {
+      copyFileSync(path, cachePath);
+    }
+
+    return pathToFileURL(cachePath).href;
+  } catch {
+    const url = pathToFileURL(path);
+    try {
+      url.searchParams.set("mtime", String(statSync(path).mtimeMs));
+    } catch {
+      // If stat fails, import will report the real module error below.
+    }
+    return url.href;
+  }
+}
+
 /**
  * Parsed plugin info for topological sorting
  */
@@ -95,6 +120,13 @@ interface ScannedPlugin {
  * Options for PluginLoader constructor
  */
 export interface PluginLoaderOptions {
+  /**
+   * Runtime API key store, forwarded to each plugin via `ctx.auth.store` so
+   * plugins can protect their `/admin/**` routes with the shared middleware.
+   */
+  apiKeys?: unknown;
+  /** Runtime root key, forwarded to plugins via `ctx.auth.rootKey`. */
+  rootKey?: string;
   /** Worker pool instance */
   pool?: unknown;
   /** Override pluginDirs (for testing) */
@@ -105,6 +137,8 @@ export interface PluginLoaderOptions {
  * Load plugins from configuration
  */
 export class PluginLoader {
+  private apiKeys?: unknown;
+  private rootKey?: string;
   private registry = new PluginRegistry();
   private pool?: unknown;
   private pluginDirsOverride?: string[];
@@ -112,6 +146,8 @@ export class PluginLoader {
   private scannedPlugins = new Map<string, ScannedPlugin>();
 
   constructor(options: PluginLoaderOptions = {}) {
+    this.apiKeys = options.apiKeys;
+    this.rootKey = options.rootKey;
     this.pool = options.pool;
     this.pluginDirsOverride = options.pluginDirs;
   }
@@ -368,7 +404,7 @@ export class PluginLoader {
 
     // Import module lazily - only when plugin is actually being loaded
     // This prevents disabled plugins from being imported
-    const module = await import(path);
+    const module = await import(getPluginModuleUrl(path));
 
     // Resolve implementation from module
     const impl = await resolvePluginImpl(module, options);
@@ -409,8 +445,13 @@ export class PluginLoader {
     const runtimeConfig = getConfig();
 
     const context: PluginContext = {
+      auth: {
+        rootKey: this.rootKey,
+        store: this.apiKeys,
+      },
       config: options,
       globalConfig: {
+        pluginDirs: runtimeConfig.pluginDirs,
         workerDirs: runtimeConfig.workerDirs,
         poolSize: runtimeConfig.poolSize,
       },
@@ -503,6 +544,10 @@ export class PluginLoader {
       }
 
       for (const entry of entries) {
+        if (entry.startsWith(".")) {
+          continue;
+        }
+
         try {
           const entryPath = join(pluginDir, entry);
           const stat = statSync(entryPath);

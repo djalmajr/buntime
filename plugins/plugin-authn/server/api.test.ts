@@ -325,10 +325,6 @@ describe("API routes with initialized auth", () => {
   });
 
   describe("auth routes with configured auth", () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let mockAuth: any;
-    let mockLogger: ReturnType<typeof createMockLogger>;
-
     const createMockAuth = () => ({
       api: {
         getSession: mock(() => Promise.resolve(null)),
@@ -349,6 +345,17 @@ describe("API routes with initialized auth", () => {
       info: mock(() => {}),
       warn: mock(() => {}),
     });
+
+    function replaceGetSession(auth: ReturnType<typeof createMockAuth>, getSession: unknown): void {
+      Object.defineProperty(auth.api, "getSession", {
+        configurable: true,
+        value: getSession,
+        writable: true,
+      });
+    }
+
+    let mockAuth: ReturnType<typeof createMockAuth>;
+    let mockLogger: ReturnType<typeof createMockLogger>;
 
     beforeEach(() => {
       mockAuth = createMockAuth();
@@ -389,11 +396,14 @@ describe("API routes with initialized auth", () => {
     });
 
     it("should return session when auth is configured", async () => {
-      mockAuth.api.getSession = mock(() =>
-        Promise.resolve({
-          session: { id: "session-1", expiresAt: new Date() },
-          user: { id: "user-1", email: "test@example.com" },
-        }),
+      replaceGetSession(
+        mockAuth,
+        mock(() =>
+          Promise.resolve({
+            session: { expiresAt: new Date(), id: "session-1" },
+            user: { email: "test@example.com", id: "user-1" },
+          }),
+        ),
       );
 
       const { api: mockedApi } = await import("./api");

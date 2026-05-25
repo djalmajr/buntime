@@ -1,4 +1,4 @@
-import type { DatabaseAdapter } from "@buntime/plugin-database";
+import type { KeyValSqlAdapter } from "./sql-adapter.ts";
 
 /**
  * Operation types tracked by metrics
@@ -35,7 +35,7 @@ export interface KvMetricsConfig {
    * Database adapter for persistence (optional)
    * If not provided, metrics are only stored in memory
    */
-  adapter?: DatabaseAdapter;
+  adapter?: KeyValSqlAdapter;
 
   /**
    * Flush interval in ms for persisting metrics
@@ -55,7 +55,7 @@ export class KvMetrics {
   private latencyHistograms = new Map<KvOperationType, Map<number, number>>();
   private latencySums = new Map<KvOperationType, number>();
 
-  private adapter: DatabaseAdapter | null = null;
+  private adapter: KeyValSqlAdapter | null = null;
   private flushTimer: Timer | null = null;
   private pendingUpdates = new Map<
     KvOperationType,

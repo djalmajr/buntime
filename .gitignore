@@ -8,16 +8,26 @@
 .tanstack
 .DS_Store
 
+# Runtime state directory (api-keys.json, internal metadata) — written by
+# ApiKeyStore.fromStateDir at <pluginDir>/.buntime by default. In production
+# this lives under a persistent volume (RUNTIME_STATE_DIR). Never commit.
+**/.buntime/
+
 # Build and dependencies
 dist
 node_modules
 tmp
-
-# Go binaries
-packages/cli-go/buntime-cli
+apps/runtime/.perf-fixtures
+apps/runtime/perf-results.json
+apps/runtime/perf-*-results.json
 
 # Local runtime config
 runtime/data
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
 
 # Helm generated files (regenerate with: bun scripts/generate-helm.ts)
 charts/values.yaml
@@ -35,3 +45,15 @@ charts/questions.yml
 .opencode/*
 !.opencode/commands/
 !.opencode/plugins/
+.playwright-mcp/
+
+# Local cluster deploy overlays (env-specific; keep out of the public repo)
+deploy/values.home-workload.yaml
+deploy/install-home-workload.sh
+
+# Agent-tool configs (local, non-Claude)
+.codex/
+opencode.json
+
+# Local REST scratch file (may contain captured tokens)
+request.http

@@ -9,7 +9,10 @@ import z from "zod/v4";
  * @param schema - Optional Zod number schema with additional validations (e.g., z.number().nonnegative())
  * @returns A Zod schema that preprocesses the value
  */
-export const number = (defaultValue: number, schema: z.ZodNumber = z.number()): z.ZodPipe<z.ZodTransform<number, unknown>, z.ZodNumber> => {
+export const number = (
+  defaultValue: number,
+  schema: z.ZodNumber = z.number(),
+): z.ZodPipe<z.ZodTransform<number, unknown>, z.ZodNumber> => {
   return z.preprocess((v) => {
     if (!(v ?? "")) return defaultValue;
     const parsed = Number(v);
@@ -28,7 +31,10 @@ export const number = (defaultValue: number, schema: z.ZodNumber = z.number()): 
  * @param schema - Optional Zod boolean schema with additional validations
  * @returns A Zod schema that preprocesses the value
  */
-export const boolean = (defaultValue: boolean, schema: z.ZodBoolean = z.boolean()): z.ZodPipe<z.ZodTransform<boolean, unknown>, z.ZodBoolean> => {
+export const boolean = (
+  defaultValue: boolean,
+  schema: z.ZodBoolean = z.boolean(),
+): z.ZodPipe<z.ZodTransform<boolean, unknown>, z.ZodBoolean> => {
   return z.preprocess((v) => {
     if (!(v ?? "")) return defaultValue;
     if (typeof v === "boolean") return v;

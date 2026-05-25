@@ -1,0 +1,186 @@
+suite: turso-server StatefulSet + Services + Secret
+
+# Renders charts/templates/turso-server.yaml under different value matrices
+# and asserts the rendered output. Lives alongside the chart so the helm
+# `unittest` plugin discovers it automatically.
+
+templates:
+  - templates/turso-server.yaml
+
+# The chart needs `buntime.rootKey` for the StatefulSet to render, plus a
+# minimal turso-server config. We collect the common bits here so every
+# test starts from a working baseline.
+release:
+  name: buntime
+  namespace: buntime
+
+tests:
+  - it: renders nothing when tursoServer.enabled is false
+    set:
+      tursoServer.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders 3 resources (StatefulSet + 2 Services) when enabled without tokens
+    set:
+      tursoServer.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: renders 4 resources (+Secret) when enabled with tokens
+    set:
+      tursoServer.enabled: true
+      tursoServer.authToken: data-tok
+      tursoServer.adminToken: admin-tok
+    asserts:
+      - hasDocuments:
+          count: 4
+
+  - it: data Service exposes the configured port
+    set:
+      tursoServer.enabled: true
+      tursoServer.service.dataPort: 18080
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: buntime-turso
+      - equal:
+          path: spec.ports[0].port
+          value: 18080
+
+  - it: admin Service exposes the configured admin port
+    set:
+      tursoServer.enabled: true
+      tursoServer.service.adminPort: 18081
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: buntime-turso-admin
+      - equal:
+          path: spec.ports[0].port
+          value: 18081
+
+  - it: StatefulSet container ports match data and admin
+    set:
+      tursoServer.enabled: true
+      tursoServer.service.dataPort: 18080
+      tursoServer.service.adminPort: 18081
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: StatefulSet
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 18080
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].containerPort
+          value: 18081
+
+  - it: forwards GC tunables as env vars
+    set:
+      tursoServer.enabled: true
+      tursoServer.autoIdleDuration: "240h"
+      tursoServer.archiveRetention: "1440h"
+      tursoServer.gcInterval: "30m"
+      tursoServer.maxNamespaces: 64
+      tursoServer.autoProvision: false
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TURSO_AUTO_IDLE_DURATION
+            value: "240h"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TURSO_ARCHIVE_RETENTION
+            value: "1440h"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TURSO_GC_INTERVAL
+            value: "30m"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TURSO_MAX_NAMESPACES
+            value: "64"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TURSO_ALLOW_AUTO_PROVISION
+            value: "false"
+
+  - it: uses configured persistence size
+    set:
+      tursoServer.enabled: true
+      tursoServer.persistence.size: 25Gi
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 25Gi
+
+  - it: applies imagePullSecrets to the pod template
+    set:
+      tursoServer.enabled: true
+      imagePullSecrets:
+        - name: my-pull-secret
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.template.spec.imagePullSecrets
+          content:
+            name: my-pull-secret
+
+  - it: adds Litestream sidecar + initContainer per database
+    set:
+      tursoServer.enabled: true
+      tursoServer.litestream.enabled: true
+      tursoServer.litestream.s3.endpoint: http://minio:9000
+      tursoServer.litestream.s3.bucket: turso-backups
+      tursoServer.litestream.databases:
+        - api-keys
+        - runtime
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: turso-server
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: litestream
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: litestream-restore-api-keys
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: litestream-restore-runtime
+
+  - it: tokens get embedded in the turso-server Secret when set
+    set:
+      tursoServer.enabled: true
+      tursoServer.authToken: data-tok
+      tursoServer.adminToken: admin-tok
+    documentIndex: 3
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: metadata.name
+          value: buntime-turso
+      - equal:
+          path: stringData.TURSO_AUTH_TOKEN
+          value: data-tok
+      - equal:
+          path: stringData.TURSO_ADMIN_TOKEN
+          value: admin-tok

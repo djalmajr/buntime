@@ -9,8 +9,10 @@ const TEST_DIR = join(import.meta.dir, ".test-instance");
 
 const createMockConfig = (overrides: Partial<WorkerConfig> = {}): WorkerConfig => ({
   autoInstall: false,
+  enabled: true,
   entrypoint: "index.ts",
   env: {},
+  envPrefix: ["PUBLIC_", "VITE_"],
   idleTimeoutMs: 60000,
   injectBase: true,
   lowMemory: false,
@@ -158,6 +160,7 @@ describe("WorkerInstance", () => {
       try {
         const req = new Request("http://localhost/test");
         await expect(instance.fetch(req)).rejects.toThrow(/timeout/i);
+        expect(instance.isHealthy()).toBe(false);
       } finally {
         await instance.terminate();
       }

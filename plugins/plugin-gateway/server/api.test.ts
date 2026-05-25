@@ -6,11 +6,11 @@ import { RequestLogger } from "./request-log";
 
 describe("Gateway API", () => {
   let deps: GatewayApiDeps;
-  let keyvalExcludes: Set<string>;
+  let tursoExcludes: Set<string>;
   let envExcludes: Set<string>;
 
   beforeEach(() => {
-    keyvalExcludes = new Set();
+    tursoExcludes = new Set();
     envExcludes = new Set(["env-app"]);
 
     const mockPersistence = {
@@ -23,24 +23,24 @@ describe("Gateway API", () => {
       getMetricsHistory: mock(async () => []),
       clearMetricsHistory: mock(async () => {}),
       addShellExclude: mock(async (basename: string) => {
-        if (keyvalExcludes.has(basename)) return false;
-        keyvalExcludes.add(basename);
+        if (tursoExcludes.has(basename)) return false;
+        tursoExcludes.add(basename);
         return true;
       }),
       removeShellExclude: mock(async (basename: string) => {
-        const had = keyvalExcludes.has(basename);
-        keyvalExcludes.delete(basename);
+        const had = tursoExcludes.has(basename);
+        tursoExcludes.delete(basename);
         return had;
       }),
       getAllShellExcludes: mock(async (envSet: Set<string>): Promise<ShellExcludeEntry[]> => {
         const result: ShellExcludeEntry[] = [];
         for (const b of envSet) result.push({ basename: b, source: "env" });
-        for (const b of keyvalExcludes) {
-          if (!envSet.has(b)) result.push({ basename: b, source: "keyval" });
+        for (const b of tursoExcludes) {
+          if (!envSet.has(b)) result.push({ basename: b, source: "turso" });
         }
         return result;
       }),
-      getShellExcludes: mock(async () => Array.from(keyvalExcludes)),
+      getShellExcludes: mock(async () => Array.from(tursoExcludes)),
     } as unknown as GatewayPersistence;
 
     deps = {
@@ -52,18 +52,18 @@ describe("Gateway API", () => {
       getShellConfig: () => ({
         dir: "/test/shell",
         envExcludes,
-        keyvalExcludes,
-        addKeyValExclude: (b: string) => keyvalExcludes.add(b),
-        removeKeyValExclude: (b: string) => keyvalExcludes.delete(b),
+        tursoExcludes,
+        addTursoExclude: (b: string) => tursoExcludes.add(b),
+        removeTursoExclude: (b: string) => tursoExcludes.delete(b),
       }),
     };
   });
 
-  describe("POST /api/shell/excludes", () => {
-    it("adds exclude to keyval and memory", async () => {
+  describe("POST /admin/shell/excludes", () => {
+    it("adds exclude to Turso and memory", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "new-app" }),
@@ -73,15 +73,15 @@ describe("Gateway API", () => {
       const data = await res.json();
       expect(data.added).toBe(true);
       expect(data.basename).toBe("new-app");
-      expect(data.source).toBe("keyval");
+      expect(data.source).toBe("turso");
       // Verify in-memory set was updated
-      expect(keyvalExcludes.has("new-app")).toBe(true);
+      expect(tursoExcludes.has("new-app")).toBe(true);
     });
 
     it("rejects empty basename", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "" }),
@@ -95,7 +95,7 @@ describe("Gateway API", () => {
     it("rejects invalid basename with special characters", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "invalid/path" }),
@@ -109,7 +109,7 @@ describe("Gateway API", () => {
     it("rejects basename with dots", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "my.app" }),
@@ -121,20 +121,20 @@ describe("Gateway API", () => {
     it("accepts valid basename with hyphens and underscores", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "my-app_v2" }),
       });
 
       expect(res.status).toBe(200);
-      expect(keyvalExcludes.has("my-app_v2")).toBe(true);
+      expect(tursoExcludes.has("my-app_v2")).toBe(true);
     });
 
     it("rejects if already in env excludes", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "env-app" }),
@@ -145,11 +145,11 @@ describe("Gateway API", () => {
       expect(data.error).toContain("environment");
     });
 
-    it("returns added=false if already exists in keyval", async () => {
-      keyvalExcludes.add("existing-app");
+    it("returns added=false if already exists in Turso", async () => {
+      tursoExcludes.add("existing-app");
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "existing-app" }),
@@ -164,7 +164,7 @@ describe("Gateway API", () => {
       deps.getShellConfig = () => null;
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes", {
+      const res = await app.request("/admin/shell/excludes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basename: "new-app" }),
@@ -176,12 +176,12 @@ describe("Gateway API", () => {
     });
   });
 
-  describe("DELETE /api/shell/excludes/:basename", () => {
-    it("removes exclude from keyval and memory", async () => {
-      keyvalExcludes.add("to-remove");
+  describe("DELETE /admin/shell/excludes/:basename", () => {
+    it("removes exclude from Turso and memory", async () => {
+      tursoExcludes.add("to-remove");
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes/to-remove", {
+      const res = await app.request("/admin/shell/excludes/to-remove", {
         method: "DELETE",
       });
 
@@ -190,13 +190,13 @@ describe("Gateway API", () => {
       expect(data.removed).toBe(true);
       expect(data.basename).toBe("to-remove");
       // Verify in-memory set was updated
-      expect(keyvalExcludes.has("to-remove")).toBe(false);
+      expect(tursoExcludes.has("to-remove")).toBe(false);
     });
 
     it("returns removed=false if not found", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes/not-found", {
+      const res = await app.request("/admin/shell/excludes/not-found", {
         method: "DELETE",
       });
 
@@ -208,7 +208,7 @@ describe("Gateway API", () => {
     it("cannot remove env exclude", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes/env-app", {
+      const res = await app.request("/admin/shell/excludes/env-app", {
         method: "DELETE",
       });
 
@@ -221,7 +221,7 @@ describe("Gateway API", () => {
       deps.getShellConfig = () => null;
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes/some-app", {
+      const res = await app.request("/admin/shell/excludes/some-app", {
         method: "DELETE",
       });
 
@@ -229,67 +229,66 @@ describe("Gateway API", () => {
     });
   });
 
-  describe("GET /api/shell/excludes", () => {
-    it("returns combined env and keyval excludes", async () => {
-      keyvalExcludes.add("dynamic-app");
-      keyvalExcludes.add("another-app");
+  describe("GET /admin/shell/excludes", () => {
+    it("returns combined env and Turso excludes", async () => {
+      tursoExcludes.add("dynamic-app");
+      tursoExcludes.add("another-app");
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes");
+      const res = await app.request("/admin/shell/excludes");
 
       expect(res.status).toBe(200);
       const data: ShellExcludeEntry[] = await res.json();
-      expect(data).toHaveLength(3); // 1 env + 2 keyval
+      expect(data).toHaveLength(3); // 1 env + 2 Turso
 
       const envEntry = data.find((e) => e.basename === "env-app");
       expect(envEntry?.source).toBe("env");
 
       const dynamicEntry = data.find((e) => e.basename === "dynamic-app");
-      expect(dynamicEntry?.source).toBe("keyval");
+      expect(dynamicEntry?.source).toBe("turso");
     });
 
-    it("returns only env excludes when no keyval", async () => {
+    it("returns only env excludes when no Turso excludes", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes");
+      const res = await app.request("/admin/shell/excludes");
 
       expect(res.status).toBe(200);
       const data: ShellExcludeEntry[] = await res.json();
       expect(data).toHaveLength(1);
-      expect(data[0].basename).toBe("env-app");
-      expect(data[0].source).toBe("env");
+      expect(data[0]).toMatchObject({ basename: "env-app", source: "env" });
     });
 
     it("returns 400 if shell not configured", async () => {
       deps.getShellConfig = () => null;
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/shell/excludes");
+      const res = await app.request("/admin/shell/excludes");
 
       expect(res.status).toBe(400);
     });
   });
 
-  describe("GET /api/stats", () => {
+  describe("GET /admin/stats", () => {
     it("returns stats with shell info", async () => {
-      keyvalExcludes.add("app1");
-      keyvalExcludes.add("app2");
+      tursoExcludes.add("app1");
+      tursoExcludes.add("app2");
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/stats");
+      const res = await app.request("/admin/stats");
 
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data.shell.enabled).toBe(true);
       expect(data.shell.dir).toBe("/test/shell");
-      expect(data.shell.excludesCount).toBe(3); // 1 env + 2 keyval
+      expect(data.shell.excludesCount).toBe(3); // 1 env + 2 Turso
     });
 
     it("returns shell disabled when not configured", async () => {
       deps.getShellConfig = () => null;
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/stats");
+      const res = await app.request("/admin/stats");
 
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -308,7 +307,7 @@ describe("Gateway API", () => {
     it("GET /api/rate-limit/metrics returns metrics", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/rate-limit/metrics");
+      const res = await app.request("/admin/rate-limit/metrics");
 
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -320,7 +319,7 @@ describe("Gateway API", () => {
     it("GET /api/rate-limit/buckets returns active buckets", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/rate-limit/buckets");
+      const res = await app.request("/admin/rate-limit/buckets");
 
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -331,7 +330,7 @@ describe("Gateway API", () => {
     it("DELETE /api/rate-limit/buckets/:key clears a bucket", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/rate-limit/buckets/ip%3A192.168.1.1", {
+      const res = await app.request("/admin/rate-limit/buckets/ip%3A192.168.1.1", {
         method: "DELETE",
       });
 
@@ -340,7 +339,7 @@ describe("Gateway API", () => {
       expect(data.deleted).toBe(true);
 
       // Verify bucket was cleared
-      const bucketsRes = await app.request("/api/rate-limit/buckets");
+      const bucketsRes = await app.request("/admin/rate-limit/buckets");
       const buckets = await bucketsRes.json();
       expect(buckets).toHaveLength(1);
     });
@@ -348,7 +347,7 @@ describe("Gateway API", () => {
     it("POST /api/rate-limit/clear clears all buckets", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/rate-limit/clear", {
+      const res = await app.request("/admin/rate-limit/clear", {
         method: "POST",
       });
 
@@ -357,7 +356,7 @@ describe("Gateway API", () => {
       expect(data.cleared).toBe(2);
 
       // Verify all buckets were cleared
-      const bucketsRes = await app.request("/api/rate-limit/buckets");
+      const bucketsRes = await app.request("/admin/rate-limit/buckets");
       const buckets = await bucketsRes.json();
       expect(buckets).toHaveLength(0);
     });
@@ -396,7 +395,7 @@ describe("Gateway API", () => {
     it("GET /api/logs returns all logs", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/logs");
+      const res = await app.request("/admin/logs");
 
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -406,7 +405,7 @@ describe("Gateway API", () => {
     it("GET /api/logs?rateLimited=true filters by rate limited", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/logs?rateLimited=true");
+      const res = await app.request("/admin/logs?rateLimited=true");
 
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -417,7 +416,7 @@ describe("Gateway API", () => {
     it("GET /api/logs?ip=1.1.1.1 filters by IP", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/logs?ip=1.1.1.1");
+      const res = await app.request("/admin/logs?ip=1.1.1.1");
 
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -428,14 +427,14 @@ describe("Gateway API", () => {
     it("DELETE /api/logs clears all logs", async () => {
       const app = createGatewayApi(deps);
 
-      const res = await app.request("/api/logs", { method: "DELETE" });
+      const res = await app.request("/admin/logs", { method: "DELETE" });
 
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data.cleared).toBe(true);
 
       // Verify logs were cleared
-      const logsRes = await app.request("/api/logs");
+      const logsRes = await app.request("/admin/logs");
       const logs = await logsRes.json();
       expect(logs).toHaveLength(0);
     });

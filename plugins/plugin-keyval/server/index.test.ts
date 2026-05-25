@@ -1140,15 +1140,15 @@ describe("KeyVal API Routes", () => {
       const originalKv = kv;
 
       // Create a mock kv that throws a regular Error (not HTTPException)
-      const mockKv = {
-        ...kv,
-        get: () => {
+      const mockKv = new Kv(adapter);
+      Object.defineProperty(mockKv, "get", {
+        value: () => {
           throw new Error("Database connection failed");
         },
-      };
+      });
 
       // Temporarily replace kv
-      setApiState(mockKv as typeof kv, adapter, {
+      setApiState(mockKv, adapter, {
         debug: () => {},
         error: () => {},
         info: () => {},
@@ -1167,20 +1167,21 @@ describe("KeyVal API Routes", () => {
         info: () => {},
         warn: () => {},
       });
+      mockKv.close();
     });
 
     it("should log non-HTTPException errors", async () => {
       const errorLogs: Array<{ msg: string; ctx?: unknown }> = [];
       const originalKv = kv;
 
-      const mockKv = {
-        ...kv,
-        get: () => {
+      const mockKv = new Kv(adapter);
+      Object.defineProperty(mockKv, "get", {
+        value: () => {
           throw new TypeError("Cannot read property 'x' of undefined");
         },
-      };
+      });
 
-      setApiState(mockKv as typeof kv, adapter, {
+      setApiState(mockKv, adapter, {
         debug: () => {},
         error: (msg: string, ctx?: unknown) => errorLogs.push({ msg, ctx }),
         info: () => {},
@@ -1190,7 +1191,7 @@ describe("KeyVal API Routes", () => {
       const res = await api.request("/api/keys/another/key");
       expect(res.status).toBe(500);
       expect(errorLogs.length).toBeGreaterThan(0);
-      expect(errorLogs[0].msg).toBe("KeyVal route error");
+      expect(errorLogs[0]?.msg).toBe("KeyVal route error");
 
       // Restore
       setApiState(originalKv, adapter, {
@@ -1199,6 +1200,7 @@ describe("KeyVal API Routes", () => {
         info: () => {},
         warn: () => {},
       });
+      mockKv.close();
     });
   });
 
@@ -1207,9 +1209,11 @@ describe("KeyVal API Routes", () => {
       it("should return SSE headers", async () => {
         // Start the SSE request and abort it immediately
         const controller = new AbortController();
-        const resPromise = api.request("/api/queue/listen", {
-          signal: controller.signal,
-        });
+        const resPromise = Promise.resolve(
+          api.request("/api/queue/listen", {
+            signal: controller.signal,
+          }),
+        );
 
         // Wait for headers before aborting
         const res = await Promise.race([

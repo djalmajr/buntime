@@ -1,0 +1,122 @@
+{{- if and .Values.tursoServer.enabled .Values.tursoServer.backup.enabled }}
+# =============================================================================
+# Periodic hot-backup CronJob for turso-server
+#
+# Each run:
+#   1. Lists namespaces via the admin API.
+#   2. For each, hits `/v1/namespaces/:name/backup` — turso-server issues
+#      `VACUUM INTO` on the live tursodb (hot, consistent, no downtime) and
+#      streams the resulting `.db` snapshot.
+#   3. The CronJob pipes the body through `mc pipe` into S3 / MinIO.
+#   4. Old snapshots beyond `retentionCount` are pruned per namespace.
+#
+# This replaces the Litestream sidecar, which is incompatible with
+# `tursodb --sync-server` (exclusive file lock). See
+# `wiki/ops/turso-server.md#disaster-recovery` for the architecture
+# rationale and restore procedure.
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "buntime.fullname" . }}-turso-backup
+  labels:
+    {{- include "buntime.labels" . | nindent 4 }}
+    app.kubernetes.io/component: turso-backup
+spec:
+  schedule: {{ .Values.tursoServer.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "buntime.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: turso-backup
+        spec:
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: "{{ .Values.tursoServer.backup.image.repository }}:{{ .Values.tursoServer.backup.image.tag }}"
+              imagePullPolicy: {{ .Values.tursoServer.backup.image.pullPolicy }}
+              env:
+                - name: ADMIN_URL
+                  value: {{ printf "http://%s-turso-admin:%v" (include "buntime.fullname" .) .Values.tursoServer.service.adminPort | quote }}
+                - name: ADMIN_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "buntime.fullname" . }}-turso
+                      key: TURSO_ADMIN_TOKEN
+                - name: S3_ALIAS
+                  value: "backup"
+                - name: S3_ENDPOINT
+                  value: {{ .Values.tursoServer.backup.s3.endpoint | quote }}
+                - name: S3_BUCKET
+                  value: {{ .Values.tursoServer.backup.s3.bucket | quote }}
+                - name: S3_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "buntime.fullname" . }}-backup
+                      key: AWS_ACCESS_KEY_ID
+                - name: S3_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "buntime.fullname" . }}-backup
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: RETENTION_COUNT
+                  value: {{ .Values.tursoServer.backup.retentionCount | quote }}
+              # The custom image entrypoint is `/bin/sh -c`, so the args are
+              # passed as a single shell snippet (a single element here).
+              args:
+                - |
+                  set -eu
+                  mc alias set "$S3_ALIAS" "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" >/dev/null
+
+                  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+                  echo "backup run ts=$ts"
+
+                  # Fetch namespace list via admin API. jq extracts names.
+                  names=$(curl -sf -H "Authorization: Bearer $ADMIN_TOKEN" \
+                            "$ADMIN_URL/v1/namespaces" \
+                          | jq -r '.namespaces[].name')
+
+                  if [ -z "$names" ]; then
+                    echo "no namespaces to back up"
+                    exit 0
+                  fi
+
+                  for ns in $names; do
+                    echo "→ backing up $ns"
+                    target="$S3_ALIAS/$S3_BUCKET/$ns/$ns-$ts.db"
+                    # `curl | mc pipe` streams the snapshot body directly
+                    # into S3 without buffering to disk.
+                    curl -sf -H "Authorization: Bearer $ADMIN_TOKEN" \
+                         "$ADMIN_URL/v1/namespaces/$ns/backup" \
+                      | mc pipe "$target"
+                    echo "  ok → $target"
+
+                    # Retention: keep the most-recent RETENTION_COUNT
+                    # snapshots per namespace. UTC timestamps in the names
+                    # mean reverse-sorted = newest-first; tail starting at
+                    # `keep+1` gives the prune set.
+                    if [ "$RETENTION_COUNT" -gt 0 ]; then
+                      mc ls --json "$S3_ALIAS/$S3_BUCKET/$ns/" 2>/dev/null \
+                        | jq -r '.key' \
+                        | sort -r \
+                        | tail -n +"$(( RETENTION_COUNT + 1 ))" \
+                        | while read -r old; do
+                            [ -z "$old" ] && continue
+                            echo "  prune $old"
+                            mc rm "$S3_ALIAS/$S3_BUCKET/$ns/$old" >/dev/null
+                          done
+                    fi
+                  done
+
+                  echo "backup complete"
+{{- end }}

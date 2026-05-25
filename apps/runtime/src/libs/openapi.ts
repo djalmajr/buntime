@@ -60,13 +60,19 @@ export const PluginInfoSchema = {
 };
 
 /**
- * App info schema
+ * Worker info schema (a worker = a deployed app served by the WorkerPool).
  */
-export const AppInfoSchema = {
+export const WorkerInfoSchema = {
   type: "object" as const,
   properties: {
-    name: { type: "string" as const, example: "my-app" },
-    path: { type: "string" as const, example: "/apps/my-app" },
+    name: { type: "string" as const, example: "my-worker" },
+    path: { type: "string" as const, example: "/workers/my-worker" },
+    removable: { type: "boolean" as const, example: true },
+    source: {
+      type: "string" as const,
+      enum: ["built-in", "uploaded"],
+      example: "uploaded",
+    },
     versions: {
       type: "array" as const,
       items: { type: "string" as const },

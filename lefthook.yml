@@ -17,3 +17,14 @@ pre-commit:
       glob: "charts/**"
       run: bun scripts/check-chart-version.ts
       fail_text: "Chart files changed without version bump! Run 'bun scripts/bump-version.ts --chart=patch' to fix."
+
+    # Secrets scan — catches .env / API keys / private keys in the staged diff.
+    # Soft-skips if gitleaks is not installed ('brew install gitleaks' on macOS).
+    secrets-scan:
+      run: |
+        if ! command -v gitleaks > /dev/null 2>&1; then
+          echo "gitleaks not installed - 'brew install gitleaks' for local secret scanning. CI covers it."
+          exit 0
+        fi
+        gitleaks protect --staged --redact --no-banner
+      fail_text: "gitleaks found a secret in the staged diff. Remove it before committing."

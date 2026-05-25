@@ -241,9 +241,9 @@ describe("Full-Text Search", () => {
         content: "Server JavaScript with Node",
       });
 
-      const results = await fts.search(["and_posts"], "JavaScript AND Node");
+      const results = await fts.search<{ title: string }>(["and_posts"], "JavaScript AND Node");
       expect(results.length).toBe(1);
-      expect((results[0]?.value as any).title).toBe("Node Guide");
+      expect(results[0]?.value?.title).toBe("Node Guide");
     });
 
     it("should support OR operator", async () => {
@@ -276,9 +276,9 @@ describe("Full-Text Search", () => {
       });
 
       // "beginner" is only in tags field
-      const results = await fts.search(["multi_posts"], "beginner");
+      const results = await fts.search<{ title: string }>(["multi_posts"], "beginner");
       expect(results.length).toBe(1);
-      expect((results[0]?.value as any).title).toBe("JavaScript Basics");
+      expect(results[0]?.value?.title).toBe("JavaScript Basics");
     });
 
     it("should respect limit option", async () => {

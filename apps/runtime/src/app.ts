@@ -1,14 +1,26 @@
 import { errorToResponse } from "@buntime/shared/errors";
 import { getChildLogger } from "@buntime/shared/logger";
+import { extractApiKey } from "@buntime/shared/middleware/api-key";
 import type { AppInfo, WorkerManifest } from "@buntime/shared/types";
 import type { WorkerConfig } from "@buntime/shared/utils/worker-config";
 import type { Hono } from "hono";
 import { Hono as HonoApp } from "hono";
-import { API_PATH, APP_NAME_PATTERN, Headers } from "@/constants";
+import { getConfig } from "@/config";
+import { API_PATH, Headers } from "@/constants";
+import {
+  type ApiKeyPrincipal,
+  type ApiKeyStore,
+  hasPermission,
+  namespaceOf,
+  type Permission,
+  principalCanAccessNamespace,
+} from "@/libs/api-keys";
+import "@/libs/hono-context";
 import { loadWorkerConfig } from "@/libs/pool/config";
 import type { WorkerPool } from "@/libs/pool/pool";
 import type { PluginRegistry } from "@/plugins/registry";
 import { createWellKnownRoutes } from "@/routes/well-known";
+import { parseAppPath } from "@/utils/app-path";
 import {
   BodyTooLargeError,
   cloneRequestBody,
@@ -19,12 +31,20 @@ import {
 const logger = getChildLogger("App");
 
 export interface AppDeps {
+  /** Runtime API key store for generated deploy keys */
+  apiKeys?: ApiKeyStore;
   /** API routes mounted at /api/* */
   coreRoutes: Hono;
   getWorkerDir: (appName: string) => string | undefined;
   pool: WorkerPool;
   registry: PluginRegistry;
   workers: Hono;
+}
+
+interface ApiAuthResult {
+  isRoot: boolean;
+  principal?: ApiKeyPrincipal;
+  valid: boolean;
 }
 
 /**
@@ -60,18 +80,25 @@ async function resolveTargetApp(
     };
   }
 
-  // 2. Check regular worker apps (pattern: /:app/*)
-  const match = pathname.match(APP_NAME_PATTERN);
-  if (match?.[1]) {
-    const appName = match[1];
-    const dir = getWorkerDir(appName);
+  // 2. Check regular worker apps. `parseAppPath` extracts the worker name —
+  // two segments for a namespaced `@scope/app`, one otherwise — and the base
+  // path it is mounted at.
+  const parsed = parseAppPath(pathname);
+  if (parsed) {
+    const dir = getWorkerDir(parsed.name);
     if (dir) {
       const workerConfig = await loadWorkerConfig(dir);
+      // A disabled worker version is treated as not-installed: the request
+      // falls through to a 404 instead of being served. Toggled at runtime via
+      // the workers enable/disable endpoints (manifest.enabled + cache clear).
+      if (workerConfig.enabled === false) {
+        return undefined;
+      }
       return {
-        basePath: `/${appName}`,
+        basePath: parsed.basePath,
         config: workerConfig,
         dir,
-        name: appName,
+        name: parsed.name,
         type: "worker",
       };
     }
@@ -173,6 +200,167 @@ function createProcessedRequest(ctx: RoutingContext, newUrl?: URL): Request {
     headers,
     method: ctx.method,
   });
+}
+
+/**
+ * Authenticate an incoming request using a runtime API credential.
+ *
+ * The credential may arrive as the `X-API-Key` header, an `Authorization:
+ * Bearer` header (CLI / automation), or the `buntime_api_key` HttpOnly
+ * session cookie issued to the cpanel by `POST /api/admin/session`.
+ * Extraction priority is enforced by the shared `extractApiKey` helper.
+ *
+ * A successful authentication bypasses every plugin `onRequest` hook
+ * downstream (see the bypass branch later in this file), so this gate is
+ * the single trusted boundary between credentialed and uncredentialed
+ * traffic.
+ */
+async function authenticateApiKey(req: Request, apiKeys?: ApiKeyStore): Promise<ApiAuthResult> {
+  const suppliedKey = extractApiKey(req);
+  if (!suppliedKey) return { isRoot: false, valid: false };
+
+  const apiKey = getConfig().apiKey;
+  if (apiKey && suppliedKey === apiKey) {
+    return {
+      isRoot: true,
+      principal: {
+        createdAt: 0,
+        id: 0,
+        isRoot: true,
+        keyPrefix: "root",
+        name: "root",
+        namespaces: ["*"],
+        permissions: [],
+        role: "admin",
+      },
+      valid: true,
+    };
+  }
+
+  const principal = await apiKeys?.verify(suppliedKey);
+  return principal ? { isRoot: false, principal, valid: true } : { isRoot: false, valid: false };
+}
+
+/**
+ * Whether the request carries an API credential in a header (`X-API-Key` or
+ * `Authorization: Bearer`) rather than only the `buntime_api_key` cookie. Used
+ * to scope the plugin-onRequest bypass to programmatic/automation callers, so a
+ * browser cpanel session (cookie) does not disable content plugins (gateway
+ * app-shell, proxy) for ordinary app traffic.
+ */
+function hasHeaderCredential(req: Request): boolean {
+  if (req.headers.get("x-api-key")?.trim()) return true;
+  const authorization = req.headers.get("authorization")?.trim();
+  return /^Bearer\s+.+/i.test(authorization ?? "");
+}
+
+function isPublicApiRoute(pathname: string, method: string): boolean {
+  const relative = pathname.slice(API_PATH.length) || "/";
+  // Session-issuing endpoints are public — the caller does not yet have
+  // (POST) or no longer needs (DELETE) a credential. `GET /admin/session`
+  // stays gated: it is the authenticated-session probe.
+  if (relative === "/admin/session" && (method === "POST" || method === "DELETE")) return true;
+  return (
+    relative === "/health" ||
+    relative.startsWith("/health/") ||
+    relative === "/plugins/loaded" ||
+    relative === "/openapi.json" ||
+    relative === "/docs"
+  );
+}
+
+function unauthorizedResponse(): Response {
+  return new Response(JSON.stringify({ code: "AUTH_REQUIRED", error: "Unauthorized" }), {
+    headers: { "Content-Type": "application/json" },
+    status: 401,
+  });
+}
+
+function forbiddenResponse(permission: Permission): Response {
+  return new Response(
+    JSON.stringify({
+      code: "PERMISSION_DENIED",
+      error: `Missing permission: ${permission}`,
+    }),
+    {
+      headers: { "Content-Type": "application/json" },
+      status: 403,
+    },
+  );
+}
+
+function requiredPermissionForApiRoute(method: string, pathname: string): Permission | undefined {
+  const relative = pathname.slice(API_PATH.length) || "/";
+
+  if (relative === "/workers" || relative.startsWith("/workers/")) {
+    if (method === "GET") return "workers:read";
+    if (method === "POST") return "workers:install";
+    if (method === "DELETE") return "workers:remove";
+    // PUT/PATCH on a worker is reserved for the future restart endpoint
+    return "workers:restart";
+  }
+
+  if (relative === "/plugins" || relative.startsWith("/plugins/")) {
+    if (method === "GET") return "plugins:read";
+    if (method === "POST" || method === "PUT" || method === "PATCH") return "plugins:install";
+    if (method === "DELETE") return "plugins:remove";
+  }
+
+  if (relative === "/keys" || relative.startsWith("/keys/")) {
+    if (method === "GET") return "keys:read";
+    if (method === "POST") return "keys:create";
+    if (method === "DELETE") return "keys:revoke";
+  }
+
+  return undefined;
+}
+
+function namespaceForbiddenResponse(namespace: string | null): Response {
+  return new Response(
+    JSON.stringify({
+      code: "NAMESPACE_DENIED",
+      error: namespace
+        ? `Access denied for namespace: ${namespace}`
+        : "Access denied for unscoped resources",
+    }),
+    {
+      headers: { "Content-Type": "application/json" },
+      status: 403,
+    },
+  );
+}
+
+/**
+ * Namespace targeted by a management request whose namespace is visible in the
+ * URL path (worker `/:scope/:name`, plugin `/:name`). Returns:
+ * - `undefined` — not a namespace-specific route here (list, upload, plugin
+ *   reload, or the `/files` browser surface — the latter self-enforces in
+ *   `fs.ts` because its path can arrive in the request body).
+ * - `null` — an explicitly unscoped resource; requires the `*` namespace.
+ * - `"@scope"` — the resource lives under that namespace.
+ */
+function requiredNamespaceForApiRoute(pathname: string): string | null | undefined {
+  const relative = pathname.slice(API_PATH.length) || "/";
+  const segments = relative.split("/").filter(Boolean);
+  const [head, second] = segments;
+
+  if (head === "workers") {
+    // `:scope` is `@ns` for scoped workers or a placeholder (`_`) otherwise.
+    if (!second || second === "files" || second === "upload") return undefined;
+    const scope = decodeURIComponent(second);
+    return scope.startsWith("@") ? scope : null;
+  }
+
+  if (head === "plugins") {
+    // `:name` is the URL-encoded package name (`@scope%2Fname` or `name`).
+    if (!second || second === "files" || second === "upload" || second === "reload") {
+      return undefined;
+    }
+    if (second === "loaded") return undefined;
+    return namespaceOf(decodeURIComponent(second));
+  }
+
+  return undefined;
 }
 
 /**
@@ -283,19 +471,49 @@ function validateCsrf(
 /**
  * Create the main Hono app with unified routing
  */
-export function createApp({ coreRoutes, getWorkerDir, pool, registry, workers }: AppDeps) {
+export function createApp({ apiKeys, coreRoutes, getWorkerDir, pool, registry, workers }: AppDeps) {
   const app = new HonoApp();
 
   // Middleware for API routes - CSRF protection
   app.use(`${API_PATH}/*`, async (c, next) => {
     const requestId = c.req.header(Headers.REQUEST_ID) ?? crypto.randomUUID();
+    const apiKeyConfigured = Boolean(getConfig().apiKey);
+    const generatedKeysConfigured = (await apiKeys?.hasKeys()) ?? false;
+    const authRequired = apiKeyConfigured || generatedKeysConfigured;
+    const auth = await authenticateApiKey(c.req.raw, apiKeys);
+
+    if (authRequired && !isPublicApiRoute(c.req.path, c.req.method) && !auth.valid) {
+      return unauthorizedResponse();
+    }
+
+    // Publish the principal so downstream handlers (fs, workers, plugins) can
+    // apply namespace-scoped access control on body-derived paths.
+    if (auth.valid && auth.principal) {
+      c.set("principal", auth.principal);
+    }
+
+    const permission = requiredPermissionForApiRoute(c.req.method, c.req.path);
+    if (auth.valid && !auth.isRoot && permission && !hasPermission(auth.principal!, permission)) {
+      return forbiddenResponse(permission);
+    }
+
+    // Namespace gate for URL-path-visible management routes. The `/files`
+    // browser surface is intentionally excluded here and enforces itself in
+    // fs.ts (its target path can arrive in the request body).
+    if (auth.valid && !auth.isRoot && auth.principal) {
+      const namespace = requiredNamespaceForApiRoute(c.req.path);
+      if (namespace !== undefined && !principalCanAccessNamespace(auth.principal, namespace)) {
+        return namespaceForbiddenResponse(namespace);
+      }
+    }
+
     const csrfResponse = validateCsrf(
       c.req.method,
       c.req.path,
       requestId,
       c.req.header("origin"),
       c.req.header("host"),
-      c.req.header(Headers.INTERNAL) === "true",
+      c.req.header(Headers.INTERNAL) === "true" || auth.valid,
     );
     if (csrfResponse) return csrfResponse;
 
@@ -337,6 +555,28 @@ export function createApp({ coreRoutes, getWorkerDir, pool, registry, workers }:
     const resolved = await resolveTargetApp(pathname, registry, getWorkerDir);
     const appInfo = resolved ? await createAppInfo(resolved) : undefined;
 
+    // Trailing-slash redirect: when an entry-pointed worker is resolved and
+    // the path is exactly the worker's base (no trailing slash), redirect to
+    // `${base}/`. This is the standard web convention (Apache/nginx do the
+    // same for "directory" URLs). Without it, `publicRoutes: { GET: ["/**"] }`
+    // — which expands to `/<base>/**` — does NOT match the bare base, so any
+    // onRequest hook that gates by publicRoutes would 401 a user navigating
+    // to e.g. `/cpanel` instead of `/cpanel/`. Only applies to GET/HEAD so we
+    // never lose a request body, and only when the worker has an entrypoint
+    // (HTML-serving apps; serverless workers without entrypoint route freely).
+    if (
+      resolved?.config.entrypoint &&
+      (honoCtx.req.method === "GET" || honoCtx.req.method === "HEAD") &&
+      pathname === resolved.basePath
+    ) {
+      const target = new URL(honoCtx.req.url);
+      target.pathname = `${resolved.basePath}/`;
+      return new Response(null, {
+        headers: { [Headers.REQUEST_ID]: requestId, location: target.toString() },
+        status: 308, // Permanent redirect; preserves method (GET/HEAD).
+      });
+    }
+
     // Security: Check body size limit (prevents DoS via large uploads)
     // Use worker-specific limit if available, otherwise default
     const maxBodySize = resolved?.config.maxBodySizeBytes;
@@ -366,9 +606,23 @@ export function createApp({ coreRoutes, getWorkerDir, pool, registry, workers }:
       });
     };
 
-    // Run plugin onRequest hooks (auth, etc.)
-    const processedReq = await registry.runOnRequest(honoCtx.req.raw, appInfo);
-    if (processedReq instanceof Response) return processedReq;
+    // Run plugin onRequest hooks (auth, content routing, etc.). A valid runtime
+    // credential bypasses these so automation can reach plugin-gated APIs — but
+    // ONLY when presented in a header (X-API-Key / Authorization: Bearer). The
+    // `buntime_api_key` cookie is a browser session for the cpanel and must NOT
+    // disable content plugins (gateway app-shell, proxy) for ordinary app
+    // traffic on the same browser. (`authenticateApiKey` prefers the header over
+    // the cookie, so `auth.valid && header present` means the header credential
+    // is the valid one — a stray invalid header makes auth.valid false instead.)
+    let processedReq: Request;
+    const auth = await authenticateApiKey(honoCtx.req.raw, apiKeys);
+    if (auth.valid && hasHeaderCredential(honoCtx.req.raw)) {
+      processedReq = honoCtx.req.raw;
+    } else {
+      const processed = await registry.runOnRequest(honoCtx.req.raw, appInfo);
+      if (processed instanceof Response) return processed;
+      processedReq = processed;
+    }
 
     // Build routing context
     const ctx: RoutingContext = {

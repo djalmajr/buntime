@@ -121,10 +121,7 @@ function SortableRow({ index, redirect, onDelete, onEdit, onMove, onToggle }: So
   const isDisabled = redirect.enabled === false;
 
   return (
-    <TableRow
-      ref={rowRef}
-      className={isDraggedOver ? "bg-primary/5 border-primary/30" : undefined}
-    >
+    <TableRow ref={rowRef} className={isDraggedOver ? "bg-primary/5 border-primary/30" : undefined}>
       <TableCell className="w-8 px-2 align-middle">
         <div
           ref={dragHandleRef}
@@ -152,28 +149,15 @@ function SortableRow({ index, redirect, onDelete, onEdit, onMove, onToggle }: So
                 variant="ghost"
                 onClick={() => onToggle(redirect.id)}
               >
-                <Icon
-                  className="size-4.5"
-                  icon={isDisabled ? "lucide:eye-off" : "lucide:eye"}
-                />
+                <Icon className="size-4.5" icon={isDisabled ? "lucide:eye-off" : "lucide:eye"} />
               </Button>
             </TooltipTrigger>
             <TooltipContent>{isDisabled ? "Enable" : "Disable"}</TooltipContent>
           </Tooltip>
-          <Button
-            className="size-8"
-            size="icon"
-            variant="ghost"
-            onClick={() => onEdit(redirect)}
-          >
+          <Button className="size-8" size="icon" variant="ghost" onClick={() => onEdit(redirect)}>
             <Icon className="size-4.5" icon="lucide:pencil" />
           </Button>
-          <Button
-            className="size-8"
-            size="icon"
-            variant="ghost"
-            onClick={() => onDelete(redirect)}
-          >
+          <Button className="size-8" size="icon" variant="ghost" onClick={() => onDelete(redirect)}>
             <Icon className="size-4.5" icon="lucide:trash-2" />
           </Button>
         </div>
@@ -287,14 +271,8 @@ export function RedirectsPage() {
   };
 
   return (
-    <div className="flex flex-1 flex-col gap-4 overflow-hidden p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Redirects</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage proxy rules and redirects for your applications
-          </p>
-        </div>
+    <div className="flex flex-1 flex-col gap-4 overflow-hidden p-4">
+      <div className="flex items-center justify-end">
         <Button size="sm" onClick={handleAddClick}>
           <Icon className="size-4" icon="lucide:plus" />
           <span>New Redirect</span>

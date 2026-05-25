@@ -1,13 +1,14 @@
 import { errorToResponse } from "@buntime/shared/errors";
+import type { MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import {
   compileRule,
   deleteRule,
   getAllRules,
   getDynamicRules,
-  getKv,
   getLogger,
   getNextOrder,
+  getRuleStorage,
   getStaticRules,
   type ProxyRule,
   ruleToResponse,
@@ -17,246 +18,286 @@ import {
   setDynamicRules,
 } from "./services";
 
-export const api = new Hono()
-  .basePath("/api")
-  // List all rules (static + dynamic)
-  .get("/rules", (ctx) => {
-    const rules = getAllRules().map(ruleToResponse);
-    return ctx.json(rules);
-  })
+export interface CreateProxyApiOptions {
+  /**
+   * Optional auth middleware applied to every admin route. In production
+   * `plugin.ts` injects `createApiKeyMiddleware({ store, rootKey })` from
+   * `@buntime/shared/middleware/api-key`. Tests can omit it to exercise the
+   * route handlers directly.
+   */
+  middleware?: MiddlewareHandler;
+}
 
-  // Get a single rule by ID
-  .get("/rules/:id", (ctx) => {
-    const { id } = ctx.req.param();
-    const rule = getAllRules().find((r) => r.id === id);
+/**
+ * Build the proxy admin router.
+ *
+ * Routes are mounted under `/admin/**` (control plane). Combined with the
+ * plugin `base` (`/redirects`) this yields the external paths:
+ *
+ * - GET    /redirects/admin/rules
+ * - GET    /redirects/admin/rules/:id
+ * - POST   /redirects/admin/rules
+ * - PUT    /redirects/admin/rules/reorder
+ * - PUT    /redirects/admin/rules/:id
+ * - PATCH  /redirects/admin/rules/:id/toggle
+ * - DELETE /redirects/admin/rules/:id
+ *
+ * The plugin manifest lists `/admin/**` in `publicRoutes` so `plugin-authn`
+ * does not intercept these — the supplied middleware is the only gate.
+ */
+export function createApi(options: CreateProxyApiOptions = {}) {
+  const app = new Hono().basePath("/admin");
+  if (options.middleware) {
+    app.use("*", options.middleware);
+  }
+  return (
+    app
+      // List all rules (static + dynamic)
+      .get("/rules", (ctx) => {
+        const rules = getAllRules().map(ruleToResponse);
+        return ctx.json(rules);
+      })
 
-    if (!rule) {
-      return ctx.json({ error: "Rule not found" }, 404);
-    }
+      // Get a single rule by ID
+      .get("/rules/:id", (ctx) => {
+        const { id } = ctx.req.param();
+        const rule = getAllRules().find((r) => r.id === id);
 
-    return ctx.json(ruleToResponse(rule));
-  })
+        if (!rule) {
+          return ctx.json({ error: "Rule not found" }, 404);
+        }
 
-  // Create a new dynamic rule
-  .post("/rules", async (ctx) => {
-    const kv = getKv();
-    const logger = getLogger();
+        return ctx.json(ruleToResponse(rule));
+      })
 
-    if (!kv) {
-      return ctx.json({ error: "Dynamic rules not enabled (plugin-keyval not configured)" }, 400);
-    }
+      // Create a new dynamic rule
+      .post("/rules", async (ctx) => {
+        const logger = getLogger();
 
-    const body = await ctx.req.json<Omit<ProxyRule, "id">>();
+        if (!getRuleStorage()) {
+          return ctx.json(
+            { error: "Dynamic rules not enabled (plugin-turso not configured)" },
+            400,
+          );
+        }
 
-    if (!body.pattern || !body.target) {
-      return ctx.json({ error: "pattern and target are required" }, 400);
-    }
+        const body = await ctx.req.json<Omit<ProxyRule, "id">>();
 
-    const rule: StoredRule = {
-      ...body,
-      id: crypto.randomUUID(),
-      order: getNextOrder(),
-    };
+        if (!body.pattern || !body.target) {
+          return ctx.json({ error: "pattern and target are required" }, 400);
+        }
 
-    // Validate pattern compiles
-    const compiled = compileRule(rule, false);
-    if (!compiled) {
-      return ctx.json({ error: "Invalid regex pattern" }, 400);
-    }
+        const rule: StoredRule = {
+          ...body,
+          id: crypto.randomUUID(),
+          order: getNextOrder(),
+        };
 
-    await saveRule(rule);
-    const dynamicRules = getDynamicRules();
-    dynamicRules.push(compiled);
-    setDynamicRules(dynamicRules);
+        // Validate pattern compiles
+        const compiled = compileRule(rule, false);
+        if (!compiled) {
+          return ctx.json({ error: "Invalid regex pattern" }, 400);
+        }
 
-    logger?.info(`Created proxy rule: ${rule.pattern} -> ${rule.target}`);
-    return ctx.json(ruleToResponse(compiled), 201);
-  })
+        await saveRule(rule);
+        const dynamicRules = getDynamicRules();
+        dynamicRules.push(compiled);
+        setDynamicRules(dynamicRules);
 
-  // Reorder dynamic rules
-  .put("/rules/reorder", async (ctx) => {
-    const kv = getKv();
-    const logger = getLogger();
+        logger?.info(`Created proxy rule: ${rule.pattern} -> ${rule.target}`);
+        return ctx.json(ruleToResponse(compiled), 201);
+      })
 
-    if (!kv) {
-      return ctx.json({ error: "Dynamic rules not enabled" }, 400);
-    }
+      // Reorder dynamic rules
+      .put("/rules/reorder", async (ctx) => {
+        const logger = getLogger();
 
-    const { ids } = await ctx.req.json<{ ids: string[] }>();
+        if (!getRuleStorage()) {
+          return ctx.json({ error: "Dynamic rules not enabled" }, 400);
+        }
 
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return ctx.json({ error: "ids must be a non-empty array" }, 400);
-    }
+        const { ids } = await ctx.req.json<{ ids: string[] }>();
 
-    const dynamicRules = getDynamicRules();
-    const staticRules = getStaticRules();
+        if (!Array.isArray(ids) || ids.length === 0) {
+          return ctx.json({ error: "ids must be a non-empty array" }, 400);
+        }
 
-    // Validate: no static rule IDs
-    for (const id of ids) {
-      if (staticRules.some((r) => r.id === id)) {
-        return ctx.json({ error: `Cannot reorder static rule: ${id}` }, 403);
-      }
-    }
+        const dynamicRules = getDynamicRules();
+        const staticRules = getStaticRules();
 
-    // Validate: all IDs must exist in dynamic rules
-    const dynamicIds = new Set(dynamicRules.map((r) => r.id));
-    for (const id of ids) {
-      if (!dynamicIds.has(id)) {
-        return ctx.json({ error: `Rule not found: ${id}` }, 404);
-      }
-    }
+        // Validate: no static rule IDs
+        for (const id of ids) {
+          if (staticRules.some((r) => r.id === id)) {
+            return ctx.json({ error: `Cannot reorder static rule: ${id}` }, 403);
+          }
+        }
 
-    // Validate: must include all dynamic rule IDs
-    if (ids.length !== dynamicRules.length) {
-      return ctx.json({ error: "ids must include all dynamic rule IDs" }, 400);
-    }
+        // Validate: all IDs must exist in dynamic rules
+        const dynamicIds = new Set(dynamicRules.map((r) => r.id));
+        for (const id of ids) {
+          if (!dynamicIds.has(id)) {
+            return ctx.json({ error: `Rule not found: ${id}` }, 404);
+          }
+        }
 
-    // Build lookup for current rules
-    const ruleMap = new Map(dynamicRules.map((r) => [r.id, r]));
+        // Validate: must include all dynamic rule IDs
+        if (ids.length !== dynamicRules.length) {
+          return ctx.json({ error: "ids must include all dynamic rule IDs" }, 400);
+        }
 
-    // Update order and save
-    const reordered: typeof dynamicRules = [];
-    for (let i = 0; i < ids.length; i++) {
-      const rule = ruleMap.get(ids[i])!;
-      const stored = ruleToStoredRule(rule);
-      stored.order = i;
-      await saveRule(stored);
-      const compiled = compileRule(stored, false);
-      if (compiled) reordered.push(compiled);
-    }
+        // Build lookup for current rules
+        const ruleMap = new Map(dynamicRules.map((r) => [r.id, r]));
 
-    setDynamicRules(reordered);
-    logger?.info(`Reordered ${ids.length} proxy rules`);
-    return ctx.json(reordered.map(ruleToResponse));
-  })
+        // Update order and save
+        const reordered: typeof dynamicRules = [];
+        for (let i = 0; i < ids.length; i++) {
+          const rule = ruleMap.get(ids[i])!;
+          const stored = ruleToStoredRule(rule);
+          stored.order = i;
+          await saveRule(stored);
+          const compiled = compileRule(stored, false);
+          if (compiled) reordered.push(compiled);
+        }
 
-  // Update an existing dynamic rule
-  .put("/rules/:id", async (ctx) => {
-    const kv = getKv();
-    const logger = getLogger();
+        setDynamicRules(reordered);
+        logger?.info(`Reordered ${ids.length} proxy rules`);
+        return ctx.json(reordered.map(ruleToResponse));
+      })
 
-    if (!kv) {
-      return ctx.json({ error: "Dynamic rules not enabled" }, 400);
-    }
+      // Update an existing dynamic rule
+      .put("/rules/:id", async (ctx) => {
+        const logger = getLogger();
 
-    const { id } = ctx.req.param();
-    const dynamicRules = getDynamicRules();
-    const staticRules = getStaticRules();
-    const existingIndex = dynamicRules.findIndex((r) => r.id === id);
+        if (!getRuleStorage()) {
+          return ctx.json({ error: "Dynamic rules not enabled" }, 400);
+        }
 
-    // Check if it's a static rule
-    if (staticRules.some((r) => r.id === id)) {
-      return ctx.json({ error: "Cannot modify static rules" }, 403);
-    }
+        const { id } = ctx.req.param();
+        const dynamicRules = getDynamicRules();
+        const staticRules = getStaticRules();
+        const existingIndex = dynamicRules.findIndex((r) => r.id === id);
 
-    if (existingIndex === -1) {
-      return ctx.json({ error: "Rule not found" }, 404);
-    }
+        // Check if it's a static rule
+        if (staticRules.some((r) => r.id === id)) {
+          return ctx.json({ error: "Cannot modify static rules" }, 403);
+        }
 
-    const body = await ctx.req.json<Partial<ProxyRule>>();
-    const existing = dynamicRules[existingIndex]!;
+        if (existingIndex === -1) {
+          return ctx.json({ error: "Rule not found" }, 404);
+        }
 
-    const updated: StoredRule = {
-      base: body.base ?? existing.base,
-      changeOrigin: body.changeOrigin ?? existing.changeOrigin,
-      enabled: body.enabled ?? existing.enabled,
-      headers: body.headers ?? existing.headers,
-      id,
-      name: body.name ?? existing.name,
-      order: existing.order,
-      pattern: body.pattern ?? existing.pattern,
-      relativePaths: body.relativePaths ?? existing.relativePaths,
-      rewrite: body.rewrite ?? existing.rewrite,
-      secure: body.secure ?? existing.secure,
-      target: body.target ?? existing.target,
-      ws: body.ws ?? existing.ws,
-      publicRoutes: body.publicRoutes ?? existing.publicRoutes,
-    };
+        const body = await ctx.req.json<Partial<ProxyRule>>();
+        const existing = dynamicRules[existingIndex]!;
 
-    // Validate pattern compiles
-    const compiled = compileRule(updated, false);
-    if (!compiled) {
-      return ctx.json({ error: "Invalid regex pattern" }, 400);
-    }
+        const updated: StoredRule = {
+          base: body.base ?? existing.base,
+          changeOrigin: body.changeOrigin ?? existing.changeOrigin,
+          enabled: body.enabled ?? existing.enabled,
+          headers: body.headers ?? existing.headers,
+          id,
+          name: body.name ?? existing.name,
+          order: existing.order,
+          pattern: body.pattern ?? existing.pattern,
+          relativePaths: body.relativePaths ?? existing.relativePaths,
+          rewrite: body.rewrite ?? existing.rewrite,
+          secure: body.secure ?? existing.secure,
+          target: body.target ?? existing.target,
+          ws: body.ws ?? existing.ws,
+          publicRoutes: body.publicRoutes ?? existing.publicRoutes,
+        };
 
-    await saveRule(updated);
-    dynamicRules[existingIndex] = compiled;
-    setDynamicRules(dynamicRules);
+        // Validate pattern compiles
+        const compiled = compileRule(updated, false);
+        if (!compiled) {
+          return ctx.json({ error: "Invalid regex pattern" }, 400);
+        }
 
-    logger?.info(`Updated proxy rule: ${updated.pattern} -> ${updated.target}`);
-    return ctx.json(ruleToResponse(compiled));
-  })
+        await saveRule(updated);
+        dynamicRules[existingIndex] = compiled;
+        setDynamicRules(dynamicRules);
 
-  // Toggle enabled/disabled for a dynamic rule
-  .patch("/rules/:id/toggle", async (ctx) => {
-    const kv = getKv();
-    const logger = getLogger();
+        logger?.info(`Updated proxy rule: ${updated.pattern} -> ${updated.target}`);
+        return ctx.json(ruleToResponse(compiled));
+      })
 
-    if (!kv) {
-      return ctx.json({ error: "Dynamic rules not enabled" }, 400);
-    }
+      // Toggle enabled/disabled for a dynamic rule
+      .patch("/rules/:id/toggle", async (ctx) => {
+        const logger = getLogger();
 
-    const { id } = ctx.req.param();
-    const dynamicRules = getDynamicRules();
-    const staticRules = getStaticRules();
+        if (!getRuleStorage()) {
+          return ctx.json({ error: "Dynamic rules not enabled" }, 400);
+        }
 
-    if (staticRules.some((r) => r.id === id)) {
-      return ctx.json({ error: "Cannot toggle static rules" }, 403);
-    }
+        const { id } = ctx.req.param();
+        const dynamicRules = getDynamicRules();
+        const staticRules = getStaticRules();
 
-    const index = dynamicRules.findIndex((r) => r.id === id);
-    if (index === -1) {
-      return ctx.json({ error: "Rule not found" }, 404);
-    }
+        if (staticRules.some((r) => r.id === id)) {
+          return ctx.json({ error: "Cannot toggle static rules" }, 403);
+        }
 
-    const existing = dynamicRules[index]!;
-    const stored = ruleToStoredRule(existing);
-    stored.enabled = !existing.enabled;
+        const index = dynamicRules.findIndex((r) => r.id === id);
+        if (index === -1) {
+          return ctx.json({ error: "Rule not found" }, 404);
+        }
 
-    await saveRule(stored);
-    const compiled = compileRule(stored, false);
-    if (compiled) {
-      dynamicRules[index] = compiled;
-      setDynamicRules(dynamicRules);
-    }
+        const existing = dynamicRules[index]!;
+        const stored = ruleToStoredRule(existing);
+        stored.enabled = !existing.enabled;
 
-    logger?.info(`Toggled proxy rule "${stored.name || stored.id}" → ${stored.enabled ? "enabled" : "disabled"}`);
-    return ctx.json(ruleToResponse(compiled ?? existing));
-  })
+        await saveRule(stored);
+        const compiled = compileRule(stored, false);
+        if (compiled) {
+          dynamicRules[index] = compiled;
+          setDynamicRules(dynamicRules);
+        }
 
-  // Delete a dynamic rule
-  .delete("/rules/:id", async (ctx) => {
-    const kv = getKv();
-    const logger = getLogger();
+        logger?.info(
+          `Toggled proxy rule "${stored.name || stored.id}" → ${stored.enabled ? "enabled" : "disabled"}`,
+        );
+        return ctx.json(ruleToResponse(compiled ?? existing));
+      })
 
-    if (!kv) {
-      return ctx.json({ error: "Dynamic rules not enabled" }, 400);
-    }
+      // Delete a dynamic rule
+      .delete("/rules/:id", async (ctx) => {
+        const logger = getLogger();
 
-    const { id } = ctx.req.param();
-    const staticRules = getStaticRules();
-    const dynamicRules = getDynamicRules();
+        if (!getRuleStorage()) {
+          return ctx.json({ error: "Dynamic rules not enabled" }, 400);
+        }
 
-    // Check if it's a static rule
-    if (staticRules.some((r) => r.id === id)) {
-      return ctx.json({ error: "Cannot delete static rules" }, 403);
-    }
+        const { id } = ctx.req.param();
+        const staticRules = getStaticRules();
+        const dynamicRules = getDynamicRules();
 
-    const index = dynamicRules.findIndex((r) => r.id === id);
-    if (index === -1) {
-      return ctx.json({ error: "Rule not found" }, 404);
-    }
+        // Check if it's a static rule
+        if (staticRules.some((r) => r.id === id)) {
+          return ctx.json({ error: "Cannot delete static rules" }, 403);
+        }
 
-    await deleteRule(id);
-    dynamicRules.splice(index, 1);
-    setDynamicRules(dynamicRules);
+        const index = dynamicRules.findIndex((r) => r.id === id);
+        if (index === -1) {
+          return ctx.json({ error: "Rule not found" }, 404);
+        }
 
-    logger?.info(`Deleted proxy rule: ${id}`);
-    return ctx.json({ success: true });
-  })
-  .onError((err) => {
-    console.error("[Proxy] Error:", err);
-    return errorToResponse(err);
-  });
+        await deleteRule(id);
+        dynamicRules.splice(index, 1);
+        setDynamicRules(dynamicRules);
 
-export type ProxyRoutesType = typeof api;
+        logger?.info(`Deleted proxy rule: ${id}`);
+        return ctx.json({ success: true });
+      })
+      .onError((err) => {
+        console.error("[Proxy] Error:", err);
+        return errorToResponse(err);
+      })
+  );
+}
+
+/**
+ * Backward-compat default router (no auth middleware). Tests import this
+ * directly; production code uses `createApi({ middleware })` in `plugin.ts`.
+ */
+export const api = createApi();
+
+export type ProxyRoutesType = ReturnType<typeof createApi>;

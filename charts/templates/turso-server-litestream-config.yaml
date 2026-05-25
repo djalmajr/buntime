@@ -1,0 +1,29 @@
+{{- if and .Values.tursoServer.enabled .Values.tursoServer.litestream.enabled }}
+# Litestream config for the turso-server sidecar.
+#
+# Litestream 0.3.x does not support glob in the `path:` field, so we
+# enumerate each database explicitly via `tursoServer.litestream.databases`.
+# Adding a new app database currently requires updating this list and
+# running `helm upgrade`. The auto-discovery wishlist item is tracked at
+# wiki/ops/turso-server.md "Limits and trade-offs".
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "buntime.fullname" . }}-turso-litestream
+  labels:
+    {{- include "buntime.labels" . | nindent 4 }}
+    app.kubernetes.io/component: turso-server
+data:
+  litestream.yml: |
+    dbs:
+      {{- range .Values.tursoServer.litestream.databases }}
+      - path: /var/lib/turso/{{ . }}.db
+        replicas:
+          - type: s3
+            endpoint: {{ $.Values.tursoServer.litestream.s3.endpoint | quote }}
+            bucket: {{ $.Values.tursoServer.litestream.s3.bucket | quote }}
+            path: {{ . }}.db
+            region: {{ $.Values.tursoServer.litestream.s3.region | quote }}
+            force-path-style: {{ $.Values.tursoServer.litestream.s3.pathStyle }}
+      {{- end }}
+{{- end }}

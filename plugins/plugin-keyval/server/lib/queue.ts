@@ -1,6 +1,6 @@
-import type { DatabaseAdapter } from "@buntime/plugin-database";
 import { deserializeValue, serializeValue } from "./encoding";
 import type { Kv } from "./kv";
+import type { KeyValSqlAdapter } from "./sql-adapter.ts";
 import type { KvEnqueueOptions, KvKey, KvQueueListenerConfig, KvQueueMessage } from "./types";
 
 const DEFAULT_BACKOFF_SCHEDULE = [1000, 5000, 10000];
@@ -43,7 +43,7 @@ export class KvQueue {
   private readonly listeners: Set<ListenerState> = new Set();
 
   constructor(
-    private adapter: DatabaseAdapter,
+    private adapter: KeyValSqlAdapter,
     private kv: Kv,
     config?: KvQueueCleanupConfig,
   ) {
@@ -318,15 +318,17 @@ export class KvQueue {
       [limit, offset],
     );
 
-    return rows.map((row) => ({
-      attempts: row.attempts,
-      errorMessage: row.error_message,
-      failedAt: row.failed_at,
-      id: row.id,
-      originalCreatedAt: row.original_created_at,
-      originalId: row.original_id,
-      value: deserializeValue<T>(row.value) as T,
-    }));
+    return rows
+      .filter((row) => typeof row.id === "string")
+      .map((row) => ({
+        attempts: row.attempts,
+        errorMessage: row.error_message,
+        failedAt: row.failed_at,
+        id: row.id,
+        originalCreatedAt: row.original_created_at,
+        originalId: row.original_id,
+        value: deserializeValue<T>(row.value) as T,
+      }));
   }
 
   /**
@@ -357,10 +359,8 @@ export class KvQueue {
       [id],
     );
 
-    if (rows.length === 0) return null;
-
     const row = rows[0];
-    if (!row) return null;
+    if (!row || typeof row.id !== "string") return null;
 
     return {
       attempts: row.attempts,
@@ -413,7 +413,7 @@ export class KvQueue {
    * Purge all messages from the DLQ
    */
   async purgeDlq(): Promise<{ deletedCount: number }> {
-    // Note: DatabaseAdapter doesn't return rowsAffected, so we count first
+    // Note: KeyValSqlAdapter doesn't return rowsAffected, so we count first
     const countRows = await this.adapter.execute<{ count: number }>(
       "SELECT COUNT(*) as count FROM kv_dlq",
     );
@@ -516,23 +516,36 @@ export class KvQueue {
 
     this.cleanupInterval = setInterval(async () => {
       try {
-        // Reset stuck processing messages (locked too long)
-        const now = Date.now();
-        await this.adapter.execute(
-          `UPDATE kv_queue
-           SET status = 'pending',
-               locked_until = NULL,
-               updated_at = ?
-           WHERE status = 'processing'
-             AND locked_until < ?`,
-          [now, now],
-        );
+        await this.resetExpiredLocks();
       } catch (error) {
         this.kv.getLogger()?.error("Queue cleanup failed", {
           error: error instanceof Error ? error.message : String(error),
         });
       }
     }, this.cleanupConfig.cleanupInterval);
+  }
+
+  private async resetExpiredLocks(): Promise<void> {
+    const now = Date.now();
+    const rows = await this.adapter.execute<{ id: string; status: string }>(
+      "SELECT id, status FROM kv_queue WHERE locked_until IS NOT NULL AND locked_until < ?",
+      [now],
+    );
+
+    for (const row of rows) {
+      if (row.status !== "processing") {
+        continue;
+      }
+
+      await this.adapter.execute(
+        `UPDATE kv_queue
+         SET status = 'pending',
+             locked_until = NULL,
+             updated_at = ?
+         WHERE id = ?`,
+        [now, row.id],
+      );
+    }
   }
 
   /**

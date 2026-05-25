@@ -1,12 +1,15 @@
+import type { TursoService } from "@buntime/plugin-turso";
+import type { ApiKeyStore } from "@buntime/shared/api-keys";
+import { createApiKeyMiddleware } from "@buntime/shared/middleware/api-key";
 import type { PluginContext, PluginImpl } from "@buntime/shared/types";
 import { loadManifestConfig } from "@buntime/shared/utils/buntime-config";
 import { parseWorkerConfig, type WorkerConfig } from "@buntime/shared/utils/worker-config";
+import type { MiddlewareHandler } from "hono";
 import { createGatewayApi, type GatewayApiDeps } from "./server/api";
 import { handlePreflight } from "./server/cors";
 import {
   createPersistence,
   type GatewayPersistence,
-  type KvLike,
   type MetricsSnapshot,
 } from "./server/persistence";
 import { parseWindow, RateLimiter } from "./server/rate-limit";
@@ -52,7 +55,7 @@ let logger: PluginContext["logger"];
 let pool: PoolLike | null = null;
 let shell: ResolvedShell | null = null;
 let shellEnvExcludes: Set<string> = new Set();
-let shellKeyValExcludes: Set<string> = new Set();
+let shellTursoExcludes: Set<string> = new Set();
 
 // Runtime API path (from context)
 let apiPath: string = "/api";
@@ -140,12 +143,16 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
   // Initialize request logger (always available)
   requestLogger = new RequestLogger(100);
 
-  // Initialize persistence (will connect to KeyVal in onInit)
+  // Initialize persistence (will connect to Turso in onInit)
   persistence = createPersistence();
+
+  // Lazy-resolved auth middleware. Set at onInit once ctx.auth is known.
+  let adminMiddleware: MiddlewareHandler | undefined;
 
   // Create API dependencies
   const apiDeps: GatewayApiDeps = {
     getConfig: () => config,
+    getMiddleware: () => adminMiddleware,
     getRateLimiter: () => rateLimiter,
     getResponseCache: () => null, // Cache disabled
     getRequestLogger: () => requestLogger,
@@ -155,9 +162,9 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
         ? {
             dir: shell.dir,
             envExcludes: shellEnvExcludes,
-            keyvalExcludes: shellKeyValExcludes,
-            addKeyValExclude: (basename: string) => shellKeyValExcludes.add(basename),
-            removeKeyValExclude: (basename: string) => shellKeyValExcludes.delete(basename),
+            tursoExcludes: shellTursoExcludes,
+            addTursoExclude: (basename: string) => shellTursoExcludes.add(basename),
+            removeTursoExclude: (basename: string) => shellTursoExcludes.delete(basename),
           }
         : null,
     sseInterval: 1000,
@@ -169,6 +176,13 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
     async onInit(ctx: PluginContext) {
       logger = ctx.logger;
       apiPath = ctx.runtime.api;
+
+      // Wire X-API-Key gate for /<base>/admin/** (control plane).
+      const store = ctx.auth?.store as ApiKeyStore | undefined;
+      const rootKey = ctx.auth?.rootKey;
+      if (store || rootKey) {
+        adminMiddleware = createApiKeyMiddleware({ rootKey, store });
+      }
 
       // Initialize rate limiter
       if (config.rateLimit) {
@@ -214,18 +228,18 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
         }
       }
 
-      // Initialize persistence with KeyVal
+      // Initialize persistence with Turso
       try {
-        const keyval = ctx.getPlugin("@buntime/plugin-keyval") as KvLike | null;
-        if (keyval && typeof keyval.get === "function") {
-          await persistence.init(keyval, logger);
+        const turso = ctx.getPlugin<TursoService>("@buntime/plugin-turso");
+        if (turso) {
+          await persistence.init(turso, logger);
 
           // Load persisted shell excludes into memory
           const persistedExcludes = await persistence.getShellExcludes();
-          shellKeyValExcludes = new Set(persistedExcludes);
+          shellTursoExcludes = new Set(persistedExcludes);
           if (persistedExcludes.length > 0) {
             logger.info(
-              `Loaded ${persistedExcludes.length} shell excludes from KeyVal: ${persistedExcludes.join(", ")}`,
+              `Loaded ${persistedExcludes.length} shell excludes from Turso: ${persistedExcludes.join(", ")}`,
             );
           }
 
@@ -235,7 +249,7 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
             logger.debug("Started metrics snapshot collection");
           }
         } else {
-          logger.warn("KeyVal plugin not available, persistence disabled");
+          logger.warn("Turso plugin not available, persistence disabled");
         }
       } catch (err) {
         logger.warn("Failed to initialize persistence", {
@@ -265,12 +279,12 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
         const isRootPath = !url.pathname.slice(1).includes("/");
         const isApiRoute = url.pathname === apiPath || url.pathname.startsWith(`${apiPath}/`);
 
-        // Check env excludes, keyval excludes, and cookie excludes
+        // Check env excludes, Turso excludes, and cookie excludes
         const shouldBypass = shouldBypassShell(
           url.pathname,
           cookieHeader,
           shellEnvExcludes,
-          shellKeyValExcludes,
+          shellTursoExcludes,
         );
 
         if (!isApiRoute && !shouldBypass && (isDocument || (isRootPath && !isFrameEmbedding))) {

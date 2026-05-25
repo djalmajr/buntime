@@ -1,6 +1,9 @@
 import { createFileRoute, notFound, useLocation, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { useHeader } from "~/contexts/header-context";
+import { usePlugins } from "~/hooks/use-plugins";
 import type { ZFrameAttributes } from "~/types/frame";
 
 /** Sandbox permissions for plugin iframes (includes allow-downloads for file downloads) */
@@ -38,15 +41,49 @@ interface FrameNavigateDetail {
   replace?: boolean;
 }
 
+/**
+ * Resolve a human-readable title for the current plugin route from the
+ * loaded plugins' menu metadata. Falls back to the segment in title case
+ * so the shell always has something to identify the iframe page.
+ */
+function usePluginPageTitle(segment: string | undefined): string {
+  const { t } = useTranslation();
+  const plugins$ = usePlugins();
+
+  return useMemo(() => {
+    if (!segment) return "";
+    const basePath = `/${segment}`;
+    const allMenus = (plugins$.data ?? []).flatMap((p) => p.menus ?? []);
+    const top = allMenus.find((m) => m.path === basePath);
+    if (top) return top.title.includes(":") ? t(top.title) : top.title;
+    return segment.charAt(0).toUpperCase() + segment.slice(1);
+  }, [plugins$.data, segment, t]);
+}
+
 function FragmentRouter() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const frameRef = useRef<HTMLElement>(null);
   const segment = getSegment(pathname);
+  const { setHeader } = useHeader();
+  const pageTitle = usePluginPageTitle(segment);
 
   // Use ref to always have current segment value in event handler (avoids stale closure)
   const segmentRef = useRef(segment);
   segmentRef.current = segment;
+
+  // Publish the page title to the cpanel shell so DefaultHeader renders the
+  // iframe identification. The plugin content itself MUST NOT render its own
+  // h1+description — that creates the double-header bug. Keep it lean: shell
+  // owns the title, plugin owns the content + actions.
+  useEffect(() => {
+    if (pageTitle) {
+      setHeader({ title: pageTitle });
+    } else {
+      setHeader(null);
+    }
+    return () => setHeader(null);
+  }, [pageTitle, setHeader]);
 
   // Update pathname prop and emit route-change event when route changes
   useEffect(() => {
@@ -96,13 +133,18 @@ function FragmentRouter() {
     throw notFound();
   }
 
+  // The outer `<Outlet>` wrapper in __root.tsx already provides `p-4` padding;
+  // we just need the iframe to fill the remaining flex area.
   return (
-    <z-frame
-      ref={frameRef}
-      src={`${location.origin}/${segment}`}
-      pathname={getFramePathname(pathname, segment)}
-      sandbox={FRAME_SANDBOX}
-    />
+    <div className="flex flex-1 flex-col">
+      <z-frame
+        ref={frameRef}
+        src={`${location.origin}/${segment}`}
+        pathname={getFramePathname(pathname, segment)}
+        sandbox={FRAME_SANDBOX}
+        style={{ display: "flex", flex: 1, height: "100%", width: "100%" }}
+      />
+    </div>
   );
 }
 

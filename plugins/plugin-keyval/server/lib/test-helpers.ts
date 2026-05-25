@@ -1,15 +1,59 @@
-import { LibSqlAdapter } from "@buntime/plugin-database";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { resolveTursoConfig, type TursoService, TursoServiceImpl } from "@buntime/plugin-turso";
+import type { PluginLogger } from "@buntime/shared/types";
+import { TursoKeyValAdapter } from "./sql-adapter.ts";
+
+const TEST_LOGGER: PluginLogger = {
+  debug: () => {},
+  error: () => {},
+  info: () => {},
+  warn: () => {},
+};
+
+interface TestAdapterOptions {
+  localPath: string;
+  testDir: string;
+}
+
+export interface TestTursoServiceHandle {
+  close(): Promise<void>;
+  service: TursoService;
+}
 
 /**
- * Default libSQL URL for integration tests.
- * Uses environment variable or defaults to local Docker instance.
+ * Creates a Turso-backed adapter for integration tests.
+ * Uses one isolated local database per adapter.
  */
-export const LIBSQL_URL = process.env.LIBSQL_URL_0 ?? "http://localhost:8880";
+export function createTestAdapter(): TursoKeyValAdapter {
+  const handle = createTestTursoService();
+  return new TursoKeyValAdapter({
+    namespace: "keyval",
+    service: handle.service,
+    onClose: handle.close,
+  });
+}
 
-/**
- * Creates a LibSqlAdapter for integration tests.
- * Uses shared database (no namespace isolation for simplicity).
- */
-export function createTestAdapter(): LibSqlAdapter {
-  return new LibSqlAdapter({ type: "libsql", urls: [LIBSQL_URL] });
+export function createTestTursoService(): TestTursoServiceHandle {
+  const testDir = mkdtempSync(join(tmpdir(), "buntime-keyval-"));
+  return createTursoServiceHandle({
+    localPath: join(testDir, "test.db"),
+    testDir,
+  });
+}
+
+function createTursoServiceHandle(options: TestAdapterOptions): TestTursoServiceHandle {
+  const service = new TursoServiceImpl({
+    config: resolveTursoConfig({ localPath: options.localPath }),
+    logger: TEST_LOGGER,
+  });
+
+  return {
+    async close(): Promise<void> {
+      await service.close();
+      rmSync(options.testDir, { force: true, recursive: true });
+    },
+    service,
+  };
 }

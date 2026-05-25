@@ -18,6 +18,7 @@ export class WorkerInstance {
   private ttlStartAt = Date.now();
   private readyPromise: Promise<void>;
   private requestCount = 0;
+  private terminated = false;
   private totalResponseTimeMs = 0;
   private worker: Worker;
 
@@ -49,6 +50,18 @@ export class WorkerInstance {
         RUNTIME_LOG_LEVEL: Bun.env.RUNTIME_LOG_LEVEL ?? "info",
         RUNTIME_PLUGIN_DIRS: Bun.env.RUNTIME_PLUGIN_DIRS ?? "",
         RUNTIME_WORKER_DIRS: Bun.env.RUNTIME_WORKER_DIRS ?? "",
+        // Forwarded so serverless plugins (e.g. plugin-deployments) can
+        // authenticate their /<base>/admin/** routes with the same
+        // X-API-Key store the cpanel uses.
+        RUNTIME_STATE_DIR: Bun.env.RUNTIME_STATE_DIR ?? "",
+        RUNTIME_ROOT_KEY: Bun.env.RUNTIME_ROOT_KEY ?? "",
+        // Auth DB sync settings — workers that build their own ApiKeyStore
+        // (e.g. plugin-deployments in serverless mode) need to know how to
+        // reach the same Turso server primary the runtime is talking to.
+        RUNTIME_AUTH_DB_MODE: Bun.env.RUNTIME_AUTH_DB_MODE ?? "",
+        RUNTIME_AUTH_DB_SYNC_URL: Bun.env.RUNTIME_AUTH_DB_SYNC_URL ?? "",
+        RUNTIME_AUTH_DB_SYNC_TOKEN: Bun.env.RUNTIME_AUTH_DB_SYNC_TOKEN ?? "",
+        RUNTIME_AUTH_DB_SYNC_INTERVAL_SECONDS: Bun.env.RUNTIME_AUTH_DB_SYNC_INTERVAL_SECONDS ?? "",
       },
       smol: config.lowMemory,
     });
@@ -95,6 +108,10 @@ export class WorkerInstance {
    * @param preReadBody - Optional pre-read body to avoid double-reading
    */
   async fetch(req: Request, preReadBody?: ArrayBuffer | null): Promise<Response> {
+    if (this.terminated) {
+      throw new Error("Worker has been terminated");
+    }
+
     // Wait for worker to be ready (only matters on first request)
     await this.readyPromise;
 
@@ -150,6 +167,9 @@ export class WorkerInstance {
 
       const timeout = setTimeout(() => {
         cleanup();
+        this.hasCriticalError = true;
+        this.errorCount++;
+        void this.terminate();
         reject(new Error(`Worker timeout after ${this.config.timeoutMs}ms`));
       }, this.config.timeoutMs);
 
@@ -171,6 +191,8 @@ export class WorkerInstance {
         this.worker.postMessage(message, [body]);
       } catch (err) {
         cleanup();
+        this.hasCriticalError = true;
+        this.errorCount++;
         reject(err instanceof Error ? err : new Error(String(err)));
       }
     });
@@ -200,13 +222,20 @@ export class WorkerInstance {
 
     if (!this.hasIdleBeenSent) {
       this.hasIdleBeenSent = true;
-      this.worker.postMessage({ type: MessageTypes.IDLE });
+      try {
+        this.worker.postMessage({ type: MessageTypes.IDLE });
+      } catch (err) {
+        this.hasCriticalError = true;
+        logger.debug("Failed to send idle event to worker", { error: err });
+      }
     }
 
     return WorkerState.IDLE;
   }
 
   isHealthy(): boolean {
+    if (this.terminated) return false;
+
     // Critical errors make worker permanently unhealthy
     if (this.hasCriticalError) return false;
 
@@ -217,13 +246,13 @@ export class WorkerInstance {
 
     // TTL is sliding: resets on each touch() via getOrCreate cache hit
     // idleTimeout only triggers the IDLE event for app cleanup, not retirement
-    return (
-      now - this.ttlStartAt < this.config.ttlMs &&
-      this.requestCount < this.config.maxRequests
-    );
+    return now - this.ttlStartAt < this.config.ttlMs && this.requestCount < this.config.maxRequests;
   }
 
   async terminate() {
+    if (this.terminated) return;
+    this.terminated = true;
+
     try {
       this.worker.postMessage({ type: MessageTypes.TERMINATE });
       await Bun.sleep(DELAY_MS);

@@ -33,7 +33,7 @@ export function ShellTab({ enabled, dir, excludes: initialExcludes, onRefresh }:
     try {
       const result = await gatewayApi.addShellExclude(newExclude.trim());
       if (result.added) {
-        setExcludes((prev) => [...prev, { basename: newExclude.trim(), source: "keyval" }]);
+        setExcludes((prev) => [...prev, { basename: newExclude.trim(), source: "turso" }]);
         setNewExclude("");
         onRefresh?.();
       }
@@ -138,7 +138,7 @@ export function ShellTab({ enabled, dir, excludes: initialExcludes, onRefresh }:
                         {exclude.source === "env" ? "env" : "dynamic"}
                       </Badge>
                     </div>
-                    {exclude.source === "keyval" && (
+                    {exclude.source === "turso" && (
                       <Button
                         variant="ghost"
                         size="sm"

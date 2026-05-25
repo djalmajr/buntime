@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
+import type { TursoDatabase, TursoHealth, TursoService } from "@buntime/plugin-turso";
 import type { PluginContext } from "@buntime/shared/types";
 import type { Server, ServerWebSocket } from "bun";
-import type { ProxyRule, WebSocketData } from "./services";
+import type { ProxyRule, StoredRule, WebSocketData } from "./services";
 import {
   compileRule,
   compileRules,
   deleteRule,
   getAllRules,
   getDynamicRules,
-  getKv,
   getLogger,
+  getRuleStorage,
   getStaticRules,
   handleProxyRequest,
   httpProxy,
@@ -24,6 +25,84 @@ import {
   setProxyServer,
   shutdownProxyService,
 } from "./services";
+
+function createMockTurso(initialRules: StoredRule[] = []): TursoService & {
+  delete: ReturnType<typeof mock>;
+  set: ReturnType<typeof mock>;
+  store: Map<string, StoredRule>;
+} {
+  const store = new Map<string, StoredRule>();
+  for (const rule of initialRules) {
+    store.set(rule.id, rule);
+  }
+
+  const set = mock((rule: StoredRule) => {
+    store.set(rule.id, rule);
+  });
+  const deleteRuleMock = mock((id: string) => {
+    store.delete(id);
+  });
+
+  const db = {
+    checkpoint: mock(async () => {}),
+    close: mock(async () => {}),
+    exec: mock(async () => {}),
+    getRawClient: mock(() => ({})),
+    getSyncStats: mock(async () => null),
+    localPath: ":memory:",
+    mode: "local",
+    prepare: mock((sql: string) => ({
+      all: mock(async () => {
+        if (!sql.includes("FROM proxy_rules")) {
+          return [];
+        }
+
+        return Array.from(store.values())
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.id.localeCompare(b.id))
+          .map((rule) => ({ rule_json: JSON.stringify(rule) }));
+      }),
+      get: mock(async () => null),
+      run: mock(async (...args: unknown[]) => {
+        if (sql.includes("INSERT INTO proxy_rules")) {
+          const id = String(args[0]);
+          const ruleJson = String(args[2]);
+          const parsed = JSON.parse(ruleJson) as StoredRule;
+          store.set(id, parsed);
+          set(parsed);
+        }
+
+        if (sql.includes("DELETE FROM proxy_rules")) {
+          const id = String(args[0]);
+          deleteRuleMock(id);
+        }
+
+        return { changes: 1, lastInsertRowid: 1 };
+      }),
+    })),
+    pull: mock(async () => false),
+    push: mock(async () => {}),
+    transaction: mock(async (callback) => callback(db as unknown as TursoDatabase)),
+  } as unknown as TursoDatabase;
+
+  return {
+    close: mock(async () => {}),
+    connect: mock(async () => db),
+    delete: deleteRuleMock,
+    health: mock(
+      async (): Promise<TursoHealth> => ({
+        connected: true,
+        localPath: ":memory:",
+        mode: "local",
+        namespaces: ["proxy"],
+        ok: true,
+        sync: { enabled: false },
+      }),
+    ),
+    set,
+    store,
+    transaction: mock(async (_options, callback) => callback(db)),
+  };
+}
 
 const createRule = (opts: Partial<ProxyRule> = {}): ProxyRule => ({
   pattern: opts.pattern ?? ".",
@@ -281,6 +360,65 @@ describe("HTTP proxy", () => {
         expect(calledHeaders.get("X-Api-Key")).toBe("secret123");
       }
       fetchMock.mockRestore();
+    });
+
+    it("sets x-forwarded-host and x-forwarded-proto from the request", async () => {
+      const fetchMock = spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+      const request = new Request("http://localhost:8080/api");
+      const rule = compileRule(createRule({ target: TARGET }), false);
+      if (rule) {
+        await httpProxy(request, rule, "/api");
+        const h = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+        expect(h.get("x-forwarded-host")).toBe("localhost:8080");
+        expect(h.get("x-forwarded-proto")).toBe("http");
+      }
+      fetchMock.mockRestore();
+    });
+
+    it("derives x-real-ip from an upstream x-forwarded-for and preserves the chain", async () => {
+      const fetchMock = spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+      const request = new Request("http://localhost:8080/api", {
+        headers: { "x-forwarded-for": "9.9.9.9" },
+      });
+      const rule = compileRule(createRule({ target: TARGET }), false);
+      if (rule) {
+        await httpProxy(request, rule, "/api");
+        const h = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+        expect(h.get("x-real-ip")).toBe("9.9.9.9");
+        expect(h.get("x-forwarded-for")).toBe("9.9.9.9");
+      }
+      fetchMock.mockRestore();
+    });
+
+    it("does not overwrite an existing x-real-ip", async () => {
+      const fetchMock = spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+      const request = new Request("http://localhost:8080/api", {
+        headers: { "x-forwarded-for": "9.9.9.9", "x-real-ip": "8.8.8.8" },
+      });
+      const rule = compileRule(createRule({ target: TARGET }), false);
+      if (rule) {
+        await httpProxy(request, rule, "/api");
+        const h = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+        expect(h.get("x-real-ip")).toBe("8.8.8.8");
+      }
+      fetchMock.mockRestore();
+    });
+
+    it("sets x-real-ip/x-forwarded-for from the socket when there is no upstream chain", async () => {
+      const fake = { requestIP: () => ({ address: "5.6.7.8" }) };
+      setProxyServer(fake as unknown as Parameters<typeof setProxyServer>[0]);
+      const fetchMock = spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+      const request = new Request("http://localhost:8080/api");
+      const rule = compileRule(createRule({ target: TARGET }), false);
+      if (rule) {
+        await httpProxy(request, rule, "/api");
+        const h = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+        expect(h.get("x-real-ip")).toBe("5.6.7.8");
+        expect(h.get("x-forwarded-for")).toBe("5.6.7.8");
+      }
+      fetchMock.mockRestore();
+      // Reset so the injected socket IP does not leak into later tests.
+      setProxyServer({ requestIP: () => null } as unknown as Parameters<typeof setProxyServer>[0]);
     });
   });
 
@@ -786,7 +924,12 @@ describe("matchRule with state", () => {
 
   it("should skip disabled rules", () => {
     const rule1 = compileRule(
-      createRule({ id: "disabled-rule", enabled: false, pattern: "^/api/(.*)$", target: "http://disabled:8080" }),
+      createRule({
+        id: "disabled-rule",
+        enabled: false,
+        pattern: "^/api/(.*)$",
+        target: "http://disabled:8080",
+      }),
       false,
     );
     const rule2 = compileRule(
@@ -1078,28 +1221,27 @@ describe("initializeProxyService", () => {
     expect(ctx.logger.info).not.toHaveBeenCalled();
   });
 
-  it("should use kv service when available", () => {
-    const mockKv = { get: mock(() => {}) };
+  it("should use Turso service when available", () => {
+    const mockTurso = createMockTurso();
     const ctx = createMockContext({
-      getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
+      getPlugin: mock(() => mockTurso) as PluginContext["getPlugin"],
     });
 
     initializeProxyService(ctx, []);
 
-    expect(ctx.getPlugin).toHaveBeenCalledWith("@buntime/plugin-keyval");
-    // Verify kv was set (comparing by reference would fail due to type mismatch)
-    expect(getKv()).not.toBeNull();
+    expect(ctx.getPlugin).toHaveBeenCalledWith("@buntime/plugin-turso");
+    expect(getRuleStorage()).not.toBeNull();
   });
 
-  it("should log when kv service not available", () => {
+  it("should log when Turso service not available", () => {
     const ctx = createMockContext();
 
     initializeProxyService(ctx, []);
 
     expect(ctx.logger.debug).toHaveBeenCalledWith(
-      "KeyVal service not available, dynamic rules disabled",
+      "Turso service not available, dynamic rules disabled",
     );
-    expect(getKv()).toBeNull();
+    expect(getRuleStorage()).toBeNull();
   });
 });
 
@@ -1125,7 +1267,7 @@ describe("getLogger", () => {
     shutdownProxyService();
     // Note: The logger may still be defined from previous tests
     // since it's module-level state. After shutdownProxyService,
-    // the kv is set to null but logger is not reset.
+    // storage is set to null but logger is not reset.
     // Actually checking the code, shutdownProxyService doesn't reset logger
     // So we test that getLogger returns the current logger state
     const logger = getLogger();
@@ -1135,25 +1277,24 @@ describe("getLogger", () => {
   });
 });
 
-describe("getKv", () => {
+describe("getRuleStorage", () => {
   afterEach(() => {
     shutdownProxyService();
   });
 
   it("should return null when not initialized", () => {
-    expect(getKv()).toBeNull();
+    expect(getRuleStorage()).toBeNull();
   });
 
-  it("should return kv when available", () => {
-    const mockKv = { get: mock(() => {}) };
+  it("should return Turso service when available", () => {
+    const mockTurso = createMockTurso();
     const ctx = createMockContext({
-      getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
+      getPlugin: mock(() => mockTurso) as PluginContext["getPlugin"],
     });
 
     initializeProxyService(ctx, []);
 
-    // Verify kv was set (comparing by reference would fail due to type mismatch)
-    expect(getKv()).not.toBeNull();
+    expect(getRuleStorage()).not.toBeNull();
   });
 });
 
@@ -1162,7 +1303,7 @@ describe("loadDynamicRules", () => {
     shutdownProxyService();
   });
 
-  it("should do nothing when kv not available", async () => {
+  it("should do nothing when Turso is not available", async () => {
     const ctx = createMockContext();
     initializeProxyService(ctx, []);
 
@@ -1171,23 +1312,16 @@ describe("loadDynamicRules", () => {
     expect(getDynamicRules()).toEqual([]);
   });
 
-  it("should load rules from kv", async () => {
-    const storedRules = [
-      { id: "rule-1", pattern: "^/api/(.*)$", target: "http://api:8080" },
-      { id: "rule-2", pattern: "^/ws/(.*)$", target: "http://ws:8081" },
+  it("should load rules from Turso", async () => {
+    const storedRules: StoredRule[] = [
+      { id: "rule-1", order: 0, pattern: "^/api/(.*)$", target: "http://api:8080" },
+      { id: "rule-2", order: 1, pattern: "^/ws/(.*)$", target: "http://ws:8081" },
     ];
 
-    const mockKv = {
-      list: mock(function* () {
-        for (const rule of storedRules) {
-          yield { key: ["proxy", "rules", rule.id], value: rule };
-        }
-      }),
-      set: mock(() => Promise.resolve()),
-    };
+    const mockTurso = createMockTurso(storedRules);
 
     const ctx = createMockContext({
-      getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
+      getPlugin: mock(() => mockTurso) as PluginContext["getPlugin"],
     });
 
     initializeProxyService(ctx, []);
@@ -1199,28 +1333,23 @@ describe("loadDynamicRules", () => {
     expect(rules[1]?.id).toBe("rule-2");
   });
 
-  it("should skip entries with null value", async () => {
-    const mockKv = {
-      list: mock(function* () {
-        yield { key: ["proxy", "rules", "rule-1"], value: null };
-        yield {
-          key: ["proxy", "rules", "rule-2"],
-          value: { id: "rule-2", pattern: "^/api$", target: "http://api" },
-        };
-      }),
-      set: mock(() => Promise.resolve()),
-    };
+  it("should sort loaded Turso rules by order", async () => {
+    const mockTurso = createMockTurso([
+      { id: "rule-2", order: 1, pattern: "^/api$", target: "http://api" },
+      { id: "rule-1", order: 0, pattern: "^/first$", target: "http://first" },
+    ]);
 
     const ctx = createMockContext({
-      getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
+      getPlugin: mock(() => mockTurso) as PluginContext["getPlugin"],
     });
 
     initializeProxyService(ctx, []);
     await loadDynamicRules();
 
     const rules = getDynamicRules();
-    expect(rules.length).toBe(1);
-    expect(rules[0]?.id).toBe("rule-2");
+    expect(rules.length).toBe(2);
+    expect(rules[0]?.id).toBe("rule-1");
+    expect(rules[1]?.id).toBe("rule-2");
   });
 });
 
@@ -1229,22 +1358,20 @@ describe("saveRule", () => {
     shutdownProxyService();
   });
 
-  it("should throw when kv not initialized", async () => {
+  it("should throw when Turso is not initialized", async () => {
     const ctx = createMockContext();
     initializeProxyService(ctx, []);
 
     await expect(
       saveRule({ id: "test", pattern: "^/test$", target: "http://test" }),
-    ).rejects.toThrow("KeyVal not initialized");
+    ).rejects.toThrow("Dynamic rules not enabled (plugin-turso not configured)");
   });
 
-  it("should save rule to kv", async () => {
-    const mockKv = {
-      set: mock(() => Promise.resolve()),
-    };
+  it("should save rule to Turso", async () => {
+    const mockTurso = createMockTurso();
 
     const ctx = createMockContext({
-      getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
+      getPlugin: mock(() => mockTurso) as PluginContext["getPlugin"],
     });
 
     initializeProxyService(ctx, []);
@@ -1252,7 +1379,7 @@ describe("saveRule", () => {
     const rule = { id: "test-id", pattern: "^/test$", target: "http://test" };
     await saveRule(rule);
 
-    expect(mockKv.set).toHaveBeenCalledWith(["proxy", "rules", "test-id"], rule);
+    expect(mockTurso.set).toHaveBeenCalledWith({ ...rule, order: 0 });
   });
 });
 
@@ -1261,27 +1388,27 @@ describe("deleteRule", () => {
     shutdownProxyService();
   });
 
-  it("should throw when kv not initialized", async () => {
+  it("should throw when Turso is not initialized", async () => {
     const ctx = createMockContext();
     initializeProxyService(ctx, []);
 
-    await expect(deleteRule("test-id")).rejects.toThrow("KeyVal not initialized");
+    await expect(deleteRule("test-id")).rejects.toThrow(
+      "Dynamic rules not enabled (plugin-turso not configured)",
+    );
   });
 
-  it("should delete rule from kv", async () => {
-    const mockKv = {
-      delete: mock(() => Promise.resolve()),
-    };
+  it("should delete rule from Turso", async () => {
+    const mockTurso = createMockTurso();
 
     const ctx = createMockContext({
-      getPlugin: mock(() => mockKv) as PluginContext["getPlugin"],
+      getPlugin: mock(() => mockTurso) as PluginContext["getPlugin"],
     });
 
     initializeProxyService(ctx, []);
 
     await deleteRule("test-id");
 
-    expect(mockKv.delete).toHaveBeenCalledWith(["proxy", "rules", "test-id"]);
+    expect(mockTurso.delete).toHaveBeenCalledWith("test-id");
   });
 });
 
@@ -1822,6 +1949,7 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
     config: {},
     globalConfig: {
       poolSize: 10,
+      pluginDirs: ["./plugins"],
       workerDirs: ["./apps"],
     },
     getPlugin: mock(() => undefined),
@@ -1830,6 +1958,10 @@ function createMockContext(overrides: Partial<PluginContext> = {}): PluginContex
       error: mock(() => {}),
       info: mock(() => {}),
       warn: mock(() => {}),
+    },
+    runtime: {
+      api: "1.0.0",
+      version: "test",
     },
     ...overrides,
   };

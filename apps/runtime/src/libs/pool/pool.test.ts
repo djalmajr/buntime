@@ -10,6 +10,7 @@ const TEST_DIR = join(import.meta.dir, ".test-pool");
 // Create a mock worker config
 const createMockConfig = (overrides: Partial<WorkerConfig> = {}): WorkerConfig => ({
   autoInstall: false,
+  enabled: true,
   entrypoint: "index.ts",
   env: {},
   envPrefix: ["PUBLIC_", "VITE_"],
@@ -25,11 +26,12 @@ const createMockConfig = (overrides: Partial<WorkerConfig> = {}): WorkerConfig =
 });
 
 // Create a minimal worker app
-const createWorkerApp = (appDir: string) => {
+const createWorkerApp = (appDir: string, content?: string) => {
   mkdirSync(appDir, { recursive: true });
   writeFileSync(
     join(appDir, "index.ts"),
-    `export default {
+    content ??
+      `export default {
       fetch: (req: Request) => new Response("Hello from worker"),
     };`,
   );
@@ -69,6 +71,9 @@ describe("WorkerPool", () => {
 
       // Check for actual property names from PoolMetrics interface
       expect(metrics).toHaveProperty("activeWorkers");
+      expect(metrics).toHaveProperty("ephemeralConcurrency");
+      expect(metrics).toHaveProperty("ephemeralQueueDepth");
+      expect(metrics).toHaveProperty("ephemeralQueueLimit");
       expect(metrics).toHaveProperty("hits");
       expect(metrics).toHaveProperty("misses");
       expect(metrics).toHaveProperty("totalRequests");
@@ -232,6 +237,27 @@ describe("WorkerPool", () => {
       }
     });
 
+    it("should NOT collide a namespaced @scope/app with an unscoped app of the same bare name", async () => {
+      // Both are nested `.../hello-worker/1.0.0`; without scope-awareness the
+      // pool key would be `hello-worker@1.0.0` for both and collide.
+      const scopedDir = join(TEST_DIR, "@team/hello-worker/1.0.0");
+      const unscopedDir = join(TEST_DIR, "hello-worker/1.0.0");
+      createWorkerApp(scopedDir);
+      createWorkerApp(unscopedDir);
+
+      const pool = new WorkerPool({ maxSize: 5 });
+      const config = createMockConfig();
+      try {
+        const a = await pool.fetch(scopedDir, config, new Request("http://localhost/"));
+        const b = await pool.fetch(unscopedDir, config, new Request("http://localhost/"));
+        expect(a.status).toBe(200);
+        expect(b.status).toBe(200);
+      } finally {
+        pool.shutdown();
+        await Bun.sleep(100);
+      }
+    });
+
     it("should handle nested app directory structure", async () => {
       const appDir = join(TEST_DIR, "nested-app/1.0.0");
       createWorkerApp(appDir);
@@ -271,6 +297,72 @@ describe("WorkerPool", () => {
 
         const stats = pool.getWorkerStats();
         expect(stats["ephemeral-types@1.0.0"]).toBeDefined();
+      } finally {
+        pool.shutdown();
+        await Bun.sleep(100);
+      }
+    });
+
+    it("should apply backpressure to ephemeral workers", async () => {
+      const appDir = join(TEST_DIR, "ephemeral-backpressure@1.0.0");
+      createWorkerApp(
+        appDir,
+        `export default {
+          fetch: async () => {
+            await Bun.sleep(50);
+            return new Response("ok");
+          },
+        };`,
+      );
+
+      const pool = new WorkerPool({ ephemeralConcurrency: 1, maxSize: 5 });
+      const config = createMockConfig({ ttlMs: 0 });
+
+      try {
+        const startedAt = performance.now();
+        await Promise.all(
+          Array.from({ length: 3 }, () =>
+            pool.fetch(appDir, config, new Request("http://localhost/test")),
+          ),
+        );
+        const elapsedMs = performance.now() - startedAt;
+        const metrics = pool.getMetrics();
+
+        expect(elapsedMs).toBeGreaterThanOrEqual(150);
+        expect(metrics.ephemeralConcurrency).toBe(1);
+        expect(metrics.ephemeralQueueLimit).toBe(100);
+        expect(metrics.totalWorkersCreated).toBe(3);
+      } finally {
+        pool.shutdown();
+        await Bun.sleep(100);
+      }
+    });
+
+    it("should reject ephemeral requests when the queue limit is reached", async () => {
+      const appDir = join(TEST_DIR, "ephemeral-queue-limit@1.0.0");
+      createWorkerApp(
+        appDir,
+        `export default {
+          fetch: async () => {
+            await Bun.sleep(100);
+            return new Response("ok");
+          },
+        };`,
+      );
+
+      const pool = new WorkerPool({ ephemeralConcurrency: 1, ephemeralQueueLimit: 1, maxSize: 5 });
+      const config = createMockConfig({ ttlMs: 0 });
+
+      try {
+        const requests = Array.from({ length: 3 }, () =>
+          pool.fetch(appDir, config, new Request("http://localhost/test")),
+        );
+        const results = await Promise.allSettled(requests);
+
+        expect(results.filter((result) => result.status === "fulfilled").length).toBe(2);
+        const rejected = results.find((result) => result.status === "rejected");
+        expect(rejected?.reason?.code).toBe("EPHEMERAL_WORKER_QUEUE_SATURATED");
+        expect(rejected?.reason?.statusCode).toBe(503);
       } finally {
         pool.shutdown();
         await Bun.sleep(100);

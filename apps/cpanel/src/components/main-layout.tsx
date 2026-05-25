@@ -13,6 +13,7 @@ import { Icon } from "./ui/icon";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -34,6 +35,19 @@ export interface MainLayoutHeader {
   title?: React.ReactNode;
 }
 
+export interface MainLayoutFooterItem {
+  icon?: React.ReactNode;
+  title: string;
+  trailingIcon?: React.ReactNode;
+  url: string;
+}
+
+export interface MainLayoutFooterAction {
+  icon?: React.ReactNode;
+  onClick: () => void;
+  title: string;
+}
+
 export interface SidebarNavSubItem {
   isActive?: boolean;
   title: string;
@@ -49,6 +63,8 @@ export interface SidebarNavItem {
 }
 
 export interface SidebarNavGroup {
+  /** Optional className forwarded to the underlying `<SidebarGroup>` container. */
+  className?: string;
   items: SidebarNavItem[];
   label?: string;
 }
@@ -79,6 +95,8 @@ export interface MainLayoutProps {
     to: string;
   }>;
   onLogout?: () => void;
+  sidebarFooterAction?: MainLayoutFooterAction;
+  sidebarFooterItem?: MainLayoutFooterItem;
   // user: MainLayoutUser;
 }
 
@@ -177,6 +195,50 @@ function DefaultHeader({
   );
 }
 
+function SidebarFooterLink({
+  item,
+  LinkComponent,
+}: {
+  item: MainLayoutFooterItem;
+  LinkComponent?: React.ComponentType<{
+    children: React.ReactNode;
+    to: string;
+  }>;
+}) {
+  const content = (
+    <>
+      {item.icon}
+      <span>{item.title}</span>
+      {item.trailingIcon && (
+        <span className="ml-auto group-data-[collapsible=icon]:hidden">{item.trailingIcon}</span>
+      )}
+    </>
+  );
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton asChild tooltip={item.title}>
+        {LinkComponent ? (
+          <LinkComponent to={item.url}>{content}</LinkComponent>
+        ) : (
+          <a href={item.url}>{content}</a>
+        )}
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
+function SidebarFooterButton({ action }: { action: MainLayoutFooterAction }) {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton onClick={action.onClick} tooltip={action.title}>
+        {action.icon}
+        <span>{action.title}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
 export function MainLayout({
   apps,
   breadcrumbs,
@@ -186,6 +248,8 @@ export function MainLayout({
   header,
   LinkComponent,
   // onLogout,
+  sidebarFooterAction,
+  sidebarFooterItem,
   // user,
 }: MainLayoutProps) {
   // const { t } = useTranslation();
@@ -198,18 +262,16 @@ export function MainLayout({
           <SidebarHeader>
             <SidebarMenu>
               <SidebarMenuItem>
-                {/* Expanded state: AppInfo + Toggle button */}
-                <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
+                {/* Expanded state: AppInfo + Toggle button.
+                    px-2 matches the SidebarMenuButton's p-2 so the header
+                    text aligns with the menu items below (both end up at
+                    SidebarContent.p-3 + p-2 = 20px from the sidebar edge). */}
+                <div className="flex items-center gap-2 px-2 group-data-[collapsible=icon]:hidden">
                   {activeApp && (
-                    <>
-                      <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-                        {activeApp.icon}
-                      </div>
-                      <div className="grid flex-1 text-left text-sm leading-tight">
-                        <span className="truncate font-medium">{activeApp.name}</span>
-                        <span className="truncate text-xs">{activeApp.description}</span>
-                      </div>
-                    </>
+                    <div className="grid flex-1 text-left text-sm leading-tight">
+                      <span className="truncate font-medium">{activeApp.name}</span>
+                      <span className="truncate text-xs">{activeApp.description}</span>
+                    </div>
                   )}
                   <SidebarToggle />
                 </div>
@@ -221,11 +283,13 @@ export function MainLayout({
           <SidebarContent className="pb-0">
             {groups.map((group, index) => (
               <NavMain
+                groupClassName={group.className}
                 items={group.items.map((item) => ({
                   ...item,
                   icon: item.icon ? <Icon icon={item.icon} /> : undefined,
                 }))}
                 key={group.label ?? index}
+                label={group.label}
                 LinkComponent={LinkComponent}
               />
             ))}
@@ -240,6 +304,16 @@ export function MainLayout({
               )}
             </NavUser>
           </SidebarFooter> */}
+          {(sidebarFooterItem || sidebarFooterAction) && (
+            <SidebarFooter>
+              <SidebarMenu>
+                {sidebarFooterItem && (
+                  <SidebarFooterLink item={sidebarFooterItem} LinkComponent={LinkComponent} />
+                )}
+                {sidebarFooterAction && <SidebarFooterButton action={sidebarFooterAction} />}
+              </SidebarMenu>
+            </SidebarFooter>
+          )}
           <SidebarRail />
         </Sidebar>
         <SidebarInset className="flex flex-col overflow-hidden">

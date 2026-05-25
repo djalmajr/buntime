@@ -252,14 +252,44 @@ export interface GlobalPluginConfig {
   /** Maximum number of workers in the pool */
   poolSize: number;
 
+  /** Plugin directories containing runtime plugins (normalized to array) */
+  pluginDirs: string[];
+
   /** Worker directories containing worker apps (normalized to array) */
   workerDirs: string[];
+}
+
+/**
+ * Auth surface exposed to plugins so they can protect their `/<base>/admin/**`
+ * routes with the same API-key store the cpanel uses.
+ *
+ * `store` is the runtime's `ApiKeyStore` (typed as `unknown` here to avoid a
+ * dependency on the implementation from this types-only file — consumers cast
+ * to `ApiKeyStore` from `@buntime/shared/api-keys`).
+ *
+ * `rootKey` is the optional runtime root key from
+ * `RUNTIME_ROOT_KEY`/`getConfig().apiKey`; when set, requests carrying it
+ * bypass the store lookup and authenticate as the synthetic `root` principal.
+ *
+ * See `@buntime/shared/middleware/api-key` for the canonical consumer.
+ */
+export interface PluginAuthContext {
+  rootKey?: string;
+  store?: unknown;
 }
 
 /**
  * Context provided to plugins during initialization
  */
 export interface PluginContext {
+  /**
+   * Auth surface (API key store + master key). Plugins use this to wire the
+   * shared `createApiKeyMiddleware` into their `/<base>/admin/**` routes.
+   * Both fields are optional: in tests or constrained envs the runtime may
+   * omit the store; plugins should handle absence gracefully.
+   */
+  auth?: PluginAuthContext;
+
   /** Plugin-specific configuration */
   config: Record<string, unknown>;
 

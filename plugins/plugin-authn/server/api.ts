@@ -1,6 +1,7 @@
 import type { DatabaseAdapter } from "@buntime/plugin-database";
 import { errorToResponse } from "@buntime/shared/errors";
 import type { PluginLogger } from "@buntime/shared/types";
+import type { MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import { createScimRoutes } from "./scim/routes";
 import {
@@ -259,6 +260,14 @@ export const api = new Hono()
   });
 
 /**
+ * Admin (control plane) router. Mounts SCIM under `/admin/scim/v2/**` and is
+ * gated by the runtime X-API-Key middleware (see plugin.ts). Kept separate
+ * from the runtime `api` (login/session/logout) so the two auth surfaces stay
+ * isolated: operators use API keys, end users use better-auth sessions.
+ */
+export const adminApi = new Hono().basePath("/admin");
+
+/**
  * SCIM routes configuration
  */
 export interface ScimConfig {
@@ -266,14 +275,18 @@ export interface ScimConfig {
   baseUrl: string;
   bulkEnabled?: boolean;
   enabled: boolean;
+  /** Auth middleware that gates `/admin/scim/v2/**`. */
+  middleware?: MiddlewareHandler;
   logger?: PluginLogger;
   maxBulkOperations?: number;
   maxResults?: number;
 }
 
 /**
- * Mount SCIM routes on the API
- * Should be called after database adapter is available
+ * Mount SCIM routes on the admin API. Should be called after the database
+ * adapter is available. The route lives under `/<base>/admin/scim/v2/**` and
+ * is authenticated by the supplied middleware (typically
+ * `createApiKeyMiddleware` from `@buntime/shared/middleware/api-key`).
  */
 export function mountScimRoutes(config: ScimConfig): void {
   if (!config.enabled) {
@@ -289,11 +302,14 @@ export function mountScimRoutes(config: ScimConfig): void {
     maxResults: config.maxResults,
   });
 
-  // Mount SCIM routes at /api/scim/v2
-  api.route("/scim/v2", scimRoutes);
+  if (config.middleware) {
+    adminApi.use("/scim/v2/*", config.middleware);
+  }
+  adminApi.route("/scim/v2", scimRoutes);
 
-  config.logger?.info("SCIM 2.0 routes mounted at /auth/api/scim/v2");
+  config.logger?.info("SCIM 2.0 routes mounted at /auth/admin/scim/v2");
 }
 
 // Export type for API client
 export type ApiType = typeof api;
+export type AdminApiType = typeof adminApi;

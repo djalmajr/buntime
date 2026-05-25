@@ -26,6 +26,11 @@ if (process.argv.includes("--compile")) {
 
 const result = await Bun.build({
   entrypoints: [SERVER_ENTRYPOINT, WORKER_FILE],
+  // Native NAPI bindings (`.node`) cannot be bundled. Keep the platform
+  // dispatcher in `@tursodatabase/database` and `@tursodatabase/sync` external
+  // so bun resolves the matching `*-<platform>-<arch>-<libc>` binding from
+  // the on-disk node_modules at runtime.
+  external: ["@tursodatabase/database", "@tursodatabase/sync"],
   minify: true,
   naming: "[name].[ext]",
   outdir: DIST_DIR,

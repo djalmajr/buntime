@@ -1,4 +1,4 @@
-import { type Client, createClient } from "@libsql/client/http";
+import { type Client, createClient } from "@libsql/client";
 import type { DatabaseAdapter, LibSqlAdapterConfig, Statement, TransactionAdapter } from "../types";
 
 /**

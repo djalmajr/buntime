@@ -152,6 +152,39 @@ describe("getWorkerDir", () => {
     });
   });
 
+  describe("cache", () => {
+    it("should cache positive results within the configured TTL", () => {
+      createFlatVersions("cached-api", ["1.0.0"]);
+      const resolver = createWorkerResolver([TEST_DIR], { cacheTtlMs: 60000 });
+
+      const first = resolver("cached-api@1.0.0");
+      rmSync(join(TEST_DIR, "cached-api@1.0.0"), { recursive: true, force: true });
+      const second = resolver("cached-api@1.0.0");
+
+      expect(first).toBe(join(TEST_DIR, "cached-api@1.0.0"));
+      expect(second).toBe(first);
+    });
+
+    it("should not cache missing workers by default", () => {
+      const resolver = createWorkerResolver([TEST_DIR], { cacheTtlMs: 60000 });
+
+      expect(resolver("new-api@1.0.0")).toBe("");
+      createFlatVersions("new-api", ["1.0.0"]);
+
+      expect(resolver("new-api@1.0.0")).toBe(join(TEST_DIR, "new-api@1.0.0"));
+    });
+
+    it("should allow cache to be disabled", () => {
+      createFlatVersions("uncached-api", ["1.0.0"]);
+      const resolver = createWorkerResolver([TEST_DIR], { cacheTtlMs: 0 });
+
+      expect(resolver("uncached-api@1.0.0")).toBe(join(TEST_DIR, "uncached-api@1.0.0"));
+      rmSync(join(TEST_DIR, "uncached-api@1.0.0"), { recursive: true, force: true });
+
+      expect(resolver("uncached-api@1.0.0")).toBe("");
+    });
+  });
+
   describe("latest tag handling", () => {
     it("should return explicit latest tag when requested", () => {
       createVersions("explicit-latest", ["1.0.0", "latest"]);
@@ -316,6 +349,50 @@ describe("getWorkerDir", () => {
 
       const result = resolver("nonexistent@1.0.0");
       expect(result).toBe("");
+    });
+  });
+
+  describe("namespaced (@scope/name) workers", () => {
+    it("resolves a scoped worker with no version (highest semver)", () => {
+      createNestedVersions("@acme/checkout", ["1.0.0", "1.2.0"]);
+
+      const result = getWorkerDir("@acme/checkout");
+      expect(result).toBe(join(TEST_DIR, "@acme/checkout/1.2.0"));
+    });
+
+    it("resolves a scoped worker with an exact version (leading @ not split as version)", () => {
+      createNestedVersions("@acme/checkout", ["1.0.0", "2.0.0"]);
+
+      const result = getWorkerDir("@acme/checkout@1.0.0");
+      expect(result).toBe(join(TEST_DIR, "@acme/checkout/1.0.0"));
+    });
+
+    it("resolves a scoped worker by version range", () => {
+      createNestedVersions("@team/billing", ["1.0.0", "1.5.3", "2.0.0"]);
+
+      const result = getWorkerDir("@team/billing@1");
+      expect(result).toBe(join(TEST_DIR, "@team/billing/1.5.3"));
+    });
+
+    it("resolves a scoped 'latest' tag", () => {
+      createNestedVersions("@staging/api", ["latest"]);
+
+      expect(getWorkerDir("@staging/api")).toBe(join(TEST_DIR, "@staging/api/latest"));
+      expect(getWorkerDir("@staging/api@latest")).toBe(join(TEST_DIR, "@staging/api/latest"));
+    });
+
+    it("does not confuse a scoped worker with an unscoped one of the same bare name", () => {
+      createNestedVersions("checkout", ["9.9.9"]);
+      createNestedVersions("@acme/checkout", ["1.0.0"]);
+
+      expect(getWorkerDir("checkout")).toBe(join(TEST_DIR, "checkout/9.9.9"));
+      expect(getWorkerDir("@acme/checkout")).toBe(join(TEST_DIR, "@acme/checkout/1.0.0"));
+    });
+
+    it("returns empty for a bare scope with no app segment", () => {
+      createNestedVersions("@acme/checkout", ["1.0.0"]);
+
+      expect(getWorkerDir("@acme")).toBe("");
     });
   });
 });

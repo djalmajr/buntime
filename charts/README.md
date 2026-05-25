@@ -13,7 +13,7 @@ Worker Pool Runtime for Bun applications. Runs isolated worker processes with a 
 
 | Plugin | Description |
 |--------|-------------|
-| **plugin-database** | LibSQL/SQLite/PGlite database adapter with HRANA WebSocket |
+| **plugin-turso** | Turso Database provider for durable SQL consumers |
 | **plugin-keyval** | Key-value store with FTS, atomic operations, queue, and SSE watch |
 | **plugin-gateway** | CORS, rate limiting, app-shell routing, metrics dashboard |
 | **plugin-proxy** | HTTP reverse proxy with regex rules, WebSocket, drag-and-drop ordering |
@@ -25,10 +25,18 @@ Key values to configure:
 
 | Value | Description | Default |
 |-------|-------------|---------|
-| `buntime.apiPrefix` | API route prefix | `""` |
+| `buntime.apiPrefix` | API route prefix | `"/_"` |
 | `buntime.workerDirs` | Worker search paths | `/data/.apps:/data/apps` |
 | `buntime.pluginDirs` | Plugin search paths | `/data/.plugins:/data/plugins` |
-| `plugins.database.libsqlUrl` | LibSQL primary URL | `http://libsql:8080` |
+| `buntime.ephemeralConcurrency` | Max concurrent `ttl: 0` requests | `2` |
+| `buntime.ephemeralQueueLimit` | Max queued `ttl: 0` requests before `503` | `100` |
+| `resources.requests.cpu` | CPU request per pod | `250m` |
+| `resources.limits.cpu` | CPU limit per pod | `2` |
+| `autoscaling.enabled` | Enable HPA | `false` |
+| `podDisruptionBudget.enabled` | Enable PDB | `false` |
+| `plugins.turso.mode` | Turso provider mode | `local` |
+| `plugins.turso.localPath` | Local Turso database path | `/data/turso/runtime.db` |
+| `plugins.turso.sync.url` | Turso sync endpoint URL | `""` |
 | `plugins.gateway.cors.origin` | CORS allowed origins | `*` |
 | `plugins.gateway.shellDir` | Micro-frontend shell path | `""` |
 | `ingress.host` | Ingress hostname | `""` (disabled) |

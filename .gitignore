@@ -54,3 +54,6 @@ deploy/install-home-workload.sh
 # Agent-tool configs (local, non-Claude)
 .codex/
 opencode.json
+
+# Local REST scratch file (may contain captured tokens)
+request.http

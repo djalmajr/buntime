@@ -1,3 +1,16 @@
+## What's New in 0.4.0
+
+### Runtime / Proxy
+- **Cookie sessions no longer bypass content plugins.** Only a header credential (`X-API-Key` / `Authorization: Bearer`) skips plugin `onRequest` hooks — the automation path. A `buntime_api_key` cookie (cpanel login) no longer disables the gateway app-shell or proxy, so the admin cpanel and a front-end app-shell coexist in the same browser.
+- **`plugin-proxy` forwards `x-forwarded-for` / `x-forwarded-host` / `x-forwarded-proto` + `x-real-ip`** on proxied requests, so upstreams that require them work behind the proxy.
+
+### Charts
+- Default image registry is now `ghcr.io/zommehq/*`.
+
+### Project
+- The repository is now public and generic: client-, personal-, and local-environment identifiers were removed throughout the code, charts, and wiki in favor of neutral placeholders.
+- Added a gitleaks secrets-scan to the lefthook pre-commit hook (blocks new secrets/keys from being committed).
+
 ## What's New in 0.3.2
 
 ### Runtime / Turso

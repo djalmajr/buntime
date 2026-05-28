@@ -144,6 +144,12 @@ export class KeycloakAdmin {
       }
     }
 
+    // The cached token was issued before the new realm existed, so it lacks the
+    // `<realm>-realm` management roles (Keycloak composites resolve at token
+    // issue time). Invalidate so the post-creation steps re-fetch with full
+    // permissions for the realm we just created.
+    this.cachedToken = undefined;
+
     await this.ensureClient(realm, origin);
     await this.ensureRole(realm, "user");
     const temporaryPassword = await this.ensureUser(realm, username);

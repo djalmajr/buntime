@@ -191,6 +191,18 @@ describe("createApp", () => {
   });
 
   describe("CSRF protection", () => {
+    // The CSRF tests exercise the `/api/*` middleware in isolation: they pass
+    // no `apiKeys` store and expect no auth gate to fire. Bun auto-loads
+    // `apps/runtime/.env`, which on dev sets `RUNTIME_ROOT_KEY` — that would
+    // make `getConfig().apiKey` truthy and the gate would 401 every test
+    // before CSRF runs. Force the key off here (and reload the config) so the
+    // gate stays open and CSRF is what we actually measure.
+    beforeEach(() => {
+      delete Bun.env.RUNTIME_ROOT_KEY;
+      delete Bun.env.BUNTIME_ROOT_KEY;
+      initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });
+    });
+
     it("should block state-changing requests without Origin header", async () => {
       const app = createApp(createDeps());
       const req = new Request(`http://localhost${API_PATH}/data`, {

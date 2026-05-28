@@ -21,7 +21,7 @@ image:build:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
   tags:
-    - kubernetes
+    - k8s
   script:
     - mkdir -p /kaniko/.docker
     - |

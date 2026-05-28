@@ -1,11 +1,11 @@
 import { html } from "htm/preact";
 import { connect } from "unistore/preact";
+import pkg from "../package.json" with { type: "json" };
 import { getFiltered } from "../store/selectors.js";
 import style from "./app.css" with { type: "css" };
 import { Footer } from "./footer.js";
 import { Header } from "./header.js";
 import { Todo } from "./todo.js";
-import pkg from "../package.json" with { type: "json" };
 
 document.adoptedStyleSheets.push(style);
 
@@ -20,9 +20,7 @@ export const App = connect(mapStateToProps)(
         <${Header} />
         <section class="app__todos">
           <ul>
-            ${filtered.map(
-              (todo) => html`<${Todo} key=${todo.uid} todo=${todo} />`,
-            )}
+            ${filtered.map((todo) => html`<${Todo} key=${todo.uid} todo=${todo} />`)}
           </ul>
         </section>
         <${Footer} />

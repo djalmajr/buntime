@@ -155,7 +155,7 @@ export class PluginRegistry {
 
   /**
    * Get exports from another plugin by its manifest name
-   * @param pluginName Plugin manifest name (e.g., "@buntime/plugin-database")
+   * @param pluginName Plugin manifest name (e.g., "@buntime/plugin-turso")
    */
   getPlugin<T>(pluginName: string): T | undefined {
     return this.providers.get(pluginName) as T | undefined;
@@ -236,7 +236,7 @@ export class PluginRegistry {
 
   /**
    * Register a plugin's exports (called by loader after onInit)
-   * @param pluginName Plugin manifest name (e.g., "@buntime/plugin-database")
+   * @param pluginName Plugin manifest name (e.g., "@buntime/plugin-turso")
    * @param provides The exports object from the plugin's provides() function
    */
   registerProvides<T>(pluginName: string, provides: T): void {

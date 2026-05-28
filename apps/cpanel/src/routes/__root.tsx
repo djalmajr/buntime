@@ -23,8 +23,7 @@ export const Route = createRootRoute({
 /**
  * Global auth gate. The cpanel authenticates end-to-end via X-API-Key against
  * the core runtime — runtime sections (overview / keys / apps / plugins) and
- * plugin UIs (mounted via `<z-frame>`) share the same session. plugin-authn
- * does not protect the cpanel (see manifest.yaml).
+ * plugin UIs (mounted via `<z-frame>`) share the same session.
  */
 function RootLayoutContent() {
   const { status } = useApiKey();

@@ -1,0 +1,12 @@
+.clear-button,
+.clear-button:active {
+  cursor: pointer;
+  float: right;
+  line-height: 20px;
+  position: relative;
+  text-decoration: none;
+}
+
+.clear-button:hover {
+  text-decoration: underline;
+}

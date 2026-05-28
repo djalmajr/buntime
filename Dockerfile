@@ -27,6 +27,14 @@ RUN NODE_ENV=production bun run --filter '@buntime/plugin-*' build
 WORKDIR /build/apps/cpanel
 RUN NODE_ENV=production bun run build
 
+# Build the shell app-shell (served at root). todos is a static SPA (no build).
+# `platform` is NOT baked: it needs per-deploy secrets via a worker `.env`, so it
+# is installed to the writable /data/apps PVC at deploy time. See wiki:
+# apps/multi-tenant-platform.
+WORKDIR /build/apps/shell
+RUN NODE_ENV=production bun run build
+WORKDIR /build
+
 # Build the runtime bundle (NOT --compile: `bun build --compile` cannot embed
 # NAPI native bindings like `@tursodatabase/database-<platform>-<arch>` into
 # bunfs. We ship the bundled JS plus the on-disk node_modules so bun resolves
@@ -80,6 +88,15 @@ COPY --from=builder /output/plugins/ /data/.plugins/
 # Copy cpanel to hidden .apps directory (not visible in deployments UI)
 COPY --from=builder /build/apps/cpanel/dist/ /data/.apps/cpanel/dist/
 COPY --from=builder /build/apps/cpanel/manifest.yaml /data/.apps/cpanel/
+
+# Multi-tenant reference apps baked into the image: shell (served at root via the
+# gateway app-shell) and todos (static, loaded in a z-frame). `platform` is NOT
+# baked — it carries per-deploy secrets via a worker `.env`, so it is installed to
+# the writable /data/apps PVC at deploy time. The deploy sets
+# GATEWAY_SHELL_DIR=/data/.apps/shell and GATEWAY_SHELL_EXCLUDES=cpanel,todos,platform.
+COPY --from=builder /build/apps/shell/dist/ /data/.apps/shell/dist/
+COPY --from=builder /build/apps/shell/manifest.yaml /data/.apps/shell/
+COPY --from=builder /build/apps/todos/ /data/.apps/todos/
 
 # Default environment variables (aligned with Helm chart values.yaml)
 # .apps/.plugins = core (from image), apps/plugins = custom (from PVC)

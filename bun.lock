@@ -107,9 +107,42 @@
         "tailwindcss": "^4.1.18",
       },
     },
+    "apps/platform": {
+      "name": "@buntime/platform",
+      "version": "1.0.0",
+      "dependencies": {
+        "@radix-ui/react-dialog": "^1.1.15",
+        "@radix-ui/react-label": "^2.1.8",
+        "@radix-ui/react-slot": "^1.2.4",
+        "@tanstack/react-query": "^5.90.12",
+        "@tanstack/react-router": "^1.134.15",
+        "class-variance-authority": "^0.7.1",
+        "clsx": "^2.1.1",
+        "hono": "^4.8.3",
+        "jose": "^6.1.0",
+        "lucide-react": "^0.469.0",
+        "react": "^19.2.3",
+        "react-dom": "^19.2.3",
+        "sonner": "^2.0.7",
+        "tailwind-merge": "^3.0.2",
+        "tw-animate-css": "^1.4.0",
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@buntime/shared": "workspace:*",
+        "@types/bun": "^1.3.8",
+        "@types/react": "^19.2.6",
+        "@types/react-dom": "^19.2.3",
+        "@zomme/bun-plugin-i18next": "^0.1.1",
+        "@zomme/bun-plugin-iconify": "^0.1.2",
+        "@zomme/bun-plugin-tsr": "^0.1.1",
+        "bun-plugin-tailwind": "^0.1.2",
+        "tailwindcss": "^4.1.18",
+      },
+    },
     "apps/runtime": {
       "name": "@buntime/runtime",
-      "version": "1.1.0",
+      "version": "1.3.0",
       "dependencies": {
         "@buntime/shared": "workspace:*",
         "@hono/standard-validator": "^0.2.1",
@@ -127,6 +160,36 @@
       "devDependencies": {
         "@types/semver": "^7.7.1",
       },
+    },
+    "apps/shell": {
+      "name": "@buntime/shell",
+      "version": "1.0.0",
+      "dependencies": {
+        "@iconify-icon/react": "^3.0.3",
+        "@radix-ui/react-slot": "^1.2.4",
+        "@zomme/frame": "^1.2.3",
+        "class-variance-authority": "^0.7.1",
+        "clsx": "^2.1.1",
+        "keycloak-js": "^26.0.7",
+        "lucide-react": "^0.469.0",
+        "react": "^19.2.3",
+        "react-dom": "^19.2.3",
+        "tailwind-merge": "^3.0.2",
+        "tw-animate-css": "^1.4.0",
+      },
+      "devDependencies": {
+        "@buntime/shared": "workspace:*",
+        "@types/react": "^19.2.6",
+        "@types/react-dom": "^19.2.3",
+        "@zomme/bun-plugin-i18next": "^0.1.1",
+        "@zomme/bun-plugin-iconify": "^0.1.2",
+        "bun-plugin-tailwind": "^0.1.2",
+        "tailwindcss": "^4.1.18",
+      },
+    },
+    "apps/todos": {
+      "name": "todos",
+      "version": "3.0.0",
     },
     "packages/database": {
       "name": "@buntime/database",
@@ -272,47 +335,6 @@
         "@types/react-dom": "^19.2.3",
         "@zomme/bun-plugin-iconify": "^0.1.3",
         "@zomme/bun-plugin-tsr": "^0.1.1",
-        "bun-plugin-tailwind": "^0.1.2",
-        "tailwindcss": "^4.1.17",
-      },
-      "peerDependencies": {
-        "hono": "^4.0.0",
-        "typescript": "^5.0.0",
-      },
-    },
-    "plugins/plugin-deployments": {
-      "name": "@buntime/plugin-deployments",
-      "version": "1.0.0",
-      "dependencies": {
-        "@buntime/shared": "workspace:*",
-        "@iconify-icon/react": "^2.3.0",
-        "@radix-ui/react-checkbox": "^1.3.2",
-        "@radix-ui/react-dialog": "^1.1.14",
-        "@radix-ui/react-dropdown-menu": "^2.1.15",
-        "@radix-ui/react-slot": "^1.2.3",
-        "@radix-ui/react-tooltip": "^1.2.7",
-        "@tanstack/react-query": "^5.80.7",
-        "@tursodatabase/database": "^0.5.3",
-        "@tursodatabase/sync": "^0.5.3",
-        "@zomme/frame": "^1.2.3",
-        "class-variance-authority": "^0.7.1",
-        "clsx": "^2.1.1",
-        "cmdk": "^1.1.1",
-        "i18next": "^25.2.1",
-        "react": "^19.2.0",
-        "react-dom": "^19.2.0",
-        "react-i18next": "^15.5.2",
-        "semver": "^7.7.2",
-        "sonner": "^2.0.3",
-        "tailwind-merge": "^3.3.1",
-        "tw-animate-css": "^1.3.4",
-      },
-      "devDependencies": {
-        "@types/react": "^19.2.6",
-        "@types/react-dom": "^19.2.3",
-        "@types/semver": "^7.7.0",
-        "@zomme/bun-plugin-i18next": "^0.1.1",
-        "@zomme/bun-plugin-iconify": "^0.1.2",
         "bun-plugin-tailwind": "^0.1.2",
         "tailwindcss": "^4.1.17",
       },
@@ -585,13 +607,13 @@
 
     "@buntime/keyval": ["@buntime/keyval@workspace:packages/keyval"],
 
+    "@buntime/platform": ["@buntime/platform@workspace:apps/platform"],
+
     "@buntime/plugin-authn": ["@buntime/plugin-authn@workspace:plugins/plugin-authn"],
 
     "@buntime/plugin-authz": ["@buntime/plugin-authz@workspace:plugins/plugin-authz"],
 
     "@buntime/plugin-database": ["@buntime/plugin-database@workspace:plugins/plugin-database"],
-
-    "@buntime/plugin-deployments": ["@buntime/plugin-deployments@workspace:plugins/plugin-deployments"],
 
     "@buntime/plugin-gateway": ["@buntime/plugin-gateway@workspace:plugins/plugin-gateway"],
 
@@ -610,6 +632,8 @@
     "@buntime/runtime": ["@buntime/runtime@workspace:apps/runtime"],
 
     "@buntime/shared": ["@buntime/shared@workspace:packages/shared"],
+
+    "@buntime/shell": ["@buntime/shell@workspace:apps/shell"],
 
     "@codemirror/autocomplete": ["@codemirror/autocomplete@6.20.0", "", { "dependencies": { "@codemirror/language": "^6.0.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.17.0", "@lezer/common": "^1.0.0" } }, "sha512-bOwvTOIJcG5FVo5gUUupiwYh8MioPLQ4UcqbcRf7UQ98X90tCa9E1kZ3Z7tqwpZxYyOvh1YTYbmZE9RTfTp5hg=="],
 
@@ -1217,6 +1241,8 @@
 
     "json5": ["json5@2.2.3", "", { "bin": { "json5": "lib/cli.js" } }, "sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg=="],
 
+    "keycloak-js": ["keycloak-js@26.2.4", "", {}, "sha512-PnXpR3ubETGOt0B/Qt2lxmPbkZr5bc3vlQsOqDoTPPQsZRp7JjhTKxlJ187uWh8qJhvBab6Gsjb06a8ayOPfuw=="],
+
     "kysely": ["kysely@0.28.10", "", {}, "sha512-ksNxfzIW77OcZ+QWSAPC7yDqUSaIVwkTWnTPNiIy//vifNbwsSgQ57OkkncHxxpcBHM3LRfLAZVEh7kjq5twVA=="],
 
     "lefthook": ["lefthook@2.0.16", "", { "optionalDependencies": { "lefthook-darwin-arm64": "2.0.16", "lefthook-darwin-x64": "2.0.16", "lefthook-freebsd-arm64": "2.0.16", "lefthook-freebsd-x64": "2.0.16", "lefthook-linux-arm64": "2.0.16", "lefthook-linux-x64": "2.0.16", "lefthook-openbsd-arm64": "2.0.16", "lefthook-openbsd-x64": "2.0.16", "lefthook-windows-arm64": "2.0.16", "lefthook-windows-x64": "2.0.16" }, "bin": { "lefthook": "bin/index.js" } }, "sha512-ABs3M5V9c4nqxFnZO509HXuQTu8GM8hmqc9ruV0acQ81yKlxEq70MRoYP5Z1dr5le326X8vA5qj3arJA36yE3A=="],
@@ -1251,7 +1277,7 @@
 
     "lru-cache": ["lru-cache@5.1.1", "", { "dependencies": { "yallist": "^3.0.2" } }, "sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w=="],
 
-    "lucide-react": ["lucide-react@0.561.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-Y59gMY38tl4/i0qewcqohPdEbieBy7SovpBL9IFebhc2mDd8x4PZSOsiFRkpPcOq6bj1r/mjH/Rk73gSlIJP2A=="],
+    "lucide-react": ["lucide-react@0.469.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-28vvUnnKQ/dBwiCQtwJw7QauYnE7yd2Cyp4tTTJpvglX4EMpbflcdBgrgToX2j71B3YvugK/NH3BGUk+E/p/Fw=="],
 
     "marked": ["marked@4.3.0", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-PRsaiG84bK+AMvxziE/lCFss8juXjNaWzVbN5tXAm4XjeaS9NAHhop+PjQxz2A9h8Q4M/xGmzP8vqNwy6JeK0A=="],
 
@@ -1385,6 +1411,8 @@
 
     "tinyglobby": ["tinyglobby@0.2.15", "", { "dependencies": { "fdir": "^6.5.0", "picomatch": "^4.0.3" } }, "sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ=="],
 
+    "todos": ["todos@workspace:apps/todos"],
+
     "tr46": ["tr46@0.0.3", "", {}, "sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw=="],
 
     "ts-invariant": ["ts-invariant@0.10.3", "", { "dependencies": { "tslib": "^2.1.0" } }, "sha512-uivwYcQaxAucv1CzRp2n/QdYPo4ILf9VXgH19zEIjFx2EJufV16P0JtJVpYHy89DItG6Kwj2oIUjrcK5au+4tQ=="],
@@ -1439,6 +1467,10 @@
 
     "@better-auth/core/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 
+    "@buntime/platform/@zomme/bun-plugin-iconify": ["@zomme/bun-plugin-iconify@0.1.3", "", { "peerDependencies": { "@iconify-json/*": ">=1.0.0", "@iconify/json": ">=2.0.0" }, "optionalPeers": ["@iconify-json/*", "@iconify/json"] }, "sha512-+a6gY7KlRGimHdojksNXmlS386VGXSmURsXsA9tHsILhPQ0XzDW6mG+BwSAfxBHFVssE+UVf6KLgsjotvRn4sg=="],
+
+    "@buntime/platform/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
+
     "@buntime/plugin-authn/@iconify-icon/react": ["@iconify-icon/react@2.3.0", "", { "dependencies": { "iconify-icon": "^2.3.0" }, "peerDependencies": { "react": ">=16" } }, "sha512-7at8wGF+igiCS2XMaIrkZokD0zxz0pNa5SZn5tJAkZMJezeJlYiFXI5rYkiEpUpMaNYhYTqGLB90I/0sKJZkUw=="],
 
     "@buntime/plugin-authn/@libsql/client": ["@libsql/client@0.15.15", "", { "dependencies": { "@libsql/core": "^0.15.14", "@libsql/hrana-client": "^0.7.0", "js-base64": "^3.7.5", "libsql": "^0.5.22", "promise-limit": "^2.7.0" } }, "sha512-twC0hQxPNHPKfeOv3sNT6u2pturQjLcI+CnpTM0SjRpocEGgfiZ7DWKXLNnsothjyJmDqEsBQJ5ztq9Wlu470w=="],
@@ -1455,12 +1487,6 @@
 
     "@buntime/plugin-database/react-resizable-panels": ["react-resizable-panels@2.1.9", "", { "peerDependencies": { "react": "^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc", "react-dom": "^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc" } }, "sha512-z77+X08YDIrgAes4jl8xhnUu1LNIRp4+E7cv4xHmLOxxUPO/ML7PSrE813b90vj7xvQ1lcf7g2uA9GeMZonjhQ=="],
 
-    "@buntime/plugin-deployments/@iconify-icon/react": ["@iconify-icon/react@2.3.0", "", { "dependencies": { "iconify-icon": "^2.3.0" }, "peerDependencies": { "react": ">=16" } }, "sha512-7at8wGF+igiCS2XMaIrkZokD0zxz0pNa5SZn5tJAkZMJezeJlYiFXI5rYkiEpUpMaNYhYTqGLB90I/0sKJZkUw=="],
-
-    "@buntime/plugin-deployments/@zomme/bun-plugin-iconify": ["@zomme/bun-plugin-iconify@0.1.3", "", { "peerDependencies": { "@iconify-json/*": ">=1.0.0", "@iconify/json": ">=2.0.0" }, "optionalPeers": ["@iconify-json/*", "@iconify/json"] }, "sha512-+a6gY7KlRGimHdojksNXmlS386VGXSmURsXsA9tHsILhPQ0XzDW6mG+BwSAfxBHFVssE+UVf6KLgsjotvRn4sg=="],
-
-    "@buntime/plugin-deployments/react-i18next": ["react-i18next@15.7.4", "", { "dependencies": { "@babel/runtime": "^7.27.6", "html-parse-stringify": "^3.0.1" }, "peerDependencies": { "i18next": ">= 23.4.0", "react": ">= 16.8.0", "typescript": "^5" }, "optionalPeers": ["typescript"] }, "sha512-nyU8iKNrI5uDJch0z9+Y5XEr34b0wkyYj3Rp+tfbahxtlswxSCjcUL9H0nqXo9IR3/t5Y5PKIA3fx3MfUyR9Xw=="],
-
     "@buntime/plugin-keyval/@iconify-icon/react": ["@iconify-icon/react@2.3.0", "", { "dependencies": { "iconify-icon": "^2.3.0" }, "peerDependencies": { "react": ">=16" } }, "sha512-7at8wGF+igiCS2XMaIrkZokD0zxz0pNa5SZn5tJAkZMJezeJlYiFXI5rYkiEpUpMaNYhYTqGLB90I/0sKJZkUw=="],
 
     "@buntime/plugin-keyval/@zomme/bun-plugin-iconify": ["@zomme/bun-plugin-iconify@0.1.3", "", { "peerDependencies": { "@iconify-json/*": ">=1.0.0", "@iconify/json": ">=2.0.0" }, "optionalPeers": ["@iconify-json/*", "@iconify/json"] }, "sha512-+a6gY7KlRGimHdojksNXmlS386VGXSmURsXsA9tHsILhPQ0XzDW6mG+BwSAfxBHFVssE+UVf6KLgsjotvRn4sg=="],
@@ -1468,6 +1494,8 @@
     "@buntime/plugin-keyval/react-i18next": ["react-i18next@15.7.4", "", { "dependencies": { "@babel/runtime": "^7.27.6", "html-parse-stringify": "^3.0.1" }, "peerDependencies": { "i18next": ">= 23.4.0", "react": ">= 16.8.0", "typescript": "^5" }, "optionalPeers": ["typescript"] }, "sha512-nyU8iKNrI5uDJch0z9+Y5XEr34b0wkyYj3Rp+tfbahxtlswxSCjcUL9H0nqXo9IR3/t5Y5PKIA3fx3MfUyR9Xw=="],
 
     "@buntime/plugin-metrics/@iconify-icon/react": ["@iconify-icon/react@2.3.0", "", { "dependencies": { "iconify-icon": "^2.3.0" }, "peerDependencies": { "react": ">=16" } }, "sha512-7at8wGF+igiCS2XMaIrkZokD0zxz0pNa5SZn5tJAkZMJezeJlYiFXI5rYkiEpUpMaNYhYTqGLB90I/0sKJZkUw=="],
+
+    "@buntime/plugin-metrics/lucide-react": ["lucide-react@0.561.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-Y59gMY38tl4/i0qewcqohPdEbieBy7SovpBL9IFebhc2mDd8x4PZSOsiFRkpPcOq6bj1r/mjH/Rk73gSlIJP2A=="],
 
     "@buntime/plugin-proxy/@iconify-icon/react": ["@iconify-icon/react@2.3.0", "", { "dependencies": { "iconify-icon": "^2.3.0" }, "peerDependencies": { "react": ">=16" } }, "sha512-7at8wGF+igiCS2XMaIrkZokD0zxz0pNa5SZn5tJAkZMJezeJlYiFXI5rYkiEpUpMaNYhYTqGLB90I/0sKJZkUw=="],
 
@@ -1478,6 +1506,8 @@
     "@buntime/shared/@zomme/bun-plugin-iconify": ["@zomme/bun-plugin-iconify@0.1.3", "", { "peerDependencies": { "@iconify-json/*": ">=1.0.0", "@iconify/json": ">=2.0.0" }, "optionalPeers": ["@iconify-json/*", "@iconify/json"] }, "sha512-+a6gY7KlRGimHdojksNXmlS386VGXSmURsXsA9tHsILhPQ0XzDW6mG+BwSAfxBHFVssE+UVf6KLgsjotvRn4sg=="],
 
     "@buntime/shared/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
+
+    "@buntime/shell/@zomme/bun-plugin-iconify": ["@zomme/bun-plugin-iconify@0.1.3", "", { "peerDependencies": { "@iconify-json/*": ">=1.0.0", "@iconify/json": ">=2.0.0" }, "optionalPeers": ["@iconify-json/*", "@iconify/json"] }, "sha512-+a6gY7KlRGimHdojksNXmlS386VGXSmURsXsA9tHsILhPQ0XzDW6mG+BwSAfxBHFVssE+UVf6KLgsjotvRn4sg=="],
 
     "@libsql/isomorphic-ws/ws": ["ws@8.19.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-blAT2mjOEIi0ZzruJfIhb3nps74PRWTCz1IjglWEEpQl5XS/UNama6u2/rjFkDDouqr4L67ry+1aGIALViWjDg=="],
 
@@ -1538,8 +1568,6 @@
     "@buntime/plugin-database/@libsql/client/@libsql/core": ["@libsql/core@0.15.15", "", { "dependencies": { "js-base64": "^3.7.5" } }, "sha512-C88Z6UKl+OyuKKPwz224riz02ih/zHYI3Ho/LAcVOgjsunIRZoBw7fjRfaH9oPMmSNeQfhGklSG2il1URoOIsA=="],
 
     "@buntime/plugin-database/@libsql/client/libsql": ["libsql@0.5.22", "", { "dependencies": { "@neon-rs/load": "^0.0.4", "detect-libc": "2.0.2" }, "optionalDependencies": { "@libsql/darwin-arm64": "0.5.22", "@libsql/darwin-x64": "0.5.22", "@libsql/linux-arm-gnueabihf": "0.5.22", "@libsql/linux-arm-musleabihf": "0.5.22", "@libsql/linux-arm64-gnu": "0.5.22", "@libsql/linux-arm64-musl": "0.5.22", "@libsql/linux-x64-gnu": "0.5.22", "@libsql/linux-x64-musl": "0.5.22", "@libsql/win32-x64-msvc": "0.5.22" }, "os": [ "linux", "win32", "darwin", ], "cpu": [ "arm", "x64", "arm64", ] }, "sha512-NscWthMQt7fpU8lqd7LXMvT9pi+KhhmTHAJWUB/Lj6MWa0MKFv0F2V4C6WKKpjCVZl0VwcDz4nOI3CyaT1DDiA=="],
-
-    "@buntime/plugin-deployments/@iconify-icon/react/iconify-icon": ["iconify-icon@2.3.0", "", { "dependencies": { "@iconify/types": "^2.0.0" } }, "sha512-C0beI9oTDxQz6voI5CKl7MiJf0Lw4UU8K4G4t6pcUDClLmCvuMOpcvd8MAztQ2SfoH0iv7WHdxBFjekKPFKH2Q=="],
 
     "@buntime/plugin-keyval/@iconify-icon/react/iconify-icon": ["iconify-icon@2.3.0", "", { "dependencies": { "@iconify/types": "^2.0.0" } }, "sha512-C0beI9oTDxQz6voI5CKl7MiJf0Lw4UU8K4G4t6pcUDClLmCvuMOpcvd8MAztQ2SfoH0iv7WHdxBFjekKPFKH2Q=="],
 

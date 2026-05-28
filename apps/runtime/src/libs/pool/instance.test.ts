@@ -112,6 +112,32 @@ describe("WorkerInstance", () => {
       }
     });
 
+    it("forwards the turso-server connection to the worker (RUNTIME_TURSO_*)", async () => {
+      const appDir = join(TEST_DIR, "turso-env-app");
+      createWorkerApp(
+        appDir,
+        `export default {
+        fetch: () => new Response(Bun.env.RUNTIME_TURSO_SERVER_URL ?? ""),
+      };`,
+      );
+
+      const prev = Bun.env.TURSO_SERVER_URL;
+      Bun.env.TURSO_SERVER_URL = "http://buntime-turso:8080";
+      const instance = new WorkerInstance(appDir, "index.ts", createMockConfig());
+
+      try {
+        const res = await instance.fetch(new Request("http://localhost/"));
+        expect(await res.text()).toBe("http://buntime-turso:8080");
+      } finally {
+        await instance.terminate();
+        if (prev === undefined) {
+          delete (Bun.env as Record<string, string | undefined>).TURSO_SERVER_URL;
+        } else {
+          Bun.env.TURSO_SERVER_URL = prev;
+        }
+      }
+    });
+
     it("should use pre-read body when provided", async () => {
       const appDir = join(TEST_DIR, "body-app");
       createWorkerApp(

@@ -1,0 +1,19 @@
+# Control plane: tenant registry (Turso) + provisioner (Keycloak realm + Cloudflare
+# tunnel/DNS) + admin UI. Served at /platform/. The admin UI is loaded in an iframe
+# by apps/shell only for the admin tenant's catalog.
+#
+# Must be listed in GATEWAY_SHELL_EXCLUDES so a document request to /platform/
+# (the iframe src) serves this app, not the gateway app-shell.
+entrypoint: dist/index.js
+visibility: protected
+injectBase: true
+ttl: 300
+idleTimeout: 60
+maxRequests: 1000
+
+# config + catalog are the shell's first contact (config injected before login,
+# catalog read per host). Tenant CRUD stays gated (admin-realm JWT) in code.
+publicRoutes:
+  GET:
+    - /api/config
+    - /api/catalog

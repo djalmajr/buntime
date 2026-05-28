@@ -36,9 +36,9 @@ export default function logsPlugin(pluginConfig: LogsConfig = {}): PluginImpl {
 
   // Forwarder: admin routes are built at onInit (when auth context is known).
   // Until then, an unprotected fallback exists so tests and early requests do
-  // not 500. Runtime ingest endpoint is always available unprotected via the
-  // standard plugin-authn pipeline. `.all("/admin/*", ...)` is the deep
-  // catch-all (Hono v4 — `*` alone only matches a single segment).
+  // not 500. Runtime ingest endpoint is always available unprotected.
+  // `.all("/admin/*", ...)` is the deep catch-all (Hono v4 — `*` alone only
+  // matches a single segment).
   let adminRouter = createAdminApi();
   const routes = new Hono()
     .all("/admin/*", (c) => adminRouter.fetch(c.req.raw))

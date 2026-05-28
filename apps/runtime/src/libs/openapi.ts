@@ -37,7 +37,7 @@ export const PluginInfoSchema = {
     dependencies: {
       type: "array" as const,
       items: { type: "string" as const },
-      example: ["@buntime/plugin-database"],
+      example: ["@buntime/plugin-turso"],
     },
     menus: {
       type: "array" as const,

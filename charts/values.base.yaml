@@ -22,6 +22,14 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+# Optional ServiceAccount for the pod. When `name` is empty, Kubernetes uses
+# `default` (no permissions beyond the cluster default). Set `name` to bind a
+# pre-created SA — e.g. the apps/platform multi-tenant deploy needs a
+# `buntime` SA with a Role granting Ingress patch in its namespace. See
+# infra/platform/rbac.yaml for the bundle.
+serviceAccount:
+  name: ""
+
 service:
   type: NodePort
   port: 8000

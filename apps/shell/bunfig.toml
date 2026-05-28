@@ -1,0 +1,14 @@
+# No TanStack Router for the shell — it's a single-screen app-shell (sidebar +
+# active z-frame), so the tsr plugin is intentionally omitted.
+[serve.static]
+plugins = [
+  "@zomme/bun-plugin-iconify",
+  "@zomme/bun-plugin-i18next",
+  "bun-plugin-tailwind",
+]
+
+[plugins.iconify]
+dirs = ["client"]
+
+[plugins.i18next]
+dirs = "client"

@@ -1,0 +1,13 @@
+# Example app loaded in an iframe (z-frame) by apps/shell for tenant catalogs.
+# Static SPA (vanilla Preact/htm via importmap, no build step). Served at /todos/.
+# injectBase makes <base href="/todos/"> so the relative ./index.js, ./index.css
+# and ./favicon.ico resolve under the worker mount path.
+#
+# Must be listed in GATEWAY_SHELL_EXCLUDES so a document request to /todos/
+# (the iframe src) serves the app itself, not the gateway app-shell.
+entrypoint: index.html
+visibility: public
+injectBase: true
+ttl: 60
+idleTimeout: 60
+maxRequests: 100

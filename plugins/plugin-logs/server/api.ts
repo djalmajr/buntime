@@ -74,8 +74,8 @@ export function createAdminApi(options: CreateLogsApiOptions = {}) {
 /**
  * Runtime data-plane router: HTTP ingestion endpoint. Lives under
  * `/<base>/api/ingest` so other workers/plugins can POST log entries
- * without using the JS service contract. Continues to sit behind the
- * regular plugin-authn pipeline (no X-API-Key requirement here).
+ * without using the JS service contract. No X-API-Key requirement here;
+ * upstream gating (if any) is configured at the runtime/plugin layer.
  */
 export const runtimeApi = new Hono()
   .basePath("/api")

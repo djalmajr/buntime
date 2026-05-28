@@ -1,3 +1,13 @@
+## What's New in 0.4.1
+
+### Platform
+- **Per-tenant Ingress automation (phase 2).** When `PLATFORM_K8S_INGRESS=true` is set in the platform worker's `.env`, every `POST /platform/api/tenants` patches a single shared Ingress (`buntime-platform` by default) — adding the host to `spec.rules` and to `spec.tls` so cert-manager extends the SAN cert. Removal is symmetric. Idempotent; creates the Ingress on the first tenant. Disabled by default so deployments with a hand-managed Ingress keep working without RBAC.
+- **RBAC bundle** for the platform: `infra/platform/rbac.yaml` ships a `buntime` ServiceAccount + Role scoped to `get/list/update/patch` on the one Ingress (plus `create` for the first tenant) + RoleBinding. The chart now accepts `serviceAccount.name` and sets `serviceAccountName` on the pod when provided.
+- **CSRF tests no longer 401 when `RUNTIME_ROOT_KEY` is set in `.env`.** The runtime's `apps/runtime/src/app.test.ts` clears the env in `beforeEach` of the CSRF block, so the auth gate stays open and the CSRF middleware is what's measured.
+
+### Cleanup
+- **Removed `plugin-database`, `plugin-authn`, `plugin-authz` and `packages/database`.** The libsql adapter only had `plugin-authn` as a real consumer; `plugin-authn` was `enabled: false` and coupled to Drizzle libsql + better-auth (the platform's real auth path is Keycloak per realm). `plugin-authz` cascaded. `packages/database` was zero-consumed. `@libsql/client` is removed everywhere. All Turso access now goes through `@tursodatabase/database` (local) / `@tursodatabase/sync` (embedded replica) via `openTurso` (workers) and `ApiKeyStore` (runtime), except `apps/platform` which uses `bun:sqlite` because `@tursodatabase` breaks when bundled into a worker.
+
 ## What's New in 0.4.0
 
 ### Runtime / Proxy

@@ -307,11 +307,11 @@ export interface PluginContext {
 
   /**
    * Get exports from another plugin by its manifest name
-   * @param pluginName Plugin manifest name (e.g., "@buntime/plugin-database")
+   * @param pluginName Plugin manifest name (e.g., "@buntime/plugin-turso")
    * @returns The plugin's exported object or undefined if not registered
    *
    * @example
-   * const database = ctx.getPlugin<DatabaseService>("@buntime/plugin-database");
+   * const turso = ctx.getPlugin<TursoService>("@buntime/plugin-turso");
    * const kv = ctx.getPlugin<Kv>("@buntime/plugin-keyval");
    */
   getPlugin<T>(pluginName: string): T | undefined;
@@ -520,14 +520,14 @@ export interface PluginImpl {
    * @returns Value to expose to other plugins (typically an object or service instance)
    *
    * @example
-   * // In plugin-database - expose service instance directly
-   * provides: () => databaseService
+   * // In plugin-turso - expose service instance directly
+   * provides: () => tursoService
    *
    * // In plugin-logs - expose multiple functions
    * provides: () => ({ addLog, clearLogs, getLogs })
    *
    * // In another plugin
-   * const db = ctx.getPlugin<DatabaseService>("@buntime/plugin-database");
+   * const db = ctx.getPlugin<TursoService>("@buntime/plugin-turso");
    * db?.query("SELECT * FROM users");
    */
   provides?: () => unknown | Promise<unknown>;

@@ -62,6 +62,16 @@ export class WorkerInstance {
         RUNTIME_AUTH_DB_SYNC_URL: Bun.env.RUNTIME_AUTH_DB_SYNC_URL ?? "",
         RUNTIME_AUTH_DB_SYNC_TOKEN: Bun.env.RUNTIME_AUTH_DB_SYNC_TOKEN ?? "",
         RUNTIME_AUTH_DB_SYNC_INTERVAL_SECONDS: Bun.env.RUNTIME_AUTH_DB_SYNC_INTERVAL_SECONDS ?? "",
+        // Turso first-class for workers: forward the in-cluster turso-server
+        // connection so a worker can open a namespaced DB via
+        // `@buntime/shared/turso` (openTurso) — no plugin context needed.
+        // Derived from the runtime's plugin-turso env (TURSO_SERVER_URL/TOKEN);
+        // RUNTIME_TURSO_DIR points at the runtime's local turso dir for replicas.
+        RUNTIME_TURSO_SERVER_URL:
+          Bun.env.RUNTIME_TURSO_SERVER_URL ?? Bun.env.TURSO_SERVER_URL ?? "",
+        RUNTIME_TURSO_SERVER_TOKEN:
+          Bun.env.RUNTIME_TURSO_SERVER_TOKEN ?? Bun.env.TURSO_SERVER_TOKEN ?? "",
+        RUNTIME_TURSO_DIR: Bun.env.RUNTIME_TURSO_DIR ?? "",
       },
       smol: config.lowMemory,
     });

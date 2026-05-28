@@ -1,0 +1,14 @@
+# Micro-frontend shell. Served at the ROOT of every host by the gateway app-shell
+# (GATEWAY_SHELL_DIR points here). Resolves the Keycloak realm per host (from the
+# platform /api/config), logs in (Keycloak JS), and loads the host's catalog apps
+# in z-frame iframes.
+#
+# The root index.ts is a custom handler: it serves the built client and injects
+# window.__config.auth (resolved server-side by Host) — createStaticHandler can't
+# inject per-host config. Not in GATEWAY_SHELL_EXCLUDES: this IS the shell.
+entrypoint: dist/index.js
+visibility: public
+injectBase: true
+ttl: 300
+idleTimeout: 60
+maxRequests: 1000

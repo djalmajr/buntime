@@ -42,8 +42,8 @@ export interface CreateProxyApiOptions {
  * - PATCH  /redirects/admin/rules/:id/toggle
  * - DELETE /redirects/admin/rules/:id
  *
- * The plugin manifest lists `/admin/**` in `publicRoutes` so `plugin-authn`
- * does not intercept these — the supplied middleware is the only gate.
+ * The plugin manifest lists `/admin/**` in `publicRoutes` so no upstream auth
+ * plugin intercepts these — the supplied middleware is the only gate.
  */
 export function createApi(options: CreateProxyApiOptions = {}) {
   const app = new Hono().basePath("/admin");

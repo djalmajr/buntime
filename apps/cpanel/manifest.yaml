@@ -2,10 +2,9 @@ entrypoint: dist/index.html
 visibility: protected
 injectBase: true
 # cpanel is the bootstrap entrypoint and authenticates directly against the core
-# runtime via X-API-Key (see apps/runtime/src/routes/admin.ts). It deliberately
-# bypasses plugin-authn so it remains usable before any plugin is configured.
-# Every GET serves static SPA assets; writes go to the runtime API which has its
-# own X-API-Key gate.
+# runtime via X-API-Key (see apps/runtime/src/routes/admin.ts). Every GET serves
+# static SPA assets; writes go to the runtime API which has its own X-API-Key
+# gate.
 publicRoutes:
   GET:
     - /**

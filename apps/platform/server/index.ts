@@ -19,6 +19,7 @@ import { createApp } from "./app.ts";
 import { keycloakVerifier } from "./auth.ts";
 import { CloudflareTunnel } from "./cloudflare.ts";
 import { KeycloakAdmin } from "./keycloak.ts";
+import { KubernetesIngressClient, type KubernetesLike } from "./kubernetes.ts";
 import { Provisioner } from "./provisioner.ts";
 import { TenantStore } from "./turso.ts";
 
@@ -46,7 +47,24 @@ const cloudflare = new CloudflareTunnel({
   zoneId: env.CF_ZONE_ID ?? "",
 });
 
-const provisioner = new Provisioner({ store, keycloak, cloudflare });
+// Optional: patch the platform Ingress on tenant create/remove. Enabled by
+// setting PLATFORM_K8S_INGRESS=true and providing the service-account in the
+// pod (see infra/platform/rbac.yaml). When disabled, the operator manages the
+// Ingress YAML manually (initial 3 hosts).
+let kubernetes: KubernetesLike | undefined;
+if (env.PLATFORM_K8S_INGRESS === "true") {
+  kubernetes = new KubernetesIngressClient({
+    namespace: env.PLATFORM_K8S_NAMESPACE ?? "platform",
+    ingressName: env.PLATFORM_K8S_INGRESS_NAME ?? "buntime-platform",
+    serviceName: env.PLATFORM_K8S_SERVICE_NAME ?? "buntime",
+    servicePort: Number(env.PLATFORM_K8S_SERVICE_PORT ?? 8000),
+    tlsSecretName: env.PLATFORM_K8S_TLS_SECRET ?? "buntime-platform-tls",
+    ingressClassName: env.PLATFORM_K8S_INGRESS_CLASS ?? "traefik",
+    clusterIssuer: env.PLATFORM_K8S_CLUSTER_ISSUER ?? "selfsigned-issuer",
+  });
+}
+
+const provisioner = new Provisioner({ store, keycloak, cloudflare, kubernetes });
 const verify = keycloakVerifier(KEYCLOAK_URL, ADMIN_REALM);
 
 const api = createApp({ store, provisioner, verify, rootKey: env.RUNTIME_ROOT_KEY });

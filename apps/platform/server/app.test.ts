@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "./app.ts";
+import type { KubernetesLike } from "./kubernetes.ts";
 import type { CloudflareLike, KeycloakLike } from "./provisioner.ts";
 import { Provisioner } from "./provisioner.ts";
 import { TenantStore } from "./turso.ts";
@@ -24,7 +25,12 @@ const baseTenant: TenantRecord = {
 
 // Mock Keycloak/Cloudflare that record calls (no network).
 function makeMocks() {
-  const calls = { realms: [] as string[], hostnames: [] as string[], disabled: [] as string[] };
+  const calls = {
+    realms: [] as string[],
+    hostnames: [] as string[],
+    disabled: [] as string[],
+    ingressHosts: [] as string[],
+  };
   const keycloak: KeycloakLike = {
     url: "https://keycloak.djalmajr.dev",
     async createRealm({ realm }) {
@@ -43,7 +49,15 @@ function makeMocks() {
       calls.hostnames = calls.hostnames.filter((h) => h !== host);
     },
   };
-  return { keycloak, cloudflare, calls };
+  const kubernetes: KubernetesLike = {
+    async addIngressHost(host) {
+      calls.ingressHosts.push(host);
+    },
+    async removeIngressHost(host) {
+      calls.ingressHosts = calls.ingressHosts.filter((h) => h !== host);
+    },
+  };
+  return { keycloak, cloudflare, kubernetes, calls };
 }
 
 async function freshStore(): Promise<TenantStore> {
@@ -179,6 +193,47 @@ describe("platform app", () => {
     expect(res.status).toBe(200);
     expect(mocks.calls.disabled).toEqual(["tenant-1"]);
     expect(await store.getBySlug("tenant-1")).toBeNull();
+  });
+
+  it("provisions the Ingress host when the k8s dep is injected", async () => {
+    const provisioner = new Provisioner({
+      store,
+      keycloak: mocks.keycloak,
+      cloudflare: mocks.cloudflare,
+      kubernetes: mocks.kubernetes,
+    });
+    const k8sApp = createApp({ store, provisioner, verify: okVerify, rootKey: "test-root-key" });
+    const res = await k8sApp.fetch(
+      new Request("http://x/tenants", {
+        method: "POST",
+        headers: { Authorization: "Bearer t", "content-type": "application/json" },
+        body: JSON.stringify({ slug: "tenant-k", host: "tenant-k.djalmajr.dev" }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(mocks.calls.ingressHosts).toEqual(["tenant-k.djalmajr.dev"]);
+
+    const del = await k8sApp.fetch(
+      new Request("http://x/tenants/tenant-k", {
+        method: "DELETE",
+        headers: { Authorization: "Bearer t" },
+      }),
+    );
+    expect(del.status).toBe(200);
+    expect(mocks.calls.ingressHosts).toEqual([]);
+  });
+
+  it("skips Ingress patching when k8s dep is not injected", async () => {
+    // The default `provisioner` in beforeEach has no kubernetes dep.
+    const res = await app.fetch(
+      new Request("http://x/tenants", {
+        method: "POST",
+        headers: { Authorization: "Bearer t", "content-type": "application/json" },
+        body: JSON.stringify({ slug: "tenant-noop", host: "tenant-noop.djalmajr.dev" }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(mocks.calls.ingressHosts).toEqual([]); // never touched
   });
 
   it("POST /tenants is idempotent on retry", async () => {

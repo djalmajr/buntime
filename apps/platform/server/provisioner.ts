@@ -7,8 +7,11 @@
 import { NotFoundError, ValidationError } from "@buntime/shared/errors";
 import { defaultCatalog } from "./catalog.ts";
 import type { CreateRealmResult } from "./keycloak.ts";
+import type { KubernetesLike } from "./kubernetes.ts";
 import type { TenantStore } from "./turso.ts";
 import type { CatalogApp, TenantInput, TenantRecord } from "./types.ts";
+
+export type { KubernetesLike };
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 const HOST_PATTERN = /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i;
@@ -34,6 +37,13 @@ export interface ProvisionerDeps {
   store: TenantStore;
   keycloak: KeycloakLike;
   cloudflare: CloudflareLike;
+  /**
+   * Optional Kubernetes Ingress client. When set, every create/remove patches
+   * the platform Ingress to add/remove the tenant host. Disabled by default so
+   * deployments that pre-provision a fixed Ingress YAML (the initial 3 hosts)
+   * keep working without RBAC.
+   */
+  kubernetes?: KubernetesLike;
   /** Catalog resolver; defaults to {@link defaultCatalog}. */
   catalogFor?: (slug: string) => CatalogApp[];
   /** Clock seam for tests. */
@@ -68,6 +78,12 @@ export class Provisioner {
       displayName: input.displayName,
     });
     await this.deps.cloudflare.addHostname(host);
+    // Patch the platform Ingress so Traefik routes the new host to this Service
+    // and cert-manager extends the SAN cert. Idempotent; skipped if the env did
+    // not enable the k8s client (e.g. local dev or pre-provisioned Ingress).
+    if (this.deps.kubernetes) {
+      await this.deps.kubernetes.addIngressHost(host);
+    }
 
     const catalog = input.catalog ?? (this.deps.catalogFor ?? defaultCatalog)(slug);
     const tenant: TenantRecord = {
@@ -95,6 +111,9 @@ export class Provisioner {
     }
     await this.deps.keycloak.disableRealm(tenant.realm);
     await this.deps.cloudflare.removeHostname(tenant.host);
+    if (this.deps.kubernetes) {
+      await this.deps.kubernetes.removeIngressHost(tenant.host);
+    }
     await this.deps.store.removeBySlug(slug);
   }
 }

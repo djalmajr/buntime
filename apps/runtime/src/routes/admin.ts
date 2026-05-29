@@ -109,8 +109,17 @@ function badRequestResponse(message: string) {
   });
 }
 
-/** Detect HTTPS from the request URL — drives the cookie `Secure` flag. */
+/**
+ * Detect HTTPS to drive the cookie `Secure` flag. Honors `X-Forwarded-Proto`
+ * first: behind a TLS-terminating proxy (Cloudflare tunnel → Traefik → pod)
+ * the pod receives plain HTTP, so `req.url` is `http:` even though the client
+ * is on HTTPS. Without trusting the forwarded header the session cookie would
+ * be issued without `Secure` on a secure site. Falls back to the URL protocol
+ * for direct (non-proxied) connections.
+ */
 function isSecureRequest(req: Request): boolean {
+  const forwardedProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  if (forwardedProto) return forwardedProto === "https";
   try {
     return new URL(req.url).protocol === "https:";
   } catch {

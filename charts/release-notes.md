@@ -1,3 +1,9 @@
+## What's New in 0.4.2
+
+### Runtime / cpanel auth (bug fixes)
+- **Fixed: cpanel session did not persist and every post-login request returned 401.** The session cookie value is percent-encoded by Hono's `setCookie` on write (e.g. a root/API key containing `@` becomes `%40`), but the reader did not decode it — so the replayed cookie never matched the original key. Login succeeded (the key arrives in the request body) while all cookie-authenticated calls failed. The shared cookie parser now `decodeURIComponent`s the value symmetrically (with a safe fallback). `btk_`-prefixed generated keys (base64url) were unaffected; only keys containing reserved characters broke.
+- **Fixed: session cookie issued without `Secure` behind a TLS-terminating proxy.** `isSecureRequest` only inspected the request URL, which is `http:` when the pod sits behind Cloudflare tunnel → Traefik (TLS terminated upstream). It now honors `X-Forwarded-Proto` first, so the cookie is marked `Secure` on HTTPS sites; falls back to the URL protocol for direct connections.
+
 ## What's New in 0.4.1
 
 ### Platform

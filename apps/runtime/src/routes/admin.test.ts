@@ -232,6 +232,48 @@ describe("admin routes", () => {
       expect(parsed.attrs.secure).toBeUndefined();
     });
 
+    it("should mark the cookie Secure behind a TLS-terminating proxy (X-Forwarded-Proto)", async () => {
+      // Cloudflare tunnel → Traefik → pod: the pod sees plain HTTP, but the
+      // client is on HTTPS. Without honoring X-Forwarded-Proto the session
+      // cookie would be issued without Secure on a secure site.
+      const { app } = await createApp("post-xfp", "test-root-key");
+      const res = await app.request("http://localhost/admin/session", {
+        body: JSON.stringify({ key: "test-root-key" }),
+        headers: { "Content-Type": "application/json", "x-forwarded-proto": "https" },
+        method: "POST",
+      });
+
+      expect(res.status).toBe(200);
+      const parsed = parseSetCookie(res.headers.get("set-cookie") ?? "");
+      expect(parsed.attrs.secure).toBe(true);
+    });
+
+    it("should round-trip a root key containing special characters through the cookie", async () => {
+      // Regression: a key with `@` is encodeURIComponent'd into the cookie
+      // (`@` → `%40`); the reader must decode it back or every post-login
+      // request 401s. Assert the issued cookie value, once parsed/decoded,
+      // re-authenticates via GET /admin/session.
+      const rootKey = "b7hFPN8QHspH@j4S";
+      const { app } = await createApp("post-special", rootKey);
+      const post = await app.request("https://x.example/admin/session", {
+        body: JSON.stringify({ key: rootKey }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      expect(post.status).toBe(200);
+
+      const rawSetCookie = post.headers.get("set-cookie") ?? "";
+      // Replay the cookie exactly as the browser would (the raw, still
+      // percent-encoded value from Set-Cookie).
+      const cookiePair = rawSetCookie.split(";")[0] ?? "";
+      const get = await app.request("https://x.example/admin/session", {
+        headers: { cookie: cookiePair },
+      });
+      expect(get.status).toBe(200);
+      const body = (await get.json()) as AdminSessionResponse;
+      expect(body.authenticated).toBe(true);
+    });
+
     it("should honor RUNTIME_CPANEL_SESSION_TTL", async () => {
       Bun.env.RUNTIME_CPANEL_SESSION_TTL = "30m";
       initConfig({ baseDir: TEST_DIR, workerDirs: [TEST_DIR] });

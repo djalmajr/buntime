@@ -65,8 +65,25 @@ export interface ApiKeyVariables {
 export const API_KEY_COOKIE_NAME = "buntime_api_key";
 
 /**
- * Parse a `Cookie` header value into a name → value map. Does NOT decode the
- * value: callers that need percent-decoding must apply `decodeURIComponent`.
+ * Percent-decode a cookie value, mirroring the encoding applied by Hono's
+ * `setCookie` (which `encodeURIComponent`s the value on write). A root/API key
+ * containing `@`, spaces, `;`, `,`, etc. is stored percent-encoded
+ * (e.g. `@` → `%40`); without this symmetric decode the replayed cookie value
+ * would never match the original key and every post-login request would 401.
+ * Falls back to the raw value on malformed input (defensive — our own writer
+ * never emits invalid sequences).
+ */
+function decodeCookieValue(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Parse a `Cookie` header value into a name → value map. Values are
+ * percent-decoded to mirror `setCookie` (see {@link decodeCookieValue}).
  * Returns an empty map for missing/malformed input.
  */
 function parseCookieHeader(header: string | null): Record<string, string> {
@@ -79,7 +96,7 @@ function parseCookieHeader(header: string | null): Record<string, string> {
     if (eq <= 0) continue;
     const name = trimmed.slice(0, eq).trim();
     const value = trimmed.slice(eq + 1).trim();
-    if (name && value && !(name in out)) out[name] = value;
+    if (name && value && !(name in out)) out[name] = decodeCookieValue(value);
   }
   return out;
 }

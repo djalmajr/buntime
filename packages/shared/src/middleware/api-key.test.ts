@@ -69,6 +69,31 @@ describe("createApiKeyMiddleware", () => {
     expect(extractApiKey(req)).toBe("mixed-cookie");
   });
 
+  it("percent-decodes the cookie value to mirror setCookie's encoding", () => {
+    // Hono's setCookie encodeURIComponent's the value on write, so a key with
+    // `@` is stored as `%40`. The reader must decode it back or the replayed
+    // value never matches the original key (every post-login request 401s).
+    const req = new Request("http://x/", {
+      headers: { cookie: `${API_KEY_COOKIE_NAME}=b7hFPN8QHspH%40j4S` },
+    });
+    expect(extractApiKey(req)).toBe("b7hFPN8QHspH@j4S");
+  });
+
+  it("decodes other percent-encoded characters in the cookie value", () => {
+    const req = new Request("http://x/", {
+      // space → %20, semicolon would break parsing so test %2C (comma) + %25 (%)
+      headers: { cookie: `${API_KEY_COOKIE_NAME}=a%20b%2Cc%25d` },
+    });
+    expect(extractApiKey(req)).toBe("a b,c%d");
+  });
+
+  it("falls back to the raw value when the cookie is not valid percent-encoding", () => {
+    const req = new Request("http://x/", {
+      headers: { cookie: `${API_KEY_COOKIE_NAME}=raw%zzvalue` },
+    });
+    expect(extractApiKey(req)).toBe("raw%zzvalue");
+  });
+
   it("prefers header over cookie when both present", () => {
     const req = new Request("http://x/", {
       headers: {

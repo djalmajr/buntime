@@ -3,6 +3,7 @@ title: VHosts
 description: Maps hostnames to apps with exact and wildcard matching, serving each app at root and forwarding the tenant subdomain to the worker.
 sidebar:
   order: 8
+  hidden: true
 ---
 
 > Maps hostnames to apps. Supports exact match and wildcard (`*.example.com`). `base: ""` (does not mount under a path) and runs in the `server.fetch` hook — before the plugin pipeline. Disabled by default.

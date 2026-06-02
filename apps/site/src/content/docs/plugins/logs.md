@@ -3,6 +3,7 @@ title: Logs
 description: In-memory runtime log collection with a fixed ring buffer, real-time SSE streaming, level/text filters, and a built-in UI.
 sidebar:
   order: 6
+  hidden: true
 ---
 
 :::caution[Important]

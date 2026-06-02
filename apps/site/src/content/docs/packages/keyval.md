@@ -3,6 +3,7 @@ title: "@buntime/keyval"
 description: Client-library modeling guide — KV mindset, key design, versionstamp concurrency control, and multi-tenant patterns.
 sidebar:
   order: 2
+  hidden: true
 ---
 
 Conceptual documentation for the `@buntime/keyval` client library — Deno KV-like model, key design, concurrency control via versionstamp, multi-tenant modeling patterns. For the server plugin (REST API, SSE, configuration, troubleshooting), see [the KeyVal plugin](/plugins/keyval/).

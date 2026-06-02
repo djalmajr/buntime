@@ -3,6 +3,7 @@ title: Metrics
 description: In-process metrics collection for the worker pool and individual workers, exported as JSON, Prometheus text, and SSE.
 sidebar:
   order: 7
+  hidden: true
 ---
 
 :::caution[Important]

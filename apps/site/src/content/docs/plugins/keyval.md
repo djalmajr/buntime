@@ -3,6 +3,7 @@ title: KeyVal
 description: Key-value store with composite keys, TTL, atomic transactions, FIFO queues with DLQ, full-text search, and real-time watch via SSE.
 sidebar:
   order: 4
+  hidden: true
 ---
 
 > Key-value store inspired by Deno KV, with composite keys, TTL, atomic transactions (OCC), FIFO queues with DLQ, full-text search, and real-time watch via SSE. Current storage persists through the [plugin-turso](/plugins/turso/) service boundary.

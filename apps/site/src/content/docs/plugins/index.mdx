@@ -1,6 +1,6 @@
 ---
 title: Plugins overview
-description: The core plugins bundled with Buntime — what each does, its base path, and whether it's enabled by default.
+description: The core plugins enabled by default in Buntime — what each does and its base path.
 sidebar:
   order: 1
   label: Overview
@@ -13,32 +13,28 @@ Buntime ships a set of core plugins under `plugins/`. They are ordinary plugins
 [plugin system](/concepts/plugin-system/): persistent routes, service sharing,
 request hooks, and micro-frontend UIs.
 
-## Bundled plugins
+## Core plugins
 
-| Plugin | Base path | Default | Purpose |
-|--------|-----------|---------|---------|
-| [`plugin-gateway`](/plugins/gateway/) | `/gateway` | **enabled** | CORS, rate limiting, the micro-frontend app-shell, and SSE monitoring |
-| [`plugin-proxy`](/plugins/proxy/) | `/redirects` | **enabled** | Dynamic reverse proxy and redirect rules |
-| [`plugin-turso`](/plugins/turso/) | _(service)_ | **enabled** | Durable SQL via Turso; exposed to other plugins through `provides()` |
-| [`plugin-keyval`](/plugins/keyval/) | `/keyval` | opt-in | Deno-KV-like key/value store, queues, and full-text search |
-| [`plugin-logs`](/plugins/logs/) | `/logs` | opt-in | In-memory logs with SSE streaming |
-| [`plugin-metrics`](/plugins/metrics/) | `/metrics` | opt-in | Prometheus metrics + SSE for dashboards |
-| [`plugin-vhosts`](/plugins/vhosts/) | _(hostname)_ | opt-in | Maps hostnames/subdomains to apps |
+These plugins are enabled by default in the runtime.
+
+| Plugin | Base path | Purpose |
+|--------|-----------|---------|
+| [`plugin-gateway`](/plugins/gateway/) | `/gateway` | CORS, rate limiting, the micro-frontend app-shell, and SSE monitoring |
+| [`plugin-proxy`](/plugins/proxy/) | `/redirects` | Dynamic reverse proxy and redirect rules |
+| [`plugin-turso`](/plugins/turso/) | _(service)_ | Durable SQL via Turso; exposed to other plugins through `provides()` |
 
 <Aside type="note">
   `plugin-turso` has no `base` — it's a service provider. Other plugins reach
   its `TursoService` via `ctx.getPlugin("@buntime/plugin-turso")`.
-  `plugin-vhosts` is a hook-only plugin that routes by `Host` header rather than
-  a path prefix.
 </Aside>
 
-## Enabling a plugin
+## Enabling and disabling plugins
 
-Default state is set by `enabled` in each plugin's `manifest.yaml`. Opt-in
-plugins can be turned on at runtime without a restart:
+A plugin's default state is set by `enabled` in its `manifest.yaml`. Plugins can
+also be toggled at runtime without a restart:
 
 ```bash
-curl -X POST http://localhost:8000/api/plugins/%40buntime%2Fplugin-keyval/enable
+curl -X POST http://localhost:8000/api/plugins/%40buntime%2Fplugin-gateway/disable
 ```
 
 The change edits the manifest on disk, so it survives restarts. See
@@ -49,9 +45,5 @@ The change edits the manifest on disk, so it survives restarts. See
 <CardGrid>
   <LinkCard title="Gateway" href="/plugins/gateway/" description="Edge middleware: CORS, rate limiting, app-shell, monitoring." />
   <LinkCard title="Turso" href="/plugins/turso/" description="Durable SQL provider with local and sync modes." />
-  <LinkCard title="KeyVal" href="/plugins/keyval/" description="Key/value store, queues, and FTS." />
   <LinkCard title="Proxy" href="/plugins/proxy/" description="Reverse proxy with static and dynamic rules." />
-  <LinkCard title="Logs" href="/plugins/logs/" description="In-memory logs streamed over SSE." />
-  <LinkCard title="Metrics" href="/plugins/metrics/" description="Prometheus metrics and live dashboards." />
-  <LinkCard title="VHosts" href="/plugins/vhosts/" description="Hostname-to-app mapping for custom domains." />
 </CardGrid>

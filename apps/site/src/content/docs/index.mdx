@@ -1,0 +1,76 @@
+---
+title: Buntime
+description: A Bun runtime with an isolated worker pool, a plugin system, and a micro-frontend shell.
+template: splash
+hero:
+  tagline: One Bun process that orchestrates many isolated apps — with a worker pool, a plugin system, and a micro-frontend shell.
+  image:
+    file: ../../assets/logo.svg
+  actions:
+    - text: Get started
+      link: /start/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: What is Buntime?
+      link: /start/introduction/
+      variant: secondary
+    - text: GitHub
+      link: https://github.com/zommehq/buntime
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+Buntime is a **modular runtime for Bun**. A single main process accepts every
+request and routes it, but it **never runs your application code itself** —
+that work is isolated in a pool of Bun workers. Around that core sits a
+plugin system that intercepts requests, registers routes, and exposes UI in a
+micro-frontend shell.
+
+<CardGrid stagger>
+  <Card title="Isolated worker pool" icon="seti:default">
+    Each app runs in its own Bun worker — separate heap, module cache, and
+    environment. A crash never takes the runtime down. Workers are reused via
+    an LRU cache, or run ephemerally per request (serverless-style).
+  </Card>
+  <Card title="Plugin system" icon="puzzle">
+    Auto-discovered plugins add CORS, rate limiting, key-value storage, durable
+    SQL, proxying, logging, and metrics — loaded in dependency order, with hot
+    reload and no process restart.
+  </Card>
+  <Card title="Micro-frontend shell" icon="laptop">
+    Plugins and apps that ship an HTML entrypoint are exposed as iframes in a
+    framework-agnostic shell via `@zomme/frame`, with base-path injection so
+    SPAs work under any subpath.
+  </Card>
+  <Card title="Multi-tenant ready" icon="random">
+    A reference platform serves many hosts from one runtime — a Keycloak realm
+    per host, per-tenant Turso databases, and self-service provisioning.
+  </Card>
+</CardGrid>
+
+## Start exploring
+
+<CardGrid>
+  <LinkCard
+    title="Introduction"
+    description="What Buntime is, the problem it solves, and the mental model."
+    href="/start/introduction/"
+  />
+  <LinkCard
+    title="Getting started"
+    description="Run the runtime locally and deploy your first worker."
+    href="/start/getting-started/"
+  />
+  <LinkCard
+    title="Core concepts"
+    description="The runtime, the worker pool, and the plugin system in depth."
+    href="/concepts/runtime/"
+  />
+  <LinkCard
+    title="Write a plugin"
+    description="Persistent vs serverless plugins, hooks, and the manifest."
+    href="/guides/writing-a-plugin/"
+  />
+</CardGrid>

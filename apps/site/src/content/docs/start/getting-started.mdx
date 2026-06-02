@@ -1,0 +1,163 @@
+---
+title: Getting started
+description: Run the Buntime runtime locally and deploy your first worker app.
+sidebar:
+  order: 3
+---
+
+import { Steps, Tabs, TabItem, Aside, FileTree } from "@astrojs/starlight/components";
+
+This guide gets the runtime running locally and serves a tiny app from a
+worker. You'll need [Bun](https://bun.sh) `1.3+` installed.
+
+## Run the monorepo
+
+<Steps>
+
+1. Clone and install:
+
+   ```bash
+   git clone https://github.com/zommehq/buntime.git
+   cd buntime
+   bun install
+   ```
+
+2. Start the full dev stack — runtime, the core plugins, and the operator
+   panel (cpanel) — from the repo root:
+
+   ```bash
+   bun dev
+   ```
+
+   This runs the runtime with `--watch`. Use `bun --watch`, never `bun --hot`:
+   hot mode breaks timers/cron and leaks port bindings.
+
+3. Check it's alive:
+
+   ```bash
+   curl http://localhost:8000/api/health
+   ```
+
+</Steps>
+
+<Aside type="tip">
+  The operator UI (cpanel) is served at the root once the gateway plugin is
+  loaded — open <code>http://localhost:8000/</code> in a browser.
+</Aside>
+
+## Deploy your first worker
+
+A "worker app" is just a directory with an entrypoint. The runtime discovers it
+from the directories listed in `RUNTIME_WORKER_DIRS` (PATH-style, separated by
+`:`).
+
+<Steps>
+
+1. Create an app directory. Versioned, flat layout is the simplest:
+
+   <FileTree>
+   - apps/
+     - hello@1.0.0/
+       - index.ts
+       - manifest.yaml
+   </FileTree>
+
+2. Write the entrypoint. A worker exports a default object — a `fetch` handler
+   is the simplest form:
+
+   ```ts
+   // apps/hello@1.0.0/index.ts
+   export default {
+     fetch(req: Request) {
+       const url = new URL(req.url);
+       return Response.json({ hello: "world", path: url.pathname });
+     },
+   };
+   ```
+
+3. (Optional) Describe how the worker runs. Without a manifest the defaults
+   apply (ephemeral discovery, 30s timeout):
+
+   ```yaml
+   # apps/hello@1.0.0/manifest.yaml
+   entrypoint: index.ts
+   ttl: 0          # 0 = ephemeral (spawned per request); >0 keeps it warm
+   timeout: 30s
+   maxRequests: 1000
+   ```
+
+4. Point the runtime at the directory and start it:
+
+   ```bash
+   RUNTIME_WORKER_DIRS=./apps bun --watch apps/runtime/src/index.ts
+   ```
+
+5. Call your app. An unscoped worker named `hello` is served at `/hello/`:
+
+   ```bash
+   curl http://localhost:8000/hello/
+   # {"hello":"world","path":"/"}
+   ```
+
+</Steps>
+
+## Choose how the worker runs
+
+The `ttl` field defines the worker's personality:
+
+<Tabs>
+  <TabItem label="Ephemeral (ttl: 0)">
+    Spawned for each request and discarded afterward. Higher per-request
+    latency, zero idle cost. Best for stateless, lambda-style handlers.
+    Concurrency is bounded by `RUNTIME_EPHEMERAL_CONCURRENCY` (default `2`);
+    overflow queues up to `RUNTIME_EPHEMERAL_QUEUE_LIMIT` (default `100`),
+    then returns `503`.
+  </TabItem>
+  <TabItem label="Persistent (ttl > 0)">
+    Kept warm and reused. The TTL is **sliding** — it resets on every request,
+    so the worker lives as long as traffic keeps arriving (or until
+    `maxRequests`). Best for apps with state, database connections, SSE, or
+    WebSocket.
+  </TabItem>
+</Tabs>
+
+## Other entrypoint shapes
+
+A worker's default export can be a `fetch` handler, a `routes` object, or you
+can ship an `index.html` for a static SPA:
+
+<Tabs>
+  <TabItem label="fetch">
+    ```ts
+    export default {
+      fetch(req: Request) {
+        return new Response("ok");
+      },
+    };
+    ```
+  </TabItem>
+  <TabItem label="routes">
+    ```ts
+    export default {
+      routes: {
+        "/": new Response("Home"),
+        "/api/posts/:id": {
+          GET: (req) => new Response(`Post ${req.params.id}`),
+        },
+      },
+    };
+    ```
+  </TabItem>
+  <TabItem label="SPA (index.html)">
+    Set `entrypoint: index.html` in the manifest. The runtime serves the file
+    statically and injects `<base href>` so client-side routing works under the
+    app's subpath. `index.ts` is **not** executed in this mode.
+  </TabItem>
+</Tabs>
+
+## Where to next
+
+- Understand what just happened: [the worker pool](/concepts/worker-pool/) and
+  [the runtime request pipeline](/concepts/runtime/).
+- Add a capability to the runtime: [write a plugin](/guides/writing-a-plugin/).
+- Tune the runtime for an environment: [environment variables](/ops/environment/).

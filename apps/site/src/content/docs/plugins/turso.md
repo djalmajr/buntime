@@ -1,0 +1,247 @@
+---
+title: Turso
+description: The durable SQL provider for Buntime — opens Turso connections, handles local and sync modes, and exposes a service to other plugins.
+sidebar:
+  order: 3
+---
+
+`@buntime/plugin-turso` is the durable SQL provider for Buntime. It is a core
+infrastructure plugin (enabled by default) that owns the Turso connection and
+exposes a `TursoService` to other plugins. It has **no base path** — it is a
+service provider; other plugins reach it via
+`ctx.getPlugin("@buntime/plugin-turso")`.
+
+## Role
+
+`@buntime/plugin-turso` is the durable SQL provider for Buntime.
+
+- [`@buntime/plugin-keyval`](/plugins/keyval/) stores its `kv_*` schema on top of `plugin-turso`.
+- [`@buntime/plugin-gateway`](/plugins/gateway/) and [`@buntime/plugin-proxy`](/plugins/proxy/) use `@buntime/plugin-turso` directly for durable operational state.
+- `@buntime/plugin-gateway` and `@buntime/plugin-proxy` do not depend on `@buntime/plugin-keyval` just to persist their own state.
+- There is no in-memory durable mode. `local` mode is the local/single-pod path; `sync` mode is the Kubernetes path.
+
+### Why not route gateway/proxy state through KeyVal
+
+Durable gateway/proxy state is **not** implemented as
+`gateway/proxy -> plugin-keyval -> plugin-turso`. That path would make KeyVal
+mandatory infrastructure for plugins that should remain independently enableable,
+and it would couple gateway/proxy failure modes, schema needs, and performance
+profile to the generic KV abstraction.
+
+Instead:
+
+- gateway/proxy depend directly on `@buntime/plugin-turso` for their own `gateway_*` and `proxy_rules` tables;
+- `plugin-keyval` has its own migration and test suite against `@buntime/plugin-turso`;
+- an integration smoke can exercise all three plugins in one environment, but that does not define the production dependency graph.
+
+## Responsibility boundary
+
+`plugin-turso` owns infrastructure concerns:
+
+- opening and closing Turso connections;
+- configuring the local database path;
+- configuring sync URL/token and sync lifecycle;
+- applying Turso MVCC setup;
+- providing helpers for `BEGIN CONCURRENT` transactions and retryable conflict errors;
+- exposing health/status about local and sync state.
+
+Consumer plugins own domain concerns:
+
+| Consumer | Owns |
+|----------|------|
+| [`plugin-keyval`](/plugins/keyval/) | `kv_*` schema, KV operations, TTL, queues, FTS, metrics |
+| [`plugin-gateway`](/plugins/gateway/) | `gateway_*` schema, metrics history, dynamic shell excludes |
+| [`plugin-proxy`](/plugins/proxy/) | `proxy_rules` schema, dynamic proxy/redirect rules |
+
+This keeps one Turso connection/sync policy per runtime while avoiding a generic business API in `plugin-turso`.
+
+## Implementation
+
+The service lives under `plugins/plugin-turso/`:
+
+- `server/types.ts` defines the public service, database, health, sync stats, and transaction option contracts.
+- `server/adapter.ts` opens either `@tursodatabase/database` local mode or `@tursodatabase/sync` sync mode using the installed SDK option names (`path`, `url`, `authToken`) and applies `PRAGMA journal_mode = mvcc`.
+- `server/service.ts` exposes one runtime-wide adapter, tracks requested namespaces as ownership metadata, returns health state, and wraps `BEGIN CONCURRENT` transactions with retry handling for busy/conflict errors.
+- `plugin.ts` is a hook-only persistent plugin that exposes the service through `provides()`. Its manifest intentionally omits `base`; hook-only plugins must not set `base: ""`.
+- `plugin.test.ts` covers exports, lifecycle/provides behavior, config resolution, MVCC-backed `BEGIN CONCURRENT`, namespace validation, and a real `PluginLoader` smoke test proving the hook-only plugin registers its provided service through manifest discovery.
+
+## Modes
+
+| Mode | Target | Notes |
+|------|--------|-------|
+| `local` | Local development, tests, single-pod deployments | Opens a local Turso database file. No remote sync server is required. |
+| `sync` (single-tenant) | Legacy multi-pod with one shared database | Each pod has its own local replica file and pulls from a single fixed `TURSO_SYNC_URL`. One adapter per process. |
+| **`sync` (multi-tenant)** | **Default for multi-pod / lowcode multi-database** | Set `TURSO_SERVER_URL` instead of `TURSO_SYNC_URL`. Each `connect(name)` opens a separate embedded replica synced with `<TURSO_SERVER_URL>/<name>`. Local replica files are scoped per-namespace. |
+
+The Kubernetes baseline is **multi-tenant sync** against the in-cluster
+`turso-server` (see [Turso server](/ops/turso-server/)). Turso concurrent writes
+solve engine-level concurrency, but a shared file over Kubernetes storage still
+depends on filesystem and locking semantics — each pod keeps its own local file
+and syncs through the multi-tenant endpoint.
+
+### Switching modes
+
+The plugin auto-detects the mode from env vars. Precedence (first match wins):
+
+1. **`TURSO_SERVER_URL` set** → multi-tenant sync. Each `connect(name)` → `<server>/<name>`. Pod-local replicas at `<localPath dir>/<name>.db`. `TURSO_SERVER_TOKEN` carries the data-plane bearer.
+2. **`TURSO_SYNC_URL` set** → legacy single-tenant sync. One adapter; the `namespace` argument to `connect()` is recorded as ownership metadata but does not change the connection.
+3. Otherwise → `local` mode (file at `TURSO_LOCAL_PATH`).
+
+### Transaction semantics in sync mode
+
+`transaction({ type: "concurrent" })` is **automatically downgraded** to
+`BEGIN DEFERRED` when running against a sync replica. `tursodb` rejects
+`BEGIN CONCURRENT` (MVCC) while CDC is active, and the sync engine requires CDC.
+The downgrade is transparent — callers still get serializable behavior, just
+without MVCC retry semantics. Use explicit `type: "exclusive"` for DDL.
+
+#### Push-after-commit (durability)
+
+In sync mode, `transaction()` **pushes the replica to the sync server after a
+successful `COMMIT`** (best-effort — push failures are logged, not thrown; the
+row lives locally and syncs on the next push). Without this, a committed write
+only exists in the local replica (`/data/turso/runtime.db`) and is **lost on pod
+restart**, because the replica pulls authoritative state from the server on
+reconnect. This is what makes dynamic state written through a transaction —
+`plugin-proxy` rules, `plugin-gateway` shell-excludes — survive a restart, the
+same guarantee `ApiKeyStore` gets from its own push-after-write. Plain reads via
+`connect().prepare().all()` do not transact and do not push.
+
+:::note
+Symptom this fixes: a dynamic proxy rule created via
+`POST /redirects/admin/rules` vanished after `helm upgrade`/pod roll until the
+service pushed on commit (shipped in app `1.2.2+`). See [Multi-pod](/ops/multi-pod/).
+:::
+
+## Chart direction
+
+The Buntime chart exposes Turso settings from `plugins/plugin-turso/manifest.yaml`
+under generated `plugins.turso.*` values.
+
+When the in-cluster `tursoServer.enabled=true`, the chart **auto-wires** the
+multi-tenant URL into the runtime env:
+
+```yaml
+TURSO_SERVER_URL: http://<release>-turso:8080
+TURSO_SERVER_ADMIN_URL: http://<release>-turso-admin:8081
+# TURSO_SERVER_TOKEN sourced from a Secret
+```
+
+In this mode the `plugins.turso.sync.url` is unused — the plugin ignores it once
+`TURSO_SERVER_URL` is present. Set `tursoServer.enabled=false` and configure
+`plugins.turso.sync.*` explicitly when pointing at an external sync endpoint that
+is not our own `turso-server`.
+
+For pure single-pod local development, leave `tursoServer.enabled=false` and
+either rely on the default `local` mode or set `plugins.turso.mode=sync` with
+`plugins.turso.sync.url` pointing at a specific endpoint.
+
+The chart README and Rancher questions still expose `plugins.turso.mode`,
+`plugins.turso.localPath`, `plugins.turso.sync.url`, and
+`plugins.turso.sync.authToken` for the single-tenant fallback path.
+
+The runtime chart mounts `/data/turso` as `emptyDir`, so the local Turso file is
+pod-local. In Kubernetes, use multi-tenant sync mode for durable cross-pod state.
+
+## Service contract
+
+The service boundary is a provider of database primitives:
+
+```ts
+interface TursoService {
+  connect(namespace?: string): Promise<TursoDatabase>;
+  health(): Promise<TursoHealth>;
+  transaction<T>(
+    options: TursoTransactionOptions,
+    callback: (db: TursoDatabase) => Promise<T>,
+  ): Promise<T>;
+}
+```
+
+A consumer plugin obtains it through the plugin context:
+
+```ts
+const turso = ctx.getPlugin<TursoService>("@buntime/plugin-turso");
+const db = await turso.connect("gateway");
+```
+
+Namespaces should map to schema/table-prefix ownership, not to separate arbitrary
+adapter types. Consumers should not receive plugin-specific storage APIs from
+`plugin-turso`; they build their own repository layer on top of the database
+primitives.
+
+## Turso for workers (apps) — `openTurso`
+
+The `TursoService` above is reachable only by **plugins** (via
+`ctx.getPlugin("@buntime/plugin-turso")`). **Workers** (apps in the pool) run in
+isolated `Worker` threads with **no plugin context**, so they cannot call
+`getPlugin`. To give a worker first-class durable storage, the runtime forwards
+the Turso connection into the worker env and [`@buntime/shared`](/packages/shared/)
+ships a helper:
+
+```ts
+import { openTurso } from "@buntime/shared/turso";
+
+const db = await openTurso("tenants");          // namespaced connection
+await db.exec("CREATE TABLE IF NOT EXISTS tenants (host TEXT PRIMARY KEY, realm TEXT NOT NULL)");
+await db.prepare("INSERT INTO tenants (host, realm) VALUES (?, ?)").run(host, realm);
+await db.push();                                  // sync mode: ship write to the primary (no-op in local)
+// reads: await db.pull(); then prepare().get()/.all()
+```
+
+- **Connection resolution** (worker env, forwarded by `apps/runtime/src/libs/pool/instance.ts`):
+  - `RUNTIME_TURSO_SERVER_URL` set → **sync** mode: per-namespace embedded replica at `<dir>/<ns>.db` synced with `<serverUrl>/<ns>` on the in-cluster `turso-server`. `push()`/`pull()` are real.
+  - otherwise → **local** mode: standalone file `<dir>/<ns>.db` with MVCC; `push`/`pull` are no-ops. Good for single-pod/dev.
+  - `<dir>` = `opts.dir` → `RUNTIME_TURSO_DIR` → `./.cache/turso`.
+- The runtime derives `RUNTIME_TURSO_SERVER_URL`/`RUNTIME_TURSO_SERVER_TOKEN` from its own `TURSO_SERVER_URL`/`TURSO_SERVER_TOKEN` (the chart auto-wires these when `tursoServer.enabled=true`). So a worker shares the **same** turso-server the runtime/plugins use, but opens its **own** namespace.
+- The caller owns the schema and the read/write/`pull`/`push` flow. The helper is intentionally thin (mirrors `ApiKeyStore`'s connection logic) — it does **not** add a sync timer; do an explicit `push()` after writes (durability across pod restarts) and `pull()` before reads when another writer may have changed the namespace.
+
+:::caution[Gotcha]
+In sync mode the local replica file is pod-local (`emptyDir`); an unpushed write
+is lost on restart. Always `push()` after a write, exactly like
+`ApiKeyStore.pushIfSync()`.
+:::
+
+:::note
+First consumer: `apps/platform` owns the `tenants` namespace (tenant registry)
+via `openTurso("tenants")`. See [Multi-tenant](/platform/multi-tenant/).
+:::
+
+## Consumer notes
+
+- KeyVal wraps `TursoService` in a local `TursoKeyValAdapter`; `plugin-turso` still exposes only database/transaction primitives.
+- DDL statements must run through an `exclusive` transaction. `BEGIN CONCURRENT` rejects DDL.
+- Turso MVCC rejects SQLite virtual tables, so KeyVal search uses regular `kv_fts_*` tables instead of FTS5 virtual tables.
+- KeyVal orders encoded BLOB keys with `ORDER BY hex(key)` for stable reverse pagination after deletes.
+- Gateway owns `gateway_metrics_history` and `gateway_shell_excludes`.
+- Proxy owns `proxy_rules` for dynamic rules; static proxy rules remain manifest-only and work without durable storage.
+
+## Native binding notes
+
+`@tursodatabase/database` and `@tursodatabase/sync` use native dependencies in
+Node/Bun environments. The official Turso TypeScript reference classifies both
+packages as native dependency packages (`@tursodatabase/database`:
+Node.js/WASM, `@tursodatabase/sync`: Node.js native).
+
+On macOS ARM64, a runtime boot can fail with `Cannot find native binding` if Bun
+does not materialize the platform optional dependencies from the base packages.
+The installed package manifests list these platform packages as optional
+dependencies:
+
+- `@tursodatabase/database-darwin-arm64`
+- `@tursodatabase/sync-darwin-arm64`
+
+For local validation on Darwin ARM64, adding those packages explicitly to
+`plugins/plugin-turso` resolved the runtime loader failure. Revisit this before
+publishing cross-platform packages: the ideal chart/image path should install the
+correct platform binding for the target OS/CPU without baking a Darwin-only
+workaround into Linux images.
+
+## Runtime bundle notes
+
+The runtime loader uses `manifest.pluginEntry` when present, so core plugins load
+`dist/plugin.js` in real runtime boots. After migrating a plugin's storage to
+Turso, rebuild the plugin bundle before validating through HTTP/UI. Otherwise the
+source tests can pass while the runtime still executes stale `dist/plugin.js` code
+with legacy error messages such as `Dynamic rules not enabled (plugin-keyval not
+configured)`.

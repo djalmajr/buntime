@@ -1,0 +1,168 @@
+---
+title: Writing a plugin
+description: Build a Buntime plugin from scratch — manifest, mode, hooks, service sharing, and hot reload.
+sidebar:
+  order: 1
+---
+
+import { Steps, Tabs, TabItem, Aside } from "@astrojs/starlight/components";
+
+This guide builds a minimal plugin end to end. For the conceptual model behind
+each step, see [Plugin System](/concepts/plugin-system/).
+
+## 1. Decide the mode
+
+Before writing code, pick **one** mode and stick to it:
+
+| If your plugin needs… | Use | API lives in |
+|---|---|---|
+| DB connections, SSE/WebSocket, in-memory cache, cron, shared state | **Persistent** | `plugin.ts` (`routes`) |
+| Stateless CRUD, file ops, per-request isolation | **Serverless** | `index.ts` (`routes`) |
+
+<Aside type="caution">
+  Never put the API in both files. A persistent plugin's `index.ts` should
+  only serve the SPA; a serverless plugin's `plugin.ts` should have no routes.
+</Aside>
+
+## 2. Scaffold the directory
+
+```
+plugins/plugin-hello/
+├── manifest.yaml
+├── plugin.ts
+└── package.json
+```
+
+```json
+// package.json
+{
+  "name": "@buntime/plugin-hello",
+  "type": "module",
+  "exports": { "bun": "./plugin.ts", "default": "./dist/plugin.js" }
+}
+```
+
+## 3. Write the manifest
+
+```yaml
+# manifest.yaml
+name: "@buntime/plugin-hello"
+base: "/hello"
+enabled: true
+pluginEntry: dist/plugin.js
+menus:
+  - { title: Hello, icon: lucide:hand, path: /hello }
+```
+
+The `base` must match `/[a-zA-Z0-9_-]+` and cannot be a reserved path (`/api`,
+`/health`, `/.well-known`). A hook-only plugin with no routes should omit
+`base` entirely.
+
+## 4. Implement the plugin
+
+A plugin module's default export is a factory returning a `PluginImpl`.
+
+<Tabs>
+  <TabItem label="Persistent">
+    ```ts
+    // plugin.ts
+    import { Hono } from "hono";
+    import type { PluginImpl } from "@buntime/shared/types";
+
+    export default function helloPlugin(config: Record<string, unknown>): PluginImpl {
+      const routes = new Hono()
+        .get("/api/greeting", (c) => c.json({ message: "Hello from Buntime" }));
+
+      return {
+        routes, // mounted at /hello/api/greeting
+        onInit(ctx) {
+          ctx.logger.info("hello plugin initialized");
+        },
+        onShutdown() {
+          // flush caches, close connections, clear timers
+        },
+      };
+    }
+    ```
+  </TabItem>
+  <TabItem label="With a hook">
+    ```ts
+    // plugin.ts — short-circuit requests in onRequest
+    import type { PluginImpl } from "@buntime/shared/types";
+
+    export default (config: Record<string, unknown>): PluginImpl => ({
+      onRequest(req) {
+        if (new URL(req.url).pathname === "/blocked") {
+          return new Response("Nope", { status: 403 }); // short-circuit
+        }
+        return undefined; // continue the pipeline
+      },
+    });
+    ```
+  </TabItem>
+</Tabs>
+
+## 5. Read config the right way
+
+Config flows from Helm/ConfigMap into `Bun.env`, with the manifest as a
+fallback. Always read — never write — with this precedence:
+
+```ts
+const apiKey = Bun.env.HELLO_API_KEY ?? (config.apiKey as string) ?? "default";
+```
+
+## 6. Share a service (optional)
+
+To expose functionality to other plugins, return it from `provides()`. Consumers
+declare a dependency and call `ctx.getPlugin()`.
+
+```ts
+// provider
+export default (): PluginImpl => {
+  const cache = new Map<string, string>();
+  return { provides: () => ({ get: (k: string) => cache.get(k) }) };
+};
+
+// consumer (manifest: dependencies: ["@buntime/plugin-hello"])
+onInit(ctx) {
+  const hello = ctx.getPlugin<{ get(k: string): string | undefined }>("@buntime/plugin-hello");
+}
+```
+
+## 7. Test it
+
+Plugin tests live next to `plugin.ts` as `plugin.test.ts` and use `bun:test`.
+Mock the `PluginContext` and exercise the Hono app via `app.fetch`:
+
+```ts
+import { describe, expect, it } from "bun:test";
+import helloPlugin from "./plugin.ts";
+
+describe("plugin-hello", () => {
+  it("serves a greeting", async () => {
+    const plugin = helloPlugin({});
+    const res = await plugin.routes!.request("/api/greeting");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ message: "Hello from Buntime" });
+  });
+});
+```
+
+See [Testing plugins](/guides/testing/) for the full mock factories.
+
+## 8. Load it without a restart
+
+```bash
+bun run --filter "@buntime/plugin-hello" build   # produce dist/plugin.js
+# then, against a running runtime:
+curl -X POST http://localhost:8000/api/plugins/reload
+```
+
+`reload` re-scans plugin directories, re-sorts by dependency, re-runs `onInit`,
+and refreshes the live route table — no process restart.
+
+## Related
+
+- [Plugin System](/concepts/plugin-system/) — the full model and manifest schema.
+- [Testing plugins](/guides/testing/) — `bun:test` patterns and mocks.
+- [Plugins overview](/plugins/) — the bundled core plugins as references.

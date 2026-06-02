@@ -1,0 +1,56 @@
+/* Buntime documentation theme — warm amber accent (a nod to Bun). */
+
+:root {
+  /* Accent — dark mode (default). */
+  --sl-color-accent-low: #4a2f00;
+  --sl-color-accent: #cf7a07;
+  --sl-color-accent-high: #ffcf8f;
+
+  /* Brand token reused by the hero + cards. */
+  --buntime-brand: #f59e0b;
+  --buntime-brand-2: #ec4899;
+
+  --sl-content-width: 50rem;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #ffe2b8;
+  --sl-color-accent: #b3650a;
+  --sl-color-accent-high: #492c00;
+}
+
+/* Splash hero: a warm gradient behind the tagline. */
+.hero h1,
+.hero .tagline {
+  text-wrap: balance;
+}
+
+.hero > img,
+.hero > .hero-html {
+  filter: drop-shadow(0 10px 40px rgba(245, 158, 11, 0.25));
+}
+
+[data-has-hero] main {
+  --overlay-blurple: hsla(35, 95%, 55%, 0.12);
+}
+
+/* Give the auto-generated hero gradient a Buntime feel. */
+[data-has-hero] .page {
+  background:
+    linear-gradient(215deg, var(--overlay-blurple), transparent 40%),
+    radial-gradient(var(--overlay-blurple), transparent 60%) no-repeat -60vw -40vh / 105vw 200vh,
+    radial-gradient(var(--overlay-blurple), transparent 65%) no-repeat 50% calc(100% + 20rem) /
+    60rem 30rem;
+}
+
+/* Brandable CTA buttons on the hero. */
+.hero a.button[data-variant="primary"] {
+  background: linear-gradient(120deg, var(--buntime-brand), #d97706);
+  border-color: transparent;
+  color: #1a1300;
+}
+
+/* Slightly tighter card grid headings. */
+.card .title {
+  font-weight: 600;
+}

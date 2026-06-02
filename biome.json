@@ -6,7 +6,7 @@
     }
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/node_modules", "!**/routeTree.gen.ts"]
+    "includes": ["**", "!**/dist", "!**/node_modules", "!**/.astro", "!**/routeTree.gen.ts"]
   },
   "formatter": {
     "enabled": true,

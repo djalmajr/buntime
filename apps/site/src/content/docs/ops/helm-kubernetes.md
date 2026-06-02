@@ -311,7 +311,7 @@ kubectl -n zomme rollout restart deployment/buntime
 ### Adding a chart repository
 
 1. **Apps > Repositories > Create**
-2. Index URL: `https://github.com/zommehq/charts.git` (or the GitLab equivalent)
+2. Index URL: `https://github.com/djalmajr/charts.git` (or the GitLab equivalent)
 3. Path: `/charts` when pulling directly from the mono
 
 ### Installing buntime

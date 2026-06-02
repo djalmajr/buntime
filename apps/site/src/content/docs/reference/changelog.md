@@ -7,6 +7,13 @@ sidebar:
 
 What changed in each release, newest first.
 
+## v0.4.3
+
+### Project
+
+- **Repository moved** from `zommehq/buntime` to `djalmajr/buntime`; the documentation site is now https://buntime.djalmajr.dev.
+- Default image repositories now point at `ghcr.io/djalmajr/*` to match the new owner. Chart metadata and the Helm catalog repository (`djalmajr/charts`) were updated accordingly.
+
 ## v0.4.2
 
 ### Runtime / cpanel auth (bug fixes)

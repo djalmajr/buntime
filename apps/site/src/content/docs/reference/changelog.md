@@ -35,7 +35,7 @@ What changed in each release, newest first.
 
 ### Charts
 
-- Default image registry is now `ghcr.io/zommehq/*`.
+- Default image registry is now `ghcr.io/djalmajr/*`.
 
 ### Project
 
@@ -96,4 +96,4 @@ What changed in each release, newest first.
 
 - **Turso questions overhaul**: the Rancher catalog form now exposes every operationally-relevant `tursoServer.*` knob. The "Turso Server" tab covers image, ports, resources, persistence, namespace lifecycle, and tokens. A new "Turso Backup" tab drives the snapshot CronJob (schedule, retention, image, S3 endpoint/bucket/region/credentials/pathStyle).
 - Litestream questions kept but **marked DEPRECATED** in their descriptions. Litestream cannot coexist with `tursodb --sync-server` (file-lock contention) and replication fails silently — use the new Turso Backup tab instead.
-- Default `image.repository` switched to `ghcr.io/zommehq/buntime` to match the CI pipeline. Pinned `image.tag: 0.3.0`.
+- Default `image.repository` switched to `ghcr.io/djalmajr/buntime` to match the CI pipeline. Pinned `image.tag: 0.3.0`.

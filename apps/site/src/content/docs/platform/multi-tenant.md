@@ -14,9 +14,9 @@ It is composed of three apps plus the gateway plugin:
 
 | App | Role |
 |-----|------|
-| [`apps/shell`](https://github.com/zommehq/buntime/tree/main/apps/shell) | Per-host frontend — resolves the tenant from the hostname, authenticates against that host's Keycloak realm, and renders the app catalog with `@zomme/frame`. |
-| [`apps/platform`](https://github.com/zommehq/buntime/tree/main/apps/platform) | The tenant control plane — a Hono API + React UI holding the tenant registry, the provisioner, and per-tenant config/catalog. |
-| [`apps/todos`](https://github.com/zommehq/buntime/tree/main/apps/todos) | A small example app served through the shell. |
+| [`apps/shell`](https://github.com/djalmajr/buntime/tree/main/apps/shell) | Per-host frontend — resolves the tenant from the hostname, authenticates against that host's Keycloak realm, and renders the app catalog with `@zomme/frame`. |
+| [`apps/platform`](https://github.com/djalmajr/buntime/tree/main/apps/platform) | The tenant control plane — a Hono API + React UI holding the tenant registry, the provisioner, and per-tenant config/catalog. |
+| [`apps/todos`](https://github.com/djalmajr/buntime/tree/main/apps/todos) | A small example app served through the shell. |
 
 ## How a tenant is served
 

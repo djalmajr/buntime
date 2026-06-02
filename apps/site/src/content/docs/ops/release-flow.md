@@ -164,7 +164,7 @@ Three workflows publish public infrastructure:
 
 | Workflow | Triggers on | Output |
 |----------|-------------|--------|
-| `docker-publish.yml` | Tags `v*.*.*` | Image `ghcr.io/zommehq/buntime:{tag,latest,major,major.minor}` |
+| `docker-publish.yml` | Tags `v*.*.*` | Image `ghcr.io/djalmajr/buntime:{tag,latest,major,major.minor}` |
 | `helm-publish.yml` | Push to `main` touching `charts/**` or `plugins/*/manifest.yaml` | Sync to `zommehq/charts` |
 | `jsr-publish.yml` | `workflow_dispatch` | `@buntime/shared` on JSR via OIDC |
 

@@ -3,8 +3,8 @@ import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 import remarkGfm from "remark-gfm";
 
-const SITE_URL = "https://buntime.zommehq.com";
-const REPO_URL = "https://github.com/zommehq/buntime";
+const SITE_URL = "https://buntime.djalmajr.dev";
+const REPO_URL = "https://github.com/djalmajr/buntime";
 
 // https://astro.build/config
 export default defineConfig({

@@ -251,7 +251,7 @@ GET /deployments/list  (Sec-Fetch-Dest: document)
   → gateway: automatic bypass → deployments app worker
 ```
 
-Shell-to-frame communication uses [`@zomme/frame`](https://github.com/zommehq/frame) over `MessageChannel`. See also [Micro-frontend](/concepts/micro-frontend/).
+Shell-to-frame communication uses [`@zomme/frame`](https://github.com/djalmajr/frame) over `MessageChannel`. See also [Micro-frontend](/concepts/micro-frontend/).
 
 ### Minimal shell app structure
 

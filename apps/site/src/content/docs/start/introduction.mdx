@@ -1,0 +1,94 @@
+---
+title: Introduction
+description: What Buntime is, the problem it solves, and the mental model behind it.
+sidebar:
+  order: 1
+---
+
+import { Card, CardGrid, Aside } from "@astrojs/starlight/components";
+
+**Buntime** is a modular runtime for [Bun](https://bun.sh) with an isolated
+worker pool, a plugin system (core + external), and a micro-frontend shell. It
+covers a whole monorepo of moving parts — `apps/`, `plugins/`, `packages/`,
+and Helm `charts/` — but the idea at the center is small.
+
+## The one-sentence model
+
+> A single Bun process accepts every request and decides where it goes, but it
+> never executes your application code. Your code runs in **isolated workers**;
+> cross-cutting concerns run in **plugins**.
+
+That separation is the whole point. The main thread stays a thin, resilient
+orchestrator. Application code — which may crash, leak memory, or hang — is
+quarantined in workers that can be recycled without touching the runtime.
+
+## What problem does it solve?
+
+Running many small apps on one box usually forces a choice: give every app its
+own process (heavy, slow to start, wasteful) or run them in one shared process
+(one bad app takes down the rest). Buntime takes a third path built on Bun's
+fast `Worker` isolates:
+
+<CardGrid>
+  <Card title="Density without coupling" icon="seti:default">
+    Many apps share one runtime, yet each runs in an isolated worker with its
+    own heap and modules. No shared global state, no cross-app leaks.
+  </Card>
+  <Card title="Two execution profiles" icon="rocket">
+    A worker can be **persistent** (kept warm, reused across requests — ideal
+    for DB connections or SSE) or **ephemeral** (`ttl: 0`, spun up per request
+    and discarded — serverless-style, pay only when called).
+  </Card>
+  <Card title="Extend without forking" icon="puzzle">
+    Auth, rate limiting, storage, proxying, logging, metrics — all live in
+    plugins loaded from a directory. Add capabilities without modifying the
+    core.
+  </Card>
+  <Card title="UIs as micro-frontends" icon="laptop">
+    Any app or plugin that ships an `index.html` becomes an iframe in a shared
+    shell, regardless of the framework it was built with.
+  </Card>
+</CardGrid>
+
+## The pieces
+
+| Piece | What it is |
+|-------|------------|
+| [Runtime](/concepts/runtime/) | The Bun + Hono main process: startup, request pipeline, multi-layer routing, graceful shutdown. |
+| [Worker pool](/concepts/worker-pool/) | An LRU cache of Bun workers with lifecycle, sliding TTL, ephemeral concurrency limits, and metrics. |
+| [Plugin system](/concepts/plugin-system/) | Auto-discovery, persistent vs serverless modes, a manifest schema, lifecycle hooks, and a service registry. |
+| [Micro-frontend](/concepts/micro-frontend/) | The shell that hosts apps and plugin UIs as iframes via `@zomme/frame`. |
+| [Packages](/packages/shared/) | `@buntime/shared` (types, errors, utilities — published to JSR) and `@buntime/keyval`. |
+| [Platform](/platform/multi-tenant/) | A reference multi-tenant SaaS built on the runtime. |
+
+## How a request flows
+
+```
+Request
+  → CSRF check (/api/* only)
+  → onRequest hooks       (auth, rate limit, metrics — may short-circuit)
+  → runtime API           (/api/* or /_/api/*)
+  → plugin.server.fetch    (direct plugin handlers)
+  → plugin.routes          (Hono apps mounted at the plugin base)
+  → plugin apps            (worker pool — z-frame iframes)
+  → worker apps            (/:app/* resolved from worker dirs)
+  → homepage fallback / 404
+  → onResponse hooks
+Response
+```
+
+More specific routes (plugins) always win over generic ones (workers). The
+full priority table lives in [Runtime → Routing](/concepts/runtime/#routing--multi-layer).
+
+<Aside type="note" title="Scope">
+  Buntime is purely technical infrastructure — there are no built-in business
+  rules. Products that run *on* the runtime define their own domain logic in
+  their own workers and plugins.
+</Aside>
+
+## Where to next
+
+- New here? Start with the [philosophy](/start/philosophy/) to understand the
+  design principles, then [get started](/start/getting-started/).
+- Building an app to run on Buntime? Read the [worker pool](/concepts/worker-pool/).
+- Extending the runtime? Read [writing a plugin](/guides/writing-a-plugin/).

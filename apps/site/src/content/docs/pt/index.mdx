@@ -1,0 +1,76 @@
+---
+title: Buntime
+description: Um runtime Bun com um pool de workers isolados, um sistema de plugins e um shell de micro-frontends.
+template: splash
+hero:
+  tagline: Um único processo Bun que orquestra muitas aplicações isoladas — com um pool de workers, um sistema de plugins e um shell de micro-frontends.
+  image:
+    file: ../../../assets/logo.svg
+  actions:
+    - text: Começar
+      link: /pt/start/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: O que é o Buntime?
+      link: /pt/start/introduction/
+      variant: secondary
+    - text: GitHub
+      link: https://github.com/zommehq/buntime
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+O Buntime é um **runtime modular para o Bun**. Um único processo principal recebe
+toda requisição e a roteia, mas **nunca executa o código da sua aplicação** — esse
+trabalho fica isolado em um pool de workers do Bun. Em volta desse núcleo há um
+sistema de plugins que intercepta requisições, registra rotas e expõe interfaces
+em um shell de micro-frontends.
+
+<CardGrid stagger>
+  <Card title="Pool de workers isolados" icon="seti:default">
+    Cada app roda no seu próprio worker do Bun — heap, cache de módulos e ambiente
+    separados. Um crash nunca derruba o runtime. Workers são reutilizados via cache
+    LRU, ou rodam de forma efêmera por requisição (estilo serverless).
+  </Card>
+  <Card title="Sistema de plugins" icon="puzzle">
+    Plugins autodescobertos adicionam CORS, rate limiting, armazenamento chave-valor,
+    SQL durável, proxy, logs e métricas — carregados em ordem de dependência, com hot
+    reload e sem reiniciar o processo.
+  </Card>
+  <Card title="Shell de micro-frontends" icon="laptop">
+    Plugins e apps que entregam um entrypoint HTML são expostos como iframes em um
+    shell agnóstico de framework via `@zomme/frame`, com injeção de base path para que
+    SPAs funcionem sob qualquer subpath.
+  </Card>
+  <Card title="Pronto para multi-tenant" icon="random">
+    Uma plataforma de referência serve muitos hosts a partir de um único runtime — um
+    realm Keycloak por host, bancos Turso por tenant e provisionamento self-service.
+  </Card>
+</CardGrid>
+
+## Comece a explorar
+
+<CardGrid>
+  <LinkCard
+    title="Introdução"
+    description="O que é o Buntime, o problema que resolve e o modelo mental."
+    href="/pt/start/introduction/"
+  />
+  <LinkCard
+    title="Começar"
+    description="Rode o runtime localmente e publique seu primeiro worker."
+    href="/pt/start/getting-started/"
+  />
+  <LinkCard
+    title="Conceitos centrais"
+    description="O runtime, o pool de workers e o sistema de plugins em profundidade."
+    href="/pt/concepts/runtime/"
+  />
+  <LinkCard
+    title="Escrever um plugin"
+    description="Plugins persistentes vs serverless, hooks e o manifest."
+    href="/pt/guides/writing-a-plugin/"
+  />
+</CardGrid>

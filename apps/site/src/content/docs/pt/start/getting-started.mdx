@@ -1,0 +1,162 @@
+---
+title: Começar
+description: Rode o runtime do Buntime localmente e publique seu primeiro worker.
+sidebar:
+  order: 3
+---
+
+import { Steps, Tabs, TabItem, Aside, FileTree } from "@astrojs/starlight/components";
+
+Este guia coloca o runtime rodando localmente e serve um app minúsculo a partir de
+um worker. Você vai precisar do [Bun](https://bun.sh) `1.3+` instalado.
+
+## Rode o monorepo
+
+<Steps>
+
+1. Clone e instale:
+
+   ```bash
+   git clone https://github.com/zommehq/buntime.git
+   cd buntime
+   bun install
+   ```
+
+2. Suba a stack de desenvolvimento completa — runtime, os plugins do núcleo e o
+   painel do operador (cpanel) — a partir da raiz do repositório:
+
+   ```bash
+   bun dev
+   ```
+
+   Isso roda o runtime com `--watch`. Use `bun --watch`, nunca `bun --hot`: o modo
+   hot quebra timers/cron e vaza bindings de porta.
+
+3. Confirme que está no ar:
+
+   ```bash
+   curl http://localhost:8000/api/health
+   ```
+
+</Steps>
+
+<Aside type="tip">
+  A UI do operador (cpanel) é servida na raiz assim que o plugin gateway é
+  carregado — abra <code>http://localhost:8000/</code> no navegador.
+</Aside>
+
+## Publique seu primeiro worker
+
+Um "worker app" é apenas um diretório com um entrypoint. O runtime o descobre a
+partir dos diretórios listados em `RUNTIME_WORKER_DIRS` (estilo PATH, separados
+por `:`).
+
+<Steps>
+
+1. Crie um diretório de app. O layout plano e versionado é o mais simples:
+
+   <FileTree>
+   - apps/
+     - hello@1.0.0/
+       - index.ts
+       - manifest.yaml
+   </FileTree>
+
+2. Escreva o entrypoint. Um worker exporta um objeto default — um handler `fetch`
+   é a forma mais simples:
+
+   ```ts
+   // apps/hello@1.0.0/index.ts
+   export default {
+     fetch(req: Request) {
+       const url = new URL(req.url);
+       return Response.json({ hello: "world", path: url.pathname });
+     },
+   };
+   ```
+
+3. (Opcional) Descreva como o worker roda. Sem manifest, os padrões se aplicam
+   (descoberta efêmera, timeout de 30s):
+
+   ```yaml
+   # apps/hello@1.0.0/manifest.yaml
+   entrypoint: index.ts
+   ttl: 0          # 0 = efêmero (criado por requisição); >0 mantém aquecido
+   timeout: 30s
+   maxRequests: 1000
+   ```
+
+4. Aponte o runtime para o diretório e inicie:
+
+   ```bash
+   RUNTIME_WORKER_DIRS=./apps bun --watch apps/runtime/src/index.ts
+   ```
+
+5. Chame seu app. Um worker sem escopo chamado `hello` é servido em `/hello/`:
+
+   ```bash
+   curl http://localhost:8000/hello/
+   # {"hello":"world","path":"/"}
+   ```
+
+</Steps>
+
+## Escolha como o worker roda
+
+O campo `ttl` define a personalidade do worker:
+
+<Tabs>
+  <TabItem label="Efêmero (ttl: 0)">
+    Criado a cada requisição e descartado em seguida. Maior latência por
+    requisição, custo zero em idle. Melhor para handlers stateless, estilo lambda.
+    A concorrência é limitada por `RUNTIME_EPHEMERAL_CONCURRENCY` (padrão `2`); o
+    excedente entra em fila até `RUNTIME_EPHEMERAL_QUEUE_LIMIT` (padrão `100`),
+    depois retorna `503`.
+  </TabItem>
+  <TabItem label="Persistente (ttl > 0)">
+    Mantido aquecido e reutilizado. O TTL é **deslizante** — reinicia a cada
+    requisição, então o worker vive enquanto o tráfego continuar chegando (ou até
+    `maxRequests`). Melhor para apps com estado, conexões de banco, SSE ou WebSocket.
+  </TabItem>
+</Tabs>
+
+## Outras formas de entrypoint
+
+O export default de um worker pode ser um handler `fetch`, um objeto `routes`, ou
+você pode entregar um `index.html` para uma SPA estática:
+
+<Tabs>
+  <TabItem label="fetch">
+    ```ts
+    export default {
+      fetch(req: Request) {
+        return new Response("ok");
+      },
+    };
+    ```
+  </TabItem>
+  <TabItem label="routes">
+    ```ts
+    export default {
+      routes: {
+        "/": new Response("Home"),
+        "/api/posts/:id": {
+          GET: (req) => new Response(`Post ${req.params.id}`),
+        },
+      },
+    };
+    ```
+  </TabItem>
+  <TabItem label="SPA (index.html)">
+    Defina `entrypoint: index.html` no manifest. O runtime serve o arquivo de forma
+    estática e injeta `<base href>` para que o roteamento client-side funcione sob o
+    subpath do app. O `index.ts` **não** é executado nesse modo.
+  </TabItem>
+</Tabs>
+
+## Para onde ir agora
+
+- Entenda o que acabou de acontecer: [o pool de workers](/pt/concepts/worker-pool/)
+  e [o pipeline de requisições do runtime](/pt/concepts/runtime/).
+- Adicione uma capacidade ao runtime: [escreva um plugin](/pt/guides/writing-a-plugin/).
+- Ajuste o runtime para um ambiente: [variáveis de ambiente](/pt/ops/environment/).

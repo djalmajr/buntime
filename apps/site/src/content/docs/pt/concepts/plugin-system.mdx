@@ -1,0 +1,423 @@
+---
+title: Sistema de Plugins
+description: Descoberta automática, modos persistente vs serverless, o schema do manifest, hooks de ciclo de vida, compartilhamento de serviços e hot reload.
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem, Aside, Steps } from "@astrojs/starlight/components";
+
+O mecanismo de extensibilidade do runtime. Plugins são unidades isoladas que
+podem interceptar requisições, registrar rotas, fornecer serviços a outros
+plugins e expor UI no shell. O sistema suporta hot reload, dependências
+declarativas e dois modos de execução (persistente vs serverless).
+
+Para o pipeline de requisições que envolve plugins, veja [Runtime](/pt/concepts/runtime/).
+Para o pool que executa plugins serverless, veja [Worker Pool](/pt/concepts/worker-pool/).
+
+## Arquitetura
+
+```
+pluginDirs (RUNTIME_PLUGIN_DIRS)
+        │
+        ▼
+PluginLoader   — scan + parse manifest.yaml + topological sort + lazy import
+        │
+        ▼
+PluginRegistry — stores plugins, runs hooks, resolves routes, shares services
+        │
+        ▼
+Hooks:  onInit · onRequest · onResponse · onShutdown
+        onServerStart · onWorkerSpawn · onWorkerTerminate
+```
+
+| Componente | Papel |
+|-----------|------|
+| `PluginLoader` | Descoberta automática em `pluginDirs`, parsing do `manifest.yaml`, ordenação topológica, lazy import |
+| `PluginRegistry` | Armazena plugins, executa hooks, gerencia o compartilhamento de serviços, resolve rotas |
+
+### Estrutura de um plugin
+
+```
+plugins/plugin-example/
+├── manifest.yaml      # Metadata + config
+├── plugin.ts          # Middleware (persistent mode, main process)
+├── index.ts           # Worker entrypoint (serverless mode, worker pool)
+├── server/api.ts      # Shared API code
+├── client/            # SPA (React/Solid/Vue/etc.)
+└── dist/              # Build output
+    ├── plugin.js
+    ├── index.js
+    └── client/index.html
+```
+
+## Modos de API — persistente vs serverless
+
+Uma decisão central. **Escolha um — não duplique a API entre `plugin.ts`
+e `index.ts`.**
+
+| Modo | Quando usar | `plugin.ts` tem `routes`? | `index.ts` tem `routes`? | `entrypoint` |
+|------|-------------|---------------------------|--------------------------|--------------|
+| **Persistente** | Conexões de DB, WebSocket/SSE, cache em memória, cron, estado compartilhado | Sim | Não (apenas SPA) | `dist/client/index.html` |
+| **Serverless** | CRUD stateless, operações de arquivo, isolamento, escala horizontal | Não | Sim | `dist/index.js` |
+
+<Tabs>
+  <TabItem label="Persistente">
+    Roda no processo principal. A API fica em `plugin.ts`; `index.ts` apenas
+    serve a SPA.
+
+    ```ts
+    // plugin.ts — runs in the main process (persistent)
+    export default function databasePlugin(config): PluginImpl {
+      let db: DatabasePool;
+      return {
+        routes: api, // API here (a Hono app)
+        onInit(ctx) {
+          db = new DatabasePool(config.url); // persistent connection
+        },
+      };
+    }
+
+    // index.ts — SPA only
+    export default { fetch: createStaticHandler(clientDir) };
+    ```
+
+    Plugins persistentes atuais: `gateway`, `keyval`, `logs`, `metrics`,
+    `proxy`, `turso`, `vhosts`.
+  </TabItem>
+  <TabItem label="Serverless">
+    Roda no worker pool, por requisição. A API fica em `index.ts`;
+    `plugin.ts` não tem rotas.
+
+    ```ts
+    // plugin.ts — no routes
+    export default (config): PluginImpl => ({
+      onInit(ctx) { /* optional */ },
+    });
+
+    // index.ts — API in the worker pool
+    export default {
+      routes: { "/api/*": api.fetch },
+      fetch: createStaticHandler(clientDir),
+    };
+    ```
+  </TabItem>
+</Tabs>
+
+### Modos de entrypoint
+
+| Extensão | Modo | Comportamento |
+|-----------|------|----------|
+| `.html` | SPA | Apenas `serveStatic`; `index.ts` **NÃO** é executado |
+| `.js` / `.ts` | Service | Importa o módulo; espera `export default { fetch?, routes? }` |
+
+<Aside type="caution" title="Erro comum">
+  Código de API em `index.ts` enquanto o `entrypoint` aponta para um arquivo
+  `.html`. A API é silenciosamente ignorada — o wrapper apenas serve arquivos
+  estáticos. Escolha um modo.
+</Aside>
+
+## Schema do manifest
+
+```yaml
+name: "@buntime/plugin-example"  # Unique identifier
+base: "/example"                 # /[a-zA-Z0-9_-]+; omit for hook-only plugins
+enabled: true                    # default: true
+
+# Worker / plugin entrypoints
+entrypoint: dist/index.js        # service mode (or .html for SPA)
+pluginEntry: dist/plugin.js      # middleware in the main process
+
+# Dependencies (topological sort)
+dependencies:
+  - "@buntime/plugin-turso"      # required — fails if absent
+optionalDependencies:
+  - "@buntime/plugin-keyval"     # ignored if absent
+
+# Auth bypass via onRequest
+publicRoutes:
+  ALL: ["/health"]
+  GET: ["/api/public/**"]
+  POST: ["/api/webhook"]
+
+# Shell menus (cpanel)
+menus:
+  - { icon: lucide:box, path: /example, title: Example }
+
+# Env vars for workers
+env:
+  MY_VAR: "value"
+
+# Config schema for Helm/Rancher UI
+config:
+  apiKey:
+    type: password
+    label: API Key
+    env: EXAMPLE_API_KEY         # maps to ConfigMap
+```
+
+### Campos principais
+
+| Campo | Tipo | Descrição |
+|-------|------|-------------|
+| `name` | string | Identificador único, formato `@scope/plugin-name` |
+| `base` | string | Caminho base para as `routes` do plugin |
+| `enabled` | boolean | `false` para ignorar no carregamento |
+| `entrypoint` | string | Entrypoint do worker (HTML para SPA, JS para service) |
+| `pluginEntry` | string | Middleware do processo principal |
+| `dependencies` | string[] | Plugins obrigatórios (erro se ausentes) |
+| `optionalDependencies` | string[] | Plugins opcionais (ignorados se ausentes) |
+| `publicRoutes` | array \| object | Ignoram (bypass) os hooks `onRequest` |
+| `menus` | MenuItem[] | Itens de menu para o shell |
+| `injectBase` | boolean | Controla a injeção de `<base href>` |
+| `visibility` | enum | `public` \| `protected` \| `internal` |
+| `env` | record | Vars para os workers do plugin |
+| `config` | object | Schema de config para geração do Helm |
+
+Plugins de infraestrutura apenas com hooks que não servem rotas devem **omitir
+`base` por completo** — não defina `base: ""`, que mais tarde pode ser
+confundido com o base de um plugin-app na raiz durante a resolução de rotas.
+
+### Descoberta automática
+
+`PluginLoader` varre `pluginDirs` (estilo PATH, separados por `:`). Estruturas
+suportadas:
+
+```
+1. Direct:       {pluginDir}/plugin.ts + manifest.yaml
+2. Subdirectory: {pluginDir}/{name}/plugin.ts + manifest.yaml
+3. Scoped:       {pluginDir}/@scope/{name}/plugin.ts + manifest.yaml
+```
+
+Prioridade do arquivo de entrada: `manifest.pluginEntry` → `plugin.{ts,js}` →
+`index.{ts,js}`. Padrão para `RUNTIME_PLUGIN_DIRS`: `/data/.plugins:/data/plugins`
+(internos primeiro, externos depois).
+
+## Ordenação topológica — algoritmo de Kahn
+
+Os plugins são ordenados por dependência antes do carregamento, usando o
+algoritmo de Kahn (O(V + E)):
+
+<Steps>
+
+1. Calcula o grau de entrada (número de dependências) de cada plugin.
+2. Enfileira os plugins com grau de entrada zero.
+3. Para cada plugin processado, decrementa o grau de entrada dos seus dependentes; enfileira os que chegarem a zero.
+4. Qualquer plugin que reste sem processar → um **ciclo** de dependências, que é um erro fatal.
+
+</Steps>
+
+Exemplo: com `keyval` dependendo de `turso`, a ordem resultante é sempre
+`turso → keyval`, independentemente da ordem no sistema de arquivos.
+
+## Hooks de ciclo de vida
+
+```ts
+interface PluginImpl {
+  routes?: Hono;
+  middleware?: MiddlewareHandler;
+  server?: { routes?; fetch? };
+  websocket?: { open?; message?; close? };
+  provides?: () => unknown | Promise<unknown>;
+
+  onInit?(ctx: PluginContext): void | Promise<void>;
+  onShutdown?(): void | Promise<void>;
+  onServerStart?(server): void;
+  onRequest?(req, app?): Request | Response | undefined;
+  onResponse?(res, app): Response;
+  onWorkerSpawn?(worker, app): void;
+  onWorkerTerminate?(worker, app): void;
+}
+```
+
+| Hook | Quando | Retorno | Notas |
+|------|------|--------|-------|
+| `onInit(ctx)` | No carregamento do plugin | `void`/`Promise` | **timeout de 30s** — falha fatal se excedido |
+| `onShutdown()` | No SIGINT | `void`/`Promise` | Ordem reversa (LIFO) |
+| `onServerStart(server)` | Após `Bun.serve()` | `void` | Acesso à instância para upgrade de WS |
+| `onRequest(req, app?)` | Antes de cada handler | `Request` (modificado) \| `Response` (curto-circuito) \| `undefined` | Ordem topológica |
+| `onResponse(res, app)` | Após a geração da resposta | `Response` | Ordem topológica |
+| `onWorkerSpawn(worker, app)` | Worker criado | `void` | — |
+| `onWorkerTerminate(worker, app)` | Worker terminado | `void` | — |
+
+### `onInit` — o contexto
+
+```ts
+interface PluginContext {
+  config: Record<string, unknown>;   // from manifest.yaml
+  globalConfig: GlobalPluginConfig;  // workerDirs, poolSize, pluginDirs
+  logger: PluginLogger;              // scoped logger
+  auth?: PluginAuthContext;          // API key store + master key
+  pool?: WorkerPool;                 // worker pool, if needed
+  getPlugin<T>(name: string): T | undefined; // another plugin's exports
+  runtime: { api: string; version: string }; // same as /.well-known/buntime
+}
+```
+
+O padrão canônico de leitura de config lê `Bun.env` primeiro (ConfigMap/Helm),
+depois a config do manifest e, então, um valor padrão:
+
+```ts
+const apiKey = Bun.env.MY_API_KEY ?? pluginConfig.apiKey ?? "default";
+```
+
+<Aside type="caution">
+  Nunca escreva em `Bun.env`. Os workers são isolados — eles não veriam a
+  mudança mesmo que ela persistisse.
+</Aside>
+
+### `onRequest` — curto-circuito
+
+```ts
+onRequest(req, app) {
+  if (rateLimitExceeded) {
+    return new Response("Too Many Requests", { status: 429 }); // short-circuit
+  }
+  return undefined; // continue the pipeline
+}
+```
+
+| Retorno | Comportamento |
+|--------|----------|
+| `undefined` | Continua com a requisição original |
+| `Request` | Continua com a requisição modificada |
+| `Response` | Curto-circuito — o runtime retorna imediatamente |
+
+Os plugins rodam em ordem topológica, ex. `Metrics → Proxy → Gateway → Worker`.
+
+## Compartilhamento de serviços — `provides` / `getPlugin`
+
+Plugins compartilham funcionalidade sem importar uns aos outros. Um provedor
+retorna sua superfície pública em `provides()`; um consumidor a alcança através
+de `ctx.getPlugin()`.
+
+```ts
+// Provider — plugin-turso/plugin.ts
+export default (config): PluginImpl => {
+  const service = new TursoService(config);
+  return {
+    provides: () => service, // exposed to other plugins
+    onInit(ctx) { /* ... */ },
+  };
+};
+
+// Consumer — must declare the dependency in its manifest
+export default (config): PluginImpl => ({
+  onInit(ctx) {
+    const turso = ctx.getPlugin<TursoService>("@buntime/plugin-turso");
+    if (!turso) throw new Error("Requires @buntime/plugin-turso");
+  },
+});
+```
+
+Regras:
+
+- `provides()` pode ser síncrono ou assíncrono; o valor de retorno é o que
+  `getPlugin` entrega.
+- Os exports ficam disponíveis **após** o `onInit` do provedor — declare
+  `dependencies` para que o loader os ordene corretamente.
+
+## Hot reload
+
+```bash
+# Upload a tarball/zip (extracts to pluginDirs; does NOT load yet)
+POST /api/plugins/upload
+
+# Re-scan + reload all (loads newly uploaded plugins, no process restart)
+POST /api/plugins/reload
+
+# Enable / disable a single plugin at runtime (no restart)
+POST /api/plugins/<url-encoded-name>/enable
+POST /api/plugins/<url-encoded-name>/disable
+```
+
+`reload` limpa o registry, re-varre os diretórios, ordena topologicamente,
+re-executa `onInit` **e atualiza a tabela de rotas nativa do servidor HTTP em
+execução**.
+
+O runtime serve três tipos de superfície HTTP de plugin, cada uma alcançando o
+servidor em execução de forma diferente:
+
+| Superfície | Declarada como | Como despacha | Faz hot-reload? |
+|---|---|---|---|
+| Rotas Hono | `PluginImpl.routes` | `app.fetch` consulta o registry a cada requisição | Sim — inerentemente dinâmica |
+| Handler de fetch | `PluginImpl.server.fetch` | `app.fetch` itera o registry a cada requisição | Sim — inerentemente dinâmica |
+| Rotas nativas | `PluginImpl.server.routes` | O Bun faz o match destas *antes* de `app.fetch`; a tabela é fixada no momento do `Bun.serve()` | Sim — `reload` chama `server.reload({ routes })` |
+
+<Aside type="caution" title="Importante">
+  Antes de o recarregamento de rotas nativas ser conectado, plugins com
+  `server.routes` apareciam como "carregados", mas suas rotas HTTP davam 404 até
+  um reinício do processo, porque a tabela de rotas nativas do Bun é construída
+  uma única vez no boot. Agora `reload` chama `server.reload()` para que as rotas
+  nativas sejam reconstruídas a partir do registry atual.
+</Aside>
+
+`enable`/`disable` invertem a flag `enabled` do manifest do plugin no disco (uma
+edição cirúrgica de linha que preserva comentários), e então re-varrem e
+atualizam as rotas. Como o manifest é a fonte da verdade para o estado de
+habilitado, a mudança sobrevive a reinícios. Os nomes são URL-encoded, então
+nomes com escopo (scoped) funcionam:
+`POST /api/plugins/%40acme%2Fplugin-x/disable`.
+
+## Rotas públicas
+
+Ignoram (bypass) os hooks `onRequest` (auth). Dois formatos:
+
+```yaml
+# Array — all methods
+publicRoutes:
+  - "/health"
+  - "/api/public/**"
+
+# Object — per method
+publicRoutes:
+  ALL: ["/health"]
+  GET: ["/api/users/**"]
+  POST: ["/api/webhook"]
+```
+
+Curingas: `*` (segmento único), `**` (múltiplos segmentos). As rotas públicas de
+plugin são absolutas; as rotas públicas de worker são relativas e tornadas
+absolutas pelo runtime (`/api/health` → `/todos-kv/api/health`).
+
+## Plugins com UI
+
+Plugins com um `entrypoint` HTML são automaticamente expostos como
+micro-frontends no shell via `<z-frame>`:
+
+```yaml
+name: "@buntime/plugin-keyval"
+base: "/keyval"
+entrypoint: dist/client/index.html
+pluginEntry: dist/plugin.js
+menus:
+  - { title: KeyVal, icon: lucide:database, path: /keyval }
+```
+
+<Aside type="caution" title="Barra final (trailing slash)">
+  O shell carrega o base do plugin **com uma barra final** — `<z-frame>`
+  normaliza seu `src` para `/<base>/`. Workers com um `entrypoint` recebem um
+  redirect 308 de `/<base>` para `/<base>/`, então isso é transparente. Mas um
+  plugin que serve sua própria UI através de `server.routes` precisa registrar
+  **ambas** `/<base>` e `/<base>/` (as rotas nativas do Bun fazem match exato).
+  Prefira um `entrypoint` para plugins de UI.
+</Aside>
+
+Detalhes em [Arquitetura de Micro-Frontend](/pt/concepts/micro-frontend/).
+
+## Boas práticas
+
+- **Modo único** — não duplique a API entre `plugin.ts` e `index.ts`.
+- **`Bun.env.X ?? config.x`** — leia com um fallback, nunca escreva.
+- **`:` para múltiplos valores** — estilo PATH, nunca vírgulas.
+- **Declare as dependências** — obrigatórias em `dependencies`, opcionais em `optionalDependencies`.
+- **Init rápido** — há um timeout de 30s em `onInit`. Faça lazy-load de conexões custosas.
+- **`onShutdown` gracioso** — esvazie caches, feche o DB, limpe os timers.
+- **Hooks leves** — `onRequest`/`onResponse` rodam a cada requisição.
+
+## Relacionado
+
+- [Runtime](/pt/concepts/runtime/) — pipeline de requisições, ordem de resolução.
+- [Worker Pool](/pt/concepts/worker-pool/) — execução de plugins serverless.
+- [Escrevendo um plugin](/pt/guides/writing-a-plugin/) — um guia passo a passo.
+- [Visão geral de plugins](/pt/plugins/) — os core plugins inclusos.

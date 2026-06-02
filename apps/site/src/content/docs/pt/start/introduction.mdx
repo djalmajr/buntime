@@ -1,0 +1,97 @@
+---
+title: Introdução
+description: O que é o Buntime, o problema que ele resolve e o modelo mental por trás dele.
+sidebar:
+  order: 1
+---
+
+import { Card, CardGrid, Aside } from "@astrojs/starlight/components";
+
+O **Buntime** é um runtime modular para o [Bun](https://bun.sh) com um pool de
+workers isolados, um sistema de plugins (núcleo + externos) e um shell de
+micro-frontends. Ele cobre um monorepo inteiro de partes móveis — `apps/`,
+`plugins/`, `packages/` e os charts Helm em `charts/` — mas a ideia no centro é
+pequena.
+
+## O modelo em uma frase
+
+> Um único processo Bun recebe toda requisição e decide para onde ela vai, mas
+> nunca executa o código da sua aplicação. Seu código roda em **workers
+> isolados**; preocupações transversais rodam em **plugins**.
+
+Essa separação é o ponto central. A thread principal permanece um orquestrador
+fino e resiliente. O código da aplicação — que pode quebrar, vazar memória ou
+travar — fica em quarentena em workers que podem ser reciclados sem afetar o
+runtime.
+
+## Que problema isso resolve?
+
+Rodar muitos apps pequenos em uma única máquina normalmente força uma escolha:
+dar a cada app o seu próprio processo (pesado, lento para iniciar, desperdiça
+recursos) ou rodar todos em um processo compartilhado (um app problemático
+derruba os demais). O Buntime segue um terceiro caminho, construído sobre os
+rápidos isolados `Worker` do Bun:
+
+<CardGrid>
+  <Card title="Densidade sem acoplamento" icon="seti:default">
+    Muitos apps compartilham um runtime, mas cada um roda em um worker isolado com
+    heap e módulos próprios. Sem estado global compartilhado, sem vazamentos entre
+    apps.
+  </Card>
+  <Card title="Dois perfis de execução" icon="rocket">
+    Um worker pode ser **persistente** (mantido aquecido, reutilizado entre
+    requisições — ideal para conexões de banco ou SSE) ou **efêmero** (`ttl: 0`,
+    criado por requisição e descartado — estilo serverless, paga só quando chamado).
+  </Card>
+  <Card title="Estender sem fork" icon="puzzle">
+    Auth, rate limiting, armazenamento, proxy, logs, métricas — tudo vive em plugins
+    carregados de um diretório. Adicione capacidades sem modificar o núcleo.
+  </Card>
+  <Card title="Interfaces como micro-frontends" icon="laptop">
+    Qualquer app ou plugin que entregue um `index.html` vira um iframe em um shell
+    compartilhado, independentemente do framework em que foi construído.
+  </Card>
+</CardGrid>
+
+## As peças
+
+| Peça | O que é |
+|------|---------|
+| [Runtime](/pt/concepts/runtime/) | O processo principal Bun + Hono: startup, pipeline de requisições, roteamento em camadas, shutdown gracioso. |
+| [Pool de workers](/pt/concepts/worker-pool/) | Um cache LRU de workers do Bun com ciclo de vida, TTL deslizante, limites de concorrência efêmera e métricas. |
+| [Sistema de plugins](/pt/concepts/plugin-system/) | Autodescoberta, modos persistente vs serverless, um schema de manifest, hooks de ciclo de vida e compartilhamento de serviços. |
+| [Micro-frontend](/pt/concepts/micro-frontend/) | O shell que hospeda apps e UIs de plugins como iframes via `@zomme/frame`. |
+| [Pacotes](/pt/packages/shared/) | `@buntime/shared` (tipos, erros, utilitários — publicado no JSR) e `@buntime/keyval`. |
+| [Plataforma](/pt/platform/multi-tenant/) | Um SaaS multi-tenant de referência construído sobre o runtime. |
+
+## Como uma requisição flui
+
+```
+Requisição
+  → verificação CSRF (só /api/*)
+  → hooks onRequest        (auth, rate limit, métricas — podem curto-circuitar)
+  → API do runtime          (/api/* ou /_/api/*)
+  → plugin.server.fetch     (handlers diretos de plugin)
+  → plugin.routes           (apps Hono montados na base do plugin)
+  → apps de plugin          (pool de workers — iframes z-frame)
+  → apps de worker          (/:app/* resolvidos a partir dos diretórios de workers)
+  → fallback de homepage / 404
+  → hooks onResponse
+Resposta
+```
+
+Rotas mais específicas (plugins) sempre vencem as genéricas (workers). A tabela
+completa de prioridade está em [Runtime → Roteamento](/pt/concepts/runtime/#roteamento--em-camadas).
+
+<Aside type="note" title="Escopo">
+  O Buntime é infraestrutura puramente técnica — não há regras de negócio
+  embutidas. Produtos que rodam *sobre* o runtime definem sua própria lógica de
+  domínio nos seus próprios workers e plugins.
+</Aside>
+
+## Para onde ir agora
+
+- Novo por aqui? Comece pela [filosofia](/pt/start/philosophy/) para entender os
+  princípios de design, depois [comece a usar](/pt/start/getting-started/).
+- Construindo um app para rodar no Buntime? Leia o [pool de workers](/pt/concepts/worker-pool/).
+- Estendendo o runtime? Leia [escrever um plugin](/pt/guides/writing-a-plugin/).

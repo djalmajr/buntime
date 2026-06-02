@@ -25,7 +25,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/zommehq/buntime/apps/turso-server/internal/server"
+	"github.com/djalmajr/buntime/apps/turso-server/internal/server"
 )
 
 const shutdownTimeout = 10 * time.Second

@@ -52,5 +52,5 @@ Key values to configure:
 
 ## Links
 
-- [Source Code](https://github.com/zommehq/buntime)
-- [Documentation](https://github.com/zommehq/buntime/tree/main/apps/runtime/docs)
+- [Source Code](https://github.com/djalmajr/buntime)
+- [Documentation](https://github.com/djalmajr/buntime/tree/main/apps/runtime/docs)

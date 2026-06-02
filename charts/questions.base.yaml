@@ -269,7 +269,7 @@ questions:
     label: "Turso server image repository"
     description: "Docker image repository for the turso-server supervisor."
     type: string
-    default: "ghcr.io/zommehq/turso-server"
+    default: "ghcr.io/djalmajr/turso-server"
     show_if: "tursoServer.enabled=true"
     group: "Turso Server"
 
@@ -392,7 +392,7 @@ questions:
     label: "Backup image repository"
     description: "Slim image bundling sh + curl + jq + mc. Built from apps/turso-server/backup.Dockerfile."
     type: string
-    default: "ghcr.io/zommehq/turso-backup"
+    default: "ghcr.io/djalmajr/turso-backup"
     show_if: "tursoServer.backup.enabled=true"
     group: "Turso Backup"
 

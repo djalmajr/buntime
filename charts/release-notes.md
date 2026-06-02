@@ -1,3 +1,9 @@
+## What's New in 0.4.3
+
+### Project
+- **Repository moved** from `zommehq/buntime` to `djalmajr/buntime`; the documentation site is now https://buntime.djalmajr.dev.
+- Default image repositories now point at `ghcr.io/djalmajr/*` (`buntime`, `turso-server`, `turso-backup`) to match the new owner. Chart `home`/`sources`, maintainer, and the Helm catalog repository (`djalmajr/charts`) were updated accordingly.
+
 ## What's New in 0.4.2
 
 ### Runtime / cpanel auth (bug fixes)
@@ -21,7 +27,7 @@
 - **`plugin-proxy` forwards `x-forwarded-for` / `x-forwarded-host` / `x-forwarded-proto` + `x-real-ip`** on proxied requests, so upstreams that require them work behind the proxy.
 
 ### Charts
-- Default image registry is now `ghcr.io/zommehq/*`.
+- Default image registry is now `ghcr.io/djalmajr/*`.
 
 ### Project
 - The repository is now public and generic: client-, personal-, and local-environment identifiers were removed throughout the code, charts, and wiki in favor of neutral placeholders.
@@ -71,4 +77,4 @@
 ### Helm chart
 - **Turso questions overhaul**: the Rancher catalog form now exposes every operationally-relevant `tursoServer.*` knob. The "Turso Server" tab covers image, ports, resources, persistence, namespace lifecycle, and tokens. A new "Turso Backup" tab drives the snapshot CronJob (schedule, retention, image, S3 endpoint/bucket/region/credentials/pathStyle).
 - Litestream questions kept but **marked DEPRECATED** in their descriptions. Litestream cannot coexist with `tursodb --sync-server` (file-lock contention) and replication fails silently — use the new Turso Backup tab instead.
-- Default `image.repository` switched to `ghcr.io/zommehq/buntime` to match the GitLab CI pipeline. Pinned `image.tag: 0.3.0`.
+- Default `image.repository` switched to `ghcr.io/djalmajr/buntime` to match the GitLab CI pipeline. Pinned `image.tag: 0.3.0`.

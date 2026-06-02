@@ -26,7 +26,7 @@ jobs:
       - name: Generate Helm files
         run: bun scripts/generate-helm.ts
 
-      - name: Sync to zommehq/charts
+      - name: Sync to djalmajr/charts
         run: |
           VERSION=$(grep '^version:' charts/Chart.yaml | awk '{print $2}')
           echo "Chart version: $VERSION"
@@ -41,7 +41,7 @@ jobs:
           fi
 
           # Clone charts repo
-          git clone https://x-access-token:${{ secrets.CHARTS_PAT }}@github.com/zommehq/charts.git /tmp/charts
+          git clone https://x-access-token:${{ secrets.CHARTS_PAT }}@github.com/djalmajr/charts.git /tmp/charts
 
           # Create versioned directory (preserves previous versions)
           mkdir -p /tmp/charts/charts/buntime/"$VERSION"

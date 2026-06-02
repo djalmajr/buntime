@@ -165,7 +165,7 @@ Three workflows publish public infrastructure:
 | Workflow | Triggers on | Output |
 |----------|-------------|--------|
 | `docker-publish.yml` | Tags `v*.*.*` | Image `ghcr.io/djalmajr/buntime:{tag,latest,major,major.minor}` |
-| `helm-publish.yml` | Push to `main` touching `charts/**` or `plugins/*/manifest.yaml` | Sync to `zommehq/charts` |
+| `helm-publish.yml` | Push to `main` touching `charts/**` or `plugins/*/manifest.yaml` | Sync to `djalmajr/charts` |
 | `jsr-publish.yml` | `workflow_dispatch` | `@buntime/shared` on JSR via OIDC |
 
 ### Docker image
@@ -183,7 +183,7 @@ The image contains the runtime + all built-in plugins. The `deployment.yaml` tem
 
 ### Chart sync
 
-`zommehq/charts` is the public catalog repository. Rancher detects a higher `Chart.yaml:version` and displays "Upgrade Available". The publish workflow uses `release-notes.md` to generate the catalog entry.
+`djalmajr/charts` is the public catalog repository. Rancher detects a higher `Chart.yaml:version` and displays "Upgrade Available". The publish workflow uses `release-notes.md` to generate the catalog entry.
 
 Retention: `30` days by default (`CLI_ARTIFACT_RETENTION_DAYS`).
 
@@ -268,7 +268,7 @@ Plugin/manifest changed (no runtime change)
     → package.json:version = 0.2.27
     → tag v0.2.27 + push
       → CI: GHCR image updated
-      → CI: chart synced to zommehq/charts
+      → CI: chart synced to djalmajr/charts
       → Rancher detects upgrade
 
 Runtime changed

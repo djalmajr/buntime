@@ -5,13 +5,13 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/zommehq/buntime
+  repository: ghcr.io/djalmajr/buntime
   tag: "0.3.0"
   pullPolicy: Always
 
 # Test: GitLab local registry
 # image:
-#   repository: ghcr.io/zommehq/buntime
+#   repository: ghcr.io/djalmajr/buntime
 #   tag: latest
 #   pullPolicy: Always
 # imagePullSecrets:
@@ -174,7 +174,7 @@ tursoServer:
     # turso-server: Go binary that supervises N `tursodb --sync-server`
     # processes and proxies clients into them by namespace. Built from
     # `apps/turso-server/Dockerfile`.
-    repository: "ghcr.io/zommehq/turso-server"
+    repository: "ghcr.io/djalmajr/turso-server"
     tag: "0.1.0"
     pullPolicy: IfNotPresent
   service:
@@ -219,7 +219,7 @@ tursoServer:
       # Custom slim image with sh + curl + jq + mc (built from
       # apps/turso-server/backup.Dockerfile). The official `minio/mc`
       # image is shell-less and cannot run the loop below directly.
-      repository: "ghcr.io/zommehq/turso-backup"
+      repository: "ghcr.io/djalmajr/turso-backup"
       tag: "0.1.0"
       pullPolicy: IfNotPresent
     # How many backups to keep per namespace in the bucket. The CronJob

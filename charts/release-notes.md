@@ -1,3 +1,8 @@
+## What's New in 0.4.4
+
+### Charts
+- **`image.tag` now defaults to the chart version.** The default was a hardcoded `0.3.0` that no longer existed in `ghcr.io/djalmajr/buntime`, so a default install rendered an unpullable image. The StatefulSet template now resolves `image.tag | default .Chart.Version`, and `values.base.yaml` ships an empty `tag` — the image tracks each release automatically. Override `image.tag` only to pin a specific build.
+
 ## What's New in 0.4.3
 
 ### Project

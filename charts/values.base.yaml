@@ -6,7 +6,9 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/djalmajr/buntime
-  tag: "0.3.0"
+  # Empty tag falls back to the chart version (.Chart.Version) so the image
+  # tracks the release automatically. Override only to pin a specific build.
+  tag: ""
   pullPolicy: Always
 
 # Test: GitLab local registry

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 430" fill="none" role="img" aria-label="One Bun process orchestrates many isolated workers">
+  <defs>
+    <linearGradient id="bt-amber" x1="120" y1="86" x2="480" y2="182" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fbbf24"/>
+      <stop offset="0.6" stop-color="#f59e0b"/>
+      <stop offset="1" stop-color="#ec4899"/>
+    </linearGradient>
+    <marker id="bt-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <!-- incoming request -->
+  <rect x="240" y="20" width="120" height="34" rx="17" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="300" y="42" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#94a3b8">Request</text>
+  <line x1="300" y1="54" x2="300" y2="82" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#bt-arrow)"/>
+
+  <!-- runtime: the one main process -->
+  <rect x="120" y="86" width="360" height="96" rx="20" fill="url(#bt-amber)"/>
+  <text x="300" y="122" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-weight="700" font-size="24" fill="#ffffff">Runtime</text>
+  <text x="300" y="146" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#ffffff" fill-opacity="0.92">orchestrates &#183; routes &#183; plugin hooks</text>
+  <text x="300" y="166" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11.5" fill="#ffffff" fill-opacity="0.8">never runs your application code</text>
+
+  <!-- dispatch to isolated workers -->
+  <path d="M300 182 C300 218 175 214 175 248" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#bt-arrow)"/>
+  <line x1="300" y1="182" x2="300" y2="248" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#bt-arrow)"/>
+  <path d="M300 182 C300 218 425 214 425 248" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#bt-arrow)"/>
+
+  <!-- worker cards (cream so they read on light + dark) -->
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+    <rect x="119" y="250" width="112" height="98" rx="16" fill="#fff7ec" stroke="#f59e0b" stroke-width="1.5"/>
+    <rect x="160" y="268" width="30" height="30" rx="8" fill="#fb923c"/>
+    <circle cx="182" cy="275" r="2.6" fill="#ffffff"/>
+    <text x="175" y="327" text-anchor="middle" font-size="13" font-weight="600" fill="#9a3412">worker</text>
+
+    <rect x="244" y="250" width="112" height="98" rx="16" fill="#fff7ec" stroke="#f59e0b" stroke-width="1.5"/>
+    <rect x="285" y="268" width="30" height="30" rx="8" fill="#fb923c"/>
+    <circle cx="307" cy="275" r="2.6" fill="#ffffff"/>
+    <text x="300" y="327" text-anchor="middle" font-size="13" font-weight="600" fill="#9a3412">worker</text>
+
+    <rect x="369" y="250" width="112" height="98" rx="16" fill="#fff7ec" stroke="#f59e0b" stroke-width="1.5"/>
+    <rect x="410" y="268" width="30" height="30" rx="8" fill="#fb923c"/>
+    <circle cx="432" cy="275" r="2.6" fill="#ffffff"/>
+    <text x="425" y="327" text-anchor="middle" font-size="13" font-weight="600" fill="#9a3412">worker</text>
+  </g>
+
+  <text x="300" y="388" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12.5" fill="#94a3b8">isolated Bun workers &#8212; one heap each, crash-safe</text>
+</svg>

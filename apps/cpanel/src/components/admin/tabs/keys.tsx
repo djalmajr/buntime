@@ -223,6 +223,14 @@ export function KeysTab({
 
   return (
     <div className="grid gap-4 p-4">
+      {can("keys:create") && (
+        <div className="flex items-center justify-end">
+          <Button onClick={() => onCreateOpenChange(true)} size="sm" type="button">
+            <Icon className="size-4" icon="lucide:plus" />
+            {t("admin.keys.createTitle")}
+          </Button>
+        </div>
+      )}
       {keys$.isLoading ? (
         <EmptyState>{t("admin.common.loading")}</EmptyState>
       ) : !keys$.data?.keys.length ? (

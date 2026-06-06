@@ -49,6 +49,105 @@ export interface CorsConfig {
 const DEFAULT_METHODS = ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"];
 
 /**
+ * A named, per-domain CORS rule. Each rule declares which origins it applies
+ * to and the policy granted to them. Requests are matched against the rule
+ * whose `origins` cover the request's Origin; unmatched origins get no CORS
+ * headers (deny by default). An explicit `"*"` origin acts as a catch-all.
+ */
+export interface CorsRule {
+  /** Stable identifier */
+  id: string;
+  /** Human-friendly label shown in the UI */
+  name: string;
+  /** Origins this rule applies to: exact ("https://app.x.com"), subdomain wildcard ("*.x.com"), or "*" */
+  origins: string[];
+  /** Allowed HTTP methods */
+  methods?: string[];
+  /** Allowed request headers (empty reflects Access-Control-Request-Headers) */
+  allowedHeaders?: string[];
+  /** Headers exposed to the browser */
+  exposedHeaders?: string[];
+  /** Allow credentials (cookies/auth). Cannot combine with a "*" origin. */
+  credentials?: boolean;
+  /** Preflight cache duration (seconds) */
+  maxAge?: number;
+  /** When the rule was created */
+  createdAt?: number;
+}
+
+/**
+ * Check whether a request Origin matches a single origin pattern.
+ * Supports exact match, subdomain wildcard (`*.example.com`), and `*`.
+ */
+export function originMatchesPattern(origin: string, pattern: string): boolean {
+  if (pattern === "*") return true;
+  if (pattern === origin) return true;
+
+  if (pattern.startsWith("*.")) {
+    const suffix = pattern.slice(1); // ".example.com"
+    let host = origin;
+    try {
+      host = new URL(origin).host;
+    } catch {
+      // origin is not a full URL; fall back to suffix match on the raw value
+    }
+    return host.endsWith(suffix);
+  }
+
+  return false;
+}
+
+/**
+ * Find the rule that applies to a request Origin. Specific (non-`*`) matches
+ * win over a catch-all `"*"` rule.
+ */
+export function matchCorsRule(origin: string, rules: CorsRule[]): CorsRule | null {
+  let wildcard: CorsRule | null = null;
+
+  for (const rule of rules) {
+    for (const pattern of rule.origins) {
+      if (pattern === "*") {
+        wildcard ??= rule;
+        continue;
+      }
+      if (originMatchesPattern(origin, pattern)) {
+        return rule;
+      }
+    }
+  }
+
+  return wildcard;
+}
+
+/**
+ * Resolve the effective single-origin CorsConfig for a request from the rule
+ * list, or `null` when the origin is absent or unmatched (deny by default).
+ * The returned config feeds the existing header builders.
+ */
+export function resolveCors(req: Request, rules: CorsRule[]): CorsConfig | null {
+  const origin = req.headers.get("Origin");
+  if (!origin || rules.length === 0) return null;
+
+  const rule = matchCorsRule(origin, rules);
+  if (!rule) return null;
+
+  const isWildcard = rule.origins.includes("*");
+  const credentials = rule.credentials ?? false;
+
+  return {
+    // Reflect the specific origin unless this is a wildcard rule without
+    // credentials (where a literal "*" is valid and cache-friendly).
+    origin: isWildcard && !credentials ? "*" : origin,
+    methods: rule.methods,
+    allowedHeaders: rule.allowedHeaders,
+    exposedHeaders: rule.exposedHeaders,
+    credentials,
+    maxAge: rule.maxAge,
+    preflight: rule.origins.length > 0,
+  };
+}
+
+/**
  * Check if origin is allowed
  */
 function isOriginAllowed(origin: string, config: CorsConfig): boolean {

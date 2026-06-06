@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type { TursoService } from "@buntime/plugin-turso";
 import type { ApiKeyStore } from "@buntime/shared/api-keys";
 import { createApiKeyMiddleware } from "@buntime/shared/middleware/api-key";
@@ -6,7 +7,13 @@ import { loadManifestConfig } from "@buntime/shared/utils/buntime-config";
 import { parseWorkerConfig, type WorkerConfig } from "@buntime/shared/utils/worker-config";
 import type { MiddlewareHandler } from "hono";
 import { createGatewayApi, type GatewayApiDeps } from "./server/api";
-import { handlePreflight } from "./server/cors";
+import {
+  addCorsHeaders,
+  type CorsConfig,
+  type CorsRule,
+  handlePreflight,
+  resolveCors,
+} from "./server/cors";
 import {
   createPersistence,
   type GatewayPersistence,
@@ -51,11 +58,32 @@ let config: GatewayConfig = {};
 let rateLimitExcludePatterns: RegExp[] = [];
 let logger: PluginContext["logger"];
 
+// Per-domain CORS rules, loaded from Turso at init and editable at runtime.
+// The request path matches the incoming Origin against these rules.
+let corsRules: CorsRule[] = [];
+
 // Micro-frontend shell state
 let pool: PoolLike | null = null;
 let shell: ResolvedShell | null = null;
 let shellEnvExcludes: Set<string> = new Set();
 let shellTursoExcludes: Set<string> = new Set();
+// Shell dir seed (ConfigMap/env/manifest) and whether a runtime DB override is active.
+let shellSeedDir: string | undefined;
+let shellDirOverride = false;
+
+const SHELL_DIR_SETTING = "shell_dir";
+
+/**
+ * Resolve a shell directory into a ResolvedShell (loads its manifest worker
+ * config). Throws if the directory is missing or has no valid manifest.
+ */
+async function resolveShell(dir: string): Promise<ResolvedShell> {
+  if (!existsSync(dir)) {
+    throw new Error(`Shell directory does not exist: ${dir}`);
+  }
+  const manifestConfig = await loadManifestConfig(dir);
+  return { dir, config: parseWorkerConfig(manifestConfig) };
+}
 
 // Runtime API path (from context)
 let apiPath: string = "/api";
@@ -96,6 +124,74 @@ function getRateLimitKey(
 
 function isExcluded(pathname: string, patterns: RegExp[]): boolean {
   return patterns.some((p) => p.test(pathname));
+}
+
+/**
+ * Build the base CORS config from the manifest, applying env-var overrides
+ * (`GATEWAY_CORS_ORIGIN`, `GATEWAY_CORS_CREDENTIALS`) on top. This is the
+ * deploy-time default; a persisted runtime override (Turso) takes precedence
+ * over it. Returns `undefined` when CORS is not configured anywhere.
+ */
+function buildBaseCors(manifestCors: CorsConfig | undefined): CorsConfig | undefined {
+  const envOrigin = Bun.env.GATEWAY_CORS_ORIGIN;
+  const envCredentials = Bun.env.GATEWAY_CORS_CREDENTIALS;
+
+  if (!manifestCors && envOrigin === undefined && envCredentials === undefined) {
+    return undefined;
+  }
+
+  const base: CorsConfig = { ...(manifestCors ?? {}) };
+
+  if (envOrigin !== undefined) {
+    base.origin = parseOrigin(envOrigin);
+  }
+  if (envCredentials !== undefined) {
+    base.credentials = envCredentials === "true";
+  }
+
+  return base;
+}
+
+/**
+ * Normalize an origin string into the CorsConfig shape: "*" stays a wildcard,
+ * a single value stays a string, and a comma/space separated list becomes an
+ * array.
+ */
+export function parseOrigin(value: string): string | string[] {
+  const trimmed = value.trim();
+  if (trimmed === "*") return "*";
+  const list = trimmed
+    .split(/[\s,]+/)
+    .map((o) => o.trim())
+    .filter(Boolean);
+  return list.length <= 1 ? (list[0] ?? "*") : list;
+}
+
+/**
+ * Convert a single CorsConfig (manifest/env base) into a seed CorsRule used
+ * to bootstrap the rule list on first run.
+ */
+function corsConfigToRule(cors: CorsConfig): CorsRule {
+  let origins: string[];
+  if (cors.origin === undefined || cors.origin === "*" || typeof cors.origin === "function") {
+    origins = ["*"];
+  } else if (Array.isArray(cors.origin)) {
+    origins = cors.origin.length ? cors.origin : ["*"];
+  } else {
+    origins = [cors.origin];
+  }
+
+  return {
+    id: crypto.randomUUID(),
+    name: origins.includes("*") ? "All origins" : "Default",
+    origins,
+    methods: cors.methods ?? ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
+    allowedHeaders: cors.allowedHeaders ?? [],
+    exposedHeaders: cors.exposedHeaders ?? [],
+    credentials: cors.credentials ?? false,
+    maxAge: cors.maxAge ?? 86400,
+    createdAt: Date.now(),
+  };
 }
 
 /**
@@ -161,12 +257,58 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
       shell
         ? {
             dir: shell.dir,
+            source: shellDirOverride ? ("override" as const) : ("default" as const),
+            seedDir: shellSeedDir ?? null,
             envExcludes: shellEnvExcludes,
             tursoExcludes: shellTursoExcludes,
             addTursoExclude: (basename: string) => shellTursoExcludes.add(basename),
             removeTursoExclude: (basename: string) => shellTursoExcludes.delete(basename),
           }
         : null,
+    setShellDir: async (dir: string) => {
+      if (!pool) {
+        throw new Error("Worker pool is not available; cannot configure the shell");
+      }
+      // Validates the directory (throws if missing/invalid) before swapping.
+      const next = await resolveShell(dir);
+      shell = next;
+      shellDirOverride = true;
+      await persistence.setSetting(SHELL_DIR_SETTING, dir);
+      logger?.info(`Shell dir override set: ${dir}`);
+    },
+    resetShellDir: async () => {
+      await persistence.deleteSetting(SHELL_DIR_SETTING);
+      shellDirOverride = false;
+      if (shellSeedDir && pool) {
+        try {
+          shell = await resolveShell(shellSeedDir);
+        } catch {
+          shell = null;
+        }
+      } else {
+        shell = null;
+      }
+      logger?.info("Shell dir override cleared, reverted to ConfigMap/env seed");
+    },
+    getCorsRules: () => corsRules,
+    saveCorsRule: async (rule: CorsRule) => {
+      await persistence.saveCorsRule(rule);
+      const idx = corsRules.findIndex((r) => r.id === rule.id);
+      if (idx >= 0) {
+        corsRules[idx] = rule;
+      } else {
+        corsRules.push(rule);
+      }
+      logger?.info(`CORS rule saved: ${rule.name} (${rule.origins.join(", ")})`);
+    },
+    deleteCorsRule: async (id: string) => {
+      const removed = await persistence.deleteCorsRule(id);
+      if (removed) {
+        corsRules = corsRules.filter((r) => r.id !== id);
+        logger?.info(`CORS rule deleted: ${id}`);
+      }
+      return removed;
+    },
     sseInterval: 1000,
   };
 
@@ -197,35 +339,33 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
         logger.info(`Rate limiting: ${requests} requests per ${config.rateLimit.window ?? "1m"}`);
       }
 
-      // Log CORS config
-      if (config.cors) {
-        logger.info(`CORS enabled: origin=${JSON.stringify(config.cors.origin)}`);
+      // The base CORS (manifest + env) is used only to seed an initial rule
+      // when no rules exist yet (see persistence init below).
+      const baseCors = buildBaseCors(config.cors);
+
+      // Capture the pool up front so the shell can be (re)configured at runtime
+      // even when no seed directory was provided at boot.
+      if (ctx.pool) {
+        pool = ctx.pool as PoolLike;
       }
 
-      // Initialize micro-frontend shell
-      const shellPath = Bun.env.GATEWAY_SHELL_DIR || config.shellDir;
-      if (shellPath && ctx.pool) {
-        pool = ctx.pool as PoolLike;
-
+      // Initialize micro-frontend shell. ConfigMap/env (GATEWAY_SHELL_DIR) or the
+      // manifest provide the seed directory; a DB override (loaded below) wins.
+      shellSeedDir = Bun.env.GATEWAY_SHELL_DIR || config.shellDir || undefined;
+      if (shellSeedDir && pool) {
         try {
-          const manifestConfig = await loadManifestConfig(shellPath);
-          const shellConfig = parseWorkerConfig(manifestConfig);
-
-          shell = {
-            dir: shellPath,
-            config: shellConfig,
-          };
-          logger.info(`Micro-frontend shell: ${shellPath}`);
-
-          // Parse shell excludes from env var and config
-          const envExcludes = Bun.env.GATEWAY_SHELL_EXCLUDES || config.shellExcludes || "";
-          shellEnvExcludes = parseBasenames(envExcludes);
-          if (shellEnvExcludes.size > 0) {
-            logger.info(`Shell bypass basenames: ${Array.from(shellEnvExcludes).join(", ")}`);
-          }
+          shell = await resolveShell(shellSeedDir);
+          logger.info(`Micro-frontend shell: ${shellSeedDir}`);
         } catch (err) {
-          logger.error(`Failed to load shell config from ${shellPath}`, { error: err });
+          logger.error(`Failed to load shell config from ${shellSeedDir}`, { error: err });
         }
+      }
+
+      // Parse shell excludes from env var and config (the non-removable seed set)
+      const envExcludes = Bun.env.GATEWAY_SHELL_EXCLUDES || config.shellExcludes || "";
+      shellEnvExcludes = parseBasenames(envExcludes);
+      if (shellEnvExcludes.size > 0) {
+        logger.info(`Shell bypass basenames: ${Array.from(shellEnvExcludes).join(", ")}`);
       }
 
       // Initialize persistence with Turso
@@ -241,6 +381,34 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
             logger.info(
               `Loaded ${persistedExcludes.length} shell excludes from Turso: ${persistedExcludes.join(", ")}`,
             );
+          }
+
+          // Load persisted shell dir override (wins over the ConfigMap/env seed)
+          const shellDirOverrideValue = await persistence.getSetting(SHELL_DIR_SETTING);
+          if (shellDirOverrideValue && pool) {
+            try {
+              shell = await resolveShell(shellDirOverrideValue);
+              shellDirOverride = true;
+              logger.info(`Loaded shell dir override from Turso: ${shellDirOverrideValue}`);
+            } catch (err) {
+              logger.error(
+                `Persisted shell dir override is invalid (${shellDirOverrideValue}), keeping seed`,
+                { error: err },
+              );
+            }
+          }
+
+          // Load persisted CORS rules. If none exist yet, seed one from the
+          // manifest/env base so existing deployments keep their behavior.
+          corsRules = await persistence.getCorsRules();
+          if (corsRules.length === 0 && baseCors) {
+            const seed = corsConfigToRule(baseCors);
+            await persistence.saveCorsRule(seed);
+            corsRules = [seed];
+            logger.info(`Seeded initial CORS rule: ${seed.name} (${seed.origins.join(", ")})`);
+          }
+          if (corsRules.length > 0) {
+            logger.info(`Loaded ${corsRules.length} CORS rule(s) from Turso`);
           }
 
           // Start metrics snapshot collection
@@ -305,9 +473,10 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
         }
       }
 
-      // 1. Handle CORS preflight
-      if (config.cors) {
-        const preflightResponse = handlePreflight(req, config.cors);
+      // 1. Handle CORS preflight (per-domain rule matched against the Origin)
+      const preflightCors = resolveCors(req, corsRules);
+      if (preflightCors) {
+        const preflightResponse = handlePreflight(req, preflightCors);
         if (preflightResponse) {
           return preflightResponse;
         }
@@ -358,31 +527,15 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
       return;
     },
 
-    async onResponse(res, _app) {
-      // Note: onResponse doesn't receive original request, so we can't log here
-      // Requests are logged in onRequest for rate-limited cases
-
-      // Add CORS headers
-      if (config.cors) {
-        const headers = new Headers(res.headers);
-
-        if (config.cors.origin === "*") {
-          headers.set("Access-Control-Allow-Origin", "*");
+    async onResponse(res, _app, req) {
+      // Add CORS headers based on the per-domain rule matching the request
+      // Origin. `req` is the request that produced this response (threaded by
+      // the runtime); without it we cannot reflect a specific origin.
+      if (req) {
+        const cors = resolveCors(req, corsRules);
+        if (cors) {
+          return addCorsHeaders(req, res, cors);
         }
-
-        if (config.cors.credentials) {
-          headers.set("Access-Control-Allow-Credentials", "true");
-        }
-
-        if (config.cors.exposedHeaders?.length) {
-          headers.set("Access-Control-Expose-Headers", config.cors.exposedHeaders.join(", "));
-        }
-
-        return new Response(res.body, {
-          status: res.status,
-          statusText: res.statusText,
-          headers,
-        });
       }
 
       return res;

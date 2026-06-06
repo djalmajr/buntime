@@ -133,7 +133,7 @@ function PlatformLayoutContent() {
   return (
     <MainLayout
       apps={apps}
-      breadcrumbs={breadcrumbs}
+      breadcrumbs={header?.breadcrumbs ?? breadcrumbs}
       groups={navGroups}
       header={header ?? undefined}
       LinkComponent={Link}

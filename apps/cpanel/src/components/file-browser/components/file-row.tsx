@@ -59,7 +59,6 @@ export function FileRow({
   const hasWarnings = validation?.warnings && validation.warnings.length > 0;
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: row-as-button pattern
     <tr
       className={`hover:bg-muted/50 border-b transition-colors ${
         entry.isDirectory ? "cursor-pointer" : ""

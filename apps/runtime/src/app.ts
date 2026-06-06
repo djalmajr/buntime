@@ -595,7 +595,9 @@ export function createApp({ apiKeys, coreRoutes, getWorkerDir, pool, registry, w
 
     // Helper to run onResponse hooks and add correlation ID
     const runOnResponse = async (response: Response): Promise<Response> => {
-      const processed = appInfo ? await registry.runOnResponse(response, appInfo) : response;
+      const processed = appInfo
+        ? await registry.runOnResponse(response, appInfo, processedReq)
+        : response;
       // Add correlation ID to response headers
       const headers = new globalThis.Headers(processed.headers);
       headers.set(Headers.REQUEST_ID, requestId);

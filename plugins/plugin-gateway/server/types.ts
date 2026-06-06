@@ -1,11 +1,18 @@
 import type { BasePluginConfig } from "@buntime/shared/types";
-import type { CorsConfig } from "./cors";
+import type { CorsConfig, CorsRule } from "./cors";
 import type { MetricsSnapshot, ShellExcludeEntry } from "./persistence";
 import type { BucketInfo, RateLimitMetrics } from "./rate-limit";
 import type { RequestLogEntry } from "./request-log";
 
 // Re-export types for convenience
-export type { BucketInfo, MetricsSnapshot, RateLimitMetrics, RequestLogEntry, ShellExcludeEntry };
+export type {
+  BucketInfo,
+  CorsRule,
+  MetricsSnapshot,
+  RateLimitMetrics,
+  RequestLogEntry,
+  ShellExcludeEntry,
+};
 
 /**
  * SSE data sent to clients in real-time
@@ -26,18 +33,18 @@ export interface GatewaySSEData {
     };
   } | null;
 
-  /** CORS configuration */
+  /** CORS configuration — per-domain rules */
   cors: {
     enabled: boolean;
-    origin: string | string[];
-    credentials: boolean;
-    methods: string[];
+    rules: CorsRule[];
   } | null;
 
   /** Shell configuration */
   shell: {
     enabled: boolean;
     dir: string;
+    source: "override" | "default";
+    seedDir: string | null;
     excludes: ShellExcludeEntry[];
   } | null;
 
@@ -59,7 +66,7 @@ export interface GatewayStats {
   /** CORS stats */
   cors: {
     enabled: boolean;
-    config: CorsConfig | null;
+    rulesCount: number;
   };
 
   /** Cache stats (currently disabled) */

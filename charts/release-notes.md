@@ -1,3 +1,17 @@
+## What's New in 0.5.1
+
+### Charts
+- **Removed the "Image Tag" question from the Rancher catalog form.** The chart
+  already resolves the image tag from the chart version
+  (`image.tag | default .Chart.Version`, with `image.tag: ""` by default), so a
+  separate Image Tag field was redundant and error-prone: selecting a new
+  Version while a previously-saved tag stayed pinned made the runtime serve the
+  old image (e.g. chart upgraded to 0.5.0 but image stuck at 0.4.4, showing the
+  old Gateway UI). The image now always tracks the chart version. To pin a
+  specific build, set `image.tag` via "Customize Helm options". Existing
+  releases that already pinned `image.tag` should clear it once (or set it to
+  the new version) on the next upgrade.
+
 ## What's New in 0.5.0
 
 ### Gateway plugin — runtime-editable configuration (no restart)

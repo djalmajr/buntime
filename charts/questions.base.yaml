@@ -513,12 +513,11 @@ questions:
     default: "500Mi"
     group: "Persistence"
 
-  - variable: image.tag
-    label: "Image Tag"
-    description: "Docker image tag (use 'latest' for most recent)"
-    type: string
-    default: "latest"
-    group: "Runtime"
+  # NOTE: no "Image Tag" question on purpose. The image tag defaults to the
+  # chart version (.Chart.Version) — see statefulset.yaml + values.tag: "".
+  # Exposing a separate tag field let it drift/pin (e.g. an upgrade bumped the
+  # chart to 0.5.0 while the saved tag stayed 0.4.4, serving the old image).
+  # To pin a specific build, set image.tag via "Customize Helm options".
 
   # ==================== INGRESS ====================
   - variable: ingress.host

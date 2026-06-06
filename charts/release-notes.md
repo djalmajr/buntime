@@ -1,3 +1,41 @@
+## What's New in 0.5.0
+
+### Gateway plugin — runtime-editable configuration (no restart)
+
+The gateway serves all other workers, so its configuration is now editable at
+runtime from the cPanel without restarting. The model across CORS and the
+micro-frontend shell is: **manifest defaults → ConfigMap/env seed → Turso DB
+override**, where the DB override wins and is applied immediately.
+
+- **CORS is now per-domain rules** instead of a single global config. Each rule
+  has a name, origins (exact, subdomain wildcard `*.example.com`, or `*`
+  catch-all), methods, allowed/exposed headers, credentials and max-age.
+  Matching denies by default (an Origin with no rule gets no CORS headers);
+  specific matches win over `*`. Rules are created/edited via a modal and
+  persisted in Turso (`gateway_cors_rules`); on first run a rule is seeded from
+  the manifest/env so existing deployments keep working. Credentials cannot
+  combine with a `*` origin.
+- **Shell directory is runtime-configurable** with a DB override seeded by
+  `GATEWAY_SHELL_DIR`; changing it validates the directory exists before
+  swapping the live shell (no restart). Shell excludes keep the env-seed (non
+  removable) + dynamic (DB) model.
+- **cPanel gateway UI overhaul**: aligned with the rest of the console (lucide
+  icons instead of emojis, breadcrumb-owned page title, line-style top tabs,
+  segmented Rate Limit sub-tabs — Configuration / Active Buckets / Blocked
+  Requests). New reusable data grid (search, column sorting, pagination with
+  page-size selector) backs the CORS rules, active buckets, blocked requests
+  and shell excludes lists. Destructive actions now require a confirmation
+  modal.
+
+### Runtime / plugin contract
+
+- **`onResponse` hook now receives the request**: `onResponse(res, app, req?)`
+  (optional third argument, backward-compatible). This lets response hooks make
+  per-request decisions — required for per-origin CORS reflection on the actual
+  response (the previous signature only allowed a wildcard `Access-Control-
+  Allow-Origin`). Threaded through `registry.runOnResponse` and the app request
+  pipeline. Published in `@buntime/shared` 1.4.0.
+
 ## What's New in 0.4.4
 
 ### Charts

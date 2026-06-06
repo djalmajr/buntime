@@ -2,6 +2,7 @@ import { createContext, type ReactNode, useContext, useState } from "react";
 
 interface HeaderState {
   actions?: ReactNode;
+  breadcrumbs?: { href?: string; label: string }[];
   description?: string;
   title?: ReactNode;
 }

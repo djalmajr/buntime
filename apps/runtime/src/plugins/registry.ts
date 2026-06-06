@@ -305,14 +305,14 @@ export class PluginRegistry {
    * Run onResponse hooks in order
    * Returns modified response
    */
-  async runOnResponse(res: Response, app: AppInfo): Promise<Response> {
+  async runOnResponse(res: Response, app: AppInfo, req?: Request): Promise<Response> {
     let currentRes = res;
 
     for (const plugin of this.getAll()) {
       if (!plugin.onResponse) continue;
 
       try {
-        currentRes = await plugin.onResponse(currentRes, app);
+        currentRes = await plugin.onResponse(currentRes, app, req);
       } catch (error) {
         this.logger.error(`[${plugin.name}] onResponse error`, { error });
         throw error;

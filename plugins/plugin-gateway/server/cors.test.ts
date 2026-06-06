@@ -5,6 +5,9 @@ import {
   buildPreflightHeaders,
   type CorsConfig,
   handlePreflight,
+  matchCorsRule,
+  originMatchesPattern,
+  resolveCors,
 } from "./cors";
 
 function createRequest(options: {
@@ -456,5 +459,62 @@ describe("addCorsHeaders", () => {
     const newRes = addCorsHeaders(req, res, config);
 
     expect(newRes.headers.get("Access-Control-Expose-Headers")).toBe("X-Request-Id");
+  });
+});
+
+describe("CORS rules (per-domain)", () => {
+  const rule = (overrides: Partial<import("./cors").CorsRule>): import("./cors").CorsRule => ({
+    id: "r1",
+    name: "Rule",
+    origins: ["*"],
+    methods: ["GET"],
+    ...overrides,
+  });
+
+  it("originMatchesPattern: exact, wildcard and subdomain", () => {
+    expect(originMatchesPattern("https://a.example.com", "*")).toBe(true);
+    expect(originMatchesPattern("https://a.example.com", "https://a.example.com")).toBe(true);
+    expect(originMatchesPattern("https://a.example.com", "https://b.example.com")).toBe(false);
+    expect(originMatchesPattern("https://a.example.com", "*.example.com")).toBe(true);
+    expect(originMatchesPattern("https://x.y.example.com", "*.example.com")).toBe(true);
+    expect(originMatchesPattern("https://example.com", "*.example.com")).toBe(false);
+    expect(originMatchesPattern("https://evil.com", "*.example.com")).toBe(false);
+  });
+
+  it("matchCorsRule: specific match wins over catch-all", () => {
+    const wild = rule({ id: "wild", origins: ["*"] });
+    const specific = rule({ id: "spec", origins: ["https://a.example.com"] });
+    const match = matchCorsRule("https://a.example.com", [wild, specific]);
+    expect(match?.id).toBe("spec");
+  });
+
+  it("matchCorsRule: falls back to catch-all when no specific match", () => {
+    const wild = rule({ id: "wild", origins: ["*"] });
+    const specific = rule({ id: "spec", origins: ["https://a.example.com"] });
+    const match = matchCorsRule("https://other.com", [wild, specific]);
+    expect(match?.id).toBe("wild");
+  });
+
+  it("resolveCors: returns null for unmatched origin (deny by default)", () => {
+    const req = createRequest({ headers: { Origin: "https://evil.com" } });
+    const rules = [rule({ origins: ["https://a.example.com"] })];
+    expect(resolveCors(req, rules)).toBeNull();
+  });
+
+  it("resolveCors: reflects specific origin and applies rule policy", () => {
+    const req = createRequest({ headers: { Origin: "https://app.example.com" } });
+    const rules = [
+      rule({ origins: ["*.example.com"], methods: ["GET", "POST"], credentials: true }),
+    ];
+    const cfg = resolveCors(req, rules);
+    expect(cfg?.origin).toBe("https://app.example.com");
+    expect(cfg?.credentials).toBe(true);
+    expect(cfg?.methods).toEqual(["GET", "POST"]);
+  });
+
+  it("resolveCors: wildcard rule without credentials yields '*'", () => {
+    const req = createRequest({ headers: { Origin: "https://anything.com" } });
+    const cfg = resolveCors(req, [rule({ origins: ["*"], credentials: false })]);
+    expect(cfg?.origin).toBe("*");
   });
 });

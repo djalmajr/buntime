@@ -1,6 +1,11 @@
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import type * as React from "react";
+import { createContext, useContext } from "react";
 import { cn } from "~/utils/cn";
+
+type TabsVariant = "segmented" | "line";
+
+const TabsVariantContext = createContext<TabsVariant>("segmented");
 
 function Tabs({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.Root>) {
   return (
@@ -12,25 +17,38 @@ function Tabs({ className, ...props }: React.ComponentProps<typeof TabsPrimitive
   );
 }
 
-function TabsList({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.List>) {
+function TabsList({
+  className,
+  variant = "segmented",
+  ...props
+}: React.ComponentProps<typeof TabsPrimitive.List> & { variant?: TabsVariant }) {
   return (
-    <TabsPrimitive.List
-      data-slot="tabs-list"
-      className={cn(
-        "bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-lg p-1",
-        className,
-      )}
-      {...props}
-    />
+    <TabsVariantContext.Provider value={variant}>
+      <TabsPrimitive.List
+        data-slot="tabs-list"
+        data-variant={variant}
+        className={cn(
+          variant === "segmented"
+            ? "inline-flex h-9 w-fit items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground"
+            : "inline-flex h-9 w-full items-center justify-start gap-4 border-b border-border text-muted-foreground",
+          className,
+        )}
+        {...props}
+      />
+    </TabsVariantContext.Provider>
   );
 }
 
 function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
+  const variant = useContext(TabsVariantContext);
   return (
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "data-[state=active]:bg-background data-[state=active]:text-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-2 text-sm font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-sm [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "inline-flex items-center justify-center gap-1.5 text-sm font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        variant === "segmented"
+          ? "h-7 flex-1 rounded-md border border-transparent px-2 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+          : "-mb-px h-9 rounded-none border-b-2 border-transparent px-1 hover:text-foreground data-[state=active]:border-foreground data-[state=active]:text-foreground",
         className,
       )}
       {...props}

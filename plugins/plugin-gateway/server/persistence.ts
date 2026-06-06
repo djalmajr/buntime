@@ -1,5 +1,41 @@
 import type { TursoBindValue, TursoDatabase, TursoService } from "@buntime/plugin-turso";
 import type { PluginLogger } from "@buntime/shared/types";
+import type { CorsRule } from "./cors";
+
+interface CorsRuleRow {
+  id: string;
+  name: string;
+  origins: string;
+  methods: string;
+  allowed_headers: string;
+  exposed_headers: string;
+  credentials: number;
+  max_age: number;
+  created_at: number;
+}
+
+function parseJsonArray(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rowToCorsRule(row: CorsRuleRow): CorsRule {
+  return {
+    id: row.id,
+    name: row.name,
+    origins: parseJsonArray(row.origins),
+    methods: parseJsonArray(row.methods),
+    allowedHeaders: parseJsonArray(row.allowed_headers),
+    exposedHeaders: parseJsonArray(row.exposed_headers),
+    credentials: row.credentials === 1,
+    maxAge: row.max_age,
+    createdAt: row.created_at,
+  };
+}
 
 /**
  * Gateway storage row for historical metrics.
@@ -100,6 +136,26 @@ export class GatewayPersistence {
         CREATE TABLE IF NOT EXISTS gateway_shell_excludes (
           basename TEXT PRIMARY KEY,
           added_at INTEGER NOT NULL
+        )
+      `);
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS gateway_cors_rules (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          origins TEXT NOT NULL,
+          methods TEXT NOT NULL,
+          allowed_headers TEXT NOT NULL,
+          exposed_headers TEXT NOT NULL,
+          credentials INTEGER NOT NULL,
+          max_age INTEGER NOT NULL,
+          created_at INTEGER NOT NULL
+        )
+      `);
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS gateway_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
         )
       `);
     });
@@ -357,6 +413,120 @@ export class GatewayPersistence {
     }
 
     return result;
+  }
+
+  // =========================================================================
+  // CORS Rules (per-domain, runtime-editable)
+  // =========================================================================
+
+  /**
+   * Get all persisted CORS rules, ordered by creation time.
+   *
+   * Rules are applied at runtime so operators can tune cross-origin policy
+   * per domain without restarting the gateway (which serves other workers and
+   * must stay available).
+   */
+  async getCorsRules(): Promise<CorsRule[]> {
+    if (!this.db) return [];
+
+    try {
+      const rows = await this.db
+        .prepare(
+          "SELECT id, name, origins, methods, allowed_headers, exposed_headers, credentials, max_age, created_at FROM gateway_cors_rules ORDER BY created_at ASC",
+        )
+        .all<CorsRuleRow>();
+      return rows.map(rowToCorsRule);
+    } catch (err) {
+      this.logger?.error("Failed to get CORS rules", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Insert or replace a CORS rule (keyed by id).
+   */
+  async saveCorsRule(rule: CorsRule): Promise<void> {
+    if (!this.turso) return;
+
+    await this.turso.transaction({ namespace: GATEWAY_NAMESPACE }, async (db) => {
+      await run(
+        db,
+        `INSERT OR REPLACE INTO gateway_cors_rules (
+          id, name, origins, methods, allowed_headers, exposed_headers, credentials, max_age, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          rule.id,
+          rule.name,
+          JSON.stringify(rule.origins),
+          JSON.stringify(rule.methods ?? []),
+          JSON.stringify(rule.allowedHeaders ?? []),
+          JSON.stringify(rule.exposedHeaders ?? []),
+          rule.credentials ? 1 : 0,
+          rule.maxAge ?? 86400,
+          rule.createdAt ?? Date.now(),
+        ],
+      );
+    });
+    this.logger?.debug(`Saved CORS rule: ${rule.name}`);
+  }
+
+  /**
+   * Delete a CORS rule by id.
+   * @returns true if a rule was removed
+   */
+  async deleteCorsRule(id: string): Promise<boolean> {
+    if (!this.turso) return false;
+
+    const removed = await this.turso.transaction({ namespace: GATEWAY_NAMESPACE }, async (db) => {
+      const result = await db.prepare("DELETE FROM gateway_cors_rules WHERE id = ?").run(id);
+      return result.changes > 0;
+    });
+    if (removed) this.logger?.debug(`Deleted CORS rule: ${id}`);
+    return removed;
+  }
+
+  // =========================================================================
+  // Settings (generic key/value — runtime overrides seeded by ConfigMap/env)
+  // =========================================================================
+
+  /** Read a persisted setting value, or null when unset. */
+  async getSetting(key: string): Promise<string | null> {
+    if (!this.db) return null;
+    try {
+      const row = await this.db
+        .prepare("SELECT value FROM gateway_settings WHERE key = ?")
+        .get<{ value: string }>(key);
+      return row?.value ?? null;
+    } catch (err) {
+      this.logger?.error("Failed to read setting", {
+        key,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
+
+  /** Persist a setting value (runtime override). */
+  async setSetting(key: string, value: string): Promise<void> {
+    if (!this.turso) return;
+    await this.turso.transaction({ namespace: GATEWAY_NAMESPACE }, async (db) => {
+      await run(
+        db,
+        "INSERT OR REPLACE INTO gateway_settings (key, value, updated_at) VALUES (?, ?, ?)",
+        [key, value, Date.now()],
+      );
+    });
+  }
+
+  /** Remove a setting override, reverting to the ConfigMap/env seed. */
+  async deleteSetting(key: string): Promise<boolean> {
+    if (!this.turso) return false;
+    return this.turso.transaction({ namespace: GATEWAY_NAMESPACE }, async (db) => {
+      const result = await db.prepare("DELETE FROM gateway_settings WHERE key = ?").run(key);
+      return result.changes > 0;
+    });
   }
 
   /**

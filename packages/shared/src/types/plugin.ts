@@ -555,9 +555,13 @@ export interface PluginImpl {
 
   /**
    * Called after response is generated (before sending to client)
-   * Return modified response
+   * Return modified response.
+   *
+   * `req` is the (possibly onRequest-modified) request that produced this
+   * response. It is optional for backward compatibility, but lets response
+   * hooks make per-request decisions (e.g. reflect the CORS Origin header).
    */
-  onResponse?: (res: Response, app: AppInfo) => Promise<Response> | Response;
+  onResponse?: (res: Response, app: AppInfo, req?: Request) => Promise<Response> | Response;
 
   /** Called when a worker is spawned */
   onWorkerSpawn?: (worker: WorkerInstance, app: AppInfo) => void;

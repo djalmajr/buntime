@@ -8,10 +8,12 @@ describe("Gateway API", () => {
   let deps: GatewayApiDeps;
   let tursoExcludes: Set<string>;
   let envExcludes: Set<string>;
+  let corsRules: import("./cors").CorsRule[];
 
   beforeEach(() => {
     tursoExcludes = new Set();
     envExcludes = new Set(["env-app"]);
+    corsRules = [];
 
     const mockPersistence = {
       isAvailable: () => true,
@@ -51,10 +53,25 @@ describe("Gateway API", () => {
       getPersistence: () => mockPersistence,
       getShellConfig: () => ({
         dir: "/test/shell",
+        source: "default" as const,
+        seedDir: "/test/shell",
         envExcludes,
         tursoExcludes,
         addTursoExclude: (b: string) => tursoExcludes.add(b),
         removeTursoExclude: (b: string) => tursoExcludes.delete(b),
+      }),
+      setShellDir: mock(async () => {}),
+      resetShellDir: mock(async () => {}),
+      getCorsRules: () => corsRules,
+      saveCorsRule: mock(async (rule) => {
+        const idx = corsRules.findIndex((r) => r.id === rule.id);
+        if (idx >= 0) corsRules[idx] = rule;
+        else corsRules.push(rule);
+      }),
+      deleteCorsRule: mock(async (id: string) => {
+        const had = corsRules.some((r) => r.id === id);
+        corsRules = corsRules.filter((r) => r.id !== id);
+        return had;
       }),
     };
   });
@@ -437,6 +454,114 @@ describe("Gateway API", () => {
       const logsRes = await app.request("/admin/logs");
       const logs = await logsRes.json();
       expect(logs).toHaveLength(0);
+    });
+  });
+
+  describe("CORS rules (per-domain)", () => {
+    it("POST /admin/cors/rules creates a rule", async () => {
+      const app = createGatewayApi(deps);
+
+      const res = await app.request("/admin/cors/rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Public API",
+          origins: "https://a.example.com, *.example.com",
+          methods: ["get", "post"],
+          credentials: true,
+          maxAge: 600,
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const data = await res.json();
+      expect(data.id).toBeTruthy();
+      expect(data.name).toBe("Public API");
+      expect(data.origins).toEqual(["https://a.example.com", "*.example.com"]);
+      expect(data.methods).toEqual(["GET", "POST"]);
+      expect(data.credentials).toBe(true);
+      expect(corsRules).toHaveLength(1);
+    });
+
+    it("requires a name and at least one origin", async () => {
+      const app = createGatewayApi(deps);
+
+      const noName = await app.request("/admin/cors/rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ origins: "*" }),
+      });
+      expect(noName.status).toBe(400);
+
+      const noOrigin = await app.request("/admin/cors/rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "x", origins: "" }),
+      });
+      expect(noOrigin.status).toBe(400);
+    });
+
+    it("rejects credentials with a wildcard origin", async () => {
+      const app = createGatewayApi(deps);
+
+      const res = await app.request("/admin/cors/rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "x", origins: "*", credentials: true }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects invalid HTTP methods", async () => {
+      const app = createGatewayApi(deps);
+
+      const res = await app.request("/admin/cors/rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "x", origins: "https://a.com", methods: ["GET", "FOO"] }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("PUT updates and DELETE removes a rule", async () => {
+      const app = createGatewayApi(deps);
+
+      const created = await (
+        await app.request("/admin/cors/rules", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Rule", origins: "https://a.com" }),
+        })
+      ).json();
+
+      const updated = await app.request(`/admin/cors/rules/${created.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Renamed", origins: "https://b.com" }),
+      });
+      expect(updated.status).toBe(200);
+      const updatedData = await updated.json();
+      expect(updatedData.name).toBe("Renamed");
+      expect(updatedData.id).toBe(created.id);
+
+      const del = await app.request(`/admin/cors/rules/${created.id}`, { method: "DELETE" });
+      expect(del.status).toBe(200);
+      expect((await del.json()).removed).toBe(true);
+      expect(corsRules).toHaveLength(0);
+    });
+
+    it("PUT returns 404 for an unknown rule", async () => {
+      const app = createGatewayApi(deps);
+
+      const res = await app.request("/admin/cors/rules/nope", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "x", origins: "https://a.com" }),
+      });
+
+      expect(res.status).toBe(404);
     });
   });
 });

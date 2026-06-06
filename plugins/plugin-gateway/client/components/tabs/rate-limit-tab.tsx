@@ -1,66 +1,28 @@
-import { useEffect, useState } from "react";
-import { Badge } from "~/components/ui/badge";
+import { useEffect, useMemo, useState } from "react";
+import { DataTable } from "~/components/data-table/data-table";
+import { DataTableColumnHeader } from "~/components/data-table/data-table-column-header";
+import { type ColumnDef, useDataTable } from "~/components/data-table/use-data-table";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
-import { ScrollArea } from "~/components/ui/scroll-area";
-import { Skeleton } from "~/components/ui/skeleton";
+import { Icon } from "~/components/ui/icon";
+import { Input } from "~/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { type BucketInfo, gatewayApi, type RateLimitMetrics } from "~/lib/api";
+import { LogsTab } from "./logs-tab";
+
+interface RateLimitConfig {
+  requests: number;
+  window: string;
+  keyBy: string;
+}
 
 interface RateLimitTabProps {
   metrics: RateLimitMetrics | null;
-  config: { requests: number; window: string; keyBy: string } | null;
+  config: RateLimitConfig | null;
+  initialLogs: import("~/lib/api").RequestLogEntry[];
 }
 
-export function RateLimitTab({ metrics, config }: RateLimitTabProps) {
-  const [buckets, setBuckets] = useState<BucketInfo[]>([]);
-  const [isLoadingBuckets, setIsLoadingBuckets] = useState(false);
-  const [isClearing, setIsClearing] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadBuckets = async () => {
-    setIsLoadingBuckets(true);
-    setError(null);
-    try {
-      const data = await gatewayApi.getRateLimitBuckets({ limit: 50, sortBy: "lastActivity" });
-      setBuckets(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load buckets");
-    } finally {
-      setIsLoadingBuckets(false);
-    }
-  };
-
-  const clearBucket = async (key: string) => {
-    setIsClearing(key);
-    try {
-      await gatewayApi.clearRateLimitBucket(key);
-      setBuckets((prev) => prev.filter((b) => b.key !== key));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to clear bucket");
-    } finally {
-      setIsClearing(null);
-    }
-  };
-
-  const clearAllBuckets = async () => {
-    setIsClearing("all");
-    try {
-      await gatewayApi.clearAllRateLimitBuckets();
-      setBuckets([]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to clear buckets");
-    } finally {
-      setIsClearing(null);
-    }
-  };
-
-  useEffect(() => {
-    loadBuckets();
-    // Refresh buckets every 5 seconds
-    const interval = setInterval(loadBuckets, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
+export function RateLimitTab({ metrics, config, initialLogs }: RateLimitTabProps) {
   if (!config) {
     return (
       <Card>
@@ -72,8 +34,37 @@ export function RateLimitTab({ metrics, config }: RateLimitTabProps) {
   }
 
   return (
+    <Tabs defaultValue="config" className="space-y-4">
+      <TabsList>
+        <TabsTrigger value="config">Configuration</TabsTrigger>
+        <TabsTrigger value="buckets">Active Buckets</TabsTrigger>
+        <TabsTrigger value="blocked">Blocked Requests</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="config">
+        <ConfigurationView config={config} metrics={metrics} />
+      </TabsContent>
+
+      <TabsContent value="buckets">
+        <ActiveBucketsView config={config} />
+      </TabsContent>
+
+      <TabsContent value="blocked">
+        <LogsTab initialLogs={initialLogs} />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function ConfigurationView({
+  config,
+  metrics,
+}: {
+  config: RateLimitConfig;
+  metrics: RateLimitMetrics | null;
+}) {
+  return (
     <div className="space-y-4">
-      {/* Configuration */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Configuration</CardTitle>
@@ -97,7 +88,6 @@ export function RateLimitTab({ metrics, config }: RateLimitTabProps) {
         </CardContent>
       </Card>
 
-      {/* Metrics */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Metrics</CardTitle>
@@ -133,83 +123,135 @@ export function RateLimitTab({ metrics, config }: RateLimitTabProps) {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
 
-      {/* Active Buckets */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="text-base">Active Buckets</CardTitle>
-            <CardDescription>
-              {buckets.length} client{buckets.length !== 1 ? "s" : ""} tracked
-            </CardDescription>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={loadBuckets} disabled={isLoadingBuckets}>
-              Refresh
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={clearAllBuckets}
-              disabled={isClearing !== null || buckets.length === 0}
-            >
-              Clear All
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {error && (
-            <div className="mb-4 p-2 bg-destructive/10 text-destructive text-sm rounded">
-              {error}
-            </div>
-          )}
+function ActiveBucketsView({ config }: { config: RateLimitConfig }) {
+  const [buckets, setBuckets] = useState<BucketInfo[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isClearing, setIsClearing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-          {isLoadingBuckets && buckets.length === 0 ? (
-            <div className="space-y-2">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          ) : buckets.length === 0 ? (
-            <p className="text-center text-muted-foreground py-4">No active buckets</p>
-          ) : (
-            <ScrollArea className="h-[300px]">
-              <div className="space-y-2">
-                {buckets.map((bucket) => (
-                  <div
-                    key={bucket.key}
-                    className="flex items-center justify-between p-3 border rounded-lg"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Badge
-                        variant={
-                          bucket.tokens < config.requests * 0.2 ? "destructive" : "secondary"
-                        }
-                      >
-                        {bucket.tokens.toFixed(0)} / {config.requests}
-                      </Badge>
-                      <span className="font-mono text-sm">{bucket.key}</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm text-muted-foreground">
-                        {formatTimeSince(bucket.lastActivity)}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => clearBucket(bucket.key)}
-                        disabled={isClearing !== null}
-                      >
-                        {isClearing === bucket.key ? "..." : "Clear"}
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
-          )}
-        </CardContent>
-      </Card>
+  const loadBuckets = async () => {
+    setError(null);
+    try {
+      const data = await gatewayApi.getRateLimitBuckets({ limit: 1000, sortBy: "lastActivity" });
+      setBuckets(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load buckets");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const clearBucket = async (key: string) => {
+    await gatewayApi.clearRateLimitBucket(key);
+    setBuckets((prev) => prev.filter((b) => b.key !== key));
+  };
+
+  const clearAll = async () => {
+    setIsClearing(true);
+    try {
+      await gatewayApi.clearAllRateLimitBuckets();
+      setBuckets([]);
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadBuckets();
+    const interval = setInterval(loadBuckets, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const columns = useMemo<ColumnDef<BucketInfo, unknown>[]>(
+    () => [
+      {
+        accessorKey: "key",
+        header: ({ column }) => <DataTableColumnHeader column={column} label="Client key" />,
+        cell: ({ row }) => <span className="font-mono text-xs">{row.original.key}</span>,
+      },
+      {
+        accessorKey: "tokens",
+        header: ({ column }) => <DataTableColumnHeader column={column} label="Tokens" />,
+        cell: ({ row }) => {
+          const low = row.original.tokens < config.requests * 0.2;
+          return (
+            <span className={low ? "font-medium text-destructive" : ""}>
+              {row.original.tokens.toFixed(0)} / {config.requests}
+            </span>
+          );
+        },
+      },
+      {
+        accessorKey: "lastActivity",
+        header: ({ column }) => <DataTableColumnHeader column={column} label="Last activity" />,
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">
+            {formatTimeSince(row.original.lastActivity)}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        header: () => <span className="sr-only">Actions</span>,
+        enableSorting: false,
+        enableGlobalFilter: false,
+        size: 80,
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            <Button onClick={() => clearBucket(row.original.key)} size="sm" variant="ghost">
+              Clear
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [config.requests],
+  );
+
+  const { table, globalFilter, setGlobalFilter } = useDataTable({ columns, data: buckets });
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        Per-client token buckets currently tracked by the rate limiter (keyed by{" "}
+        <code className="font-mono">{config.keyBy}</code>). Buckets refill over the configured
+        window and are evicted after inactivity.
+      </p>
+      {error && (
+        <div className="rounded bg-destructive/10 p-2 text-sm text-destructive">{error}</div>
+      )}
+      <DataTable isLoading={isLoading} labels={{ noResults: "No active buckets." }} table={table}>
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Icon
+              className="-translate-y-1/2 absolute top-1/2 left-2.5 size-4 text-muted-foreground"
+              icon="lucide:search"
+            />
+            <Input
+              className="h-9 pl-8"
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              placeholder="Search buckets by client key…"
+              value={globalFilter}
+            />
+          </div>
+          <Button onClick={loadBuckets} size="sm" variant="outline">
+            <Icon className="size-4" icon="lucide:refresh-cw" />
+            Refresh
+          </Button>
+          <Button
+            disabled={isClearing || buckets.length === 0}
+            onClick={clearAll}
+            size="sm"
+            variant="destructive"
+          >
+            Clear all
+          </Button>
+        </div>
+      </DataTable>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import type { CorsRule } from "../../server/cors";
 import type { MetricsSnapshot } from "../../server/persistence";
 import type {
   BucketInfo,
@@ -11,12 +12,24 @@ import { getApiBase } from "../helpers/sse";
 // Re-export types
 export type {
   BucketInfo,
+  CorsRule,
   GatewayStats,
   MetricsSnapshot,
   RateLimitMetrics,
   RequestLogEntry,
   ShellExcludeEntry,
 };
+
+/** Editable fields of a per-domain CORS rule (no id/createdAt) */
+export interface CorsRuleInput {
+  name: string;
+  origins: string[];
+  methods?: string[];
+  allowedHeaders?: string[];
+  exposedHeaders?: string[];
+  credentials?: boolean;
+  maxAge?: number;
+}
 
 /**
  * Gateway API client
@@ -77,6 +90,36 @@ class GatewayApi {
   }
 
   // =========================================================================
+  // CORS rules (per-domain, runtime-editable)
+  // =========================================================================
+
+  /** List all per-domain CORS rules */
+  async getCorsRules(): Promise<CorsRule[]> {
+    return this.fetch<CorsRule[]>("/admin/cors/rules");
+  }
+
+  /** Create a new CORS rule (persisted and applied immediately, no restart) */
+  async createCorsRule(rule: CorsRuleInput): Promise<CorsRule> {
+    return this.fetch<CorsRule>("/admin/cors/rules", {
+      method: "POST",
+      body: JSON.stringify(rule),
+    });
+  }
+
+  /** Update an existing CORS rule by id */
+  async updateCorsRule(id: string, rule: CorsRuleInput): Promise<CorsRule> {
+    return this.fetch<CorsRule>(`/admin/cors/rules/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(rule),
+    });
+  }
+
+  /** Delete a CORS rule by id */
+  async deleteCorsRule(id: string): Promise<{ removed: boolean }> {
+    return this.fetch(`/admin/cors/rules/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
+  // =========================================================================
   // Rate Limiting
   // =========================================================================
 
@@ -127,6 +170,23 @@ class GatewayApi {
    */
   async getMetricsHistory(limit = 60): Promise<MetricsSnapshot[]> {
     return this.fetch<MetricsSnapshot[]>(`/admin/metrics/history?limit=${limit}`);
+  }
+
+  // =========================================================================
+  // Shell Configuration
+  // =========================================================================
+
+  /** Set a runtime shell directory override (applied immediately, no restart) */
+  async setShellDir(dir: string): Promise<{ dir: string; source: string }> {
+    return this.fetch("/admin/shell/config", {
+      method: "PUT",
+      body: JSON.stringify({ dir }),
+    });
+  }
+
+  /** Clear the shell dir override, reverting to the ConfigMap/env seed */
+  async resetShellDir(): Promise<{ dir: string | null; source: string; enabled: boolean }> {
+    return this.fetch("/admin/shell/config/reset", { method: "POST" });
   }
 
   // =========================================================================

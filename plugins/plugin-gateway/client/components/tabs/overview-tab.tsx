@@ -1,5 +1,6 @@
 import { Badge } from "~/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
+import { Icon } from "~/components/ui/icon";
 import { Skeleton } from "~/components/ui/skeleton";
 import type { GatewaySSEData } from "~/helpers/sse";
 
@@ -25,7 +26,7 @@ function StatCard({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <span className="text-xl">{icon}</span>
+        <Icon className="size-4 text-muted-foreground" icon={icon} />
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -47,47 +48,34 @@ export function OverviewTab({ data, isLoading }: OverviewTabProps) {
 
   return (
     <div className="space-y-4">
-      {/* Feature Status */}
-      <div className="flex flex-wrap gap-2">
-        <Badge variant={data?.rateLimit ? "success" : "secondary"}>
-          Rate Limiting {data?.rateLimit ? "ON" : "OFF"}
-        </Badge>
-        <Badge variant={data?.cors?.enabled ? "success" : "secondary"}>
-          CORS {data?.cors?.enabled ? "ON" : "OFF"}
-        </Badge>
-        <Badge variant={data?.shell?.enabled ? "success" : "secondary"}>
-          Shell {data?.shell?.enabled ? "ON" : "OFF"}
-        </Badge>
-      </div>
-
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total Requests"
           value={metrics?.totalRequests ?? 0}
           description="Since startup"
-          icon="📊"
+          icon="lucide:activity"
           isLoading={isLoading}
         />
         <StatCard
           title="Allowed Requests"
           value={metrics?.allowedRequests ?? 0}
           description="Passed rate limit"
-          icon="✅"
+          icon="lucide:circle-check"
           isLoading={isLoading}
         />
         <StatCard
           title="Blocked Requests"
           value={metrics?.blockedRequests ?? 0}
           description="Rate limited"
-          icon="🚫"
+          icon="lucide:ban"
           isLoading={isLoading}
         />
         <StatCard
           title="Active Buckets"
           value={metrics?.activeBuckets ?? 0}
           description="Unique clients"
-          icon="🪣"
+          icon="lucide:layers"
           isLoading={isLoading}
         />
       </div>
@@ -100,7 +88,7 @@ export function OverviewTab({ data, isLoading }: OverviewTabProps) {
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
-                  <span className="text-primary">⚡</span>
+                  <Icon className="size-5 text-primary" icon="lucide:zap" />
                 </div>
                 <div>
                   <CardTitle className="text-base">Rate Limit</CardTitle>
@@ -133,31 +121,25 @@ export function OverviewTab({ data, isLoading }: OverviewTabProps) {
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
-                  <span className="text-primary">🌐</span>
+                  <Icon className="size-5 text-primary" icon="lucide:globe" />
                 </div>
                 <div>
                   <CardTitle className="text-base">CORS</CardTitle>
-                  <CardDescription>Cross-origin settings</CardDescription>
+                  <CardDescription>Per-domain rules</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
               <dl className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Origin</dt>
-                  <dd className="font-medium truncate max-w-32">
-                    {Array.isArray(data.cors.origin)
-                      ? data.cors.origin.join(", ")
-                      : data.cors.origin}
+                  <dt className="text-muted-foreground">Rules</dt>
+                  <dd className="font-medium">{data.cors.rules.length}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Domains</dt>
+                  <dd className="max-w-40 truncate font-medium">
+                    {data.cors.rules.flatMap((r) => r.origins).join(", ") || "-"}
                   </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Credentials</dt>
-                  <dd className="font-medium">{data.cors.credentials ? "Yes" : "No"}</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Methods</dt>
-                  <dd className="font-medium truncate max-w-32">{data.cors.methods.join(", ")}</dd>
                 </div>
               </dl>
             </CardContent>
@@ -170,7 +152,7 @@ export function OverviewTab({ data, isLoading }: OverviewTabProps) {
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
-                  <span className="text-primary">🐚</span>
+                  <Icon className="size-5 text-primary" icon="lucide:terminal" />
                 </div>
                 <div>
                   <CardTitle className="text-base">Shell</CardTitle>

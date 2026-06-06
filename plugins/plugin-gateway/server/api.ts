@@ -1,8 +1,9 @@
-import { errorToResponse } from "@buntime/shared/errors";
+import { errorToResponse, ValidationError } from "@buntime/shared/errors";
 import type { MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { ResponseCache } from "./cache";
+import type { CorsRule } from "./cors";
 import type { GatewayPersistence, ShellExcludeEntry } from "./persistence";
 import type { RateLimiter } from "./rate-limit";
 import type { RequestLogger } from "./request-log";
@@ -32,13 +33,95 @@ export interface GatewayApiDeps {
   /** Get shell configuration */
   getShellConfig: () => {
     dir: string;
+    source: "override" | "default";
+    seedDir: string | null;
     envExcludes: Set<string>;
     tursoExcludes: Set<string>;
     addTursoExclude: (basename: string) => void;
     removeTursoExclude: (basename: string) => boolean;
   } | null;
+  /** Set a runtime shell directory override (validated, applied without restart) */
+  setShellDir: (dir: string) => Promise<void>;
+  /** Clear the shell dir override, reverting to the ConfigMap/env seed */
+  resetShellDir: () => Promise<void>;
+  /** Current per-domain CORS rules */
+  getCorsRules: () => CorsRule[];
+  /** Insert or update a CORS rule (persisted, applied immediately) */
+  saveCorsRule: (rule: CorsRule) => Promise<void>;
+  /** Delete a CORS rule by id */
+  deleteCorsRule: (id: string) => Promise<boolean>;
   /** SSE update interval in milliseconds */
   sseInterval?: number;
+}
+
+const VALID_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter(Boolean);
+  if (typeof value === "string") {
+    return value
+      .split(/[\s,]+/)
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+/**
+ * Validate and normalize a per-domain CORS rule payload from the admin UI.
+ * `id`/`createdAt` are supplied by the caller (new vs. update). Throws
+ * ValidationError on malformed input.
+ */
+function parseCorsRule(body: unknown, id: string, createdAt: number): CorsRule {
+  if (!body || typeof body !== "object") {
+    throw new ValidationError("Invalid CORS rule payload", "INVALID_CORS_RULE");
+  }
+  const raw = body as Record<string, unknown>;
+
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  if (!name) {
+    throw new ValidationError("A rule name is required", "CORS_NAME_REQUIRED");
+  }
+
+  const origins = toStringArray(raw.origins);
+  if (origins.length === 0) {
+    throw new ValidationError("At least one origin is required", "CORS_ORIGINS_REQUIRED");
+  }
+
+  const credentials = raw.credentials === true;
+  if (credentials && origins.includes("*")) {
+    throw new ValidationError(
+      "Credentials cannot be enabled with a wildcard (*) origin. Specify explicit origins.",
+      "CORS_CREDENTIALS_WILDCARD",
+    );
+  }
+
+  const methods = toStringArray(raw.methods).map((m) => m.toUpperCase());
+  const invalid = methods.find((m) => !VALID_METHODS.includes(m));
+  if (invalid) {
+    throw new ValidationError(`Invalid HTTP method: ${invalid}`, "CORS_INVALID_METHOD");
+  }
+
+  let maxAge = 86400;
+  if (raw.maxAge !== undefined && raw.maxAge !== null && raw.maxAge !== "") {
+    const parsed = Number(raw.maxAge);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      throw new ValidationError("maxAge must be a non-negative number", "CORS_INVALID_MAX_AGE");
+    }
+    maxAge = Math.floor(parsed);
+  }
+
+  return {
+    id,
+    name,
+    origins,
+    methods: methods.length ? methods : ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
+    allowedHeaders: toStringArray(raw.allowedHeaders),
+    exposedHeaders: toStringArray(raw.exposedHeaders),
+    credentials,
+    maxAge,
+    createdAt,
+  };
 }
 
 /**
@@ -74,19 +157,17 @@ async function buildSSEData(deps: GatewayApiDeps): Promise<GatewaySSEData> {
         }
       : null,
 
-    cors: config.cors
-      ? {
-          enabled: true,
-          origin: typeof config.cors.origin === "function" ? "*" : (config.cors.origin ?? "*"),
-          credentials: config.cors.credentials ?? false,
-          methods: config.cors.methods ?? ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
-        }
-      : null,
+    cors: (() => {
+      const rules = deps.getCorsRules();
+      return { enabled: rules.length > 0, rules };
+    })(),
 
     shell: shellConfig
       ? {
           enabled: true,
           dir: shellConfig.dir,
+          source: shellConfig.source,
+          seedDir: shellConfig.seedDir,
           excludes: shellExcludes,
         }
       : null,
@@ -144,8 +225,8 @@ export function createGatewayApi(deps: GatewayApiDeps) {
             config: config.rateLimit ?? null,
           },
           cors: {
-            enabled: !!config.cors,
-            config: config.cors ?? null,
+            enabled: deps.getCorsRules().length > 0,
+            rulesCount: deps.getCorsRules().length,
           },
           cache: {
             enabled: !!cache,
@@ -172,7 +253,7 @@ export function createGatewayApi(deps: GatewayApiDeps) {
 
         return ctx.json({
           rateLimit: config.rateLimit ?? null,
-          cors: config.cors ?? null,
+          cors: deps.getCorsRules(),
           cache: config.cache ?? null,
           shell: shellConfig
             ? {
@@ -181,6 +262,40 @@ export function createGatewayApi(deps: GatewayApiDeps) {
               }
             : null,
         });
+      })
+
+      // =========================================================================
+      // CORS - Per-domain rules (runtime-editable)
+      // =========================================================================
+      // Rules are persisted in Turso and applied immediately, so operators can
+      // tune cross-origin policy per domain without restarting the gateway
+      // (which serves other workers and must stay available).
+      .get("/cors/rules", (ctx) => {
+        return ctx.json(deps.getCorsRules());
+      })
+
+      .post("/cors/rules", async (ctx) => {
+        const body = await ctx.req.json().catch(() => null);
+        const rule = parseCorsRule(body, crypto.randomUUID(), Date.now());
+        await deps.saveCorsRule(rule);
+        return ctx.json(rule, 201);
+      })
+
+      .put("/cors/rules/:id", async (ctx) => {
+        const id = ctx.req.param("id");
+        const existing = deps.getCorsRules().find((r) => r.id === id);
+        if (!existing) {
+          return ctx.json({ error: "Rule not found" }, 404);
+        }
+        const body = await ctx.req.json().catch(() => null);
+        const rule = parseCorsRule(body, id, existing.createdAt ?? Date.now());
+        await deps.saveCorsRule(rule);
+        return ctx.json(rule);
+      })
+
+      .delete("/cors/rules/:id", async (ctx) => {
+        const removed = await deps.deleteCorsRule(ctx.req.param("id"));
+        return ctx.json({ removed });
       })
 
       // =========================================================================
@@ -243,6 +358,37 @@ export function createGatewayApi(deps: GatewayApiDeps) {
         const persistence = deps.getPersistence();
         await persistence.clearMetricsHistory();
         return ctx.json({ cleared: true });
+      })
+
+      // =========================================================================
+      // Shell Configuration - directory (ConfigMap/env seed + runtime override)
+      // =========================================================================
+      .put("/shell/config", async (ctx) => {
+        const body = await ctx.req.json().catch(() => null);
+        const dir = (body as { dir?: unknown })?.dir;
+        if (typeof dir !== "string" || !dir.trim()) {
+          throw new ValidationError("A shell directory is required", "SHELL_DIR_REQUIRED");
+        }
+        try {
+          await deps.setShellDir(dir.trim());
+        } catch (err) {
+          return ctx.json(
+            { error: err instanceof Error ? err.message : "Invalid shell directory" },
+            400,
+          );
+        }
+        const shellConfig = deps.getShellConfig();
+        return ctx.json({ dir: shellConfig?.dir ?? dir.trim(), source: "override" });
+      })
+
+      .post("/shell/config/reset", async (ctx) => {
+        await deps.resetShellDir();
+        const shellConfig = deps.getShellConfig();
+        return ctx.json({
+          dir: shellConfig?.dir ?? null,
+          source: shellConfig?.source ?? "default",
+          enabled: !!shellConfig,
+        });
       })
 
       // =========================================================================

@@ -72,13 +72,14 @@ function FragmentRouter() {
   const segmentRef = useRef(segment);
   segmentRef.current = segment;
 
-  // Publish the page title to the cpanel shell so DefaultHeader renders the
-  // iframe identification. The plugin content itself MUST NOT render its own
-  // h1+description — that creates the double-header bug. Keep it lean: shell
-  // owns the title, plugin owns the content + actions.
+  // Publish the page title to the cpanel shell as a breadcrumb so it renders
+  // with the same typography as the runtime sections (Keys/Workers), which also
+  // identify themselves via the breadcrumb. The plugin content itself MUST NOT
+  // render its own h1+description — that creates the double-header bug. Keep it
+  // lean: shell owns the title, plugin owns the content + actions.
   useEffect(() => {
     if (pageTitle) {
-      setHeader({ title: pageTitle });
+      setHeader({ breadcrumbs: [{ label: pageTitle }] });
     } else {
       setHeader(null);
     }

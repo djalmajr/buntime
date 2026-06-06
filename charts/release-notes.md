@@ -1,3 +1,26 @@
+## What's New in 0.5.2
+
+### Runtime data durability (IMPORTANT — see migration)
+- **`/data/turso` is now a persistent PVC instead of an `emptyDir`.** The runtime
+  Turso DB (gateway CORS rules, shell excludes/overrides, metrics history) lived
+  on an uncapped `emptyDir`, so in `local` mode those runtime-editable settings
+  were **wiped on every pod restart** (re-seeded from the manifest) and the
+  uncapped volume added to node ephemeral-storage pressure. It's now a per-pod
+  `ReadWriteOnce` volume (`persistence.turso.size`, default `10Gi`) so settings
+  survive restarts.
+  - **Migration (existing releases only):** `volumeClaimTemplates` are immutable
+    on a live StatefulSet, so this one upgrade must recreate the StatefulSet:
+    `kubectl -n <ns> delete statefulset <release> --cascade=orphan` (keeps the
+    pod running) then `helm upgrade ... --reuse-values`. The new `turso` PVC
+    starts empty (the runtime DB re-seeds from the manifest). Subsequent
+    upgrades are normal — no recreation needed. Fresh installs need no action.
+
+### Gateway cPanel UI
+- **CORS rules list**: the Origins column no longer wraps a long comma-separated
+  list across several lines — it shows the first origin (truncated, monospace)
+  plus a "+N" indicator, with the full list on hover. The Methods column
+  truncates to a single line (full list on hover). Keeps rows compact.
+
 ## What's New in 0.5.1
 
 ### Charts

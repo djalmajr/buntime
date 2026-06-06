@@ -187,20 +187,37 @@ export function CorsTab({ cors }: CorsTabProps) {
         accessorFn: (row) => row.origins.join(" "),
         header: ({ column }) => <DataTableColumnHeader column={column} label="Origins" />,
         enableSorting: false,
-        cell: ({ row }) => (
-          <span className="font-mono text-xs">{row.original.origins.join(", ")}</span>
-        ),
+        cell: ({ row }) => {
+          const origins = row.original.origins;
+          return (
+            <div className="flex items-center gap-1.5" title={origins.join("\n")}>
+              <span className="max-w-[22rem] truncate font-mono text-xs">{origins[0]}</span>
+              {origins.length > 1 && (
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                  +{origins.length - 1}
+                </span>
+              )}
+            </div>
+          );
+        },
       },
       {
         id: "methods",
         accessorFn: (row) => (row.methods ?? []).join(" "),
         header: ({ column }) => <DataTableColumnHeader column={column} label="Methods" />,
         enableSorting: false,
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground">
-            {(row.original.methods ?? []).join(", ") || "—"}
-          </span>
-        ),
+        size: 240,
+        cell: ({ row }) => {
+          const methods = row.original.methods ?? [];
+          return (
+            <span
+              className="block max-w-[15rem] truncate text-xs text-muted-foreground"
+              title={methods.join(", ")}
+            >
+              {methods.join(", ") || "—"}
+            </span>
+          );
+        },
       },
       {
         accessorKey: "credentials",

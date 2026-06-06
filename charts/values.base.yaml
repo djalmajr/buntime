@@ -150,6 +150,14 @@ persistence:
   state:
     size: 500Mi
     storageClass: ""
+  # Per-pod Turso runtime DB (/data/turso/runtime.db): gateway CORS rules, shell
+  # excludes/overrides and metrics history. MUST be persistent — on an emptyDir
+  # these runtime-editable settings were wiped on every pod restart (and the
+  # uncapped emptyDir added to node ephemeral-storage pressure). RWO via
+  # volumeClaimTemplates; works across all storage classes.
+  turso:
+    size: 10Gi
+    storageClass: ""
 
 # Self-hosted multi-tenant Turso server in-cluster.
 #

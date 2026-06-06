@@ -75,10 +75,10 @@ spec:
         - name: apps
           persistentVolumeClaim:
             claimName: {{ include "buntime.fullname" . }}-apps
-        - name: turso
-          emptyDir: {}
-  # Each pod gets its own /data/state — RWO, universal across storage classes.
-  # Holds the ApiKeyStore Turso DB (embedded replica in `sync` mode).
+  # Per-pod RWO volumes (universal across storage classes). `state` holds the
+  # ApiKeyStore Turso DB; `turso` holds the runtime Turso DB (gateway CORS
+  # rules, shell excludes/overrides, metrics history) — persistent so runtime-
+  # editable settings survive pod restarts.
   volumeClaimTemplates:
     - metadata:
         name: state
@@ -90,3 +90,13 @@ spec:
         resources:
           requests:
             storage: {{ .Values.persistence.state.size }}
+    - metadata:
+        name: turso
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.persistence.turso.storageClass }}
+        storageClassName: {{ .Values.persistence.turso.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.turso.size }}

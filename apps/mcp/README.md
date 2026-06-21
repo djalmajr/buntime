@@ -51,6 +51,24 @@ Run it directly from source with Bun (no build step needed):
 (`.tgz`/`.tar.gz`/`.zip`) or a directory, which is packed automatically from
 `manifest.yaml` + `package.json` + `dist` (override with `include`).
 
+## Local dev against a k8s runtime
+
+In production point `BUNTIME_URL` at the runtime's ingress hostname
+(`https://buntime.<domain>`) — stable, no extra process.
+
+For a local k8s lab, the runtime's `NodePort` is randomly reassigned on each
+redeploy, so don't hardcode it. Instead open a dedicated, auto-reconnecting
+port-forward in its own terminal and point the MCP at a stable `localhost` port:
+
+```bash
+export KUBECONFIG=~/.kube/<your-cluster>.yaml   # or set BUNTIME_KUBECONFIG
+bun run --filter @buntime/mcp port-forward       # localhost:8800 -> svc/buntime:8000
+```
+
+Then set the MCP `BUNTIME_URL` to `http://localhost:8800` and verify with
+`curl -s http://localhost:8800/.well-known/buntime`. Override defaults via
+`BUNTIME_NAMESPACE`, `BUNTIME_SERVICE`, `BUNTIME_LOCAL_PORT`, `BUNTIME_REMOTE_PORT`.
+
 ## Develop
 
 ```bash

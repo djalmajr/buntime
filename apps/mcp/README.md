@@ -46,10 +46,29 @@ Run it directly from source with Bun (no build step needed):
 | Workers | `list_workers`, `upload_worker`, `enable_worker`, `disable_worker`, `delete_worker` |
 | Plugins | `list_plugins`, `list_loaded_plugins`, `upload_plugin`, `reload_plugins`, `enable_plugin`, `disable_plugin`, `delete_plugin` |
 | API keys | `list_keys`, `keys_meta`, `create_key`, `revoke_key` |
+| App-shell (gateway) | `get_shell`, `set_shell_dir`, `reset_shell_dir`, `list_shell_routes`, `set_shell_route`, `remove_shell_route`, `list_shell_excludes`, `add_shell_exclude`, `remove_shell_exclude` |
 
 `upload_worker` / `upload_plugin` accept either a built archive
 (`.tgz`/`.tar.gz`/`.zip`) or a directory, which is packed automatically from
-`manifest.yaml` + `package.json` + `dist` (override with `include`).
+`manifest.yaml` + `package.json` + `dist` (override with `include`). The default
+pack set also includes a root `index.ts`/`index.js` entrypoint (serverless workers).
+
+## Updating the app shell
+
+Updating an app-shell is two steps: upload the shell worker, then point the
+gateway at it.
+
+- Global shell (default for all hosts): `upload_worker` then `set_shell_dir(dir)`.
+- Per-tenant shell: `upload_worker` then `set_shell_route(host, dir)`. Different
+  tenants can run different shells, or the same shell pinned to a different
+  version. `host` is exact (`tenant.example.com`) or wildcard (`*.example.com`);
+  hosts without a route fall back to the global shell.
+- Re-upload the same version (upsert) to ship changes in place, or bump the
+  version and repoint the route for an atomic switch.
+
+Routes are stored in the gateway (Turso) and applied without a restart. The
+`*_shell_exclude` tools control which apps render standalone instead of being
+wrapped by the shell (e.g. apps embedded via z-frame).
 
 ## Local dev against a k8s runtime
 

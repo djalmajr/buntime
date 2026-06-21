@@ -20,6 +20,7 @@ describe("resolveArchive", () => {
     await writeFile(join(dir, "package.json"), JSON.stringify({ name: "x", version: "1.0.0" }));
     await mkdir(join(dir, "dist"), { recursive: true });
     await writeFile(join(dir, "dist", "index.js"), "export default {};");
+    await writeFile(join(dir, "index.ts"), "export default {};");
   });
 
   afterEach(async () => {
@@ -31,6 +32,7 @@ describe("resolveArchive", () => {
     const listing = await tarListing(archivePath);
     expect(listing).toContain("package/manifest.yaml");
     expect(listing).toContain("package/package.json");
+    expect(listing).toContain("package/index.ts");
     expect(listing).toContain("package/dist/index.js");
     await cleanup?.();
   });

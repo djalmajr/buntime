@@ -35,12 +35,14 @@ export class RuntimeClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly origin: string;
+  private readonly gatewayBase: string;
   private apiPath: string | undefined;
 
   constructor(config: McpConfig) {
     this.baseUrl = config.baseUrl;
     this.apiKey = config.apiKey;
     this.origin = config.origin;
+    this.gatewayBase = config.gatewayBase;
     this.apiPath = config.apiPath;
   }
 
@@ -101,6 +103,19 @@ export class RuntimeClient {
       init.body = JSON.stringify(json);
     }
     const res = await fetch(`${this.baseUrl}${apiPath}${path}`, init);
+    return this.parse<T>(res);
+  }
+
+  /** Request a path relative to the base URL (not the discovered API path) — e.g. a plugin admin route. */
+  private async requestAt<T>(method: string, path: string, json?: unknown): Promise<T> {
+    const headers = this.headers(
+      json !== undefined ? { "Content-Type": "application/json" } : undefined,
+    );
+    const init: RequestInit = { method, headers };
+    if (json !== undefined) {
+      init.body = JSON.stringify(json);
+    }
+    const res = await fetch(`${this.baseUrl}${path}`, init);
     return this.parse<T>(res);
   }
 
@@ -202,6 +217,44 @@ export class RuntimeClient {
 
   revokeKey(id: number): Promise<unknown> {
     return this.requestJson("DELETE", `/keys/${id}`);
+  }
+
+  // --- Gateway app-shell (plugin admin) -----------------------------------
+
+  getShell(): Promise<unknown> {
+    return this.requestAt("GET", `${this.gatewayBase}/admin/config`);
+  }
+
+  setShellDir(dir: string): Promise<unknown> {
+    return this.requestAt("PUT", `${this.gatewayBase}/admin/shell/config`, { dir });
+  }
+
+  resetShellDir(): Promise<unknown> {
+    return this.requestAt("POST", `${this.gatewayBase}/admin/shell/config/reset`);
+  }
+
+  listShellExcludes(): Promise<unknown> {
+    return this.requestAt("GET", `${this.gatewayBase}/admin/shell/excludes`);
+  }
+
+  addShellExclude(basename: string): Promise<unknown> {
+    return this.requestAt("POST", `${this.gatewayBase}/admin/shell/excludes`, { basename });
+  }
+
+  removeShellExclude(basename: string): Promise<unknown> {
+    return this.requestAt("DELETE", `${this.gatewayBase}/admin/shell/excludes/${enc(basename)}`);
+  }
+
+  listShellRoutes(): Promise<unknown> {
+    return this.requestAt("GET", `${this.gatewayBase}/admin/shell/routes`);
+  }
+
+  setShellRoute(host: string, dir: string): Promise<unknown> {
+    return this.requestAt("PUT", `${this.gatewayBase}/admin/shell/routes`, { host, dir });
+  }
+
+  removeShellRoute(host: string): Promise<unknown> {
+    return this.requestAt("DELETE", `${this.gatewayBase}/admin/shell/routes/${enc(host)}`);
   }
 }
 

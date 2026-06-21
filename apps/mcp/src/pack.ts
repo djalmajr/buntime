@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { AppError, ValidationError } from "@buntime/shared/errors";
 
 /** Entries packed by default when a worker/plugin directory is given. */
-const DEFAULT_INCLUDE = ["manifest.yaml", "manifest.yml", "package.json", "dist"];
+const DEFAULT_INCLUDE = [
+  "manifest.yaml",
+  "manifest.yml",
+  "package.json",
+  "index.ts",
+  "index.js",
+  "dist",
+];
 
 const ARCHIVE_RE = /\.(tgz|tar\.gz|zip)$/i;
 

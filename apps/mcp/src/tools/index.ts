@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeClient } from "../client.ts";
+import { registerGatewayTools } from "./gateway.ts";
 import { registerKeyTools } from "./keys.ts";
 import { registerPluginTools } from "./plugins.ts";
 import { registerSystemTools } from "./system.ts";
@@ -11,4 +12,5 @@ export function registerAllTools(server: McpServer, client: RuntimeClient): void
   registerWorkerTools(server, client);
   registerPluginTools(server, client);
   registerKeyTools(server, client);
+  registerGatewayTools(server, client);
 }

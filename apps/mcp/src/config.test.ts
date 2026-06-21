@@ -34,4 +34,14 @@ describe("loadConfig", () => {
       /Invalid BUNTIME_URL/,
     );
   });
+
+  it("defaults gatewayBase to /gateway and honours BUNTIME_GATEWAY_BASE", () => {
+    expect(loadConfig({ BUNTIME_URL: "https://x", BUNTIME_API_KEY: "k" }).gatewayBase).toBe(
+      "/gateway",
+    );
+    expect(
+      loadConfig({ BUNTIME_URL: "https://x", BUNTIME_API_KEY: "k", BUNTIME_GATEWAY_BASE: "/gw/" })
+        .gatewayBase,
+    ).toBe("/gw");
+  });
 });

@@ -6,6 +6,7 @@ const config: McpConfig = {
   baseUrl: "https://buntime.test",
   apiKey: "btk_test",
   origin: "https://buntime.test",
+  gatewayBase: "/gateway",
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -108,5 +109,19 @@ describe("RuntimeClient", () => {
 
     expect(calls[1]?.url).toBe("https://buntime.test/api/plugins/%40acme%2Fplugin-x/disable");
     expect(calls[1]?.init?.method).toBe("POST");
+  });
+
+  it("calls the gateway admin API at the base URL, not the api path", async () => {
+    queue.push(jsonResponse({ host: "t.example.com", dir: "/d" }));
+
+    const client = new RuntimeClient(config);
+    await client.setShellRoute("t.example.com", "/d");
+
+    // No /.well-known discovery; one direct call to the gateway admin route.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://buntime.test/gateway/admin/shell/routes");
+    expect(calls[0]?.init?.method).toBe("PUT");
+    const headers = calls[0]?.init?.headers as Record<string, string>;
+    expect(headers["X-API-Key"]).toBe("btk_test");
   });
 });

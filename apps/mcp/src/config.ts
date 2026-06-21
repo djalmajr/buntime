@@ -14,6 +14,8 @@ export interface McpConfig {
   origin: string;
   /** Optional explicit API path (e.g. `/_/api`). When unset, it is discovered from `/.well-known/buntime`. */
   apiPath?: string;
+  /** Base path of the gateway plugin admin API (default `/gateway`). */
+  gatewayBase: string;
 }
 
 type Env = Record<string, string | undefined>;
@@ -52,6 +54,7 @@ export function loadConfig(env: Env = Bun.env): McpConfig {
   }
 
   const apiPath = env.BUNTIME_API_PATH?.trim() || undefined;
+  const gatewayBase = env.BUNTIME_GATEWAY_BASE?.trim()?.replace(/\/+$/, "") || "/gateway";
 
-  return { baseUrl, apiKey, origin, apiPath };
+  return { baseUrl, apiKey, origin, apiPath, gatewayBase };
 }

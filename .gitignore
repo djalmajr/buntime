@@ -57,3 +57,6 @@ opencode.json
 
 # Local REST scratch file (may contain captured tokens)
 request.http
+
+# MCP server config (operator-local routing; references a local API key) — never commit
+.mcp.json

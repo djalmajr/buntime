@@ -1,6 +1,7 @@
 import type { TursoBindValue, TursoDatabase, TursoService } from "@buntime/plugin-turso";
 import type { PluginLogger } from "@buntime/shared/types";
 import type { CorsRule } from "./cors";
+import type { ShellRoute } from "./shell-routes";
 
 interface CorsRuleRow {
   id: string;
@@ -156,6 +157,13 @@ export class GatewayPersistence {
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL,
           updated_at INTEGER NOT NULL
+        )
+      `);
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS gateway_shell_routes (
+          host TEXT PRIMARY KEY,
+          dir TEXT NOT NULL,
+          created_at INTEGER NOT NULL
         )
       `);
     });
@@ -484,6 +492,62 @@ export class GatewayPersistence {
       return result.changes > 0;
     });
     if (removed) this.logger?.debug(`Deleted CORS rule: ${id}`);
+    return removed;
+  }
+
+  // =========================================================================
+  // Shell Routes (per-host app-shell mapping, runtime-editable)
+  // =========================================================================
+
+  /**
+   * Get all per-host shell routes, ordered by host.
+   *
+   * A route maps a tenant host to a shell worker install dir so different
+   * tenants can run different shells (or the same shell at a different version),
+   * applied without restarting the gateway.
+   */
+  async getShellRoutes(): Promise<ShellRoute[]> {
+    if (!this.db) return [];
+
+    try {
+      const rows = await this.db
+        .prepare("SELECT host, dir, created_at FROM gateway_shell_routes ORDER BY host ASC")
+        .all<{ host: string; dir: string; created_at: number }>();
+      return rows.map((row) => ({ host: row.host, dir: row.dir, createdAt: row.created_at }));
+    } catch (err) {
+      this.logger?.error("Failed to get shell routes", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  }
+
+  /** Insert or replace a per-host shell route (keyed by host). */
+  async saveShellRoute(host: string, dir: string): Promise<void> {
+    if (!this.turso) return;
+
+    await this.turso.transaction({ namespace: GATEWAY_NAMESPACE }, async (db) => {
+      await run(
+        db,
+        "INSERT OR REPLACE INTO gateway_shell_routes (host, dir, created_at) VALUES (?, ?, ?)",
+        [host, dir, Date.now()],
+      );
+    });
+    this.logger?.debug(`Saved shell route: ${host} -> ${dir}`);
+  }
+
+  /**
+   * Delete a per-host shell route.
+   * @returns true if a route was removed
+   */
+  async deleteShellRoute(host: string): Promise<boolean> {
+    if (!this.turso) return false;
+
+    const removed = await this.turso.transaction({ namespace: GATEWAY_NAMESPACE }, async (db) => {
+      const result = await db.prepare("DELETE FROM gateway_shell_routes WHERE host = ?").run(host);
+      return result.changes > 0;
+    });
+    if (removed) this.logger?.debug(`Deleted shell route: ${host}`);
     return removed;
   }
 

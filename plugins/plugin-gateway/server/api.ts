@@ -7,6 +7,7 @@ import type { CorsRule } from "./cors";
 import type { GatewayPersistence, ShellExcludeEntry } from "./persistence";
 import type { RateLimiter } from "./rate-limit";
 import type { RequestLogger } from "./request-log";
+import type { ShellRoute } from "./shell-routes";
 import type { GatewayConfig, GatewaySSEData, GatewayStats } from "./types";
 
 /**
@@ -50,6 +51,12 @@ export interface GatewayApiDeps {
   saveCorsRule: (rule: CorsRule) => Promise<void>;
   /** Delete a CORS rule by id */
   deleteCorsRule: (id: string) => Promise<boolean>;
+  /** Per-host app-shell routes (tenant host -> shell worker dir) */
+  getShellRoutes: () => ShellRoute[];
+  /** Upsert a per-host shell route (validated, persisted, applied immediately) */
+  saveShellRoute: (host: string, dir: string) => Promise<void>;
+  /** Delete a per-host shell route by host */
+  deleteShellRoute: (host: string) => Promise<boolean>;
   /** SSE update interval in milliseconds */
   sseInterval?: number;
 }
@@ -464,6 +471,46 @@ export function createGatewayApi(deps: GatewayApiDeps) {
         }
 
         return ctx.json({ removed, basename });
+      })
+
+      // =========================================================================
+      // Shell Routes - per-host (tenant) app-shell mapping
+      // =========================================================================
+      // A route maps a tenant host to a shell worker dir, so different tenants
+      // can run different shells (or the same shell at a different version),
+      // applied without restarting the gateway. Hosts without a route fall back
+      // to the global shellDir.
+      .get("/shell/routes", (ctx) => {
+        return ctx.json(deps.getShellRoutes());
+      })
+
+      .put("/shell/routes", async (ctx) => {
+        const body = await ctx.req.json().catch(() => null);
+        const host =
+          typeof (body as { host?: unknown })?.host === "string"
+            ? (body as { host: string }).host.trim()
+            : "";
+        const dir =
+          typeof (body as { dir?: unknown })?.dir === "string"
+            ? (body as { dir: string }).dir.trim()
+            : "";
+        if (!host || !dir) {
+          throw new ValidationError("host and dir are required", "SHELL_ROUTE_INVALID");
+        }
+        try {
+          await deps.saveShellRoute(host, dir);
+        } catch (err) {
+          return ctx.json(
+            { error: err instanceof Error ? err.message : "Invalid shell route" },
+            400,
+          );
+        }
+        return ctx.json({ host: host.toLowerCase(), dir });
+      })
+
+      .delete("/shell/routes/:host", async (ctx) => {
+        const removed = await deps.deleteShellRoute(decodeURIComponent(ctx.req.param("host")));
+        return ctx.json({ removed });
       })
 
       // =========================================================================

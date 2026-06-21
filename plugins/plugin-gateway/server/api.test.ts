@@ -9,11 +9,13 @@ describe("Gateway API", () => {
   let tursoExcludes: Set<string>;
   let envExcludes: Set<string>;
   let corsRules: import("./cors").CorsRule[];
+  let shellRoutes: import("./shell-routes").ShellRoute[];
 
   beforeEach(() => {
     tursoExcludes = new Set();
     envExcludes = new Set(["env-app"]);
     corsRules = [];
+    shellRoutes = [];
 
     const mockPersistence = {
       isAvailable: () => true,
@@ -73,7 +75,54 @@ describe("Gateway API", () => {
         corsRules = corsRules.filter((r) => r.id !== id);
         return had;
       }),
+      getShellRoutes: () => shellRoutes,
+      saveShellRoute: mock(async (host: string, dir: string) => {
+        const idx = shellRoutes.findIndex((r) => r.host === host);
+        const entry = { host, dir, createdAt: Date.now() };
+        if (idx >= 0) shellRoutes[idx] = entry;
+        else shellRoutes.push(entry);
+      }),
+      deleteShellRoute: mock(async (host: string) => {
+        const had = shellRoutes.some((r) => r.host === host);
+        shellRoutes = shellRoutes.filter((r) => r.host !== host);
+        return had;
+      }),
     };
+  });
+
+  describe("Shell routes (/admin/shell/routes)", () => {
+    it("lists, upserts, and deletes per-host routes", async () => {
+      const app = createGatewayApi(deps);
+
+      let res = await app.request("/admin/shell/routes");
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual([]);
+
+      res = await app.request("/admin/shell/routes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ host: "tenant-a.example.com", dir: "/data/apps/@acme/shell/1.0.0" }),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ host: "tenant-a.example.com" });
+
+      res = await app.request("/admin/shell/routes");
+      expect((await res.json()).length).toBe(1);
+
+      res = await app.request("/admin/shell/routes/tenant-a.example.com", { method: "DELETE" });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ removed: true });
+    });
+
+    it("rejects a route without host or dir", async () => {
+      const app = createGatewayApi(deps);
+      const res = await app.request("/admin/shell/routes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ host: "x.example.com" }),
+      });
+      expect(res.status).toBe(400);
+    });
   });
 
   describe("POST /admin/shell/excludes", () => {

@@ -9,6 +9,7 @@ import type {
   KeysMeta,
   LoadedPlugin,
   PluginInfo,
+  ProxyRedirectInput,
   SessionInfo,
   WellKnown,
   WorkerInfo,
@@ -36,6 +37,7 @@ export class RuntimeClient {
   private readonly apiKey: string;
   private readonly origin: string;
   private readonly gatewayBase: string;
+  private readonly proxyBase: string;
   private apiPath: string | undefined;
 
   constructor(config: McpConfig) {
@@ -43,6 +45,7 @@ export class RuntimeClient {
     this.apiKey = config.apiKey;
     this.origin = config.origin;
     this.gatewayBase = config.gatewayBase;
+    this.proxyBase = config.proxyBase;
     this.apiPath = config.apiPath;
   }
 
@@ -255,6 +258,23 @@ export class RuntimeClient {
 
   removeShellRoute(host: string): Promise<unknown> {
     return this.requestAt("DELETE", `${this.gatewayBase}/admin/shell/routes/${enc(host)}`);
+  }
+
+  // --- Proxy redirects (plugin admin) -------------------------------------
+
+  listRedirects(): Promise<unknown> {
+    return this.requestAt("GET", `${this.proxyBase}/admin/rules`);
+  }
+
+  setRedirect(rule: ProxyRedirectInput): Promise<unknown> {
+    const { id, ...body } = rule;
+    return id
+      ? this.requestAt("PUT", `${this.proxyBase}/admin/rules/${enc(id)}`, body)
+      : this.requestAt("POST", `${this.proxyBase}/admin/rules`, body);
+  }
+
+  removeRedirect(id: string): Promise<unknown> {
+    return this.requestAt("DELETE", `${this.proxyBase}/admin/rules/${enc(id)}`);
   }
 }
 

@@ -7,6 +7,7 @@ const config: McpConfig = {
   apiKey: "btk_test",
   origin: "https://buntime.test",
   gatewayBase: "/gateway",
+  proxyBase: "/redirects",
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -123,5 +124,27 @@ describe("RuntimeClient", () => {
     expect(calls[0]?.init?.method).toBe("PUT");
     const headers = calls[0]?.init?.headers as Record<string, string>;
     expect(headers["X-API-Key"]).toBe("btk_test");
+  });
+
+  it("creates a proxy redirect via POST at the proxy admin base", async () => {
+    queue.push(jsonResponse({ id: "r1", pattern: "^/api(/.*)?$" }));
+    const client = new RuntimeClient(config);
+    await client.setRedirect({
+      name: "api",
+      pattern: "^/api(/.*)?$",
+      target: "https://b.test",
+      rewrite: "/api$1",
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://buntime.test/redirects/admin/rules");
+    expect(calls[0]?.init?.method).toBe("POST");
+  });
+
+  it("updates a proxy redirect via PUT when an id is given", async () => {
+    queue.push(jsonResponse({ id: "r1" }));
+    const client = new RuntimeClient(config);
+    await client.setRedirect({ id: "r1", name: "api", pattern: "p", target: "https://b.test" });
+    expect(calls[0]?.url).toBe("https://buntime.test/redirects/admin/rules/r1");
+    expect(calls[0]?.init?.method).toBe("PUT");
   });
 });

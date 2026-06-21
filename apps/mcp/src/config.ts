@@ -16,6 +16,8 @@ export interface McpConfig {
   apiPath?: string;
   /** Base path of the gateway plugin admin API (default `/gateway`). */
   gatewayBase: string;
+  /** Base path of the proxy plugin admin API (default `/redirects`). */
+  proxyBase: string;
 }
 
 type Env = Record<string, string | undefined>;
@@ -55,6 +57,7 @@ export function loadConfig(env: Env = Bun.env): McpConfig {
 
   const apiPath = env.BUNTIME_API_PATH?.trim() || undefined;
   const gatewayBase = env.BUNTIME_GATEWAY_BASE?.trim()?.replace(/\/+$/, "") || "/gateway";
+  const proxyBase = env.BUNTIME_PROXY_BASE?.trim()?.replace(/\/+$/, "") || "/redirects";
 
-  return { baseUrl, apiKey, origin, apiPath, gatewayBase };
+  return { baseUrl, apiKey, origin, apiPath, gatewayBase, proxyBase };
 }

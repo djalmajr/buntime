@@ -47,6 +47,7 @@ Run it directly from source with Bun (no build step needed):
 | Plugins | `list_plugins`, `list_loaded_plugins`, `upload_plugin`, `reload_plugins`, `enable_plugin`, `disable_plugin`, `delete_plugin` |
 | API keys | `list_keys`, `keys_meta`, `create_key`, `revoke_key` |
 | App-shell (gateway) | `get_shell`, `set_shell_dir`, `reset_shell_dir`, `list_shell_routes`, `set_shell_route`, `remove_shell_route`, `list_shell_excludes`, `add_shell_exclude`, `remove_shell_exclude` |
+| Proxy (redirects) | `list_redirects`, `set_redirect`, `remove_redirect` |
 
 `upload_worker` / `upload_plugin` accept either a built archive
 (`.tgz`/`.tar.gz`/`.zip`) or a directory, which is packed automatically from

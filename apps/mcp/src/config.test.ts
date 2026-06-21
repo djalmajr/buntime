@@ -44,4 +44,14 @@ describe("loadConfig", () => {
         .gatewayBase,
     ).toBe("/gw");
   });
+
+  it("defaults proxyBase to /redirects and honours BUNTIME_PROXY_BASE", () => {
+    expect(loadConfig({ BUNTIME_URL: "https://x", BUNTIME_API_KEY: "k" }).proxyBase).toBe(
+      "/redirects",
+    );
+    expect(
+      loadConfig({ BUNTIME_URL: "https://x", BUNTIME_API_KEY: "k", BUNTIME_PROXY_BASE: "/px/" })
+        .proxyBase,
+    ).toBe("/px");
+  });
 });

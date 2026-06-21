@@ -89,3 +89,14 @@ export interface CreatedKey {
   name: string;
   role: string;
 }
+
+/** Proxy redirect rule input (plugin-proxy admin). `id` set => update, else create. */
+export interface ProxyRedirectInput {
+  id?: string;
+  name: string;
+  pattern: string;
+  target: string;
+  rewrite?: string;
+  changeOrigin?: boolean;
+  secure?: boolean;
+}

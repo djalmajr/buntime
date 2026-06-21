@@ -3,6 +3,7 @@ import type { RuntimeClient } from "../client.ts";
 import { registerGatewayTools } from "./gateway.ts";
 import { registerKeyTools } from "./keys.ts";
 import { registerPluginTools } from "./plugins.ts";
+import { registerProxyTools } from "./proxy.ts";
 import { registerSystemTools } from "./system.ts";
 import { registerWorkerTools } from "./workers.ts";
 
@@ -13,4 +14,5 @@ export function registerAllTools(server: McpServer, client: RuntimeClient): void
   registerPluginTools(server, client);
   registerKeyTools(server, client);
   registerGatewayTools(server, client);
+  registerProxyTools(server, client);
 }

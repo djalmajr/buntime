@@ -39,6 +39,7 @@ charts/questions.yml
 !.claude/commands/
 !.claude/hooks/
 !.claude/rules/
+!.claude/skills/
 !.claude/settings.json
 .claude/hooks/**/.bypass
 .claude/hooks/**/store.db

@@ -14,6 +14,7 @@
     "build": "NODE_ENV=production bun scripts/build.ts",
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
+    "provision": "bun scripts/provision.ts",
     "port-forward": "sh scripts/dev-port-forward.sh",
     "lint": "bun run lint:format && bun run lint:types",
     "lint:format": "bun biome check --write",
@@ -25,6 +26,7 @@
   "dependencies": {
     "@buntime/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "yaml": "^2.8.2",
     "zod": "4.3.6"
   },
   "devDependencies": {

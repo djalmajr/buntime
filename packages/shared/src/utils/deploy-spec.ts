@@ -40,6 +40,12 @@ export interface WorkerDeploySpec {
   shell: DeployShellSpec;
   plugins: DeployPluginSpec[];
   redirects: DeployRedirectSpec[];
+  /**
+   * Runtime env the app's stack needs that is NOT baked into the worker manifest
+   * `env:` block — typically env a required plugin reads from the runtime process
+   * (e.g. a backend URL). Provisioning tooling cannot set runtime env via the API,
+   * so it surfaces these as a reminder/preflight checklist for the operator.
+   */
   requiresEnv: string[];
 }
 

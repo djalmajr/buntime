@@ -42,6 +42,36 @@ describe("PluginRegistry", () => {
     });
   });
 
+  describe("runOnResponse", () => {
+    it("isolates a throwing onResponse hook and still returns a response", async () => {
+      const app = { basePath: "/app", name: "app" } as unknown as AppInfo;
+      registry.register(
+        createMockPlugin({
+          name: "boom",
+          onResponse: () => {
+            throw new Error("boom");
+          },
+        }),
+      );
+      registry.register(
+        createMockPlugin({
+          base: "/tagger",
+          name: "tagger",
+          onResponse: (res) => {
+            const headers = new Headers(res.headers);
+            headers.set("x-tagged", "1");
+            return new Response(res.body, { headers, status: res.status });
+          },
+        }),
+      );
+
+      const res = await registry.runOnResponse(new Response("ok", { status: 200 }), app);
+      // The throwing hook is swallowed; the chain continues to the next plugin.
+      expect(res.status).toBe(200);
+      expect(res.headers.get("x-tagged")).toBe("1");
+    });
+  });
+
   describe("register", () => {
     it("should register a plugin", () => {
       const plugin = createMockPlugin();

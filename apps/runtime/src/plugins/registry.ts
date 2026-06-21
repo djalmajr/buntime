@@ -314,8 +314,10 @@ export class PluginRegistry {
       try {
         currentRes = await plugin.onResponse(currentRes, app, req);
       } catch (error) {
+        // Isolate the failure: a broken onResponse hook must not fail the
+        // request. Log and keep the last good response, continuing to the next
+        // plugin (same contract as onRequest).
         this.logger.error(`[${plugin.name}] onResponse error`, { error });
-        throw error;
       }
     }
 
@@ -330,7 +332,14 @@ export class PluginRegistry {
       if (!plugin.onServerStart) continue;
 
       try {
-        plugin.onServerStart(server);
+        // Catch sync throws here; also guard async rejections (onServerStart
+        // may start background work) so they never reach the event loop.
+        const result = plugin.onServerStart(server) as unknown;
+        if (result && typeof (result as Promise<unknown>).then === "function") {
+          (result as Promise<unknown>).catch((error) => {
+            this.logger.error(`[${plugin.name}] onServerStart async error`, { error });
+          });
+        }
       } catch (error) {
         this.logger.error(`[${plugin.name}] onServerStart error`, { error });
       }

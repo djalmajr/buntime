@@ -13,6 +13,25 @@ import { startCronScheduler } from "@/libs/cron/scheduler";
 
 const isDev = NODE_ENV === "development";
 
+// Process-level safety net. Plugin and background errors are wrapped at their
+// source (registry hooks, pool cleanup timers, the cron scheduler), but as a last
+// resort the runtime must never die silently and take every worker with it:
+// - an unhandled promise rejection is logged and the runtime KEEPS serving (a
+//   stray rejection from a plugin must not stop the workers);
+// - an uncaught exception may leave state corrupted, so we log and exit so the
+//   orchestrator (k8s) restarts the pod cleanly.
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled promise rejection (runtime surviving)", {
+    reason: reason instanceof Error ? (reason.stack ?? reason.message) : String(reason),
+  });
+});
+process.on("uncaughtException", (error) => {
+  logger.error("Uncaught exception - exiting for a clean restart", {
+    error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+  });
+  void Promise.resolve(logger.flush?.()).finally(() => process.exit(1));
+});
+
 /**
  * Build the Bun.serve native routes from the current registry state.
  *

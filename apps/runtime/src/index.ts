@@ -9,7 +9,6 @@
 
 import { app, runtimeConfig as config, logger, pool, registry, websocket } from "@/api";
 import { NODE_ENV, PORT, SHUTDOWN_TIMEOUT_MS } from "@/constants";
-import { startCronScheduler } from "@/libs/cron/scheduler";
 
 const isDev = NODE_ENV === "development";
 
@@ -60,16 +59,6 @@ const server = Bun.serve({
 // Notify plugins that server has started
 registry.runOnServerStart(server);
 
-// Start the runtime cron scheduler: fires each worker's manifest `cron` jobs from
-// this long-lived process (in-worker timers don't survive pooling). See
-// `@/libs/cron/scheduler`.
-const cronScheduler = await startCronScheduler({
-  app,
-  logger,
-  rootKey: config.apiKey,
-  workerDirs: config.workerDirs,
-});
-
 // Hot-reload: when a rescan changes the plugin set, refresh the live server's
 // native routes (server.routes). Hono `routes` and `server.fetch` are already
 // dispatched dynamically by `app.fetch`, so only Bun's native route table
@@ -96,7 +85,6 @@ process.on("SIGINT", async () => {
   }, SHUTDOWN_TIMEOUT_MS);
 
   try {
-    cronScheduler.stop();
     await registry.runOnShutdown();
     pool.shutdown();
     await logger.flush();

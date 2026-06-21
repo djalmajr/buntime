@@ -1,0 +1,27 @@
+{
+  "name": "@buntime/plugin-cron",
+  "version": "1.0.0",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./plugin.ts",
+      "default": "./dist/plugin.js"
+    }
+  },
+  "scripts": {
+    "build": "NODE_ENV=production bun scripts/build.ts",
+    "dev": "bun scripts/build.ts --watch",
+    "lint": "bun run lint:format && bun run lint:types",
+    "lint:format": "bun biome check --write",
+    "lint:types": "bun tsc --noEmit",
+    "test": "bun test",
+    "test:watch": "bun test --watch"
+  },
+  "dependencies": {
+    "@buntime/shared": "workspace:*"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

@@ -82,8 +82,6 @@ export const Headers = {
   API_KEY: "x-api-key",
   /** Base path for asset loading (injected into HTML as <base href>) */
   BASE: "x-base",
-  /** Marks a synthetic request as a runtime cron fire (so workers can detect it) */
-  CRON: "x-buntime-cron",
   /** Marks request as internal (worker-to-runtime), bypasses CSRF Origin check */
   INTERNAL: "x-buntime-internal",
   /** Indicates 404 should be rendered by shell */

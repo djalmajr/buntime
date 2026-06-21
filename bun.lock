@@ -263,6 +263,16 @@
         "zod": "^4.0.0",
       },
     },
+    "plugins/plugin-cron": {
+      "name": "@buntime/plugin-cron",
+      "version": "1.0.0",
+      "dependencies": {
+        "@buntime/shared": "workspace:*",
+      },
+      "peerDependencies": {
+        "typescript": "^5.0.0",
+      },
+    },
     "plugins/plugin-gateway": {
       "name": "@buntime/plugin-gateway",
       "version": "1.0.0",
@@ -548,6 +558,8 @@
     "@buntime/mcp": ["@buntime/mcp@workspace:apps/mcp"],
 
     "@buntime/platform": ["@buntime/platform@workspace:apps/platform"],
+
+    "@buntime/plugin-cron": ["@buntime/plugin-cron@workspace:plugins/plugin-cron"],
 
     "@buntime/plugin-gateway": ["@buntime/plugin-gateway@workspace:plugins/plugin-gateway"],
 

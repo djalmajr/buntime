@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "lib": ["ESNext"],
+    "outDir": "./dist",
+    "skipLibCheck": true
+  },
+  "include": ["plugin.ts"],
+  "exclude": ["node_modules", "dist", "../../apps/runtime/**/*"]
+}

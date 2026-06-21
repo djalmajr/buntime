@@ -1,0 +1,5 @@
+name: "@buntime/plugin-cron"
+base: ""
+enabled: true
+
+pluginEntry: dist/plugin.js

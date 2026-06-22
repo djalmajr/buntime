@@ -1,5 +1,7 @@
 name: "@buntime/plugin-cron"
-base: ""
 enabled: true
 
+# Pure runtime plugin: schedules worker cron via Bun.cron, no HTTP surface.
+# Intentionally NO `base` — an empty base ("") would make resolvePluginApp
+# match every path and shadow all worker routing (see registry.ts).
 pluginEntry: dist/plugin.js

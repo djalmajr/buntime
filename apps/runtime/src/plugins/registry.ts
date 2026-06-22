@@ -261,6 +261,14 @@ export class PluginRegistry {
       const dir = this.pluginDirs.get(plugin.name);
       if (!dir) continue;
 
+      // A plugin with an empty base ("") is a pure hook/service plugin
+      // (cron, vhosts) with no mountable app surface — skip it. Otherwise
+      // `pathname.startsWith(`${""}/`)` becomes `startsWith("/")`, which matches
+      // EVERY request, shadowing all worker resolution and 404-ing every
+      // external app path (the worker is never reached). `base: "/"` is a real
+      // root mount and stays matchable (it only equals/prefixes "/").
+      if (!plugin.base) continue;
+
       // Check if pathname matches this plugin's base path
       if (pathname === plugin.base || pathname.startsWith(`${plugin.base}/`)) {
         return { dir, basePath: plugin.base };

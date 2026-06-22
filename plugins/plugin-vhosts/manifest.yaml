@@ -1,7 +1,10 @@
 name: "@buntime/plugin-vhosts"
-base: ""
 enabled: false
 
+# Pure routing plugin: serves matched hosts via server.fetch and exposes no HTTP
+# routes of its own. Intentionally NO `base` — an empty base ("") would make
+# resolvePluginApp match every path and shadow all worker routing (see
+# registry.ts); omit it entirely.
 pluginEntry: dist/plugin.js
 
 # Virtual host configurations keyed by hostname pattern

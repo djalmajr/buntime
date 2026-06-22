@@ -13,7 +13,6 @@ const baseOpts = {
   clusterIssuer: "selfsigned-issuer",
 };
 
-const INGRESS_PATH = "/apis/networking.k8s.io/v1/namespaces/platform/ingresses/buntime-platform";
 const INGRESS_LIST = "/apis/networking.k8s.io/v1/namespaces/platform/ingresses";
 
 function makeFetch(handlers: Array<(req: Request) => Response | Promise<Response>>) {

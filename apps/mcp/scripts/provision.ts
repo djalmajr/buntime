@@ -22,7 +22,7 @@ import { parseDeploySpec } from "@buntime/shared/utils/deploy-spec";
 import { parse as parseYaml } from "yaml";
 import { RuntimeClient } from "../src/client.ts";
 import { loadConfig } from "../src/config.ts";
-import { resolveArchive } from "../src/pack.ts";
+import { provisionPlugins } from "../src/provision-plugins.ts";
 
 const args = process.argv.slice(2);
 const skipBuild = args.includes("--skip-build");
@@ -51,34 +51,6 @@ async function sh(cmd: string[], cwd: string): Promise<void> {
   if ((await proc.exited) !== 0) {
     throw new Error(`command failed: ${cmd.join(" ")}`);
   }
-}
-
-/** Resolve a plugin source (local path or git+url#subdir) to a built directory. */
-async function resolvePluginSource(source: string, baseDir: string): Promise<string> {
-  let dir: string;
-  if (source.startsWith("git+")) {
-    const [url, subdir] = source.slice(4).split("#");
-    const clone = await mkdtemp(join(tmpdir(), "provision-plugin-"));
-    await sh(["git", "clone", "--depth", "1", url ?? "", clone], tmpdir());
-    dir = subdir ? join(clone, subdir) : clone;
-  } else {
-    dir = resolve(baseDir, source);
-  }
-  if (!(await exists(dir))) {
-    throw new Error(`plugin source not found: ${source} -> ${dir}`);
-  }
-  if (
-    !skipBuild &&
-    (await exists(join(dir, "package.json"))) &&
-    !(await exists(join(dir, "dist")))
-  ) {
-    const pj = JSON.parse(await Bun.file(join(dir, "package.json")).text());
-    if (pj.scripts?.build) {
-      if (!(await exists(join(dir, "node_modules")))) await sh(["bun", "install"], dir);
-      await sh(["bun", "run", "build"], dir);
-    }
-  }
-  return dir;
 }
 
 /** Pack the app dir into a tgz, using the chosen manifest as `package/manifest.yaml`. */
@@ -130,31 +102,9 @@ async function main(): Promise<void> {
   log(`runtime: ${process.env.BUNTIME_URL}`);
   log(`app: ${appDir}`);
 
-  // 1. Plugins: resolve + build + pack + upload, then a single reload.
+  // 1. Plugins: resolve + build + pack + upload, then a single reload + verify.
   if (spec?.plugins.length) {
-    for (const plugin of spec.plugins) {
-      const dir = await resolvePluginSource(plugin.source, appDir);
-      log(`upload plugin ${plugin.name}`);
-      const { archivePath, cleanup } = await resolveArchive(dir);
-      try {
-        await client.uploadPlugin(archivePath);
-      } finally {
-        await cleanup?.();
-      }
-    }
-    log("reload plugins");
-    await client.reloadPlugins();
-    // A plugin can install but fail to LOAD (e.g. a missing runtime env var).
-    // Surface it instead of letting the app silently lose a dependency.
-    const loaded = await client.listLoadedPlugins().catch(() => []);
-    const loadedNames = new Set(loaded.map((p) => p.name));
-    for (const plugin of spec.plugins) {
-      if (!loadedNames.has(plugin.name)) {
-        log(
-          `WARNING: plugin ${plugin.name} uploaded but did NOT load — check runtime env and plugin logs`,
-        );
-      }
-    }
+    await provisionPlugins(client, spec.plugins, appDir, { skipBuild, log });
   }
 
   // 2. Redirects: idempotent upsert keyed by pattern.

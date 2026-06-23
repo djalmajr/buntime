@@ -15,6 +15,7 @@
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "provision": "bun scripts/provision.ts",
+    "provision-prereqs": "bun scripts/provision-prereqs.ts",
     "port-forward": "sh scripts/dev-port-forward.sh",
     "lint": "bun run lint:format && bun run lint:types",
     "lint:format": "bun biome check --write",

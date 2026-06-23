@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { api, setApiState } from "./index";
 import { Kv } from "./lib/kv";
 import { initSchema } from "./lib/schema";
@@ -28,6 +28,26 @@ describe("KeyVal API Routes", () => {
     await adapter.execute("DELETE FROM kv_entries");
     await adapter.execute("DELETE FROM kv_queue");
     await adapter.execute("DELETE FROM kv_indexes");
+  });
+
+  describe("readiness guard (storage unavailable)", () => {
+    const noopLogger = { debug: () => {}, error: () => {}, info: () => {}, warn: () => {} };
+
+    afterEach(() => {
+      // Restore the initialized kv for every subsequent test.
+      setApiState(kv, adapter, noopLogger);
+    });
+
+    it("returns 503 KEYVAL_UNAVAILABLE when the KV store is not initialized", async () => {
+      // Simulate services not wired (e.g. Turso not ready): a data route must
+      // degrade to a clean 503, not a raw TypeError surfacing as a 500.
+      setApiState(undefined as unknown as Kv, adapter, noopLogger);
+
+      const res = await api.request("/api/queue/stats");
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as { code: string };
+      expect(body.code).toBe("KEYVAL_UNAVAILABLE");
+    });
   });
 
   describe("GET /api/keys", () => {

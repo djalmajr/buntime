@@ -1,3 +1,4 @@
+import { AppError, ServiceUnavailableError } from "@buntime/shared/errors";
 import type { PluginContext } from "@buntime/shared/types";
 import { splitList } from "@buntime/shared/utils/string";
 import { Hono } from "hono";
@@ -59,6 +60,15 @@ async function getStorageStats(): Promise<{ entries: number; sizeBytes: number }
  */
 export const api = new Hono()
   .basePath("/api")
+  // Readiness guard: every data route needs the KV store. If services aren't
+  // wired yet (e.g. Turso not ready), throw a 503 (-> onError) instead of
+  // letting a raw `kv is undefined` TypeError surface as a generic 500.
+  .use("*", async (_ctx, next) => {
+    if (!kv) {
+      throw new ServiceUnavailableError("KeyVal storage not initialized", "KEYVAL_UNAVAILABLE");
+    }
+    await next();
+  })
   // Atomic operations endpoint
   .post("/atomic", async (ctx) => {
     const body = await ctx.req.json<{
@@ -765,6 +775,13 @@ export const api = new Hono()
     if (err.constructor.name === "HTTPException" && "status" in err) {
       const status = (err as unknown as { status: number }).status;
       return ctx.json({ error: err.message }, status as 400 | 404 | 500);
+    }
+    // AppError (e.g. ServiceUnavailableError from the readiness guard) carries
+    // its own status + machine-readable code: surface a transient "storage
+    // unavailable" as 503 with a code instead of a blanket 500.
+    if (err instanceof AppError) {
+      logger?.error("KeyVal route error", { code: err.code, error: err.message });
+      return ctx.json({ code: err.code, error: err.message }, err.statusCode);
     }
     logger?.error("KeyVal route error", { error: err.message });
     return ctx.json({ error: "Internal server error" }, 500);

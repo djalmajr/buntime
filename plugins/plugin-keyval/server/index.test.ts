@@ -1,7 +1,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import type { TursoService } from "@buntime/plugin-turso";
 import { api, setApiState } from "./index";
 import { Kv } from "./lib/kv";
 import { initSchema } from "./lib/schema";
+import { TursoKeyValAdapter } from "./lib/sql-adapter";
 import { createTestAdapter } from "./lib/test-helpers";
 
 describe("KeyVal API Routes", () => {
@@ -47,6 +49,27 @@ describe("KeyVal API Routes", () => {
       expect(res.status).toBe(503);
       const body = (await res.json()) as { code: string };
       expect(body.code).toBe("KEYVAL_UNAVAILABLE");
+    });
+
+    it("returns 503 KEYVAL_DB_DOWN when the datastore fails mid-request", async () => {
+      // Inject a Turso service whose connect/transaction fail (DB unavailable),
+      // so the failure originates BELOW kv at the adapter boundary and must be
+      // surfaced as a clean 503, not a generic 500.
+      const failingService = {
+        connect: async () => {
+          throw new Error("ECONNREFUSED: turso unreachable");
+        },
+        transaction: async () => {
+          throw new Error("ECONNREFUSED: turso unreachable");
+        },
+      } as unknown as TursoService;
+      const downAdapter = new TursoKeyValAdapter({ namespace: "keyval", service: failingService });
+      setApiState(new Kv(downAdapter), downAdapter, noopLogger);
+
+      const res = await api.request("/api/queue/stats");
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as { code: string };
+      expect(body.code).toBe("KEYVAL_DB_DOWN");
     });
   });
 

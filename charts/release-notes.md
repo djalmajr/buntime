@@ -1,3 +1,19 @@
+## What's New in 0.5.3
+
+### Plugin/app PVC durability (default accessMode → ReadWriteOnce)
+- **`persistence.plugins.accessMode` and `persistence.apps.accessMode` now default
+  to `ReadWriteOnce`** (were `ReadWriteMany`). `ReadWriteMany` does not bind on
+  common single-node storage classes (k3s `local-path`, EBS): the PVC stayed
+  `Pending`, so uploaded plugins (e.g. external prerequisite plugins) and apps
+  fell back to non-persistent storage and were **wiped on pod restart / image
+  re-pull**. `ReadWriteOnce` binds on every storage class for the default single
+  replica (`replicaCount: 1`).
+  - **Multi-pod (`replicaCount > 1`)**: the pods share these PVCs, so set
+    `persistence.plugins.accessMode` / `persistence.apps.accessMode` back to
+    `ReadWriteMany` AND use an RWM-capable storageClass.
+  - Existing releases that already bound RWM PVCs are unaffected — the default
+    only changes fresh installs.
+
 ## What's New in 0.5.2
 
 ### Runtime data durability (IMPORTANT — see migration)

@@ -133,15 +133,26 @@ podDisruptionBudget:
 
 # Persistent storage (always enabled)
 persistence:
-  # Custom plugins (core plugins are in /data/.plugins from image)
+  # Custom plugins live here (uploaded via the management API at /data/plugins);
+  # core plugins ship in the image at /data/.plugins. This volume MUST persist:
+  # on a non-persistent volume, uploaded plugins (e.g. the @centralit
+  # prerequisites: auth-token, resource-tenant, migrations) are wiped on pod
+  # restart / image re-pull and the apps that depend on them break.
+  #
+  # accessMode defaults to ReadWriteOnce: RWO binds on EVERY storage class (k3s
+  # local-path, EBS, Longhorn, ...) for the default single replica
+  # (replicaCount: 1). Use ReadWriteMany ONLY for replicaCount > 1 (the pods
+  # share this one PVC) AND with an RWM-capable storageClass — otherwise the PVC
+  # stays Pending, the volume falls back to non-persistent, and plugins are lost.
   plugins:
     size: 5Gi
-    accessMode: ReadWriteMany
+    accessMode: ReadWriteOnce
     storageClass: ""  # Use default if empty
-  # User applications
+  # User applications (uploaded workers). Same persistence rationale as plugins:
+  # RWO by default; RWM only for replicaCount > 1 on an RWM-capable storageClass.
   apps:
     size: 10Gi
-    accessMode: ReadWriteMany
+    accessMode: ReadWriteOnce
     storageClass: ""  # Use default if empty
   # Per-pod runtime state (ApiKeyStore Turso DB + future stateful metadata).
   # Provisioned via volumeClaimTemplates on the StatefulSet — each pod gets

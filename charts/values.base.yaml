@@ -118,6 +118,35 @@ resources:
     cpu: "2"
     memory: 1Gi
 
+# Extra environment variables injected into the runtime container.
+#
+# buntime is independent of the apps it runs: app/tenant-specific config
+# (e.g. FRONT_MANAGER_API, consumed by the @centralit/resource-tenant plugin)
+# is NOT a chart field. These generic, app-agnostic hooks let a deploy inject
+# durable runtime env WITHOUT it being lost on the next `helm upgrade` (unlike
+# `kubectl set env`, which Helm overwrites on the next release).
+#
+# extraEnv: literal entries (name/value) or valueFrom references. Rendered as
+# the container's `env:` list.
+#   extraEnv:
+#     - name: FRONT_MANAGER_API
+#       value: "http://front-manager-api.front-manager.svc:8080/api"
+#     - name: SOME_TOKEN
+#       valueFrom:
+#         secretKeyRef:
+#           name: my-app-secret
+#           key: token
+extraEnv: []
+
+# extraEnvFrom: pull whole ConfigMaps/Secrets into the container env. Preferred
+# over inline secret values. Appended to the container's `envFrom:` list.
+#   extraEnvFrom:
+#     - secretRef:
+#         name: my-app-secret
+#     - configMapRef:
+#         name: my-app-config
+extraEnvFrom: []
+
 # Horizontal Pod Autoscaler
 autoscaling:
   enabled: false

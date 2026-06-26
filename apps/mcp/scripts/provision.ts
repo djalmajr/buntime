@@ -10,10 +10,16 @@
  *
  * Usage:
  *   BUNTIME_URL=... BUNTIME_API_KEY=... \
- *     bun scripts/provision.ts --manifest <path/to/manifest.yaml> [--skip-build] [--env KEY=VAL ...]
+ *     bun scripts/provision.ts --manifest <path/to/manifest.yaml> \
+ *       [--skip-build] [--env KEY=VAL ...] [--worker-env <file>]
  *
  * `${VAR}` in redirect targets is interpolated from: the manifest's own `env:`
  * block, then process.env, then any `--env KEY=VAL` overrides.
+ *
+ * `--worker-env <file>` stages the file as the worker's `.env` (merged OVER the
+ * manifest `env:` block by the runtime), so per-environment worker config
+ * (AUTH_CONFIG, etc.) lives in a values file rather than the source manifest —
+ * and without a manual cp/rm of `.env` into the app dir.
  */
 import { cp, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -53,8 +59,17 @@ async function sh(cmd: string[], cwd: string): Promise<void> {
   }
 }
 
-/** Pack the app dir into a tgz, using the chosen manifest as `package/manifest.yaml`. */
-async function packWorker(appDir: string, manifestPath: string): Promise<string> {
+/**
+ * Pack the app dir into a tgz, using the chosen manifest as `package/manifest.yaml`.
+ * When `workerEnvPath` is given, its contents are staged as `package/.env` so the
+ * runtime merges them OVER the manifest `env:` block (config.ts: manifest.env < .env)
+ * — the per-environment worker-env mechanism, without ever touching the source dir.
+ */
+export async function packWorker(
+  appDir: string,
+  manifestPath: string,
+  workerEnvPath?: string,
+): Promise<string> {
   const staging = await mkdtemp(join(tmpdir(), "provision-pkg-"));
   const pkgDir = join(staging, "package");
   await mkdir(pkgDir, { recursive: true });
@@ -63,6 +78,7 @@ async function packWorker(appDir: string, manifestPath: string): Promise<string>
     const src = join(appDir, entry);
     if (await exists(src)) await cp(src, join(pkgDir, entry), { recursive: true });
   }
+  if (workerEnvPath) await cp(workerEnvPath, join(pkgDir, ".env"));
   const out = join(tmpdir(), `provision-worker-${process.pid}-${Date.now()}.tgz`);
   const proc = Bun.spawn(["tar", "-czf", out, "-C", staging, "package"], {
     stdout: "pipe",
@@ -84,6 +100,19 @@ async function main(): Promise<void> {
   }
   const manifestPath = resolve(manifestArg);
   const appDir = dirname(manifestPath);
+
+  // Optional per-environment worker env overlay, staged as `package/.env` (merged
+  // OVER manifest.env by the runtime). Keeps env-specific values (e.g. AUTH_CONFIG)
+  // out of the source manifest without a manual cp/rm of `.env` into the app dir.
+  const workerEnvArg = flag("worker-env");
+  let workerEnvPath: string | undefined;
+  if (workerEnvArg) {
+    workerEnvPath = resolve(workerEnvArg);
+    if (!(await exists(workerEnvPath))) {
+      log(`error: --worker-env file not found: ${workerEnvPath}`);
+      process.exit(1);
+    }
+  }
 
   const manifest = parseYaml(await Bun.file(manifestPath).text()) as Record<string, unknown>;
   const manifestEnv = (manifest.env ?? {}) as Record<string, string>;
@@ -134,7 +163,8 @@ async function main(): Promise<void> {
   if (!skipBuild && pkg.scripts?.build) {
     await sh(["bun", "run", "build"], appDir);
   }
-  const tgz = await packWorker(appDir, manifestPath);
+  if (workerEnvPath) log(`worker env overlay: ${workerEnvPath} -> package/.env`);
+  const tgz = await packWorker(appDir, manifestPath, workerEnvPath);
   log("upload worker");
   const up = (await client.uploadWorker(tgz)) as {
     data?: { worker?: { installedAt?: string; name?: string; version?: string } };
@@ -163,7 +193,11 @@ async function main(): Promise<void> {
   log("done.");
 }
 
-main().catch((err) => {
-  process.stderr.write(`[provision] fatal: ${err instanceof Error ? err.message : String(err)}\n`);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    process.stderr.write(
+      `[provision] fatal: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exit(1);
+  });
+}

@@ -62,6 +62,10 @@ export default function proxyPlugin(config: ProxyConfig = {}): PluginImpl {
 
     websocket: proxyWebSocketHandler as PluginImpl["websocket"],
 
+    // Content routing, not an auth gate: a crash here should let the request
+    // fall through to normal routing, not block all traffic. See PluginImpl.
+    onRequestFailOpen: true,
+
     async onRequest(req) {
       const result = await handleProxyRequest(req);
 

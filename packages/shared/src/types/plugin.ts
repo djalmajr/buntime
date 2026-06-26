@@ -554,6 +554,24 @@ export interface PluginImpl {
   ) => Promise<Request | Response | undefined> | Request | Response | undefined;
 
   /**
+   * How the runtime treats a THROW from this plugin's `onRequest` hook.
+   *
+   * Default (`false`/unset) is **fail-closed**: if `onRequest` throws, the
+   * runtime stops the pipeline and returns a 503 instead of silently
+   * continuing. This is the secure default — an auth/authorization hook that
+   * crashes must NOT let the request through unauthenticated.
+   *
+   * Set to `true` ONLY for non-security hooks (content routing, logging,
+   * rate-limit shaping) where a crash should degrade gracefully and let the
+   * request proceed rather than block all traffic. A fail-open throw is logged
+   * and the prior (last good) request continues to the next plugin.
+   *
+   * Note: returning a `Response` is always honored (short-circuit) regardless
+   * of this flag — it only governs uncaught throws.
+   */
+  onRequestFailOpen?: boolean;
+
+  /**
    * Called after response is generated (before sending to client)
    * Return modified response.
    *

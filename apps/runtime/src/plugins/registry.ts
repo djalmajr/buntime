@@ -303,6 +303,23 @@ export class PluginRegistry {
         }
       } catch (error) {
         this.logger.error(`[${plugin.name}] onRequest error`, { error });
+
+        // Fail-CLOSED by default: a crashing onRequest hook must not let the
+        // request through. An auth/authorization plugin that throws would
+        // otherwise be silently skipped, passing the request unauthenticated
+        // (security bug). Stop the pipeline and return a 503. Plugins that are
+        // explicitly non-security (content routing, logging) opt out via
+        // `onRequestFailOpen: true` to keep the resilient pass-through behavior.
+        if (plugin.onRequestFailOpen) continue;
+
+        return Response.json(
+          {
+            success: false,
+            code: "PLUGIN_ONREQUEST_FAILED",
+            message: "Request blocked: a required request hook failed",
+          },
+          { status: 503 },
+        );
       }
     }
 

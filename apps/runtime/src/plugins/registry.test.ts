@@ -366,6 +366,72 @@ describe("PluginRegistry", () => {
       const req = new Request("http://localhost/test");
       await registry.runOnRequest(req);
     });
+
+    it("fails CLOSED when an onRequest hook throws (default)", async () => {
+      const order: string[] = [];
+
+      const auth = createMockPlugin({
+        name: "auth",
+        base: "/auth",
+        onRequest: async () => {
+          order.push("auth");
+          throw new Error("auth backend unreachable");
+        },
+      });
+      const downstream = createMockPlugin({
+        name: "downstream",
+        base: "/downstream",
+        onRequest: async (req) => {
+          order.push("downstream");
+          return req;
+        },
+      });
+
+      registry.register(auth);
+      registry.register(downstream);
+
+      const req = new Request("http://localhost/protected");
+      const result = await registry.runOnRequest(req);
+
+      // The throwing hook must block the request (503), and no later hook runs.
+      expect(order).toEqual(["auth"]);
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(503);
+      const body = (await (result as Response).json()) as { code: string };
+      expect(body.code).toBe("PLUGIN_ONREQUEST_FAILED");
+    });
+
+    it("fails OPEN when a throwing hook opts out via onRequestFailOpen", async () => {
+      const order: string[] = [];
+
+      const content = createMockPlugin({
+        name: "content",
+        base: "/content",
+        onRequestFailOpen: true,
+        onRequest: async () => {
+          order.push("content");
+          throw new Error("non-critical content hook crashed");
+        },
+      });
+      const downstream = createMockPlugin({
+        name: "downstream",
+        base: "/downstream",
+        onRequest: async (req) => {
+          order.push("downstream");
+          return req;
+        },
+      });
+
+      registry.register(content);
+      registry.register(downstream);
+
+      const req = new Request("http://localhost/page");
+      const result = await registry.runOnRequest(req);
+
+      // The crash is tolerated: the pipeline continues and the request passes.
+      expect(order).toEqual(["content", "downstream"]);
+      expect(result).toBeInstanceOf(Request);
+    });
   });
 
   describe("runOnResponse", () => {

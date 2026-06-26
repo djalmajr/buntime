@@ -507,6 +507,11 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
       await persistence.shutdown();
     },
 
+    // Content routing (shell, CORS, rate-limit, logging), not an auth gate: a
+    // crash here must degrade gracefully and let the request proceed, not block
+    // all traffic with a 503. See PluginImpl.onRequestFailOpen.
+    onRequestFailOpen: true,
+
     async onRequest(req, _app) {
       const url = new URL(req.url);
       const startTime = performance.now();

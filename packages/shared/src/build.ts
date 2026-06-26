@@ -18,18 +18,19 @@
  * }).run();
  * ```
  *
- * ### Conditional Build
+ * ### Disabled plugins still build (watch mode excepted)
  *
- * Plugin builds are conditional based on `manifest.yaml` in the plugin directory.
- * If `enabled: false`, the build is skipped:
+ * A non-watch (production/image) build emits `dist` for EVERY plugin, including
+ * those with `enabled: false` in `manifest.yaml`. This bakes a disabled plugin
+ * into the runtime image present-but-off, so it can be enabled at runtime
+ * (manifest flip + plugin reload) WITHOUT a rebuild. Only watch/dev mode skips a
+ * disabled plugin — there is no point watch-rebuilding an off plugin:
  *
  * ```yaml
  * # plugins/plugin-metrics/manifest.yaml
- * enabled: false  # Build will be skipped
+ * enabled: false  # built anyway in a non-watch build; skipped only with --watch
  * entrypoint: dist/client/index.html
  * ```
- *
- * This allows having plugins in the directory without building them.
  *
  * ## App Builder
  *
@@ -215,8 +216,11 @@ export function createPluginBuilder(config: PluginBuildConfig = {}): PluginBuild
   }
 
   async function run(): Promise<void> {
-    // Check if plugin is enabled
-    if (!isEnabledSync(cwd)) {
+    // Skip disabled plugins ONLY in watch/dev mode (no point watch-rebuilding an
+    // off plugin). A non-watch (production/image) build still emits dist for
+    // disabled plugins so they bake into the image present-but-off and can be
+    // enabled at runtime without a rebuild.
+    if (isWatch && !isEnabledSync(cwd)) {
       console.log(`Skipping ${name} (disabled in manifest.yaml)`);
       return;
     }

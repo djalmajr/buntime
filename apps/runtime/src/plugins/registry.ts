@@ -261,6 +261,14 @@ export class PluginRegistry {
       const dir = this.pluginDirs.get(plugin.name);
       if (!dir) continue;
 
+      // A plugin with an empty base ("") is a pure hook/service plugin
+      // (cron, vhosts) with no mountable app surface — skip it. Otherwise
+      // `pathname.startsWith(`${""}/`)` becomes `startsWith("/")`, which matches
+      // EVERY request, shadowing all worker resolution and 404-ing every
+      // external app path (the worker is never reached). `base: "/"` is a real
+      // root mount and stays matchable (it only equals/prefixes "/").
+      if (!plugin.base) continue;
+
       // Check if pathname matches this plugin's base path
       if (pathname === plugin.base || pathname.startsWith(`${plugin.base}/`)) {
         return { dir, basePath: plugin.base };
@@ -314,8 +322,10 @@ export class PluginRegistry {
       try {
         currentRes = await plugin.onResponse(currentRes, app, req);
       } catch (error) {
+        // Isolate the failure: a broken onResponse hook must not fail the
+        // request. Log and keep the last good response, continuing to the next
+        // plugin (same contract as onRequest).
         this.logger.error(`[${plugin.name}] onResponse error`, { error });
-        throw error;
       }
     }
 
@@ -330,7 +340,14 @@ export class PluginRegistry {
       if (!plugin.onServerStart) continue;
 
       try {
-        plugin.onServerStart(server);
+        // Catch sync throws here; also guard async rejections (onServerStart
+        // may start background work) so they never reach the event loop.
+        const result = plugin.onServerStart(server) as unknown;
+        if (result && typeof (result as Promise<unknown>).then === "function") {
+          (result as Promise<unknown>).catch((error) => {
+            this.logger.error(`[${plugin.name}] onServerStart async error`, { error });
+          });
+        }
       } catch (error) {
         this.logger.error(`[${plugin.name}] onServerStart error`, { error });
       }

@@ -1,5 +1,5 @@
 import type { TursoBindValue, TursoDatabase, TursoService } from "@buntime/plugin-turso";
-import { ValidationError } from "@buntime/shared/errors";
+import { AppError, ServiceUnavailableError, ValidationError } from "@buntime/shared/errors";
 
 export interface KeyValSqlStatement {
   args?: unknown[];
@@ -85,6 +85,20 @@ class TursoKeyValTransactionAdapter implements KeyValTransactionAdapter {
   }
 }
 
+/**
+ * Re-throw a storage-layer failure as a typed error. Validation/known app errors
+ * (e.g. a bad SQL bind -> 400) keep their semantics; any OTHER failure from the
+ * Turso service (connect/query/IO/driver) is treated as a transient storage
+ * outage and surfaced as 503 (KEYVAL_DB_DOWN) instead of a blanket 500. keyval's
+ * SQL is internal and covered by tests, so a runtime query failure overwhelmingly
+ * means the datastore is unavailable, not a SQL bug.
+ */
+function asStorageError(error: unknown): never {
+  if (error instanceof AppError) throw error;
+  const detail = error instanceof Error ? error.message : String(error);
+  throw new ServiceUnavailableError(`KeyVal storage unavailable: ${detail}`, "KEYVAL_DB_DOWN");
+}
+
 export class TursoKeyValAdapter implements KeyValSqlAdapter {
   private readonly namespace: string;
   private readonly onClose: (() => Promise<void> | void) | undefined;
@@ -101,19 +115,23 @@ export class TursoKeyValAdapter implements KeyValSqlAdapter {
       return;
     }
 
-    await this.service.transaction(
-      {
-        namespace: this.namespace,
-        type: containsDdl(statements) ? "exclusive" : "concurrent",
-      },
-      async (db) => {
-        const tx = new TursoKeyValTransactionAdapter(db);
+    try {
+      await this.service.transaction(
+        {
+          namespace: this.namespace,
+          type: containsDdl(statements) ? "exclusive" : "concurrent",
+        },
+        async (db) => {
+          const tx = new TursoKeyValTransactionAdapter(db);
 
-        for (const statement of statements) {
-          await tx.execute(statement.sql, statement.args);
-        }
-      },
-    );
+          for (const statement of statements) {
+            await tx.execute(statement.sql, statement.args);
+          }
+        },
+      );
+    } catch (error) {
+      asStorageError(error);
+    }
   }
 
   async close(): Promise<void> {
@@ -121,20 +139,32 @@ export class TursoKeyValAdapter implements KeyValSqlAdapter {
   }
 
   async execute<T = unknown>(sql: string, args?: unknown[]): Promise<T[]> {
-    const db = await this.service.connect(this.namespace);
-    const adapter = new TursoKeyValTransactionAdapter(db);
-    return adapter.execute<T>(sql, args);
+    try {
+      const db = await this.service.connect(this.namespace);
+      const adapter = new TursoKeyValTransactionAdapter(db);
+      return await adapter.execute<T>(sql, args);
+    } catch (error) {
+      asStorageError(error);
+    }
   }
 
   async executeOne<T = unknown>(sql: string, args?: unknown[]): Promise<T | null> {
-    const db = await this.service.connect(this.namespace);
-    const adapter = new TursoKeyValTransactionAdapter(db);
-    return adapter.executeOne<T>(sql, args);
+    try {
+      const db = await this.service.connect(this.namespace);
+      const adapter = new TursoKeyValTransactionAdapter(db);
+      return await adapter.executeOne<T>(sql, args);
+    } catch (error) {
+      asStorageError(error);
+    }
   }
 
   async transaction<T>(fn: (tx: KeyValTransactionAdapter) => Promise<T>): Promise<T> {
-    return this.service.transaction({ namespace: this.namespace }, async (db) => {
-      return fn(new TursoKeyValTransactionAdapter(db));
-    });
+    try {
+      return await this.service.transaction({ namespace: this.namespace }, async (db) => {
+        return fn(new TursoKeyValTransactionAdapter(db));
+      });
+    } catch (error) {
+      asStorageError(error);
+    }
   }
 }

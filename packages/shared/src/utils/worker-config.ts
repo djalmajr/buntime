@@ -16,6 +16,30 @@ import { parseSizeToBytes, type Size } from "./size";
 export type AppVisibility = "internal" | "protected" | "public";
 
 /**
+ * A scheduled job for a worker. The runtime (a long-lived process) fires the
+ * schedule and sends an internal request to the worker's `endpoint`; the worker
+ * itself does NOT run timers (pooled workers are retired on idle). Each fire is a
+ * bounded request that also keeps the worker warm.
+ */
+export interface CronJob {
+  /**
+   * Bun.cron schedule expression, interpreted in UTC.
+   * @example "*\/30 * * * * *" (every 30s) or "0 9 * * *" (daily 09:00 UTC)
+   */
+  schedule: string;
+  /**
+   * Worker-relative path invoked on each fire.
+   * @example "/api/internal/tick"
+   */
+  endpoint: string;
+  /**
+   * HTTP method for the invocation.
+   * @default "POST"
+   */
+  method?: string;
+}
+
+/**
  * Worker config defaults
  */
 export const WorkerConfigDefaults = {
@@ -46,6 +70,13 @@ export const WorkerConfigDefaults = {
  */
 export interface WorkerManifest {
   autoInstall?: boolean;
+
+  /**
+   * Scheduled jobs fired by the runtime (not by in-worker timers). Each entry
+   * triggers an internal request to the worker on its schedule.
+   * @example [{ schedule: "*\/30 * * * * *", endpoint: "/api/internal/tick" }]
+   */
+  cron?: CronJob[];
 
   /**
    * When false, the runtime refuses to resolve/serve this worker version —
@@ -144,6 +175,7 @@ export interface WorkerManifest {
  */
 export interface WorkerConfig {
   autoInstall: boolean;
+  cron?: CronJob[];
   enabled: boolean;
   entrypoint?: string;
   env?: Record<string, string>;
@@ -177,6 +209,7 @@ export interface WorkerConfig {
 export function parseWorkerConfig(manifest: WorkerManifest | null | undefined): WorkerConfig {
   return {
     autoInstall: manifest?.autoInstall ?? WorkerConfigDefaults.autoInstall,
+    cron: manifest?.cron,
     enabled: manifest?.enabled ?? WorkerConfigDefaults.enabled,
     entrypoint: manifest?.entrypoint,
     env: manifest?.env,

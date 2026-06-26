@@ -42,6 +42,36 @@ describe("PluginRegistry", () => {
     });
   });
 
+  describe("runOnResponse", () => {
+    it("isolates a throwing onResponse hook and still returns a response", async () => {
+      const app = { basePath: "/app", name: "app" } as unknown as AppInfo;
+      registry.register(
+        createMockPlugin({
+          name: "boom",
+          onResponse: () => {
+            throw new Error("boom");
+          },
+        }),
+      );
+      registry.register(
+        createMockPlugin({
+          base: "/tagger",
+          name: "tagger",
+          onResponse: (res) => {
+            const headers = new Headers(res.headers);
+            headers.set("x-tagged", "1");
+            return new Response(res.body, { headers, status: res.status });
+          },
+        }),
+      );
+
+      const res = await registry.runOnResponse(new Response("ok", { status: 200 }), app);
+      // The throwing hook is swallowed; the chain continues to the next plugin.
+      expect(res.status).toBe(200);
+      expect(res.headers.get("x-tagged")).toBe("1");
+    });
+  });
+
   describe("register", () => {
     it("should register a plugin", () => {
       const plugin = createMockPlugin();
@@ -224,6 +254,29 @@ describe("PluginRegistry", () => {
     it("should return undefined for plugin without directory", () => {
       registry.register(createMockPlugin({ base: "/no-dir" }));
       expect(registry.resolvePluginApp("/no-dir")).toBeUndefined();
+    });
+
+    it("must NOT match an empty-base plugin for arbitrary worker paths", () => {
+      // Regression: a pure plugin (e.g. cron) registered with a dir but an empty
+      // base ("") used to match every pathname (`startsWith("/")`), shadowing all
+      // worker resolution and 404-ing every external app request.
+      registry.register(createMockPlugin({ name: "cron", base: "" }), "/path/to/cron");
+
+      expect(registry.resolvePluginApp("/@hyper/translate/api/health")).toBeUndefined();
+      expect(registry.resolvePluginApp("/hello-mcp")).toBeUndefined();
+      expect(registry.resolvePluginApp("/")).toBeUndefined();
+    });
+
+    it("still resolves a real-base plugin past an empty-base plugin (order-independent)", () => {
+      // The empty-base plugin must be skipped, not short-circuit the loop, so a
+      // later real-base plugin still resolves.
+      registry.register(createMockPlugin({ name: "cron", base: "" }), "/path/to/cron");
+      registry.register(createMockPlugin({ name: "keyval", base: "/keyval" }), "/path/to/keyval");
+
+      expect(registry.resolvePluginApp("/keyval/api/stats")).toEqual({
+        dir: "/path/to/keyval",
+        basePath: "/keyval",
+      });
     });
   });
 

@@ -1,4 +1,5 @@
 import { AppError } from "@buntime/shared/errors";
+import { getChildLogger } from "@buntime/shared/logger";
 import type { WorkerConfig } from "@buntime/shared/utils/worker-config";
 import QuickLRU from "quick-lru";
 import { WorkerState } from "@/constants";
@@ -17,6 +18,8 @@ export interface PoolConfig {
 
 const DEFAULT_EPHEMERAL_CONCURRENCY = 2;
 const DEFAULT_EPHEMERAL_QUEUE_LIMIT = 100;
+
+const logger = getChildLogger("WorkerPool");
 
 class AsyncGate {
   private active = 0;
@@ -372,7 +375,13 @@ export class WorkerPool {
   private scheduleCleanup(key: string, instance: WorkerInstance, config: WorkerConfig) {
     this.cleanupTimer(key);
     const timer = setInterval(() => {
-      if (!instance.isHealthy()) this.retire(key);
+      // Never let a cleanup tick throw into the event loop — that would crash
+      // the whole runtime (and every worker with it).
+      try {
+        if (!instance.isHealthy()) this.retire(key);
+      } catch (error) {
+        logger.error("Worker cleanup tick failed", { error, key });
+      }
     }, Math.min(config.idleTimeoutMs, config.ttlMs) / 2);
     this.cleanupTimers.set(key, timer);
   }

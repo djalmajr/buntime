@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
-import { AppError, errorToResponse, NotFoundError, ValidationError } from "./errors";
+import {
+  AppError,
+  errorToResponse,
+  NotFoundError,
+  ServiceUnavailableError,
+  ValidationError,
+} from "./errors";
 import * as loggerModule from "./logger";
 
 interface ErrorResponse {
@@ -145,6 +151,35 @@ describe("errors", () => {
       expect(error.code).toBe(code);
       expect(error.statusCode).toBe(400);
       expect(error.data).toEqual(data);
+    });
+  });
+
+  describe("ServiceUnavailableError", () => {
+    it("should create error with default code and 503 status", () => {
+      const error = new ServiceUnavailableError("Storage is down");
+      expect(error.message).toBe("Storage is down");
+      expect(error.code).toBe("SERVICE_UNAVAILABLE");
+      expect(error.statusCode).toBe(503);
+      expect(error.name).toBe("ServiceUnavailableError");
+      expect(error).toBeInstanceOf(AppError);
+      expect(error).toBeInstanceOf(Error);
+    });
+
+    it("should create error with custom code", () => {
+      const error = new ServiceUnavailableError("KeyVal not ready", "KEYVAL_UNAVAILABLE");
+      expect(error.code).toBe("KEYVAL_UNAVAILABLE");
+      expect(error.statusCode).toBe(503);
+    });
+
+    it("errorToResponse maps it to a 503 JSON body with code", async () => {
+      const response = errorToResponse(new ServiceUnavailableError("down", "KEYVAL_UNAVAILABLE"));
+      const body = (await response.json()) as ErrorResponse;
+      expect(response.status).toBe(503);
+      expect(body).toEqual({
+        code: "KEYVAL_UNAVAILABLE",
+        message: "down",
+        success: false,
+      });
     });
   });
 

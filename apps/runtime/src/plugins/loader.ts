@@ -414,10 +414,23 @@ export class PluginLoader {
       throw new Error(`Plugin "${name}" manifest is missing required field: name`);
     }
 
-    // Validate base path format if provided (security: prevent route interception)
-    // base is optional - plugins with only hooks (onRequest, onInit) don't need it
-    if (manifest.base) {
+    // Validate base path when authored (security: prevent route interception).
+    // Gate on KEY PRESENCE, not truthiness: an empty string `base: ""` is falsy
+    // and used to slip past `if (manifest.base)`, loading with base "" which then
+    // matched every path in resolvePluginApp and shadowed all workers. Omitting
+    // `base` entirely (undefined) stays allowed for pure hook plugins; `/` stays
+    // a valid root mount.
+    if ("base" in manifest && manifest.base !== undefined) {
       const BASE_PATH_PATTERN = /^\/[a-zA-Z0-9_-]+$/;
+
+      // Fail-fast: an authored-but-empty/whitespace base is invalid.
+      if (manifest.base.trim() === "") {
+        throw new Error(
+          `Plugin "${name}" has an empty base path. Omit "base" entirely for ` +
+            `hook/service plugins, or set a valid single-segment path (e.g., "/metrics").`,
+        );
+      }
+
       if (manifest.base !== "/" && !BASE_PATH_PATTERN.test(manifest.base)) {
         throw new Error(
           `Plugin "${name}" has invalid base path "${manifest.base}". ` +

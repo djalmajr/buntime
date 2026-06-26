@@ -22,6 +22,7 @@ import {
 import { parseWindow, RateLimiter } from "./server/rate-limit";
 import { RequestLogger } from "./server/request-log";
 import { parseBasenames, shouldBypassShell } from "./server/shell-bypass";
+import { matchShellRouteDir, normalizeRouteHost, type ShellRoute } from "./server/shell-routes";
 import type { GatewayConfig } from "./server/types";
 
 // Type for the pool interface we need
@@ -70,6 +71,12 @@ let shellTursoExcludes: Set<string> = new Set();
 // Shell dir seed (ConfigMap/env/manifest) and whether a runtime DB override is active.
 let shellSeedDir: string | undefined;
 let shellDirOverride = false;
+// Per-host (tenant) shell routes, loaded from Turso at init and editable at
+// runtime. A matching route overrides the global shell for that host.
+let shellRoutes: ShellRoute[] = [];
+// Cache of resolved shells keyed by dir, to avoid re-parsing manifests per
+// request. Cleared whenever a shell route or the global shell changes.
+const resolvedShellCache = new Map<string, ResolvedShell>();
 
 const SHELL_DIR_SETTING = "shell_dir";
 
@@ -83,6 +90,35 @@ async function resolveShell(dir: string): Promise<ResolvedShell> {
   }
   const manifestConfig = await loadManifestConfig(dir);
   return { dir, config: parseWorkerConfig(manifestConfig) };
+}
+
+/**
+ * Resolve the shell to serve for a request host: a matching per-host route wins,
+ * otherwise the global shell. Results are cached by dir. Returns null when no
+ * shell applies.
+ */
+async function resolveShellForHost(host: string): Promise<ResolvedShell | null> {
+  const routeDir = matchShellRouteDir(host, shellRoutes);
+  const dir = routeDir ?? shell?.dir;
+  if (!dir) return null;
+
+  const cached = resolvedShellCache.get(dir);
+  if (cached) return cached;
+
+  // The global shell is already resolved — reuse it without re-parsing.
+  if (!routeDir && shell) {
+    resolvedShellCache.set(shell.dir, shell);
+    return shell;
+  }
+
+  try {
+    const resolved = await resolveShell(dir);
+    resolvedShellCache.set(dir, resolved);
+    return resolved;
+  } catch (err) {
+    logger?.error(`Failed to resolve shell for host ${host} (${dir})`, { error: err });
+    return null;
+  }
 }
 
 // Runtime API path (from context)
@@ -272,6 +308,7 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
       // Validates the directory (throws if missing/invalid) before swapping.
       const next = await resolveShell(dir);
       shell = next;
+      resolvedShellCache.clear();
       shellDirOverride = true;
       await persistence.setSetting(SHELL_DIR_SETTING, dir);
       logger?.info(`Shell dir override set: ${dir}`);
@@ -288,6 +325,7 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
       } else {
         shell = null;
       }
+      resolvedShellCache.clear();
       logger?.info("Shell dir override cleared, reverted to ConfigMap/env seed");
     },
     getCorsRules: () => corsRules,
@@ -306,6 +344,38 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
       if (removed) {
         corsRules = corsRules.filter((r) => r.id !== id);
         logger?.info(`CORS rule deleted: ${id}`);
+      }
+      return removed;
+    },
+    getShellRoutes: () => shellRoutes.map((r) => ({ ...r })),
+    saveShellRoute: async (host: string, dir: string) => {
+      if (!pool) {
+        throw new Error("Worker pool is not available; cannot configure the shell");
+      }
+      const normalized = normalizeRouteHost(host);
+      if (!normalized) {
+        throw new Error(`Invalid host: ${host}`);
+      }
+      // Validate the dir (throws if missing/invalid) before persisting.
+      await resolveShell(dir);
+      await persistence.saveShellRoute(normalized, dir);
+      const entry: ShellRoute = { host: normalized, dir, createdAt: Date.now() };
+      const idx = shellRoutes.findIndex((r) => r.host === normalized);
+      if (idx >= 0) {
+        shellRoutes[idx] = entry;
+      } else {
+        shellRoutes.push(entry);
+      }
+      resolvedShellCache.clear();
+      logger?.info(`Shell route set: ${normalized} -> ${dir}`);
+    },
+    deleteShellRoute: async (host: string) => {
+      const normalized = normalizeRouteHost(host) ?? host.trim().toLowerCase();
+      const removed = await persistence.deleteShellRoute(normalized);
+      if (removed) {
+        shellRoutes = shellRoutes.filter((r) => r.host !== normalized);
+        resolvedShellCache.clear();
+        logger?.info(`Shell route deleted: ${normalized}`);
       }
       return removed;
     },
@@ -411,6 +481,12 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
             logger.info(`Loaded ${corsRules.length} CORS rule(s) from Turso`);
           }
 
+          // Load persisted per-host shell routes
+          shellRoutes = await persistence.getShellRoutes();
+          if (shellRoutes.length > 0) {
+            logger.info(`Loaded ${shellRoutes.length} shell route(s) from Turso`);
+          }
+
           // Start metrics snapshot collection
           if (rateLimiter) {
             persistence.startSnapshotCollection(createMetricsSnapshot);
@@ -436,8 +512,8 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
       const startTime = performance.now();
       const ip = getClientIp(req);
 
-      // 0. Micro-frontend shell
-      if (shell && pool) {
+      // 0. Micro-frontend shell (per-host route, falling back to the global shell)
+      if (pool && (shell || shellRoutes.length > 0)) {
         const secFetchDest = req.headers.get(HttpHeaders.SEC_FETCH_DEST);
         const cookieHeader = req.headers.get("cookie");
 
@@ -456,16 +532,22 @@ export default function gatewayPlugin(pluginConfig: GatewayConfig = {}): PluginI
         );
 
         if (!isApiRoute && !shouldBypass && (isDocument || (isRootPath && !isFrameEmbedding))) {
-          logger.debug(`Shell serving: ${url.pathname} (dest: ${secFetchDest || "none"})`);
+          // Resolve the shell per host: a tenant route wins over the global shell.
+          const resolved = await resolveShellForHost(url.host);
+          if (resolved) {
+            logger.debug(
+              `Shell serving: ${url.pathname} (host: ${url.host}, dir: ${resolved.dir})`,
+            );
 
-          const reqWithBase = new Request(req.url, {
-            method: req.method,
-            headers: new Headers(req.headers),
-            body: req.body,
-          });
-          reqWithBase.headers.set(HttpHeaders.BASE, "/");
+            const reqWithBase = new Request(req.url, {
+              method: req.method,
+              headers: new Headers(req.headers),
+              body: req.body,
+            });
+            reqWithBase.headers.set(HttpHeaders.BASE, "/");
 
-          return pool.fetch(shell.dir, shell.config, reqWithBase);
+            return pool.fetch(resolved.dir, resolved.config, reqWithBase);
+          }
         }
 
         if (shouldBypass && isDocument) {

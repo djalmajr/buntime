@@ -101,6 +101,35 @@ describe("PluginLoader", () => {
       expect(registry.has("reserved-api")).toBe(false);
     });
 
+    it("should fail-fast (throw) on an empty base path", async () => {
+      // Regression: `base: ""` is falsy, so it used to slip past `if (manifest.base)`,
+      // load with base "", and match every path in resolvePluginApp (shadowing all
+      // workers). The loader must now reject it with a clear error.
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "empty-base");
+      mkdirSync(pluginDir, { recursive: true });
+      writeManifest(pluginDir, { name: "empty-base", base: "" });
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
+
+      const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
+      // Batch load swallows the throw and skips the bad plugin...
+      const registry = await loader.load();
+      expect(registry.has("empty-base")).toBe(false);
+      // ...but a direct load fails fast with a clear message.
+      await expect(loader.loadPlugin("empty-base")).rejects.toThrow(/empty base path/i);
+    });
+
+    it("should load plugin with root mount base '/'", async () => {
+      const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "root-mount");
+      mkdirSync(pluginDir, { recursive: true });
+      writeManifest(pluginDir, { name: "root-mount", base: "/" });
+      writeFileSync(join(pluginDir, "plugin.ts"), `export default {};`);
+
+      const loader = new PluginLoader({ pluginDirs: [join(PLUGINS_TEST_DIR, "plugins")] });
+      const registry = await loader.load();
+      expect(registry.has("root-mount")).toBe(true);
+      expect(registry.get("root-mount")?.base).toBe("/");
+    });
+
     it("should throw for already loaded plugin", async () => {
       const pluginDir = join(PLUGINS_TEST_DIR, "plugins", "duplicate");
       mkdirSync(pluginDir, { recursive: true });

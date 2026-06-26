@@ -39,6 +39,7 @@ charts/questions.yml
 !.claude/commands/
 !.claude/hooks/
 !.claude/rules/
+!.claude/skills/
 !.claude/settings.json
 .claude/hooks/**/.bypass
 .claude/hooks/**/store.db
@@ -57,3 +58,6 @@ opencode.json
 
 # Local REST scratch file (may contain captured tokens)
 request.http
+
+# MCP server config (operator-local routing; references a local API key) — never commit
+.mcp.json

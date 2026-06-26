@@ -50,6 +50,19 @@ export class ForbiddenError extends AppError {
 }
 
 /**
+ * 503 — a backing service the request depends on is unavailable (e.g. the
+ * datastore is down or the plugin is not yet initialized). Distinct from a 500:
+ * the request was well-formed and the failure is transient infrastructure, so
+ * the caller may retry. Use this instead of letting a driver error surface as a
+ * generic 500.
+ */
+export class ServiceUnavailableError extends AppError {
+  constructor(message: string, code: string = "SERVICE_UNAVAILABLE") {
+    super(message, code, 503);
+  }
+}
+
+/**
  * Convert an error to an HTTP response
  * In production, internal error details are hidden to prevent information leakage
  */

@@ -14,6 +14,7 @@
     "./types/virtual-modules": "./src/types/virtual-modules.d.ts",
     "./utils/buntime-config": "./src/utils/buntime-config.ts",
     "./utils/config-validation": "./src/utils/config-validation.ts",
+    "./utils/deploy-spec": "./src/utils/deploy-spec.ts",
     "./utils/duration": "./src/utils/duration.ts",
     "./utils/size": "./src/utils/size.ts",
     "./utils/static-handler": "./src/utils/static-handler.ts",

@@ -34,12 +34,25 @@ Key values to configure:
 | `resources.limits.cpu` | CPU limit per pod | `2` |
 | `autoscaling.enabled` | Enable HPA | `false` |
 | `podDisruptionBudget.enabled` | Enable PDB | `false` |
+| `extraEnv` | Extra env vars (`name`/`value` or `valueFrom`) injected into the runtime container | `[]` |
+| `extraEnvFrom` | Extra `envFrom` sources (`configMapRef`/`secretRef`) for the runtime container | `[]` |
 | `plugins.turso.mode` | Turso provider mode | `local` |
 | `plugins.turso.localPath` | Local Turso database path | `/data/turso/runtime.db` |
 | `plugins.turso.sync.url` | Turso sync endpoint URL | `""` |
 | `plugins.gateway.cors.origin` | CORS allowed origins | `*` |
 | `plugins.gateway.shellDir` | Micro-frontend shell path | `""` |
 | `ingress.host` | Ingress hostname | `""` (disabled) |
+
+> **Durable app env (`extraEnv` / `extraEnvFrom`).** buntime is independent of
+> the apps it runs, so app/tenant-specific config is not a chart field. Use
+> these generic hooks to inject runtime env that survives `helm upgrade`
+> (unlike `kubectl set env`, which Helm overwrites). Example:
+>
+> ```bash
+> helm upgrade --install buntime ./charts \
+>   --set-json 'extraEnv=[{"name":"FRONT_MANAGER_API","value":"http://front-manager-api.front-manager.svc:8080/api"}]' \
+>   --set-json 'extraEnvFrom=[{"secretRef":{"name":"app-secrets"}}]'
+> ```
 
 ## Volumes
 

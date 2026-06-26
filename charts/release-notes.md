@@ -1,3 +1,15 @@
+## What's New in 0.5.4
+
+### Generic durable app env (`extraEnv` / `extraEnvFrom`)
+- **New chart values `extraEnv` and `extraEnvFrom`** inject app-agnostic
+  environment into the runtime container. buntime is independent of the apps it
+  runs, so app/tenant-specific config (e.g. `FRONT_MANAGER_API`, read by the
+  `@centralit/resource-tenant` plugin) is not a chart field — these generic hooks
+  let a deploy set durable runtime env that survives `helm upgrade` (unlike
+  `kubectl set env`, which Helm overwrites on the next release). `extraEnv` takes
+  literal `name`/`value` or `valueFrom` entries; `extraEnvFrom` takes
+  `configMapRef`/`secretRef` sources. Both default to empty (no-op).
+
 ## What's New in 0.5.3
 
 ### Plugin/app PVC durability (default accessMode → ReadWriteOnce)
